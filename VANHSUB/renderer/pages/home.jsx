@@ -7,11 +7,18 @@ export default function HomePage() {
   const [message, setMessage] = React.useState('No message found')
 
   React.useEffect(() => {
-    window.ipc.on('message', (message) => {
-      setMessage(message)
-    })
-  }, [])
+  if (!window.ipc) return
 
+  const unsub = window.ipc.on('message', (message) => {
+    setMessage(message)
+  })
+
+  return () => {
+    if (unsub) unsub()
+  }
+}, [])
+
+  
   return (
     <React.Fragment>
       <Head>
@@ -31,8 +38,10 @@ export default function HomePage() {
       <div>
         <button
           onClick={() => {
-            window.ipc.send('message', 'Hello')
-          }}
+            if (window.ipc) {
+              window.ipc.send('message', 'Hello')
+            }
+          }}  
         >
           Test IPC
         </button>
