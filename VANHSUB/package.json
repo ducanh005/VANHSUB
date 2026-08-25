@@ -1,0 +1,30 @@
+{
+  "private": true,
+  "name": "vanhsub",
+  "description": "Ứng dụng phụ đề và lồng tiếng tiếng Việt trên desktop",
+  "version": "1.0.0",
+  "author": "VANHSUB",
+  "type": "module",
+  "main": "app/main.js",
+  "scripts": {
+    "dev": "nextron",
+    "build": "nextron build",
+    "postinstall": "electron-builder install-app-deps"
+  },
+  "dependencies": {
+    "electron-serve": "^3.0.0",
+    "electron-store": "^11.0.2"
+  },
+  "devDependencies": {
+    "electron": "^43.3.0",
+    "electron-builder": "^26.15.3",
+    "next": "^16.3.0",
+    "nextron": "^10.3.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "typescript": "^5.8.3",
+    "@types/node": "^22.13.10",
+    "@types/react": "^19.0.10",
+    "@types/react-dom": "^19.0.4"
+  }
+}

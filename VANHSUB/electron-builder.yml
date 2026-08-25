@@ -1,0 +1,12 @@
+appId: com.vanhsub.app
+productName: VANHSUB
+copyright: Copyright © 2026 VANHSUB
+directories:
+    output: dist
+    buildResources: resources
+files:
+    - from: .
+      filter:
+          - package.json
+          - app
+publish: null
