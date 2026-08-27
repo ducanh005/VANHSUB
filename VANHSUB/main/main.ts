@@ -1,8 +1,10 @@
+import fs from 'fs'
 import path from 'path'
 import { app, ipcMain, dialog, shell, BrowserWindow } from 'electron'
 import serve from 'electron-serve'
 import { createWindow } from './helpers/create-window'
 import { TaskStore, type CreateTaskInput, type Task } from './store/taskStore'
+import { TaskRunner } from './asr/taskRunner'
 
 const isProd = process.env.NODE_ENV === 'production'
 
@@ -75,6 +77,22 @@ ipcMain.handle('tasks:delete', async (_event, id: string) => {
   broadcastTasksUpdate()
   return result
 })
+
+ipcMain.handle('tasks:start', async (_event, id: string) => {
+  // Khởi động chạy tiến trình xử lý bất đồng bộ
+  TaskRunner.runTask(id, () => {
+    broadcastTasksUpdate()
+  })
+  return true
+})
+
+ipcMain.handle('tasks:readSrt', async (_event, srtPath: string) => {
+  if (!fs.existsSync(srtPath)) {
+    throw new Error(`File SRT không tồn tại: ${srtPath}`)
+  }
+  return fs.readFileSync(srtPath, 'utf-8')
+})
+
 
 // =========================================================================
 // NATIVE DIALOG & SHELL IPC HANDLERS

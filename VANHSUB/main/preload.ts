@@ -7,6 +7,8 @@ const vanhsub = {
     create: (input: any) => ipcRenderer.invoke('tasks:create', input),
     update: (id: string, updates: any) => ipcRenderer.invoke('tasks:update', id, updates),
     delete: (id: string) => ipcRenderer.invoke('tasks:delete', id),
+    start: (id: string) => ipcRenderer.invoke('tasks:start', id),
+    readSrt: (srtPath: string) => ipcRenderer.invoke('tasks:readSrt', srtPath),
     onUpdate: (callback: (tasks: any[]) => void) => {
       const subscription = (_event: Electron.IpcRendererEvent, tasks: any[]) => callback(tasks)
       ipcRenderer.on('tasks:updated', subscription)

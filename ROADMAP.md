@@ -78,10 +78,11 @@ Command Palette (Ctrl+K), phím tắt, onboarding, FAQ.
 ### 1.3 ASR cơ bản
 
 - [x] Tích hợp `nodejs-whisper`
-- [ ] Tải & quản lý model (base/small trước, thêm PhoWhisper sau khi convert ggml xong)
+- [x] Tải & quản lý model (base/small — auto-download khi chạy lần đầu)
 - [x] Convert kết quả ASR → file `.srt`
-- [ ] UI chọn model + thanh tiến trình transcribe
-- **Commit:** `feat(asr): tich hop whisper qua nodejs-whisper`
+- [x] Kích hoạt ASR từ giao diện: nút "Bắt đầu phiên âm" → TaskRunner → ffmpeg extract WAV → Whisper → .srt
+- [ ] UI chọn model + thanh tiến trình transcribe (nâng cao — sẽ làm ở màn hình Settings)
+- **Commit:** `feat(asr): ket noi task manager voi whisper ASR qua TaskRunner`
 
 ### 1.4 Editor hiệu đính phụ đề
 
@@ -191,3 +192,4 @@ Command Palette (Ctrl+K), phím tắt, onboarding, FAQ.
 
 - 2026-08-27: Cập nhật roadmap chi tiết theo 5 nhóm ưu tiên, đã có mockup trang chủ.
 - 2026-08-27: Hoàn thành Bước 1 — Thiết lập Data Model Task, hệ thống lưu trữ electron-store, IPC bridge và kết nối tương tác kéo thả / chọn file thật trên trang chủ.
+- 2026-08-27: Hoàn thành Bước 2 — Kết nối ASR thật: `audioExtractor.ts` (ffmpeg → WAV 16kHz), `taskRunner.ts` (pipeline tự động), nút "Bắt đầu phiên âm" trên giao diện kích hoạt Whisper và cập nhật tiến trình realtime.

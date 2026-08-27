@@ -1,4 +1,4 @@
-﻿import type { Task, CreateTaskInput } from './task';
+import type { Task, CreateTaskInput } from './task';
 
 export interface VanhsubAPI {
   tasks: {
