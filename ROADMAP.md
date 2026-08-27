@@ -5,6 +5,7 @@
 > upload file này để AI nắm ngữ cảnh ngay, không cần giải thích lại từ đầu.
 
 ## Bối cảnh dự án
+
 - Mục tiêu: app desktop (Windows) chuyển giọng nói → phụ đề → dịch → lồng tiếng,
   tối ưu cho tiếng Việt, dùng làm đồ án/đề án tốt nghiệp.
 - Xây từ đầu (không fork), có tham khảo luồng nghiệp vụ từ project mã nguồn mở
@@ -13,6 +14,7 @@
 - Stack: Electron + Next.js (nextron) + TypeScript + Tailwind + shadcn/ui (Radix).
 
 ## Quyết định kỹ thuật đã chốt
+
 - [x] Dịch thuật: chỉ dùng **Gemini API** (qua SDK `openai`, endpoint tương thích OpenAI)
 - [x] ASR: **whisper.cpp** qua package `nodejs-whisper`, ưu tiên model **PhoWhisper** (VinAI) cho tiếng Việt
 - [x] TTS: tích hợp **VietTTS** (endpoint tương thích OpenAI)
@@ -57,13 +59,15 @@ Command Palette (Ctrl+K), phím tắt, onboarding, FAQ.
 ## NHÓM 1 — LÕI (ưu tiên cao nhất, làm trước)
 
 ### 1.1 Khởi tạo project
-- [ ] `npx create-nextron-app` + cấu hình TypeScript
-- [ ] Dọn package.json theo bản đã chuẩn hoá (bỏ `type: module`, sửa `main`)
-- [ ] Setup git repo riêng (không fork), commit đầu tiên
-- [ ] Đưa `ROADMAP.md` này vào gốc repo, commit luôn
+
+- [x] `npx create-nextron-app` + cấu hình TypeScript
+- [x] Dọn package.json theo bản đã chuẩn hoá (bỏ `type: module`, sửa `main`)
+- [x] Setup git repo riêng (không fork), commit đầu tiên
+- [x] Đưa `ROADMAP.md` này vào gốc repo, commit luôn
 - **Commit:** `chore: khoi tao project voi nextron`
 
 ### 1.2 UI khung + quản lý task
+
 - [ ] Áp dụng mockup trang chủ đã thiết kế (theme mực đậm/đỏ sơn mài/vàng đồng, filmstrip card)
 - [ ] Data model `Task` riêng (types/task.ts) — tự thiết kế field, không copy struct SmartSub
 - [ ] Store lưu task (electron-store)
@@ -72,6 +76,7 @@ Command Palette (Ctrl+K), phím tắt, onboarding, FAQ.
 - **Commit:** `feat: xay dung UI trang chu va quan ly task`
 
 ### 1.3 ASR cơ bản
+
 - [ ] Tích hợp `nodejs-whisper`
 - [ ] Tải & quản lý model (base/small trước, thêm PhoWhisper sau khi convert ggml xong)
 - [ ] Convert kết quả ASR → file `.srt`
@@ -79,10 +84,12 @@ Command Palette (Ctrl+K), phím tắt, onboarding, FAQ.
 - **Commit:** `feat(asr): tich hop whisper qua nodejs-whisper`
 
 ### 1.4 Editor hiệu đính phụ đề
+
 - [ ] Parser/serializer file `.srt` tự viết
 - [ ] Timeline chỉnh thời gian từng dòng
 - [ ] Preview video đồng bộ phụ đề (dùng `react-player`)
 - [ ] Sửa text trực tiếp trên từng dòng
+- [ ] thêm mục "Sửa câu bằng AI" — gọi Gemini để đánh bóng/sửa lỗi ngữ pháp câu đã dịch, riêng biệt với sửa tay
 - **Commit:** `feat: them man hinh hieu dinh phu de voi timeline`
 
 > ✅ Mốc kiểm tra: sau Nhóm 1, app phải chạy được luồng **video → transcribe → xem/sửa phụ đề**,
@@ -93,6 +100,7 @@ Command Palette (Ctrl+K), phím tắt, onboarding, FAQ.
 ## NHÓM 2 — HOÀN CHỈNH (biến thành sản phẩm dùng được)
 
 ### 2.1 Dịch thuật (Gemini)
+
 - [ ] Gọi Gemini API qua SDK `openai` (baseURL trỏ Gemini endpoint)
 - [ ] Prompt template dịch phụ đề (tự thiết kế, giữ context giữa các câu)
 - [ ] UI nhập/lưu API key (mã hoá trước khi lưu vào electron-store)
@@ -100,12 +108,14 @@ Command Palette (Ctrl+K), phím tắt, onboarding, FAQ.
 - **Commit:** `feat(translate): tich hop Gemini API`
 
 ### 2.2 Xuất video
+
 - [ ] Wrapper gọi ffmpeg (`fluent-ffmpeg` + `@ffmpeg-installer/ffmpeg`)
 - [ ] Burn hardsub (ghi cứng phụ đề vào khung hình, dùng `jassub` cho phụ đề .ass mượt)
 - [ ] Xuất file kèm phụ đề rời (soft-sub) làm phương án thay thế
 - **Commit:** `feat(render): xuat video voi phu de`
 
 ### 2.3 Settings
+
 - [ ] Trang cài đặt chung (đường dẫn lưu file, số luồng xử lý...)
 - [ ] Quản lý model đã tải (xem dung lượng, xoá bớt)
 - [ ] Quản lý API key các dịch vụ
@@ -119,23 +129,28 @@ Command Palette (Ctrl+K), phím tắt, onboarding, FAQ.
 ## NHÓM 3 — NÂNG CAO (đúng định hướng "sản phẩm Việt")
 
 ### 3.1 TTS / Lồng tiếng
+
 - [ ] Setup server VietTTS (Docker) chạy local
 - [ ] Gọi VietTTS qua endpoint tương thích OpenAI (dùng lại SDK `openai`, đổi baseURL)
 - [ ] UI chọn giọng đọc, preview trước khi render
+- [ ] làm rõ TTS chọn giọng theo từng dòng phụ đề, không phải 1 giọng chung cho cả file
 - **Commit:** `feat(tts): tich hop VietTTS`
 
 ### 3.2 Đồng bộ audio-video (dubbing)
+
 - [ ] Canh timing audio TTS khớp với timeline phụ đề gốc
 - [ ] Xử lý trường hợp khoảng lặng dài / câu quá dài so với thời lượng gốc (time-stretch nhẹ hoặc cắt bớt)
 - [ ] Mux track audio lồng tiếng vào video (thay hoặc chèn thêm track)
 - **Commit:** `feat(dubbing): dong bo va ghep audio long tieng vao video`
 
 ### 3.3 i18n tiếng Việt
+
 - [ ] Chuẩn hoá toàn bộ text hiển thị qua helper `t()` tự viết
 - [ ] File `locales/vi.json` duy nhất
 - **Commit:** `feat(i18n): chuan hoa text qua helper t()`
 
 ### 3.4 Convert PhoWhisper sang ggml (nếu chưa làm ở 1.3)
+
 - [ ] Convert checkpoint PhoWhisper (HuggingFace) sang định dạng ggml bằng script của whisper.cpp
 - [ ] Kiểm tra tương thích version whisper.cpp đang dùng qua `nodejs-whisper`
 - [ ] Thêm vào danh sách model tải trong app
@@ -167,10 +182,11 @@ Command Palette (Ctrl+K), phím tắt, onboarding, FAQ.
 ---
 
 ## Vấn đề / lỗi đang gặp (cập nhật khi cần hỏi AI)
-<!-- Ghi lỗi cụ thể, log, hoặc câu hỏi đang vướng ở đây trước khi hỏi AI -->
--
+
+## <!-- Ghi lỗi cụ thể, log, hoặc câu hỏi đang vướng ở đây trước khi hỏi AI -->
 
 ## Nhật ký tiến độ
+
 <!-- Mỗi lần làm xong 1 việc, thêm 1 dòng. Format: ngày - việc đã làm - vướng mắc (nếu có) -->
 
 - 2026-08-27: Cập nhật roadmap chi tiết theo 5 nhóm ưu tiên, đã có mockup trang chủ.
