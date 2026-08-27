@@ -68,11 +68,11 @@ Command Palette (Ctrl+K), phím tắt, onboarding, FAQ.
 
 ### 1.2 UI khung + quản lý task
 
-- [ ] Áp dụng mockup trang chủ đã thiết kế (theme mực đậm/đỏ sơn mài/vàng đồng, filmstrip card)
-- [ ] Data model `Task` riêng (types/task.ts) — tự thiết kế field, không copy struct SmartSub
-- [ ] Store lưu task (electron-store)
-- [ ] Sidebar điều hướng: Trang chủ, Tải video, Phụ đề, Hiệu đính, Dịch thuật, Lồng tiếng, Xuất video, Cài đặt
-- [ ] Kéo thả video vào app (drag & drop)
+- [x] Áp dụng mockup trang chủ đã thiết kế (theme Gemini-inspired: Cyan/Indigo/Rose, Glassmorphism, bo góc mềm)
+- [x] Data model `Task` riêng (types/task.ts) — tự thiết kế field, không copy struct SmartSub
+- [x] Store lưu task (electron-store)
+- [x] Sidebar điều hướng: Trang chủ, Tải video, Phụ đề, Hiệu đính, Dịch thuật, Lồng tiếng, Xuất video, Cài đặt
+- [x] Kéo thả video vào app (drag & drop)
 - **Commit:** `feat: xay dung UI trang chu va quan ly task`
 
 ### 1.3 ASR cơ bản
@@ -190,3 +190,4 @@ Command Palette (Ctrl+K), phím tắt, onboarding, FAQ.
 <!-- Mỗi lần làm xong 1 việc, thêm 1 dòng. Format: ngày - việc đã làm - vướng mắc (nếu có) -->
 
 - 2026-08-27: Cập nhật roadmap chi tiết theo 5 nhóm ưu tiên, đã có mockup trang chủ.
+- 2026-08-27: Hoàn thành Bước 1 — Thiết lập Data Model Task, hệ thống lưu trữ electron-store, IPC bridge và kết nối tương tác kéo thả / chọn file thật trên trang chủ.

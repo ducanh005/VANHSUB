@@ -1,10 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Head from 'next/head';
 import {
   ArrowRight,
   CheckCircle2,
   Cpu,
-  Download,
   FileVideo,
   Film,
   FolderOpen,
@@ -20,30 +19,19 @@ import {
   Settings,
   Sparkles,
   Subtitles,
+  Trash2,
   UploadCloud,
   Volume2,
   Wand2,
   Zap,
 } from 'lucide-react';
+import type { Task, WorkflowType } from '../types/task';
 
 type NavItem = {
   id: string;
   label: string;
   icon: React.ComponentType<{ className?: string }>;
   badge?: string;
-};
-
-type TaskStatus = 'transcribing' | 'translating' | 'dubbing' | 'done' | 'queued';
-
-type TaskItem = {
-  id: string;
-  fileName: string;
-  fileSize: string;
-  duration: string;
-  status: TaskStatus;
-  progress?: number;
-  workflow: string;
-  createdAt: string;
 };
 
 const navItems: NavItem[] = [
@@ -58,7 +46,7 @@ const navItems: NavItem[] = [
 
 const workflows = [
   {
-    id: 'full-dubbing',
+    id: 'full-dubbing' as WorkflowType,
     title: 'Video → Lồng tiếng AI trọn gói',
     description: 'Phiên âm tiếng Việt, dịch thuật ngữ cảnh và lồng tiếng tự nhiên đồng bộ',
     tag: 'Quy trình đầy đủ',
@@ -68,7 +56,7 @@ const workflows = [
     models: ['PhoWhisper', 'Gemini 2.0', 'VietTTS'],
   },
   {
-    id: 'bilingual-sub',
+    id: 'bilingual-sub' as WorkflowType,
     title: 'Video → Phụ đề song ngữ',
     description: 'Tạo phụ đề gốc chuẩn xác và bản dịch song ngữ mượt mà với Gemini',
     tag: 'Phổ biến nhất',
@@ -78,7 +66,7 @@ const workflows = [
     models: ['Whisper ASR', 'Gemini AI'],
   },
   {
-    id: 'fast-transcribe',
+    id: 'fast-transcribe' as WorkflowType,
     title: 'Video → Phụ đề gốc siêu tốc',
     description: 'Tách giọng nói thành phụ đề SRT/VTT độ chính xác cao cho tiếng Việt',
     tag: 'Tốc độ cao',
@@ -86,47 +74,6 @@ const workflows = [
     gradient: 'from-emerald-500/15 to-brand-cyan/10',
     borderGlow: 'hover:border-emerald-500/50',
     models: ['PhoWhisper Base'],
-  },
-];
-
-const initialTasks: TaskItem[] = [
-  {
-    id: 'task-1',
-    fileName: 'Huong_Dan_AI_Studio_2026.mp4',
-    fileSize: '142 MB',
-    duration: '12:45',
-    status: 'transcribing',
-    progress: 68,
-    workflow: 'Phụ đề gốc',
-    createdAt: 'Vừa xong',
-  },
-  {
-    id: 'task-2',
-    fileName: 'Review_Cong_Nghe_Moi_Ep04.mkv',
-    fileSize: '320 MB',
-    duration: '24:10',
-    status: 'translating',
-    progress: 42,
-    workflow: 'Song ngữ (Vi-En)',
-    createdAt: '15 phút trước',
-  },
-  {
-    id: 'task-3',
-    fileName: 'Podcast_Tam_Su_Kinh_Doanh_Tap22.mp3',
-    fileSize: '48 MB',
-    duration: '35:20',
-    status: 'done',
-    workflow: 'Lồng tiếng TTS',
-    createdAt: 'Hôm nay, 14:30',
-  },
-  {
-    id: 'task-4',
-    fileName: 'Bai_Giang_Khoa_Hoc_Ky_Thuat.mp4',
-    fileSize: '512 MB',
-    duration: '45:00',
-    status: 'done',
-    workflow: 'Phụ đề cứng (Hardsub)',
-    createdAt: 'Hôm qua',
   },
 ];
 
@@ -160,12 +107,38 @@ const shortcuts = [
   { label: 'Cài đặt hệ thống', shortcut: 'Ctrl + ,' },
 ];
 
+function formatTimeAgo(isoString: string): string {
+  try {
+    const date = new Date(isoString);
+    const now = new Date();
+    const diffSec = Math.floor((now.getTime() - date.getTime()) / 1000);
+    if (diffSec < 60) return 'Vừa xong';
+    if (diffSec < 3600) return `${Math.floor(diffSec / 60)} phút trước`;
+    if (diffSec < 86400) return `${Math.floor(diffSec / 3600)} giờ trước`;
+    return date.toLocaleDateString('vi-VN');
+  } catch {
+    return 'Vừa xong';
+  }
+}
+
 export default function HomePage() {
   const [activeTab, setActiveTab] = useState('home');
   const [greeting, setGreeting] = useState('Chào buổi tối');
   const [currentDateStr, setCurrentDateStr] = useState('');
-  const [tasks] = useState<TaskItem[]>(initialTasks);
+  const [tasks, setTasks] = useState<Task[]>([]);
   const [isDragging, setIsDragging] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+
+  const loadTasks = useCallback(async () => {
+    if (typeof window !== 'undefined' && window.vanhsub?.tasks) {
+      try {
+        const loadedTasks = await window.vanhsub.tasks.getAll();
+        setTasks(loadedTasks || []);
+      } catch (err) {
+        console.error('Lỗi khi tải danh sách task:', err);
+      }
+    }
+  }, []);
 
   useEffect(() => {
     const now = new Date();
@@ -185,7 +158,39 @@ export default function HomePage() {
       day: 'numeric',
     };
     setCurrentDateStr(now.toLocaleDateString('vi-VN', options));
-  }, []);
+
+    loadTasks();
+
+    if (typeof window !== 'undefined' && window.vanhsub?.tasks?.onUpdate) {
+      const unsubscribe = window.vanhsub.tasks.onUpdate((updatedTasks) => {
+        setTasks(updatedTasks || []);
+      });
+      return () => unsubscribe();
+    }
+  }, [loadTasks]);
+
+  const handleSelectFiles = async (workflow: WorkflowType = 'fast-transcribe') => {
+    if (typeof window === 'undefined' || !window.vanhsub?.dialog) return;
+
+    try {
+      const filePaths = await window.vanhsub.dialog.openMediaFile();
+      if (!filePaths || filePaths.length === 0) return;
+
+      for (const filePath of filePaths) {
+        const fileName = filePath.split(/[/\\]/).pop() || 'media_file';
+        await window.vanhsub.tasks.create({
+          fileName,
+          filePath,
+          workflow,
+          status: 'queued',
+          progress: 0,
+          stageDescription: 'Đã sẵn sàng phiên âm',
+        });
+      }
+    } catch (err) {
+      console.error('Lỗi khi chọn file:', err);
+    }
+  };
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
@@ -196,14 +201,51 @@ export default function HomePage() {
     setIsDragging(false);
   };
 
-  const handleDrop = (e: React.DragEvent) => {
+  const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(false);
+
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
       const files = Array.from(e.dataTransfer.files);
-      alert(`Đã nhận ${files.length} tệp: ${files.map((f) => f.name).join(', ')}`);
+      for (const file of files) {
+        const filePath = (file as any).path || file.name;
+        const fileName = file.name;
+        const sizeMb = (file.size / (1024 * 1024)).toFixed(1) + ' MB';
+
+        if (window.vanhsub?.tasks) {
+          await window.vanhsub.tasks.create({
+            fileName,
+            filePath,
+            fileSize: sizeMb,
+            workflow: 'fast-transcribe',
+            status: 'queued',
+            progress: 0,
+            stageDescription: 'Đã thêm từ kéo thả',
+          });
+        }
+      }
     }
   };
+
+  const handleDeleteTask = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (window.vanhsub?.tasks) {
+      await window.vanhsub.tasks.delete(id);
+    }
+  };
+
+  const handleShowInFolder = (filePath: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (window.vanhsub?.dialog) {
+      window.vanhsub.dialog.showInFolder(filePath);
+    }
+  };
+
+  const filteredTasks = tasks.filter((t) =>
+    t.fileName.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  const completedCount = tasks.filter((t) => t.status === 'done').length;
 
   return (
     <>
@@ -314,6 +356,8 @@ export default function HomePage() {
                 <div className="flex w-full max-w-lg items-center gap-2.5 rounded-xl border border-slate-800 bg-slate-900/80 px-3.5 py-2 text-slate-400 transition focus-within:border-brand-indigo/60 focus-within:ring-1 focus-within:ring-brand-indigo/60">
                   <Search className="h-4 w-4 text-slate-400" />
                   <input
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
                     placeholder="Tìm kiếm tác vụ, phụ đề, tên video..."
                     className="w-full bg-transparent text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none"
                   />
@@ -328,7 +372,8 @@ export default function HomePage() {
             <div className="flex items-center gap-3">
               <button
                 type="button"
-                className="btn-vanh-gradient inline-flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-semibold"
+                onClick={() => handleSelectFiles('fast-transcribe')}
+                className="btn-vanh-gradient inline-flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-semibold cursor-pointer"
               >
                 <Plus className="h-4 w-4" />
                 <span>Thêm tác vụ mới</span>
@@ -356,10 +401,10 @@ export default function HomePage() {
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="rounded-xl border border-slate-800 bg-slate-900/80 px-3 py-1.5 text-xs font-medium text-slate-300">
-                    <strong className="text-brand-cyan font-bold">4</strong> Tác vụ
+                    <strong className="text-brand-cyan font-bold">{tasks.length}</strong> Tác vụ
                   </span>
                   <span className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-400">
-                    <strong className="font-bold">2</strong> Đã hoàn thành
+                    <strong className="font-bold">{completedCount}</strong> Đã hoàn thành
                   </span>
                 </div>
               </div>
@@ -371,8 +416,9 @@ export default function HomePage() {
                   return (
                     <div
                       key={wf.id}
+                      onClick={() => handleSelectFiles(wf.id)}
                       className={[
-                        'group relative flex flex-col justify-between overflow-hidden rounded-2xl border border-slate-800 bg-slate-900/70 p-4 transition-all duration-300 card-glass-hover',
+                        'group relative flex flex-col justify-between overflow-hidden rounded-2xl border border-slate-800 bg-slate-900/70 p-4 transition-all duration-300 card-glass-hover cursor-pointer',
                         wf.borderGlow,
                       ].join(' ')}
                     >
@@ -443,7 +489,8 @@ export default function HomePage() {
                 <div className="mt-4 flex items-center gap-3">
                   <button
                     type="button"
-                    className="inline-flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-800 px-4 py-2 text-xs font-medium text-slate-200 transition hover:bg-slate-700 hover:text-white"
+                    onClick={() => handleSelectFiles('fast-transcribe')}
+                    className="inline-flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-800 px-4 py-2 text-xs font-medium text-slate-200 transition hover:bg-slate-700 hover:text-white cursor-pointer"
                   >
                     <FolderOpen className="h-3.5 w-3.5 text-brand-cyan" />
                     <span>Duyệt file từ máy tính</span>
@@ -457,75 +504,100 @@ export default function HomePage() {
                   <div className="flex items-center gap-2">
                     <h3 className="text-sm font-semibold text-white">Tác vụ gần đây</h3>
                     <span className="rounded-full bg-slate-800 px-2 py-0.5 text-[10px] font-semibold text-slate-400">
-                      {tasks.length}
+                      {filteredTasks.length}
                     </span>
                   </div>
-                  <button
-                    type="button"
-                    className="text-xs font-medium text-brand-cyan hover:text-brand-cyan/80 transition"
-                  >
-                    Xem lịch sử
-                  </button>
-                </div>
-
-                <div className="space-y-2">
-                  {tasks.map((t) => (
-                    <div
-                      key={t.id}
-                      className="group flex items-center justify-between rounded-2xl border border-slate-800/80 bg-slate-900/80 p-3 text-xs transition hover:border-slate-700 hover:bg-slate-850"
+                  {tasks.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={loadTasks}
+                      className="text-xs font-medium text-brand-cyan hover:text-brand-cyan/80 transition flex items-center gap-1 cursor-pointer"
                     >
-                      <div className="flex items-center gap-3 min-w-0 flex-1">
-                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-slate-800 text-brand-cyan">
-                          <FileVideo className="h-4 w-4" />
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <div className="truncate font-medium text-slate-200 group-hover:text-white">
-                            {t.fileName}
-                          </div>
-                          <div className="mt-0.5 flex items-center gap-2 text-[11px] text-slate-400">
-                            <span>{t.fileSize}</span>
-                            <span>•</span>
-                            <span>{t.duration}</span>
-                            <span>•</span>
-                            <span className="text-slate-300 font-mono">{t.workflow}</span>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Trạng thái / Tiến trình */}
-                      <div className="flex items-center gap-4 shrink-0 pl-3">
-                        {t.status === 'done' && (
-                          <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-medium text-emerald-400">
-                            <CheckCircle2 className="h-3 w-3" />
-                            Đã hoàn thành
-                          </span>
-                        )}
-                        {(t.status === 'transcribing' || t.status === 'translating') && (
-                          <div className="flex items-center gap-2">
-                            <div className="w-20 rounded-full bg-slate-800 h-1.5 overflow-hidden">
-                              <div
-                                className="h-full bg-gradient-to-r from-brand-cyan to-brand-indigo rounded-full transition-all duration-300"
-                                style={{ width: `${t.progress}%` }}
-                              />
-                            </div>
-                            <span className="inline-flex items-center gap-1 text-[11px] font-medium text-brand-cyan">
-                              <RefreshCw className="h-3 w-3 animate-spin" />
-                              {t.progress}%
-                            </span>
-                          </div>
-                        )}
-
-                        <button
-                          type="button"
-                          className="flex h-7 w-7 items-center justify-center rounded-lg border border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-white transition"
-                          title="Mở tác vụ"
-                        >
-                          <Play className="h-3 w-3 fill-current" />
-                        </button>
-                      </div>
-                    </div>
-                  ))}
+                      <RefreshCw className="h-3 w-3" />
+                      <span>Làm mới</span>
+                    </button>
+                  )}
                 </div>
+
+                {filteredTasks.length === 0 ? (
+                  <div className="rounded-2xl border border-dashed border-slate-800/80 p-8 text-center text-slate-500 text-xs">
+                    Chưa có tác vụ nào. Hãy kéo thả video hoặc bấm nút thêm tác vụ để bắt đầu!
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {filteredTasks.map((t) => (
+                      <div
+                        key={t.id}
+                        className="group flex items-center justify-between rounded-2xl border border-slate-800/80 bg-slate-900/80 p-3 text-xs transition hover:border-slate-700 hover:bg-slate-850"
+                      >
+                        <div className="flex items-center gap-3 min-w-0 flex-1">
+                          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-slate-800 text-brand-cyan">
+                            <FileVideo className="h-4 w-4" />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="truncate font-medium text-slate-200 group-hover:text-white">
+                              {t.fileName}
+                            </div>
+                            <div className="mt-0.5 flex items-center gap-2 text-[11px] text-slate-400">
+                              <span>{t.fileSize || 'Media file'}</span>
+                              <span>•</span>
+                              <span>{formatTimeAgo(t.createdAt)}</span>
+                              <span>•</span>
+                              <span className="text-slate-300 font-mono">{t.workflow}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Trạng thái / Tiến trình */}
+                        <div className="flex items-center gap-3 shrink-0 pl-3">
+                          {t.status === 'done' && (
+                            <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-medium text-emerald-400">
+                              <CheckCircle2 className="h-3 w-3" />
+                              Đã hoàn thành
+                            </span>
+                          )}
+                          {t.status === 'queued' && (
+                            <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-[11px] font-medium text-amber-400">
+                              Đang chờ xử lý
+                            </span>
+                          )}
+                          {(t.status === 'transcribing' || t.status === 'translating' || t.status === 'dubbing') && (
+                            <div className="flex items-center gap-2">
+                              <div className="w-20 rounded-full bg-slate-800 h-1.5 overflow-hidden">
+                                <div
+                                  className="h-full bg-gradient-to-r from-brand-cyan to-brand-indigo rounded-full transition-all duration-300"
+                                  style={{ width: `${t.progress}%` }}
+                                />
+                              </div>
+                              <span className="inline-flex items-center gap-1 text-[11px] font-medium text-brand-cyan">
+                                <RefreshCw className="h-3 w-3 animate-spin" />
+                                {t.progress}%
+                              </span>
+                            </div>
+                          )}
+
+                          <button
+                            type="button"
+                            onClick={(e) => handleShowInFolder(t.filePath, e)}
+                            className="flex h-7 w-7 items-center justify-center rounded-lg border border-slate-700 bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-slate-200 transition cursor-pointer"
+                            title="Mở thư mục chứa file"
+                          >
+                            <FolderOpen className="h-3.5 w-3.5" />
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={(e) => handleDeleteTask(t.id, e)}
+                            className="flex h-7 w-7 items-center justify-center rounded-lg border border-slate-700 bg-slate-800 text-slate-400 hover:bg-rose-500/20 hover:text-rose-400 hover:border-rose-500/40 transition cursor-pointer"
+                            title="Xoá tác vụ"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </section>
 
@@ -568,7 +640,8 @@ export default function HomePage() {
                     <button
                       key={label}
                       type="button"
-                      className="group flex w-full items-center gap-3 rounded-2xl p-2.5 text-left transition hover:bg-slate-800/80"
+                      onClick={() => handleSelectFiles('fast-transcribe')}
+                      className="group flex w-full items-center gap-3 rounded-2xl p-2.5 text-left transition hover:bg-slate-800/80 cursor-pointer"
                     >
                       <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-slate-800 text-brand-cyan group-hover:bg-brand-indigo group-hover:text-white transition">
                         <Icon className="h-4 w-4" />
@@ -609,5 +682,6 @@ export default function HomePage() {
     </>
   );
 }
+
 
 

@@ -1,5 +1,26 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
+const vanhsub = {
+  tasks: {
+    getAll: () => ipcRenderer.invoke('tasks:getAll'),
+    get: (id: string) => ipcRenderer.invoke('tasks:get', id),
+    create: (input: any) => ipcRenderer.invoke('tasks:create', input),
+    update: (id: string, updates: any) => ipcRenderer.invoke('tasks:update', id, updates),
+    delete: (id: string) => ipcRenderer.invoke('tasks:delete', id),
+    onUpdate: (callback: (tasks: any[]) => void) => {
+      const subscription = (_event: Electron.IpcRendererEvent, tasks: any[]) => callback(tasks)
+      ipcRenderer.on('tasks:updated', subscription)
+      return () => {
+        ipcRenderer.removeListener('tasks:updated', subscription)
+      }
+    },
+  },
+  dialog: {
+    openMediaFile: () => ipcRenderer.invoke('dialog:openMediaFile'),
+    showInFolder: (filePath: string) => ipcRenderer.invoke('dialog:showInFolder', filePath),
+  },
+}
+
 const handler = {
   send(channel: string, value: string) {
     ipcRenderer.send(channel, value)
@@ -14,4 +35,5 @@ const handler = {
   },
 }
 
-contextBridge.exposeInMainWorld('ipc', handler)
+contextBridge.exposeInMainWorld('vanhsub', vanhsub)
+contextBridge.exposeInMainWorld('ipc', handler)
