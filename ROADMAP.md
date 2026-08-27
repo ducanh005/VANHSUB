@@ -77,9 +77,9 @@ Command Palette (Ctrl+K), phím tắt, onboarding, FAQ.
 
 ### 1.3 ASR cơ bản
 
-- [ ] Tích hợp `nodejs-whisper`
+- [x] Tích hợp `nodejs-whisper`
 - [ ] Tải & quản lý model (base/small trước, thêm PhoWhisper sau khi convert ggml xong)
-- [ ] Convert kết quả ASR → file `.srt`
+- [x] Convert kết quả ASR → file `.srt`
 - [ ] UI chọn model + thanh tiến trình transcribe
 - **Commit:** `feat(asr): tich hop whisper qua nodejs-whisper`
 
