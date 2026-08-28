@@ -233,6 +233,13 @@ export default function HomePage() {
       await window.vanhsub.tasks.delete(id);
     }
   };
+  const handleStartTask = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (window.vanhsub?.tasks) {
+      await window.vanhsub.tasks.start(id);
+    }
+  };
+
 
   const handleShowInFolder = (filePath: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -557,9 +564,25 @@ export default function HomePage() {
                             </span>
                           )}
                           {t.status === 'queued' && (
-                            <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-[11px] font-medium text-amber-400">
-                              Đang chờ xử lý
-                            </span>
+                            <button
+                              type="button"
+                              onClick={(e) => handleStartTask(t.id, e)}
+                              className="inline-flex items-center gap-1.5 rounded-full border border-brand-cyan/30 bg-brand-cyan/10 px-2.5 py-1 text-[11px] font-medium text-brand-cyan hover:bg-brand-cyan/20 transition cursor-pointer"
+                            >
+                              <Play className="h-3 w-3 fill-brand-cyan" />
+                              Bắt đầu phiên âm
+                            </button>
+                          )}
+                          {t.status === 'error' && (
+                            <button
+                              type="button"
+                              onClick={(e) => handleStartTask(t.id, e)}
+                              className="inline-flex items-center gap-1.5 rounded-full border border-rose-500/30 bg-rose-500/10 px-2.5 py-1 text-[11px] font-medium text-rose-400 hover:bg-rose-500/20 transition cursor-pointer"
+                              title={t.errorMessage || 'Lỗi xử lý'}
+                            >
+                              <RefreshCw className="h-3 w-3" />
+                              Thử lại
+                            </button>
                           )}
                           {(t.status === 'transcribing' || t.status === 'translating' || t.status === 'dubbing') && (
                             <div className="flex items-center gap-2">

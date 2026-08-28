@@ -1,11 +1,13 @@
-﻿import path from 'path';
+import path from 'path';
 import fs from 'fs';
 import ffmpeg from 'fluent-ffmpeg';
 import ffmpegInstaller from '@ffmpeg-installer/ffmpeg';
 
 // Thiết lập đường dẫn ffmpeg binary (hỗ trợ cả môi trường dev và packaged asar)
-const ffmpegPath = ffmpegInstaller.path.replace('app.asar', 'app.asar.unpacked');
-ffmpeg.setFfmpegPath(ffmpegPath);
+const rawFfmpegPath = (ffmpegInstaller as any)?.path || (ffmpegInstaller as any)?.default?.path || '';
+if (rawFfmpegPath) {
+  ffmpeg.setFfmpegPath(rawFfmpegPath.replace('app.asar', 'app.asar.unpacked'));
+}
 
 export interface AudioExtractResult {
   wavPath: string;

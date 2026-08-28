@@ -1,12 +1,12 @@
-import path from 'path'
-import { BrowserWindow } from 'electron'
+﻿import path from 'path'
+import { BrowserWindow } from 'electron/main'
 
-export function createWindow(name: string, options: Electron.BrowserWindowConstructorOptions) {
+export function createWindow(name: string, options: any) {
   const window = new BrowserWindow({
     ...options,
     webPreferences: {
       ...options.webPreferences,
-      preload: path.join(import.meta.dirname, '../preload.js'),
+      preload: path.join(__dirname, 'preload.js'),
     },
   })
 

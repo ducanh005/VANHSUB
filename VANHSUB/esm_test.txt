@@ -1,0 +1,17 @@
+{
+  "typeofElectron": "string",
+  "typeofApp": "undefined",
+  "typeofBrowserWindow": "undefined",
+  "appKeys": [
+    "0",
+    "1",
+    "2",
+    "3",
+    "4",
+    "5",
+    "6",
+    "7",
+    "8",
+    "9"
+  ]
+}

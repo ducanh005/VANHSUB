@@ -1,4 +1,4 @@
-﻿import Store from 'electron-store';
+import Store from 'electron-store';
 import { v4 as uuidv4 } from 'uuid';
 
 export type TaskStatus = 'queued' | 'transcribing' | 'translating' | 'dubbing' | 'done' | 'error';
@@ -35,25 +35,34 @@ interface StoreSchema {
   tasks: Task[];
 }
 
-const store = new Store<StoreSchema>({
-  name: 'vanhsub-tasks',
-  defaults: {
-    tasks: [],
-  },
-});
+// Lazy singleton — chỉ tạo instance khi lần đầu được gọi,
+// tránh lỗi "Please specify the projectName option" khi app chưa ready.
+let _store: Store<StoreSchema> | null = null;
+
+function getStore(): Store<StoreSchema> {
+  if (!_store) {
+    _store = new Store<StoreSchema>({
+      name: 'vanhsub-tasks',
+      defaults: {
+        tasks: [],
+      },
+    });
+  }
+  return _store;
+}
 
 export const TaskStore = {
   getAll(): Task[] {
-    return store.get('tasks', []);
+    return getStore().get('tasks', []);
   },
 
   getById(id: string): Task | undefined {
-    const tasks = store.get('tasks', []);
+    const tasks = getStore().get('tasks', []);
     return tasks.find((t) => t.id === id);
   },
 
   create(input: CreateTaskInput): Task {
-    const tasks = store.get('tasks', []);
+    const tasks = getStore().get('tasks', []);
     const now = new Date().toISOString();
     const newTask: Task = {
       id: uuidv4(),
@@ -78,12 +87,12 @@ export const TaskStore = {
     };
 
     tasks.unshift(newTask);
-    store.set('tasks', tasks);
+    getStore().set('tasks', tasks);
     return newTask;
   },
 
   update(id: string, updates: Partial<Task>): Task | undefined {
-    const tasks = store.get('tasks', []);
+    const tasks = getStore().get('tasks', []);
     const index = tasks.findIndex((t) => t.id === id);
     if (index === -1) return undefined;
 
@@ -94,19 +103,20 @@ export const TaskStore = {
     };
 
     tasks[index] = updatedTask;
-    store.set('tasks', tasks);
+    getStore().set('tasks', tasks);
     return updatedTask;
   },
 
   delete(id: string): boolean {
-    const tasks = store.get('tasks', []);
+    const tasks = getStore().get('tasks', []);
     const filtered = tasks.filter((t) => t.id !== id);
     if (filtered.length === tasks.length) return false;
-    store.set('tasks', filtered);
+    getStore().set('tasks', filtered);
     return true;
   },
 
   clear(): void {
-    store.set('tasks', []);
+    getStore().set('tasks', []);
   },
 };
+

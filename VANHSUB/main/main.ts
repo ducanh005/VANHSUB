@@ -1,7 +1,8 @@
-import fs from 'fs'
+﻿import fs from 'fs'
 import path from 'path'
-import { app, ipcMain, dialog, shell, BrowserWindow } from 'electron'
-import serve from 'electron-serve'
+import url from 'url'
+import { app, ipcMain, dialog, BrowserWindow, protocol, net, shell } from 'electron'
+
 import { createWindow } from './helpers/create-window'
 import { TaskStore, type CreateTaskInput, type Task } from './store/taskStore'
 import { TaskRunner } from './asr/taskRunner'
@@ -9,12 +10,48 @@ import { TaskRunner } from './asr/taskRunner'
 const isProd = process.env.NODE_ENV === 'production'
 
 if (isProd) {
-  serve({ directory: 'app' })
+  try {
+    protocol.registerSchemesAsPrivileged([
+      {
+        scheme: 'app',
+        privileges: {
+          standard: true,
+          secure: true,
+          allowServiceWorkers: true,
+          supportFetchAPI: true,
+          corsEnabled: true,
+        },
+      },
+    ])
+  } catch (e) {}
+
+  app.whenReady().then(() => {
+    protocol.handle('app', async (request) => {
+      const requestUrl = new URL(request.url)
+      let pathname = decodeURIComponent(requestUrl.pathname)
+      if (pathname.startsWith('/')) pathname = pathname.slice(1)
+
+      const appDir = path.resolve(app.getAppPath(), 'app')
+      let filePath = path.join(appDir, pathname)
+
+      if (fs.existsSync(filePath) && fs.statSync(filePath).isDirectory()) {
+        filePath = path.join(filePath, 'index.html')
+      } else if (!fs.existsSync(filePath) && fs.existsSync(`${filePath}.html`)) {
+        filePath = `${filePath}.html`
+      }
+
+      if (!fs.existsSync(filePath)) {
+        filePath = path.join(appDir, '404.html')
+      }
+
+      return net.fetch(url.pathToFileURL(filePath).toString())
+    })
+  })
 } else {
   app.setPath('userData', `${app.getPath('userData')} (development)`)
 }
 
-let mainWindow: BrowserWindow | null = null
+let mainWindow: any = null
 
 function broadcastTasksUpdate() {
   if (mainWindow && !mainWindow.isDestroyed()) {
@@ -31,14 +68,14 @@ function broadcastTasksUpdate() {
     minWidth: 900,
     minHeight: 600,
     webPreferences: {
-      preload: path.join(import.meta.dirname, 'preload.js'),
+      preload: path.join(__dirname, 'preload.js'),
     },
   })
 
   if (isProd) {
     await mainWindow.loadURL('app://./home')
   } else {
-    const port = process.argv[2]
+    const port = process.argv[2] || '8888'
     await mainWindow.loadURL(`http://localhost:${port}/home`)
     mainWindow.webContents.openDevTools()
   }
@@ -79,7 +116,6 @@ ipcMain.handle('tasks:delete', async (_event, id: string) => {
 })
 
 ipcMain.handle('tasks:start', async (_event, id: string) => {
-  // Khởi động chạy tiến trình xử lý bất đồng bộ
   TaskRunner.runTask(id, () => {
     broadcastTasksUpdate()
   })
@@ -92,7 +128,6 @@ ipcMain.handle('tasks:readSrt', async (_event, srtPath: string) => {
   }
   return fs.readFileSync(srtPath, 'utf-8')
 })
-
 
 // =========================================================================
 // NATIVE DIALOG & SHELL IPC HANDLERS
@@ -126,4 +161,4 @@ ipcMain.handle('dialog:showInFolder', async (_event, filePath: string) => {
 
 ipcMain.on('message', async (event, arg) => {
   event.reply('message', `${arg} World!`)
-})
+})

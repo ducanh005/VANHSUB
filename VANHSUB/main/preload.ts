@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron'
+﻿import { contextBridge, ipcRenderer } from 'electron'
 
 const vanhsub = {
   tasks: {
@@ -10,7 +10,7 @@ const vanhsub = {
     start: (id: string) => ipcRenderer.invoke('tasks:start', id),
     readSrt: (srtPath: string) => ipcRenderer.invoke('tasks:readSrt', srtPath),
     onUpdate: (callback: (tasks: any[]) => void) => {
-      const subscription = (_event: Electron.IpcRendererEvent, tasks: any[]) => callback(tasks)
+      const subscription = (_event: any, tasks: any[]) => callback(tasks)
       ipcRenderer.on('tasks:updated', subscription)
       return () => {
         ipcRenderer.removeListener('tasks:updated', subscription)
@@ -28,7 +28,7 @@ const handler = {
     ipcRenderer.send(channel, value)
   },
   on(channel: string, callback: (...args: unknown[]) => void) {
-    const subscription = (_event: Electron.IpcRendererEvent, ...args: unknown[]) => callback(...args)
+    const subscription = (_event: any, ...args: unknown[]) => callback(...args)
     ipcRenderer.on(channel, subscription)
 
     return () => {
@@ -38,4 +38,4 @@ const handler = {
 }
 
 contextBridge.exposeInMainWorld('vanhsub', vanhsub)
-contextBridge.exposeInMainWorld('ipc', handler)
+contextBridge.exposeInMainWorld('ipc', handler)

@@ -4,7 +4,6 @@
   "description": "Ứng dụng phụ đề và lồng tiếng tiếng Việt trên desktop",
   "version": "1.0.0",
   "author": "VANHSUB",
-  "type": "module",
   "main": "app/main.js",
   "scripts": {
     "dev": "nextron",
