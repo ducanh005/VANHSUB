@@ -86,11 +86,11 @@ Command Palette (Ctrl+K), phím tắt, onboarding, FAQ.
 
 ### 1.4 Editor hiệu đính phụ đề
 
-- [ ] Parser/serializer file `.srt` tự viết
-- [ ] Timeline chỉnh thời gian từng dòng
-- [ ] Preview video đồng bộ phụ đề (dùng `react-player`)
-- [ ] Sửa text trực tiếp trên từng dòng
-- [ ] thêm mục "Sửa câu bằng AI" — gọi Gemini để đánh bóng/sửa lỗi ngữ pháp câu đã dịch, riêng biệt với sửa tay
+- [x] Parser/serializer file `.srt` tự viết (`renderer/lib/srt.ts`)
+- [x] Timeline chỉnh thời gian từng dòng (timeline strip bấm để nhảy + nút ±0.1s/±1s + gán thời điểm theo video)
+- [x] Preview video đồng bộ phụ đề (protocol `vanhmedia://` stream local + overlay phụ đề theo thời gian phát)
+- [x] Sửa text trực tiếp trên từng dòng
+- [x] thêm mục "Sửa câu bằng AI" — gọi Gemini để đánh bóng/sửa lỗi ngữ pháp câu đã dịch, riêng biệt với sửa tay
 - **Commit:** `feat: them man hinh hieu dinh phu de voi timeline`
 
 > ✅ Mốc kiểm tra: sau Nhóm 1, app phải chạy được luồng **video → transcribe → xem/sửa phụ đề**,
@@ -193,3 +193,4 @@ Command Palette (Ctrl+K), phím tắt, onboarding, FAQ.
 - 2026-08-27: Cập nhật roadmap chi tiết theo 5 nhóm ưu tiên, đã có mockup trang chủ.
 - 2026-08-27: Hoàn thành Bước 1 — Thiết lập Data Model Task, hệ thống lưu trữ electron-store, IPC bridge và kết nối tương tác kéo thả / chọn file thật trên trang chủ.
 - 2026-08-27: Hoàn thành Bước 2 — Kết nối ASR thật: `audioExtractor.ts` (ffmpeg → WAV 16kHz), `taskRunner.ts` (pipeline tự động), nút "Bắt đầu phiên âm" trên giao diện kích hoạt Whisper và cập nhật tiến trình realtime.
+- 2026-08-29: Hoàn thành mục 1.4 — Editor hiệu đính phụ đề: tách parser/serializer SRT ra `renderer/lib/srt.ts`; component `SubtitleEditor` với preview video đồng bộ (protocol `vanhmedia://` tự stream local có hỗ trợ Range, dùng `<video>` native thay react-player vì Electron không cần wrapper), timeline strip bấm để nhảy câu, chỉnh thời gian từng dòng (±0.1s/±1s, gán theo thời điểm video), sửa text trực tiếp, thêm/xoá dòng; "Sửa câu bằng AI" gọi Gemini qua SDK `openai` (endpoint tương thích OpenAI) với API key lưu qua `settingsStore` (electron-store), nhập key ngay trong màn hình hiệu đính.

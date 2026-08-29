@@ -26,6 +26,7 @@ import {
   Zap,
 } from 'lucide-react';
 import type { Task, WorkflowType } from '../types/task';
+import SubtitleEditor from '../components/SubtitleEditor';
 
 type NavItem = {
   id: string;
@@ -240,7 +241,6 @@ export default function HomePage() {
     }
   };
 
-
   const handleShowInFolder = (filePath: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (window.vanhsub?.dialog) {
@@ -389,6 +389,10 @@ export default function HomePage() {
           </header>
 
           {/* Body Dashboard (2 Columns) */}
+          {activeTab === 'editor' ? (
+            <SubtitleEditor tasks={tasks} />
+          ) : (
+
           <div className="grid flex-1 grid-cols-[minmax(0,1fr)_330px] gap-5 overflow-hidden p-6">
             {/* Cột Trái: Workflows & Recent Tasks */}
             <section className="flex flex-col gap-5 overflow-y-auto pr-1">
@@ -700,6 +704,7 @@ export default function HomePage() {
               </div>
             </aside>
           </div>
+          )}
         </main>
       </div>
     </>

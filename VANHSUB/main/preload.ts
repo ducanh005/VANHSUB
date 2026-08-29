@@ -9,6 +9,8 @@ const vanhsub = {
     delete: (id: string) => ipcRenderer.invoke('tasks:delete', id),
     start: (id: string) => ipcRenderer.invoke('tasks:start', id),
     readSrt: (srtPath: string) => ipcRenderer.invoke('tasks:readSrt', srtPath),
+    writeSrt: (srtPath: string, content: string) => ipcRenderer.invoke('tasks:writeSrt', srtPath, content),
+
     onUpdate: (callback: (tasks: any[]) => void) => {
       const subscription = (_event: any, tasks: any[]) => callback(tasks)
       ipcRenderer.on('tasks:updated', subscription)
@@ -16,6 +18,14 @@ const vanhsub = {
         ipcRenderer.removeListener('tasks:updated', subscription)
       }
     },
+  },
+  settings: {
+    get: (key: string) => ipcRenderer.invoke('settings:get', key),
+    set: (key: string, value: any) => ipcRenderer.invoke('settings:set', key, value),
+  },
+  ai: {
+    polishLine: (payload: { text: string; prev?: string; next?: string }) =>
+      ipcRenderer.invoke('ai:polishLine', payload),
   },
   dialog: {
     openMediaFile: () => ipcRenderer.invoke('dialog:openMediaFile'),
