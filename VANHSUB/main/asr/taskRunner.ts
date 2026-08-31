@@ -1,7 +1,9 @@
-﻿import fs from 'fs';
+import fs from 'fs';
 import { TaskStore, type Task } from '../store/taskStore';
+import { SettingsStore } from '../store/settingsStore';
 import { extract16kHzWav } from './audioExtractor';
 import { transcribe } from './whisperEngine';
+import { TranslateRunner } from '../translate/translateRunner';
 
 export class TaskRunner {
   private static runningTasks = new Set<string>();
@@ -40,16 +42,16 @@ export class TaskRunner {
       TaskStore.update(taskId, {
         progress: 35,
         audioPath: wavPath,
-        stageDescription: `Đang nhận diện giọng nói (${task.asrModel || 'base'})...`,
+        stageDescription: `Đang nhận diện giọng nói (${task.asrModel || SettingsStore.get('asrModel') || 'base'})...`,
       });
       onUpdate?.();
 
       const result = await transcribe(wavPath, {
-        modelName: task.asrModel || 'base',
+        modelName: task.asrModel || SettingsStore.get('asrModel') || 'base',
       });
 
       // Giai đoạn 3: Hoàn thành tạo phụ đề .srt
-      const updated = TaskStore.update(taskId, {
+      TaskStore.update(taskId, {
         status: 'done',
         progress: 100,
         srtPath: result.srtPath,
@@ -57,7 +59,12 @@ export class TaskRunner {
       });
       onUpdate?.();
 
-      return updated;
+      // Tự động dịch nếu bật option autoTranslateAfterAsr và đã có Gemini Key
+      if (SettingsStore.get('autoTranslateAfterAsr') && SettingsStore.hasGeminiKey()) {
+        await TranslateRunner.runTranslate(taskId, undefined, onUpdate);
+      }
+
+      return TaskStore.getById(taskId);
     } catch (err: any) {
       console.error(`Lỗi khi xử lý task ${taskId}:`, err);
       const updated = TaskStore.update(taskId, {

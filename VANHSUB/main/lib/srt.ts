@@ -1,5 +1,4 @@
-// Parser/serializer file .srt tự viết — chấp nhận cả dấu ',' và '.' phần mili-giây,
-// text mỗi khối có thể gồm nhiều dòng, không bắt buộc có số thứ tự.
+// Shared SRT Parser/Serializer — dùng chung cho main process và renderer
 
 export interface SrtLine {
   id: string;
@@ -12,7 +11,6 @@ const SRT_TIME_RE = /^(\d{1,3}):(\d{1,2}):(\d{1,2})[,.](\d{1,3})$/;
 const SRT_TIME_RE_SHORT = /^(\d{1,3}):(\d{1,2})[,.](\d{1,3})$/;
 const SRT_TIME_RE_SECONDS = /^(\d+)(?:[.,](\d{1,3}))?$/;
 
-// Người dùng gõ ".5" nghĩa là 500ms (mili-giây luôn ghi đủ 3 chữ số trong SRT)
 function padMs(value: number): number {
   return value < 10 ? value * 100 : value < 100 ? value * 10 : value;
 }

@@ -4,6 +4,41 @@ import { SettingsStore } from '../store/settingsStore';
 // Gemini tương thích endpoint OpenAI — dùng lại SDK openai theo quyết định kỹ thuật đã chốt.
 const GEMINI_OPENAI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/openai/';
 
+export function friendlyGeminiError(err: any): string {
+  const status = err?.status ?? err?.response?.status;
+  if (status === 401 || status === 403) {
+    return 'Gemini API key không hợp lệ hoặc không có quyền — kiểm tra lại key đã nhập.';
+  }
+  if (status === 429) {
+    return 'Vượt giới hạn tốc độ của Gemini (rate limit). Đợi vài giây rồi thử lại.';
+  }
+  if (status === 404) {
+    return `Model "${SettingsStore.get('geminiModel')}" không khả dụng với key này.`;
+  }
+  if (err?.code === 'ETIMEDOUT' || err?.name === 'TimeoutError' || err?.code === 'ECONNABORTED') {
+    return 'Gemini phản hồi quá chậm (timeout) — kiểm tra kết nối mạng rồi thử lại.';
+  }
+  return `Lỗi gọi Gemini: ${err?.message || 'không xác định'}`;
+}
+
+/** Tạo client OpenAI trỏ tới Gemini. Ném lỗi thân thiện nếu chưa có API key. */
+export function createGeminiClient(): { client: OpenAI; model: string } {
+  const apiKey = SettingsStore.get('geminiApiKey').trim();
+  if (!apiKey) {
+    throw new Error(
+      'Chưa cấu hình Gemini API key. Vào Cài đặt (hoặc bấm nút "Gemini API" ở màn hình hiệu đính) để nhập key — lấy miễn phí tại aistudio.google.com.'
+    );
+  }
+  const model = SettingsStore.get('geminiModel') || 'gemini-flash-latest';
+  const client = new OpenAI({
+    apiKey,
+    baseURL: GEMINI_OPENAI_BASE_URL,
+    timeout: 60_000,
+    maxRetries: 0, // retry tự quản lý ở từng module (translator cần kiểm soát backoff riêng)
+  });
+  return { client, model };
+}
+
 const POLISH_SYSTEM_PROMPT = `Bạn là biên tập viên phụ đề phim tiếng Việt.
 Nhiệm vụ: hiệu đính câu người dùng cung cấp — sửa lỗi chính tả, ngữ pháp, dấu câu và làm câu tự nhiên hơn theo văn nói tiếng Việt, giữ NGUYÊN nghĩa và đủ các ý của bản gốc.
 Yêu cầu:
@@ -19,20 +54,7 @@ export interface PolishLinePayload {
 }
 
 export async function polishSubtitleLine(payload: PolishLinePayload): Promise<string> {
-  const apiKey = SettingsStore.get('geminiApiKey').trim();
-  if (!apiKey) {
-    throw new Error(
-      'Chưa cấu hình Gemini API key. Bấm nút "Gemini API" ở màn hình hiệu đính để nhập key (lấy miễn phí tại aistudio.google.com).'
-    );
-  }
-  const model = SettingsStore.get('geminiModel') || 'gemini-2.0-flash';
-
-  const client = new OpenAI({
-    apiKey,
-    baseURL: GEMINI_OPENAI_BASE_URL,
-    timeout: 30_000,
-    maxRetries: 1,
-  });
+  const { client, model } = createGeminiClient();
 
   const contextParts: string[] = [];
   if (payload.prev?.trim()) contextParts.push(`Câu trước đó (chỉ để tham khảo ngữ cảnh): "${payload.prev.trim()}"`);
@@ -61,18 +83,4 @@ export async function polishSubtitleLine(payload: PolishLinePayload): Promise<st
   } catch (err: any) {
     throw new Error(friendlyGeminiError(err));
   }
-}
-
-function friendlyGeminiError(err: any): string {
-  const status = err?.status ?? err?.response?.status;
-  if (status === 401 || status === 403) {
-    return 'Gemini API key không hợp lệ hoặc không có quyền — kiểm tra lại key đã nhập.';
-  }
-  if (status === 429) {
-    return 'Vượt giới hạn tốc độ của Gemini (rate limit). Đợi vài giây rồi thử lại.';
-  }
-  if (status === 404) {
-    return `Model "${SettingsStore.get('geminiModel')}" không khả dụng với key này.`;
-  }
-  return `Lỗi gọi Gemini: ${err?.message || 'không xác định'}`;
 }

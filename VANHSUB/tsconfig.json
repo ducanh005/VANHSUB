@@ -18,7 +18,8 @@
         "renderer/**/*.js",
         "renderer/**/*.jsx",
         "renderer/**/*.ts",
-        "renderer/**/*.tsx"
+        "renderer/**/*.tsx",
+        "main/**/*.ts"
     ],
     "exclude": ["node_modules"]
 }

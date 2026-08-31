@@ -27,9 +27,22 @@ const vanhsub = {
     polishLine: (payload: { text: string; prev?: string; next?: string }) =>
       ipcRenderer.invoke('ai:polishLine', payload),
   },
+  translate: {
+    start: (id: string, targetLanguage?: string) =>
+      ipcRenderer.invoke('translate:start', id, targetLanguage),
+  },
+  export: {
+    start: (id: string, mode: 'hardsub' | 'softsub') =>
+      ipcRenderer.invoke('export:start', id, mode),
+  },
+  models: {
+    list: () => ipcRenderer.invoke('models:list'),
+    delete: (modelName: string) => ipcRenderer.invoke('models:delete', modelName),
+  },
   dialog: {
     openMediaFile: () => ipcRenderer.invoke('dialog:openMediaFile'),
     showInFolder: (filePath: string) => ipcRenderer.invoke('dialog:showInFolder', filePath),
+    chooseDirectory: () => ipcRenderer.invoke('dialog:chooseDirectory'),
   },
 }
 

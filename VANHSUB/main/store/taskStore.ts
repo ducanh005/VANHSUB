@@ -1,7 +1,14 @@
 import Store from 'electron-store';
 import { v4 as uuidv4 } from 'uuid';
 
-export type TaskStatus = 'queued' | 'transcribing' | 'translating' | 'dubbing' | 'done' | 'error';
+export type TaskStatus =
+  | 'queued'
+  | 'transcribing'
+  | 'translating'
+  | 'exporting'
+  | 'dubbing'
+  | 'done'
+  | 'error';
 export type WorkflowType = 'full-dubbing' | 'bilingual-sub' | 'fast-transcribe' | 'custom';
 
 export interface Task {

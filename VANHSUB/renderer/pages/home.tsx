@@ -27,6 +27,9 @@ import {
 } from 'lucide-react';
 import type { Task, WorkflowType } from '../types/task';
 import SubtitleEditor from '../components/SubtitleEditor';
+import TranslatePage from '../components/TranslatePage';
+import ExportPage from '../components/ExportPage';
+import SettingsPage from '../components/SettingsPage';
 
 type NavItem = {
   id: string;
@@ -339,7 +342,7 @@ export default function HomePage() {
               </div>
               <div className="flex items-center justify-between">
                 <span>Translate</span>
-                <span className="font-mono text-brand-cyan">Gemini 2.0 API</span>
+                <span className="font-mono text-brand-cyan">Gemini Flash API</span>
               </div>
               <div className="flex items-center justify-between">
                 <span>TTS Voice</span>
@@ -391,6 +394,29 @@ export default function HomePage() {
           {/* Body Dashboard (2 Columns) */}
           {activeTab === 'editor' ? (
             <SubtitleEditor tasks={tasks} />
+          ) : activeTab === 'translate' ? (
+            <TranslatePage tasks={tasks} />
+          ) : activeTab === 'export' ? (
+            <ExportPage tasks={tasks} />
+          ) : activeTab === 'settings' ? (
+            <SettingsPage />
+          ) : activeTab === 'subtitles' || activeTab === 'dubbing' ? (
+            <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
+              <div className="flex h-16 w-16 items-center justify-center rounded-3xl border border-slate-800 bg-slate-900/70 text-brand-indigo">
+                {activeTab === 'subtitles' ? <Subtitles className="h-7 w-7" /> : <Mic className="h-7 w-7" />}
+              </div>
+              <h3 className="text-base font-semibold text-white">
+                {activeTab === 'subtitles' ? 'Phụ đề & ASR' : 'Lồng tiếng TTS'}
+              </h3>
+              <p className="max-w-sm text-xs leading-relaxed text-slate-400">
+                {activeTab === 'subtitles'
+                  ? 'Tính năng đang được gộp vào Trang chủ và màn hình Hiệu đính. Màn hình riêng sẽ ra mắt ở Nhóm 3.'
+                  : 'Lồng tiếng VietTTS sẽ ra mắt ở Nhóm 3 — hãy quay lại sau nhé.'}
+              </p>
+              <span className="rounded-full border border-brand-indigo/30 bg-brand-indigo/10 px-3 py-1 text-[11px] font-medium text-brand-cyan">
+                Sắp ra mắt
+              </span>
+            </div>
           ) : (
 
           <div className="grid flex-1 grid-cols-[minmax(0,1fr)_330px] gap-5 overflow-hidden p-6">
@@ -588,7 +614,7 @@ export default function HomePage() {
                               Thử lại
                             </button>
                           )}
-                          {(t.status === 'transcribing' || t.status === 'translating' || t.status === 'dubbing') && (
+                          {(t.status === 'transcribing' || t.status === 'translating' || t.status === 'exporting' || t.status === 'dubbing') && (
                             <div className="flex items-center gap-2">
                               <div className="w-20 rounded-full bg-slate-800 h-1.5 overflow-hidden">
                                 <div

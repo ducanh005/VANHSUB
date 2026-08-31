@@ -9,6 +9,8 @@ import { TaskStore, type CreateTaskInput, type Task } from './store/taskStore'
 import { SettingsStore, type AppSettings } from './store/settingsStore'
 import { polishSubtitleLine } from './ai/geminiClient'
 import { TaskRunner } from './asr/taskRunner'
+import { TranslateRunner } from './translate/translateRunner'
+import { ExportRunner } from './render/exportRunner'
 
 const isProd = process.env.NODE_ENV === 'production'
 
@@ -236,7 +238,16 @@ ipcMain.handle('tasks:writeSrt', async (_event, srtPath: string, content: string
 // SETTINGS & AI IPC HANDLERS
 // =========================================================================
 
-const SETTING_KEYS: Array<keyof AppSettings> = ['geminiApiKey', 'geminiModel', 'targetLanguage']
+const SETTING_KEYS: Array<keyof AppSettings> = [
+  'geminiApiKey',
+  'geminiModel',
+  'targetLanguage',
+  'asrModel',
+  'exportDir',
+  'translateBatchSize',
+  'translateConcurrency',
+  'autoTranslateAfterAsr'
+]
 
 ipcMain.handle('settings:get', async (_event, key: keyof AppSettings) => {
   if (!SETTING_KEYS.includes(key)) {
@@ -256,6 +267,75 @@ ipcMain.handle('settings:set', async (_event, key: keyof AppSettings, value: any
 // "Sửa câu bằng AI": hiệu đính 1 câu phụ đề bằng Gemini, kèm ngữ cảnh câu trước/sau
 ipcMain.handle('ai:polishLine', async (_event, payload: { text: string; prev?: string; next?: string }) => {
   return polishSubtitleLine(payload)
+})
+
+// Dịch thuật AI qua TranslateRunner
+ipcMain.handle('translate:start', async (_event, id: string, targetLanguage?: string) => {
+  TranslateRunner.runTranslate(id, targetLanguage, () => {
+    broadcastTasksUpdate()
+  })
+  return true
+})
+
+// Xuất video qua ExportRunner
+ipcMain.handle('export:start', async (_event, id: string, mode: 'hardsub' | 'softsub') => {
+  ExportRunner.runExport(id, mode, () => {
+    broadcastTasksUpdate()
+  })
+  return true
+})
+
+// Quản lý model Whisper
+function getModelsDirectory() {
+  const devPath = path.resolve(__dirname, '..', 'node_modules/nodejs-whisper/cpp/whisper.cpp/models');
+  if (fs.existsSync(devPath)) return devPath;
+
+  const appPath = path.resolve(app.getAppPath(), 'node_modules/nodejs-whisper/cpp/whisper.cpp/models');
+  if (fs.existsSync(appPath)) return appPath;
+
+  const prodPath = path.resolve(process.resourcesPath, 'app.asar.unpacked/node_modules/nodejs-whisper/cpp/whisper.cpp/models');
+  if (fs.existsSync(prodPath)) return prodPath;
+
+  return devPath;
+}
+
+ipcMain.handle('models:list', async () => {
+  const dir = getModelsDirectory();
+  if (!fs.existsSync(dir)) {
+    return [];
+  }
+  try {
+    const files = fs.readdirSync(dir);
+    const models = files
+      .filter((file) => file.startsWith('ggml-') && file.endsWith('.bin'))
+      .map((file) => {
+        const filePath = path.join(dir, file);
+        const stat = fs.statSync(filePath);
+        const sizeMb = (stat.size / (1024 * 1024)).toFixed(1) + ' MB';
+        const name = file.substring(5, file.length - 4);
+        return { name, fileName: file, size: sizeMb };
+      });
+    return models;
+  } catch (err) {
+    console.error('Lỗi khi đọc danh sách model:', err);
+    return [];
+  }
+})
+
+ipcMain.handle('models:delete', async (_event, modelName: string) => {
+  const dir = getModelsDirectory();
+  const file = `ggml-${modelName}.bin`;
+  const filePath = path.join(dir, file);
+  if (fs.existsSync(filePath)) {
+    try {
+      fs.unlinkSync(filePath);
+      return true;
+    } catch (err) {
+      console.error(`Lỗi khi xoá model ${modelName}:`, err);
+      throw err;
+    }
+  }
+  return false;
 })
 
 
@@ -287,6 +367,17 @@ ipcMain.handle('dialog:openMediaFile', async () => {
 
 ipcMain.handle('dialog:showInFolder', async (_event, filePath: string) => {
   shell.showItemInFolder(filePath)
+})
+
+// Chọn thư mục (dùng cho cài đặt thư mục xuất mặc định ở trang Settings)
+ipcMain.handle('dialog:chooseDirectory', async () => {
+  if (!mainWindow) return null
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: 'Chọn thư mục lưu file xuất',
+    properties: ['openDirectory', 'createDirectory'],
+  })
+  if (result.canceled || result.filePaths.length === 0) return null
+  return result.filePaths[0]
 })
 
 ipcMain.on('message', async (event, arg) => {

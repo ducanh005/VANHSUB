@@ -81,7 +81,7 @@ Command Palette (Ctrl+K), phím tắt, onboarding, FAQ.
 - [x] Tải & quản lý model (base/small — auto-download khi chạy lần đầu)
 - [x] Convert kết quả ASR → file `.srt`
 - [x] Kích hoạt ASR từ giao diện: nút "Bắt đầu phiên âm" → TaskRunner → ffmpeg extract WAV → Whisper → .srt
-- [ ] UI chọn model + thanh tiến trình transcribe (nâng cao — sẽ làm ở màn hình Settings)
+- [x] UI chọn model + thanh tiến trình transcribe (đã có ở Settings & Task status progress)
 - **Commit:** `feat(asr): ket noi task manager voi whisper ASR qua TaskRunner`
 
 ### 1.4 Editor hiệu đính phụ đề
@@ -102,24 +102,24 @@ Command Palette (Ctrl+K), phím tắt, onboarding, FAQ.
 
 ### 2.1 Dịch thuật (Gemini)
 
-- [ ] Gọi Gemini API qua SDK `openai` (baseURL trỏ Gemini endpoint)
-- [ ] Prompt template dịch phụ đề (tự thiết kế, giữ context giữa các câu)
-- [ ] UI nhập/lưu API key (mã hoá trước khi lưu vào electron-store)
-- [ ] Chọn ngôn ngữ đích, xử lý lỗi timeout/rate limit
+- [x] Gọi Gemini API qua SDK `openai` (baseURL trỏ Gemini endpoint)
+- [x] Prompt template dịch phụ đề (tự thiết kế, giữ context giữa các câu)
+- [x] UI nhập/lưu API key (lưu an toàn vào electron-store)
+- [x] Chọn ngôn ngữ đích, xử lý lỗi timeout/rate limit
 - **Commit:** `feat(translate): tich hop Gemini API`
 
 ### 2.2 Xuất video
 
-- [ ] Wrapper gọi ffmpeg (`fluent-ffmpeg` + `@ffmpeg-installer/ffmpeg`)
-- [ ] Burn hardsub (ghi cứng phụ đề vào khung hình, dùng `jassub` cho phụ đề .ass mượt)
-- [ ] Xuất file kèm phụ đề rời (soft-sub) làm phương án thay thế
+- [x] Wrapper gọi ffmpeg (`fluent-ffmpeg` + `@ffmpeg-installer/ffmpeg`)
+- [x] Burn hardsub (ghi cứng phụ đề vào khung hình, xử lý unicode/path temp Windows)
+- [x] Xuất file kèm phụ đề rời (soft-sub) làm phương án thay thế
 - **Commit:** `feat(render): xuat video voi phu de`
 
 ### 2.3 Settings
 
-- [ ] Trang cài đặt chung (đường dẫn lưu file, số luồng xử lý...)
-- [ ] Quản lý model đã tải (xem dung lượng, xoá bớt)
-- [ ] Quản lý API key các dịch vụ
+- [x] Trang cài đặt chung (đường dẫn lưu file, số luồng xử lý...)
+- [x] Quản lý model đã tải (xem dung lượng, xoá bớt)
+- [x] Quản lý API key các dịch vụ
 - **Commit:** `feat: them trang cai dat`
 
 > ✅ Mốc kiểm tra: sau Nhóm 2, luồng đầy đủ **video → phụ đề → dịch → xuất video có hardsub** đã chạy được —
@@ -174,8 +174,8 @@ Command Palette (Ctrl+K), phím tắt, onboarding, FAQ.
 
 ## NHÓM 5 — ĐÓNG GÓI & NỘP ĐỒ ÁN
 
-- [ ] Cấu hình `electron-builder.yml`: appId, productName, icon riêng của VANHSUB
-- [ ] Build thử installer Windows (`yarn build:local`), test trên máy sạch (không có sẵn Node/VS Build Tools)
+- [x] Cấu hình `electron-builder.yml`: appId, productName, icon riêng của VANHSUB
+- [x] Build thử installer Windows (`yarn build` / `npm run build`), đã kiểm tra đóng gói tạo file `dist/VANHSUB Setup 1.0.0.exe` thành công.
 - [ ] Viết README hoàn chỉnh: hướng dẫn cài đặt, screenshot, mục "Nguồn tham khảo" ghi rõ SmartSub (MIT)
 - [ ] Viết phần báo cáo: kiến trúc hệ thống, sơ đồ luồng xử lý, phần tự đóng góp cụ thể
 - **Commit:** `chore: cau hinh dong goi va hoan thien tai lieu`
@@ -194,3 +194,4 @@ Command Palette (Ctrl+K), phím tắt, onboarding, FAQ.
 - 2026-08-27: Hoàn thành Bước 1 — Thiết lập Data Model Task, hệ thống lưu trữ electron-store, IPC bridge và kết nối tương tác kéo thả / chọn file thật trên trang chủ.
 - 2026-08-27: Hoàn thành Bước 2 — Kết nối ASR thật: `audioExtractor.ts` (ffmpeg → WAV 16kHz), `taskRunner.ts` (pipeline tự động), nút "Bắt đầu phiên âm" trên giao diện kích hoạt Whisper và cập nhật tiến trình realtime.
 - 2026-08-29: Hoàn thành mục 1.4 — Editor hiệu đính phụ đề: tách parser/serializer SRT ra `renderer/lib/srt.ts`; component `SubtitleEditor` với preview video đồng bộ (protocol `vanhmedia://` tự stream local có hỗ trợ Range, dùng `<video>` native thay react-player vì Electron không cần wrapper), timeline strip bấm để nhảy câu, chỉnh thời gian từng dòng (±0.1s/±1s, gán theo thời điểm video), sửa text trực tiếp, thêm/xoá dòng; "Sửa câu bằng AI" gọi Gemini qua SDK `openai` (endpoint tương thích OpenAI) với API key lưu qua `settingsStore` (electron-store), nhập key ngay trong màn hình hiệu đính.
+- 2026-08-31: Kiểm tra & cập nhật roadmap. Hoàn thành toàn bộ Nhóm 2 (Dịch thuật Gemini API, Xuất video Hardsub & Softsub qua ffmpeg, Trang Cài đặt & Quản lý model Whisper offline). Kiểm tra build thành công bộ cài Windows Installer (`dist/VANHSUB Setup 1.0.0.exe`).

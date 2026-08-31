@@ -1,5 +1,15 @@
 import type { Task, CreateTaskInput } from './task';
 
+export type SettingKey =
+  | 'geminiApiKey'
+  | 'geminiModel'
+  | 'targetLanguage'
+  | 'asrModel'
+  | 'exportDir'
+  | 'translateBatchSize'
+  | 'translateConcurrency'
+  | 'autoTranslateAfterAsr';
+
 export interface VanhsubAPI {
   tasks: {
     getAll: () => Promise<Task[]>;
@@ -14,15 +24,26 @@ export interface VanhsubAPI {
     onUpdate: (callback: (tasks: Task[]) => void) => () => void;
   };
   settings: {
-    get: (key: 'geminiApiKey' | 'geminiModel' | 'targetLanguage') => Promise<any>;
-    set: (key: 'geminiApiKey' | 'geminiModel' | 'targetLanguage', value: unknown) => Promise<boolean>;
+    get: (key: SettingKey) => Promise<any>;
+    set: (key: SettingKey, value: unknown) => Promise<boolean>;
   };
   ai: {
     polishLine: (payload: { text: string; prev?: string; next?: string }) => Promise<string>;
   };
+  translate: {
+    start: (id: string, targetLanguage?: string) => Promise<boolean>;
+  };
+  export: {
+    start: (id: string, mode: 'hardsub' | 'softsub') => Promise<boolean>;
+  };
+  models: {
+    list: () => Promise<Array<{ name: string; fileName: string; size: string }>>;
+    delete: (modelName: string) => Promise<boolean>;
+  };
   dialog: {
     openMediaFile: () => Promise<string[] | null>;
     showInFolder: (filePath: string) => Promise<void>;
+    chooseDirectory: () => Promise<string | null>;
   };
 }
 
