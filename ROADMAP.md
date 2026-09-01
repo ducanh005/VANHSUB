@@ -159,6 +159,17 @@ Command Palette (Ctrl+K), phím tắt, onboarding, FAQ.
 - **Lựa chọn:** Whisper base (140 MB, general purpose, đa ngôn ngữ) thay vì PhoWhisper (tiếng Việt only)
 - **Commit:** `refactor(asr): dung Whisper base model cho da ngon ngu thay vi PhoWhisper`
 
+### 3.5 Model selection với phát hiện thông số máy
+
+- [x] Detect system info: RAM tổng/còn trống, CPU cores, model CPU, OS
+- [x] Recommend model auto dựa trên resource: tiny (<1.5GB RAM), base (2-4GB), small (4-8GB), medium/large (8GB+)
+- [x] Component `ASRModelSelector` hiển thị system info, recommend model, model details (size, accuracy, tốc độ, RAM yêu cầu)
+- [x] Validation warnings nếu resource không đủ (e.g., "RAM tự do < yêu cầu")
+- [x] IPC handler `system:info` lấy realtime system stats
+- [x] Settings UI tích hợp model selector trước grid settings chính
+- **Mục tiêu:** User chọn model phù hợp với máy mà không cần tìm hiểu kỹ thuật
+- **Commit:** `feat(asr): add model selector with machine spec detection`
+
 ---
 
 ## NHÓM 4 — TÙY CHỌN (làm nếu còn thời gian, không bắt buộc)
@@ -201,3 +212,4 @@ Command Palette (Ctrl+K), phím tắt, onboarding, FAQ.
 - 2026-09-01: Hoàn thành Nhóm 3.2 — Dubbing (Audio-Video Sync): `main/render/dubbingEngine.ts` ghép audio files từ TTS theo SRT timing qua ffmpeg concat demuxer, mux vào video (replace hoặc add track), `main/render/dubbingRunner.ts` với TaskRunner pattern, IPC handler dubbing:start.
 - 2026-09-01: Hoàn thành Nhóm 3.3 — i18n tiếng Việt: tạo `renderer/locales/vi.json` (toàn bộ strings UI), `renderer/lib/i18n.ts` (helper t() đơn giản với dot notation + formatTimeAgo, formatFileSize, formatTime), cập nhật home.tsx sử dụng t() + getNavItems, getWorkflows, getTools, getShortcuts functions.
 - 2026-09-01: Hoàn thành Nhóm 3.4 — Quyết định dùng Whisper base model (99 ngôn ngữ + tiếng Việt) thay vì PhoWhisper (tiếng Việt only), vì hướng tới support video nước ngoài. Whisper base đã tích hợp sẵn trong nodejs-whisper (ggml format), không cần convert thêm. App tự động detect model từ thư mục models/ và cho user chọn ở Settings.
+- 2026-09-01: Hoàn thành Nhóm 3.5 — Model selection với phát hiện thông số máy: tạo `renderer/lib/modelSelector.ts` (WHISPER_MODELS metadata, recommendModel algo, canRunModel validation), thêm IPC handler `system:info` (return RAM/CPU/OS info via systeminformation), tạo component `renderer/components/ASRModelSelector.tsx` (hiển thị system specs, auto-recommend model, model details, warnings nếu resource không đủ), tích hợp vào SettingsPage.
