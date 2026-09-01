@@ -14,6 +14,7 @@ import {
   Trash2,
   Zap,
 } from 'lucide-react';
+import ASRModelSelector from './ASRModelSelector';
 
 interface ModelInfo {
   name: string;
@@ -149,6 +150,12 @@ export default function SettingsPage() {
           {errorMessage}
         </div>
       )}
+
+      {/* ASR Model Selector */}
+      <ASRModelSelector 
+        currentModel={asrModel}
+        onModelChange={setAsrModel}
+      />
 
       <div className="grid gap-6 lg:grid-cols-2">
         {/* Khối 1: Gemini API Key */}

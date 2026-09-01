@@ -48,6 +48,7 @@ const vanhsub = {
   models: {
     list: () => ipcRenderer.invoke('models:list'),
     delete: (modelName: string) => ipcRenderer.invoke('models:delete', modelName),
+    getSystemInfo: () => ipcRenderer.invoke('system:info'),
   },
   dialog: {
     openMediaFile: () => ipcRenderer.invoke('dialog:openMediaFile'),

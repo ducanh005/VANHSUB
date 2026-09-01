@@ -3,6 +3,7 @@ import path from 'path'
 import url from 'url'
 import { Readable } from 'stream'
 import { app, ipcMain, dialog, BrowserWindow, protocol, net, shell } from 'electron'
+import si from 'systeminformation'
 
 import { createWindow } from './helpers/create-window'
 import { TaskStore, type CreateTaskInput, type Task } from './store/taskStore'
@@ -327,6 +328,32 @@ function getModelsDirectory() {
 
   return devPath;
 }
+
+// Lấy thông tin hệ thống (RAM, CPU cores, etc.)
+ipcMain.handle('system:info', async () => {
+  try {
+    const memory = await si.mem();
+    const cpu = await si.cpu();
+    const osInfo = await si.osInfo();
+
+    return {
+      totalMemory: Math.round(memory.total / (1024 * 1024)), // Convert to MB
+      freeMemory: Math.round(memory.available / (1024 * 1024)), // Convert to MB
+      cpuCores: cpu.cores || 1,
+      cpuModel: cpu.brand + ' ' + cpu.model,
+      platform: osInfo.platform,
+    };
+  } catch (err) {
+    console.error('Error getting system info:', err);
+    return {
+      totalMemory: 0,
+      freeMemory: 0,
+      cpuCores: 1,
+      cpuModel: 'Unknown',
+      platform: 'unknown',
+    };
+  }
+});
 
 ipcMain.handle('models:list', async () => {
   const dir = getModelsDirectory();
