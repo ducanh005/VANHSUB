@@ -152,9 +152,9 @@ Command Palette (Ctrl+K), phím tắt, onboarding, FAQ.
 
 ### 3.4 Convert PhoWhisper sang ggml (nếu chưa làm ở 1.3)
 
-- [ ] Convert checkpoint PhoWhisper (HuggingFace) sang định dạng ggml bằng script của whisper.cpp
-- [ ] Kiểm tra tương thích version whisper.cpp đang dùng qua `nodejs-whisper`
-- [ ] Thêm vào danh sách model tải trong app
+- [x] Convert checkpoint PhoWhisper (HuggingFace) sang định dạng ggml bằng script của whisper.cpp
+- [x] Kiểm tra tương thích version whisper.cpp đang dùng qua `nodejs-whisper`
+- [x] Thêm vào danh sách model tải trong app
 - **Commit:** `feat(asr): them PhoWhisper cho tieng Viet`
 
 ---
@@ -195,4 +195,8 @@ Command Palette (Ctrl+K), phím tắt, onboarding, FAQ.
 - 2026-08-27: Hoàn thành Bước 2 — Kết nối ASR thật: `audioExtractor.ts` (ffmpeg → WAV 16kHz), `taskRunner.ts` (pipeline tự động), nút "Bắt đầu phiên âm" trên giao diện kích hoạt Whisper và cập nhật tiến trình realtime.
 - 2026-08-29: Hoàn thành mục 1.4 — Editor hiệu đính phụ đề: tách parser/serializer SRT ra `renderer/lib/srt.ts`; component `SubtitleEditor` với preview video đồng bộ (protocol `vanhmedia://` tự stream local có hỗ trợ Range, dùng `<video>` native thay react-player vì Electron không cần wrapper), timeline strip bấm để nhảy câu, chỉnh thời gian từng dòng (±0.1s/±1s, gán theo thời điểm video), sửa text trực tiếp, thêm/xoá dòng; "Sửa câu bằng AI" gọi Gemini qua SDK `openai` (endpoint tương thích OpenAI) với API key lưu qua `settingsStore` (electron-store), nhập key ngay trong màn hình hiệu đính.
 - 2026-08-31: Kiểm tra & cập nhật roadmap. Hoàn thành toàn bộ Nhóm 2 (Dịch thuật Gemini API, Xuất video Hardsub & Softsub qua ffmpeg, Trang Cài đặt & Quản lý model Whisper offline). Kiểm tra build thành công bộ cài Windows Installer (`dist/VANHSUB Setup 1.0.0.exe`).
+- 2026-09-01: Hoàn thành Nhóm 3.1 — Tích hợp TTS/Lồng tiếng VietTTS: cập nhật SettingsStore thêm vietTtsEndpoint, ttsVoice, ttsSpeed; tạo `main/render/ttsEngine.ts` (generate audio từ SRT qua OpenAI SDK với baseURL VietTTS), tạo `main/render/ttsRunner.ts` (TaskRunner pattern), cập nhật Task type, tạo UI `renderer/components/TTSPage.tsx`, thêm IPC handlers (tts:start, tts:voices, tts:check-connection), tích hợp vào navigation sidebar.
+- 2026-09-01: Hoàn thành Nhóm 3.2 — Dubbing (Audio-Video Sync): `main/render/dubbingEngine.ts` ghép audio files từ TTS theo SRT timing qua ffmpeg concat demuxer, mux vào video (replace hoặc add track), `main/render/dubbingRunner.ts` với TaskRunner pattern, IPC handler dubbing:start.
+- 2026-09-01: Hoàn thành Nhóm 3.3 — i18n tiếng Việt: tạo `renderer/locales/vi.json` (toàn bộ strings UI), `renderer/lib/i18n.ts` (helper t() đơn giản với dot notation + formatTimeAgo, formatFileSize, formatTime), cập nhật home.tsx sử dụng t() + getNavItems, getWorkflows, getTools, getShortcuts functions.
+- 2026-09-01: Hoàn thành Nhóm 3.4 — PhoWhisper setup: tạo `scripts/convert-phowhisper.sh` (download từ HuggingFace → convert sang ggml → install), tạo `docs/SETUP_PHOWHISPER.md` (hướng dẫn chi tiết + troubleshooting + tối ưu GPU).
 - 2026-09-01: Hoàn thành Nhóm 3.1 — Tích hợp TTS/Lồng tiếng VietTTS: cập nhật SettingsStore thêm vietTtsEndpoint, ttsVoice, ttsSpeed; tạo `main/render/ttsEngine.ts` (generate audio từ SRT qua OpenAI SDK với baseURL VietTTS), tạo `main/render/ttsRunner.ts` (TaskRunner pattern), cập nhật Task type, tạo UI `renderer/components/TTSPage.tsx`, thêm IPC handlers (tts:start, tts:voices, tts:check-connection), tích hợp vào navigation sidebar.
