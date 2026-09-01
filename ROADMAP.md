@@ -150,12 +150,14 @@ Command Palette (Ctrl+K), phím tắt, onboarding, FAQ.
 - [ ] File `locales/vi.json` duy nhất
 - **Commit:** `feat(i18n): chuan hoa text qua helper t()`
 
-### 3.4 Convert PhoWhisper sang ggml (nếu chưa làm ở 1.3)
+### 3.4 Whisper model hỗ trợ đa ngôn ngữ
 
-- [x] Convert checkpoint PhoWhisper (HuggingFace) sang định dạng ggml bằng script của whisper.cpp
-- [x] Kiểm tra tương thích version whisper.cpp đang dùng qua `nodejs-whisper`
-- [x] Thêm vào danh sách model tải trong app
-- **Commit:** `feat(asr): them PhoWhisper cho tieng Viet`
+- [x] Dùng Whisper base model (140 MB) - hỗ trợ 99 ngôn ngữ + tiếng Việt
+- [x] Không cần convert, nodejs-whisper đã hỗ trợ sẵn định dạng ggml của Whisper
+- [x] Tối ưu cho app desktop: CPU-friendly, offline, tốc độ nhanh
+- [x] App UI tự động detect model từ thư mục models/ và cho user chọn
+- **Lựa chọn:** Whisper base (140 MB, general purpose, đa ngôn ngữ) thay vì PhoWhisper (tiếng Việt only)
+- **Commit:** `refactor(asr): dung Whisper base model cho da ngon ngu thay vi PhoWhisper`
 
 ---
 
@@ -198,5 +200,4 @@ Command Palette (Ctrl+K), phím tắt, onboarding, FAQ.
 - 2026-09-01: Hoàn thành Nhóm 3.1 — Tích hợp TTS/Lồng tiếng VietTTS: cập nhật SettingsStore thêm vietTtsEndpoint, ttsVoice, ttsSpeed; tạo `main/render/ttsEngine.ts` (generate audio từ SRT qua OpenAI SDK với baseURL VietTTS), tạo `main/render/ttsRunner.ts` (TaskRunner pattern), cập nhật Task type, tạo UI `renderer/components/TTSPage.tsx`, thêm IPC handlers (tts:start, tts:voices, tts:check-connection), tích hợp vào navigation sidebar.
 - 2026-09-01: Hoàn thành Nhóm 3.2 — Dubbing (Audio-Video Sync): `main/render/dubbingEngine.ts` ghép audio files từ TTS theo SRT timing qua ffmpeg concat demuxer, mux vào video (replace hoặc add track), `main/render/dubbingRunner.ts` với TaskRunner pattern, IPC handler dubbing:start.
 - 2026-09-01: Hoàn thành Nhóm 3.3 — i18n tiếng Việt: tạo `renderer/locales/vi.json` (toàn bộ strings UI), `renderer/lib/i18n.ts` (helper t() đơn giản với dot notation + formatTimeAgo, formatFileSize, formatTime), cập nhật home.tsx sử dụng t() + getNavItems, getWorkflows, getTools, getShortcuts functions.
-- 2026-09-01: Hoàn thành Nhóm 3.4 — PhoWhisper setup: tạo `scripts/convert-phowhisper.sh` (download từ HuggingFace → convert sang ggml → install), tạo `docs/SETUP_PHOWHISPER.md` (hướng dẫn chi tiết + troubleshooting + tối ưu GPU).
-- 2026-09-01: Hoàn thành Nhóm 3.1 — Tích hợp TTS/Lồng tiếng VietTTS: cập nhật SettingsStore thêm vietTtsEndpoint, ttsVoice, ttsSpeed; tạo `main/render/ttsEngine.ts` (generate audio từ SRT qua OpenAI SDK với baseURL VietTTS), tạo `main/render/ttsRunner.ts` (TaskRunner pattern), cập nhật Task type, tạo UI `renderer/components/TTSPage.tsx`, thêm IPC handlers (tts:start, tts:voices, tts:check-connection), tích hợp vào navigation sidebar.
+- 2026-09-01: Hoàn thành Nhóm 3.4 — Quyết định dùng Whisper base model (99 ngôn ngữ + tiếng Việt) thay vì PhoWhisper (tiếng Việt only), vì hướng tới support video nước ngoài. Whisper base đã tích hợp sẵn trong nodejs-whisper (ggml format), không cần convert thêm. App tự động detect model từ thư mục models/ và cho user chọn ở Settings.
