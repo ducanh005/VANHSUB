@@ -35,6 +35,16 @@ const vanhsub = {
     start: (id: string, mode: 'hardsub' | 'softsub') =>
       ipcRenderer.invoke('export:start', id, mode),
   },
+  tts: {
+    start: (id: string, voice?: string, speed?: number) =>
+      ipcRenderer.invoke('tts:start', id, voice, speed),
+    voices: () => ipcRenderer.invoke('tts:voices'),
+    checkConnection: () => ipcRenderer.invoke('tts:check-connection'),
+  },
+  dubbing: {
+    start: (id: string, replaceAudio: boolean = true) =>
+      ipcRenderer.invoke('dubbing:start', id, replaceAudio),
+  },
   models: {
     list: () => ipcRenderer.invoke('models:list'),
     delete: (modelName: string) => ipcRenderer.invoke('models:delete', modelName),

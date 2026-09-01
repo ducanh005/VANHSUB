@@ -16,6 +16,12 @@ export interface AppSettings {
   translateConcurrency: number;
   /** Tự động dịch ngay sau khi phiên âm xong */
   autoTranslateAfterAsr: boolean;
+  /** VietTTS endpoint URL (mặc định: http://localhost:6006 cho Docker local) */
+  vietTtsEndpoint: string;
+  /** Giọng nói mặc định cho TTS */
+  ttsVoice: string;
+  /** Tốc độ TTS (0.5 - 2.0) */
+  ttsSpeed: number;
 }
 
 // Lazy singleton — cùng pattern với taskStore.ts để tránh lỗi
@@ -38,6 +44,9 @@ function getStore(): Store<AppSettings> {
         translateBatchSize: 15,
         translateConcurrency: 1,
         autoTranslateAfterAsr: false,
+        vietTtsEndpoint: 'http://localhost:6006',
+        ttsVoice: 'default',
+        ttsSpeed: 1.0,
       },
     });
   }

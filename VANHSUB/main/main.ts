@@ -11,6 +11,9 @@ import { polishSubtitleLine } from './ai/geminiClient'
 import { TaskRunner } from './asr/taskRunner'
 import { TranslateRunner } from './translate/translateRunner'
 import { ExportRunner } from './render/exportRunner'
+import { TTSRunner } from './render/ttsRunner'
+import { DubbingRunner } from './render/dubbingRunner'
+import { checkVietTtsConnection, getAvailableVoices } from './render/ttsEngine'
 
 const isProd = process.env.NODE_ENV === 'production'
 
@@ -280,6 +283,32 @@ ipcMain.handle('translate:start', async (_event, id: string, targetLanguage?: st
 // Xuất video qua ExportRunner
 ipcMain.handle('export:start', async (_event, id: string, mode: 'hardsub' | 'softsub') => {
   ExportRunner.runExport(id, mode, () => {
+    broadcastTasksUpdate()
+  })
+  return true
+})
+
+// Tạo lồng tiếng bằng VietTTS
+ipcMain.handle('tts:start', async (_event, id: string, voice?: string, speed?: number) => {
+  TTSRunner.runTTS(id, voice, speed, () => {
+    broadcastTasksUpdate()
+  })
+  return true
+})
+
+// Lấy danh sách giọng nói có sẵn
+ipcMain.handle('tts:voices', async () => {
+  return getAvailableVoices()
+})
+
+// Kiểm tra kết nối VietTTS
+ipcMain.handle('tts:check-connection', async () => {
+  return checkVietTtsConnection()
+})
+
+// Dubbing video (mux audio vào video)
+ipcMain.handle('dubbing:start', async (_event, id: string, replaceAudio: boolean = true) => {
+  DubbingRunner.runDubbing(id, replaceAudio, () => {
     broadcastTasksUpdate()
   })
   return true

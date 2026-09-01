@@ -29,6 +29,10 @@ export interface Task {
   audioPath?: string;
   outputPath?: string;
   errorMessage?: string;
+  // TTS / Dubbing fields
+  ttsVoice?: string;
+  ttsSpeed?: number;
+  ttsAudioDir?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -89,6 +93,9 @@ export const TaskStore = {
       audioPath: input.audioPath,
       outputPath: input.outputPath,
       errorMessage: input.errorMessage,
+      ttsVoice: input.ttsVoice,
+      ttsSpeed: input.ttsSpeed,
+      ttsAudioDir: input.ttsAudioDir,
       createdAt: now,
       updatedAt: now,
     };

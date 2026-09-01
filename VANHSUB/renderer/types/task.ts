@@ -20,6 +20,10 @@ export interface Task {
   audioPath?: string;
   outputPath?: string;
   errorMessage?: string;
+  // TTS / Dubbing fields
+  ttsVoice?: string;
+  ttsSpeed?: number;
+  ttsAudioDir?: string;
   createdAt: string;
   updatedAt: string;
 }

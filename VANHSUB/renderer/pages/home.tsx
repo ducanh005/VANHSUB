@@ -28,6 +28,7 @@ import {
 import type { Task, WorkflowType } from '../types/task';
 import SubtitleEditor from '../components/SubtitleEditor';
 import TranslatePage from '../components/TranslatePage';
+import TTSPage from '../components/TTSPage';
 import ExportPage from '../components/ExportPage';
 import SettingsPage from '../components/SettingsPage';
 
@@ -396,22 +397,22 @@ export default function HomePage() {
             <SubtitleEditor tasks={tasks} />
           ) : activeTab === 'translate' ? (
             <TranslatePage tasks={tasks} />
+          ) : activeTab === 'dubbing' ? (
+            <TTSPage tasks={tasks} />
           ) : activeTab === 'export' ? (
             <ExportPage tasks={tasks} />
           ) : activeTab === 'settings' ? (
             <SettingsPage />
-          ) : activeTab === 'subtitles' || activeTab === 'dubbing' ? (
+          ) : activeTab === 'subtitles' ? (
             <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
               <div className="flex h-16 w-16 items-center justify-center rounded-3xl border border-slate-800 bg-slate-900/70 text-brand-indigo">
-                {activeTab === 'subtitles' ? <Subtitles className="h-7 w-7" /> : <Mic className="h-7 w-7" />}
+                <Subtitles className="h-7 w-7" />
               </div>
               <h3 className="text-base font-semibold text-white">
-                {activeTab === 'subtitles' ? 'Phụ đề & ASR' : 'Lồng tiếng TTS'}
+                Phụ đề & ASR
               </h3>
               <p className="max-w-sm text-xs leading-relaxed text-slate-400">
-                {activeTab === 'subtitles'
-                  ? 'Tính năng đang được gộp vào Trang chủ và màn hình Hiệu đính. Màn hình riêng sẽ ra mắt ở Nhóm 3.'
-                  : 'Lồng tiếng VietTTS sẽ ra mắt ở Nhóm 3 — hãy quay lại sau nhé.'}
+                Tính năng đang được gộp vào Trang chủ và màn hình Hiệu đính. Màn hình riêng sẽ ra mắt ở Nhóm 3.
               </p>
               <span className="rounded-full border border-brand-indigo/30 bg-brand-indigo/10 px-3 py-1 text-[11px] font-medium text-brand-cyan">
                 Sắp ra mắt
