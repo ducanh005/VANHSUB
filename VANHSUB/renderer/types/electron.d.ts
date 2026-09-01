@@ -8,7 +8,9 @@ export type SettingKey =
   | 'exportDir'
   | 'translateBatchSize'
   | 'translateConcurrency'
-  | 'autoTranslateAfterAsr';
+  | 'autoTranslateAfterAsr'
+  | 'ttsVoice'
+  | 'ttsSpeed';
 
 export interface VanhsubAPI {
   tasks: {
@@ -33,12 +35,24 @@ export interface VanhsubAPI {
   translate: {
     start: (id: string, targetLanguage?: string) => Promise<boolean>;
   };
+  tts: {
+    start: (id: string, voice?: string, speed?: number) => Promise<boolean>;
+    voices: () => Promise<string[]>;
+    checkConnection: () => Promise<boolean>;
+  };
   export: {
     start: (id: string, mode: 'hardsub' | 'softsub') => Promise<boolean>;
   };
   models: {
     list: () => Promise<Array<{ name: string; fileName: string; size: string }>>;
     delete: (modelName: string) => Promise<boolean>;
+    getSystemInfo: () => Promise<{
+      totalMemory: number;
+      freeMemory: number;
+      cpuCores: number;
+      cpuModel: string;
+      platform: string;
+    }>;
   };
   dialog: {
     openMediaFile: () => Promise<string[] | null>;

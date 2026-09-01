@@ -577,7 +577,7 @@ export default function HomePage() {
                             <div className="mt-0.5 flex items-center gap-2 text-[11px] text-slate-400">
                               <span>{t.fileSize || 'Media file'}</span>
                               <span>•</span>
-                              <span>{formatTimeAgo(t.createdAt)}</span>
+                              <span>{formatTimeAgoHelper(t.createdAt)}</span>
                               <span>•</span>
                               <span className="text-slate-300 font-mono">{t.workflow}</span>
                             </div>
