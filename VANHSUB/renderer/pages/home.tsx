@@ -26,6 +26,7 @@ import {
   Zap,
 } from 'lucide-react';
 import type { Task, WorkflowType } from '../types/task';
+import { t, formatTimeAgo as formatTimeAgoHelper } from '../lib/i18n';
 import SubtitleEditor from '../components/SubtitleEditor';
 import TranslatePage from '../components/TranslatePage';
 import TTSPage from '../components/TTSPage';
@@ -39,21 +40,30 @@ type NavItem = {
   badge?: string;
 };
 
-const navItems: NavItem[] = [
-  { id: 'home', label: 'Trang chủ', icon: Film },
-  { id: 'subtitles', label: 'Phụ đề & ASR', icon: Subtitles },
-  { id: 'editor', label: 'Hiệu đính phụ đề', icon: MessageSquareText },
-  { id: 'translate', label: 'Dịch thuật AI', icon: Globe2 },
-  { id: 'dubbing', label: 'Lồng tiếng TTS', icon: Mic },
-  { id: 'export', label: 'Xuất video', icon: Layers },
-  { id: 'settings', label: 'Cài đặt', icon: Settings },
+const getNavItems = (): NavItem[] => [
+  { id: 'home', label: t('sidebar.home'), icon: Film },
+  { id: 'subtitles', label: t('sidebar.subtitles'), icon: Subtitles },
+  { id: 'editor', label: t('sidebar.editor'), icon: MessageSquareText },
+  { id: 'translate', label: t('sidebar.translate'), icon: Globe2 },
+  { id: 'dubbing', label: t('sidebar.dubbing'), icon: Mic },
+  { id: 'export', label: t('sidebar.export'), icon: Layers },
+  { id: 'settings', label: t('sidebar.settings'), icon: Settings },
 ];
 
-const workflows = [
+const getWorkflows = (): Array<{
+  id: WorkflowType;
+  title: string;
+  description: string;
+  tag: string;
+  icon: React.ComponentType<{ className?: string }>;
+  gradient: string;
+  borderGlow: string;
+  models: string[];
+}> => [
   {
     id: 'full-dubbing' as WorkflowType,
-    title: 'Video → Lồng tiếng AI trọn gói',
-    description: 'Phiên âm tiếng Việt, dịch thuật ngữ cảnh và lồng tiếng tự nhiên đồng bộ',
+    title: t('home.fullDubbing'),
+    description: t('home.fullDubbingDesc'),
     tag: 'Quy trình đầy đủ',
     icon: Sparkles,
     gradient: 'from-brand-cyan/15 via-brand-indigo/15 to-brand-rose/15',
@@ -62,8 +72,8 @@ const workflows = [
   },
   {
     id: 'bilingual-sub' as WorkflowType,
-    title: 'Video → Phụ đề song ngữ',
-    description: 'Tạo phụ đề gốc chuẩn xác và bản dịch song ngữ mượt mà với Gemini',
+    title: t('home.bilingualSub'),
+    description: t('home.bilingualSubDesc'),
     tag: 'Phổ biến nhất',
     icon: Wand2,
     gradient: 'from-brand-cyan/20 to-brand-indigo/10',
@@ -72,8 +82,8 @@ const workflows = [
   },
   {
     id: 'fast-transcribe' as WorkflowType,
-    title: 'Video → Phụ đề gốc siêu tốc',
-    description: 'Tách giọng nói thành phụ đề SRT/VTT độ chính xác cao cho tiếng Việt',
+    title: t('home.fastTranscribe'),
+    description: t('home.fastTranscribeDesc'),
     tag: 'Tốc độ cao',
     icon: Zap,
     gradient: 'from-emerald-500/15 to-brand-cyan/10',
@@ -82,19 +92,19 @@ const workflows = [
   },
 ];
 
-const tools = [
+const getTools = () => [
   {
-    label: 'Hiệu đính phụ đề',
+    label: t('sidebar.editor'),
     icon: MessageSquareText,
     detail: 'Xem trước video và chỉnh sửa timeline từng câu',
   },
   {
-    label: 'Dịch thuật Gemini AI',
+    label: t('sidebar.translate'),
     icon: Globe2,
     detail: 'Dịch đa ngôn ngữ giữ nguyên context và thuật ngữ',
   },
   {
-    label: 'Lồng tiếng VietTTS',
+    label: t('sidebar.dubbing'),
     icon: Volume2,
     detail: 'Tạo giọng đọc tiếng Việt truyền cảm, chuẩn ngữ điệu',
   },
@@ -105,30 +115,18 @@ const tools = [
   },
 ];
 
-const shortcuts = [
+const getShortcuts = () => [
   { label: 'Tìm kiếm nhanh', shortcut: 'Ctrl + K' },
   { label: 'Tạo phụ đề mới', shortcut: 'Ctrl + N' },
   { label: 'Mở trang hiệu đính', shortcut: 'Ctrl + E' },
-  { label: 'Cài đặt hệ thống', shortcut: 'Ctrl + ,' },
+  { label: t('sidebar.settings'), shortcut: 'Ctrl + ,' },
 ];
 
-function formatTimeAgo(isoString: string): string {
-  try {
-    const date = new Date(isoString);
-    const now = new Date();
-    const diffSec = Math.floor((now.getTime() - date.getTime()) / 1000);
-    if (diffSec < 60) return 'Vừa xong';
-    if (diffSec < 3600) return `${Math.floor(diffSec / 60)} phút trước`;
-    if (diffSec < 86400) return `${Math.floor(diffSec / 3600)} giờ trước`;
-    return date.toLocaleDateString('vi-VN');
-  } catch {
-    return 'Vừa xong';
-  }
-}
+// Dùng i18n helper thay vì function riêng
 
 export default function HomePage() {
   const [activeTab, setActiveTab] = useState('home');
-  const [greeting, setGreeting] = useState('Chào buổi tối');
+  const [greeting, setGreeting] = useState(t('home.greeting_evening'));
   const [currentDateStr, setCurrentDateStr] = useState('');
   const [tasks, setTasks] = useState<Task[]>([]);
   const [isDragging, setIsDragging] = useState(false);
@@ -149,11 +147,11 @@ export default function HomePage() {
     const now = new Date();
     const hour = now.getHours();
     if (hour >= 5 && hour < 12) {
-      setGreeting('Chào buổi sáng');
+      setGreeting(t('home.greeting_morning'));
     } else if (hour >= 12 && hour < 18) {
-      setGreeting('Chào buổi chiều');
+      setGreeting(t('home.greeting_afternoon'));
     } else {
-      setGreeting('Chào buổi tối');
+      setGreeting(t('home.greeting_evening'));
     }
 
     const options: Intl.DateTimeFormatOptions = {
@@ -290,7 +288,7 @@ export default function HomePage() {
 
             {/* Menu chính */}
             <nav className="space-y-1">
-              {navItems.map(({ id, label, icon: Icon, badge }) => {
+              {getNavItems().map(({ id, label, icon: Icon, badge }) => {
                 const active = activeTab === id;
                 return (
                   <button
@@ -449,7 +447,7 @@ export default function HomePage() {
 
               {/* 3 Workflow Bento Cards */}
               <div className="grid gap-3.5 lg:grid-cols-3">
-                {workflows.map((wf) => {
+                {getWorkflows().map((wf) => {
                   const Icon = wf.icon;
                   return (
                     <div
@@ -690,7 +688,7 @@ export default function HomePage() {
                   Hộp công cụ
                 </h3>
                 <div className="space-y-1.5">
-                  {tools.map(({ label, icon: Icon, detail }) => (
+                  {getTools().map(({ label, icon: Icon, detail }) => (
                     <button
                       key={label}
                       type="button"
@@ -719,7 +717,7 @@ export default function HomePage() {
                   <span>Phím tắt tiện ích</span>
                 </div>
                 <div className="space-y-2 text-xs">
-                  {shortcuts.map(({ label, shortcut }) => (
+                  {getShortcuts().map(({ label, shortcut }) => (
                     <div key={label} className="flex items-center justify-between text-slate-300">
                       <span className="text-[11px]">{label}</span>
                       <kbd className="rounded-md border border-slate-700 bg-slate-950 px-2 py-0.5 text-[10px] font-mono text-slate-400">
