@@ -1,4 +1,4 @@
-﻿import { contextBridge, ipcRenderer } from 'electron'
+﻿import { contextBridge, ipcRenderer, webUtils } from 'electron'
 
 const vanhsub = {
   tasks: {
@@ -56,6 +56,10 @@ const vanhsub = {
     openMediaFile: () => ipcRenderer.invoke('dialog:openMediaFile'),
     showInFolder: (filePath: string) => ipcRenderer.invoke('dialog:showInFolder', filePath),
     chooseDirectory: () => ipcRenderer.invoke('dialog:chooseDirectory'),
+  },
+  files: {
+    // Electron >=32 đã bỏ File.path — phải lấy đường dẫn qua webUtils ở phía renderer
+    getPath: (file: File) => webUtils.getPathForFile(file),
   },
 }
 

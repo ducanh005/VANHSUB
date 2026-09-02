@@ -211,7 +211,13 @@ export default function HomePage() {
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
       const files = Array.from(e.dataTransfer.files);
       for (const file of files) {
-        const filePath = (file as any).path || file.name;
+        // Electron >=32 đã bỏ File.path — lấy đường dẫn qua webUtils ở preload
+        const filePath =
+          window.vanhsub?.files?.getPath?.(file) || (file as any).path || '';
+        if (!filePath || (!filePath.includes('/') && !filePath.includes('\\'))) {
+          console.warn('Bỏ qua file không lấy được đường dẫn:', file.name);
+          continue;
+        }
         const fileName = file.name;
         const sizeMb = (file.size / (1024 * 1024)).toFixed(1) + ' MB';
 

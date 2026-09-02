@@ -68,6 +68,9 @@ export interface VanhsubAPI {
     showInFolder: (filePath: string) => Promise<void>;
     chooseDirectory: () => Promise<string | null>;
   };
+  files: {
+    getPath: (file: File) => string;
+  };
 }
 
 declare global {
