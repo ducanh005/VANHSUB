@@ -14,7 +14,7 @@ import { TranslateRunner } from './translate/translateRunner'
 import { ExportRunner } from './render/exportRunner'
 import { TTSRunner } from './render/ttsRunner'
 import { DubbingRunner } from './render/dubbingRunner'
-import { checkVietTtsConnection, getAvailableVoices } from './render/ttsEngine'
+import { checkVietTtsConnection, getAvailableVoices, previewTts } from './render/ttsEngine'
 
 const isProd = process.env.NODE_ENV === 'production'
 
@@ -250,7 +250,10 @@ const SETTING_KEYS: Array<keyof AppSettings> = [
   'exportDir',
   'translateBatchSize',
   'translateConcurrency',
-  'autoTranslateAfterAsr'
+  'autoTranslateAfterAsr',
+  'vietTtsEndpoint',
+  'ttsVoice',
+  'ttsSpeed'
 ]
 
 ipcMain.handle('settings:get', async (_event, key: keyof AppSettings) => {
@@ -305,6 +308,12 @@ ipcMain.handle('tts:voices', async () => {
 // Kiểm tra kết nối VietTTS
 ipcMain.handle('tts:check-connection', async () => {
   return checkVietTtsConnection()
+})
+
+// Nghe thử giọng đọc TTS (1 câu ngắn) — trả base64 mp3 cho renderer phát trực tiếp
+ipcMain.handle('tts:preview', async (_event, text: string, voice?: string, speed?: number) => {
+  const sampleText = (text || '').trim().slice(0, 300) || 'Xin chào! Đây là giọng đọc thử nghiệm của VANHSUB.'
+  return previewTts(sampleText, voice, speed)
 })
 
 // Dubbing video (mux audio vào video)

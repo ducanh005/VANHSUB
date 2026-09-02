@@ -40,6 +40,8 @@ const vanhsub = {
       ipcRenderer.invoke('tts:start', id, voice, speed),
     voices: () => ipcRenderer.invoke('tts:voices'),
     checkConnection: () => ipcRenderer.invoke('tts:check-connection'),
+    preview: (text: string, voice?: string, speed?: number) =>
+      ipcRenderer.invoke('tts:preview', text, voice, speed),
   },
   dubbing: {
     start: (id: string, replaceAudio: boolean = true) =>

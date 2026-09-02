@@ -9,6 +9,7 @@ export type SettingKey =
   | 'translateBatchSize'
   | 'translateConcurrency'
   | 'autoTranslateAfterAsr'
+  | 'vietTtsEndpoint'
   | 'ttsVoice'
   | 'ttsSpeed';
 
@@ -39,6 +40,14 @@ export interface VanhsubAPI {
     start: (id: string, voice?: string, speed?: number) => Promise<boolean>;
     voices: () => Promise<string[]>;
     checkConnection: () => Promise<boolean>;
+    preview: (
+      text: string,
+      voice?: string,
+      speed?: number
+    ) => Promise<{ audioBase64: string; mimeType: string }>;
+  };
+  dubbing: {
+    start: (id: string, replaceAudio?: boolean) => Promise<boolean>;
   };
   export: {
     start: (id: string, mode: 'hardsub' | 'softsub') => Promise<boolean>;

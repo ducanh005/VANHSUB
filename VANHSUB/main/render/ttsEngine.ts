@@ -157,6 +157,19 @@ export async function getAvailableVoices(): Promise<string[]> {
 }
 
 /**
+ * Tạo 1 đoạn audio ngắn để nghe thử giọng đọc trong UI
+ * Trả về base64 (mp3) để renderer phát trực tiếp qua <audio>
+ */
+export async function previewTts(
+  text: string,
+  voice?: string,
+  speed?: number
+): Promise<{ audioBase64: string; mimeType: string }> {
+  const buffer = await generateAudio(text, voice, speed);
+  return { audioBase64: buffer.toString('base64'), mimeType: 'audio/mpeg' };
+}
+
+/**
  * Kiểm tra kết nối VietTTS
  */
 export async function checkVietTtsConnection(): Promise<boolean> {

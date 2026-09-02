@@ -15,6 +15,7 @@ import {
   Zap,
 } from 'lucide-react';
 import ASRModelSelector from './ASRModelSelector';
+import { VOICE_OPTIONS, SPEED_OPTIONS } from '../lib/ttsOptions';
 
 interface ModelInfo {
   name: string;
@@ -30,6 +31,11 @@ export default function SettingsPage() {
   const [exportDir, setExportDir] = useState('');
   const [translateBatchSize, setTranslateBatchSize] = useState(15);
   const [autoTranslateAfterAsr, setAutoTranslateAfterAsr] = useState(false);
+  const [vietTtsEndpoint, setVietTtsEndpoint] = useState('http://localhost:6006');
+  const [ttsVoice, setTtsVoice] = useState('alloy');
+  const [ttsSpeed, setTtsSpeed] = useState(1.0);
+  const [ttsConnected, setTtsConnected] = useState<boolean | null>(null);
+  const [checkingTts, setCheckingTts] = useState(false);
 
   const [modelsList, setModelsList] = useState<ModelInfo[]>([]);
   const [loadingModels, setLoadingModels] = useState(false);
@@ -49,8 +55,11 @@ export default function SettingsPage() {
       window.vanhsub.settings.get('exportDir'),
       window.vanhsub.settings.get('translateBatchSize'),
       window.vanhsub.settings.get('autoTranslateAfterAsr'),
+      window.vanhsub.settings.get('vietTtsEndpoint'),
+      window.vanhsub.settings.get('ttsVoice'),
+      window.vanhsub.settings.get('ttsSpeed'),
     ])
-      .then(([key, gModel, lang, aModel, expDir, batchSize, autoTrans]) => {
+      .then(([key, gModel, lang, aModel, expDir, batchSize, autoTrans, ttsEndpoint, voice, spd]) => {
         if (key) setApiKey(key);
         if (gModel) setGeminiModel(gModel);
         if (lang) setTargetLanguage(lang);
@@ -58,6 +67,9 @@ export default function SettingsPage() {
         if (expDir) setExportDir(expDir);
         if (batchSize) setTranslateBatchSize(Number(batchSize));
         if (autoTrans !== undefined) setAutoTranslateAfterAsr(Boolean(autoTrans));
+        if (ttsEndpoint) setVietTtsEndpoint(String(ttsEndpoint));
+        if (voice) setTtsVoice(String(voice));
+        if (spd) setTtsSpeed(Number(spd) || 1.0);
       })
       .catch((err) => console.error('Lỗi khi nạp cài đặt:', err));
 
@@ -89,6 +101,9 @@ export default function SettingsPage() {
         window.vanhsub.settings.set('exportDir', exportDir),
         window.vanhsub.settings.set('translateBatchSize', Number(translateBatchSize)),
         window.vanhsub.settings.set('autoTranslateAfterAsr', autoTranslateAfterAsr),
+        window.vanhsub.settings.set('vietTtsEndpoint', vietTtsEndpoint.trim() || 'http://localhost:6006'),
+        window.vanhsub.settings.set('ttsVoice', ttsVoice),
+        window.vanhsub.settings.set('ttsSpeed', Number(ttsSpeed) || 1.0),
       ]);
       setSavedMessage('Đã lưu tất cả cài đặt thành công!');
       setTimeout(() => setSavedMessage(''), 3000);
@@ -115,6 +130,21 @@ export default function SettingsPage() {
       loadModelsList();
     } catch (err: any) {
       alert('Không thể xoá model: ' + (err?.message || err));
+    }
+  };
+
+  const handleTestTtsConnection = async () => {
+    if (typeof window === 'undefined' || !window.vanhsub?.tts?.checkConnection) return;
+    setCheckingTts(true);
+    try {
+      // Lưu endpoint trước để kiểm tra đúng địa chỉ vừa nhập
+      await window.vanhsub.settings.set('vietTtsEndpoint', vietTtsEndpoint.trim() || 'http://localhost:6006');
+      const connected = await window.vanhsub.tts.checkConnection();
+      setTtsConnected(connected);
+    } catch {
+      setTtsConnected(false);
+    } finally {
+      setCheckingTts(false);
     }
   };
 
@@ -366,24 +396,88 @@ export default function SettingsPage() {
           )}
         </div>
 
-        {/* Khối 4: VietTTS Studio (Nhóm 3 Placeholder) */}
-        <div className="flex flex-col justify-between rounded-3xl border border-slate-800/80 bg-slate-900/40 p-5 opacity-75">
-          <div>
-            <div className="flex items-center justify-between border-b border-slate-800/80 pb-3">
-              <div className="flex items-center gap-2 text-sm font-bold text-slate-300">
-                <Mic className="h-4 w-4 text-brand-rose" />
-                <span>Lồng tiếng VietTTS (Nhóm 3)</span>
-              </div>
-              <span className="rounded-full border border-brand-rose/40 bg-brand-rose/10 px-2 py-0.5 text-[10px] font-semibold text-brand-rose">
-                Sắp ra mắt
-              </span>
+        {/* Khối 4: VietTTS Studio (Lồng tiếng) */}
+        <div className="flex flex-col gap-4 rounded-3xl border border-slate-800 bg-slate-900/60 p-5">
+          <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+            <div className="flex items-center gap-2 text-sm font-bold text-white">
+              <Mic className="h-4 w-4 text-brand-rose" />
+              <span>Lồng tiếng VietTTS (TTS)</span>
             </div>
-            <p className="mt-3 text-slate-400">
-              Tích hợp engine VietTTS chạy Docker local với endpoint tương thích OpenAI, cho phép đọc phụ đề tiếng Việt chuẩn ngữ điệu từng nhân vật.
-            </p>
+            <button
+              type="button"
+              onClick={handleTestTtsConnection}
+              disabled={checkingTts}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs font-medium text-slate-200 hover:bg-slate-700 cursor-pointer disabled:opacity-50"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${checkingTts ? 'animate-spin text-brand-cyan' : ''}`} />
+              <span>Kiểm tra kết nối</span>
+            </button>
           </div>
-          <div className="mt-4 rounded-xl border border-slate-800 bg-slate-950 p-3 text-[11px] text-slate-500 font-mono">
-            Endpoint mặc định: http://localhost:8080/v1/audio/speech
+
+          <div className="space-y-4">
+            <div>
+              <label className="mb-1 block font-medium text-slate-200">Endpoint VietTTS</label>
+              <input
+                type="text"
+                value={vietTtsEndpoint}
+                onChange={(e) => {
+                  setVietTtsEndpoint(e.target.value);
+                  setTtsConnected(null);
+                }}
+                placeholder="http://localhost:6006"
+                className="w-full rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 font-mono text-xs text-white focus:border-brand-cyan focus:outline-none"
+              />
+              <p className="mt-1 text-[11px] text-slate-400">
+                Server tương thích OpenAI chạy Docker local:{' '}
+                <code className="rounded bg-slate-900 px-1 py-0.5 font-mono text-[10px] text-slate-300">
+                  docker run -p 6006:6006 vanhsub/viettts
+                </code>
+              </p>
+              {ttsConnected !== null && (
+                <p className={`mt-1.5 text-[11px] font-medium ${ttsConnected ? 'text-emerald-400' : 'text-rose-400'}`}>
+                  {ttsConnected
+                    ? '✓ Đã kết nối VietTTS thành công'
+                    : '✗ Chưa kết nối được — kiểm tra Docker container và endpoint'}
+                </p>
+              )}
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="mb-1 block font-medium text-slate-200">Giọng đọc mặc định</label>
+                <select
+                  value={ttsVoice}
+                  onChange={(e) => setTtsVoice(e.target.value)}
+                  className="w-full rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-white focus:outline-none"
+                >
+                  {VOICE_OPTIONS.map((v) => (
+                    <option key={v.value} value={v.value}>
+                      {v.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="mb-1 block font-medium text-slate-200">Tốc độ đọc mặc định</label>
+                <select
+                  value={ttsSpeed}
+                  onChange={(e) => setTtsSpeed(Number(e.target.value))}
+                  className="w-full rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-white focus:outline-none"
+                >
+                  {SPEED_OPTIONS.map((s) => (
+                    <option key={s.value} value={s.value}>
+                      {s.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <p className="text-[11px] text-slate-400">
+              Mặc định chỉ áp dụng cho task mới — có thể đổi riêng từng lần ở tab{' '}
+              <strong className="text-slate-300">Lồng tiếng</strong>.
+            </p>
           </div>
         </div>
       </div>
