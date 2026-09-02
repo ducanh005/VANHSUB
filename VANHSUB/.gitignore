@@ -9,3 +9,6 @@ next-env.d.ts
 /app
 /dist
 /samples    
+# typescript build info
+tsconfig.tsbuildinfo
+renderer/tsconfig.tsbuildinfo
