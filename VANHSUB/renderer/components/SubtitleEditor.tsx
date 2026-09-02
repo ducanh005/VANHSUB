@@ -130,11 +130,11 @@ export default function SubtitleEditor({ tasks }: Props) {
   const [showKeyInput, setShowKeyInput] = useState(false);
   const [savingKey, setSavingKey] = useState(false);
 
-  // tasks thay đổi liên tục (broadcast) — dùng ref để effect tải SRT không phụ thuộc vào nó
-  const tasksRef = useRef(tasks);
-  tasksRef.current = tasks;
+  // Nguồn SRT đang hiệu đính — ưu tiên bản dịch vì các bước sau (TTS/Export) đều dùng bản dịch
+  const [srtSource, setSrtSource] = useState<'original' | 'translated'>('original');
 
   const selectedTask = tasks.find((t) => t.id === selectedTaskId) || null;
+  const hasTranslatedSrt = !!selectedTask?.translatedSrtPath;
   const mediaUrl = useMemo(() => {
     if (!selectedTask?.filePath) return '';
     return `vanhmedia://local/${encodeURIComponent(selectedTask.filePath)}`;
@@ -144,6 +144,27 @@ export default function SubtitleEditor({ tasks }: Props) {
     () => lines.findIndex((l) => currentTimeMs >= l.startMs && currentTimeMs < l.endMs),
     [lines, currentTimeMs]
   );
+
+  // File SRT đang mở: bản dịch nếu đang chọn và đã có, ngược lại bản gốc
+  const activeSrtPath = useMemo(() => {
+    if (!selectedTask) return '';
+    return srtSource === 'translated' && selectedTask.translatedSrtPath
+      ? selectedTask.translatedSrtPath
+      : selectedTask.srtPath || '';
+  }, [selectedTask, srtSource]);
+
+  // Đổi task hoặc vừa có bản dịch mới → tự chọn nguồn phù hợp (ưu tiên bản dịch)
+  useEffect(() => {
+    setSrtSource(selectedTask?.translatedSrtPath ? 'translated' : 'original');
+  }, [selectedTaskId, selectedTask?.translatedSrtPath]);
+
+  const handleSourceChange = (src: 'original' | 'translated') => {
+    if (src === srtSource) return;
+    if (dirty && !window.confirm('Thay đổi chưa lưu của file đang mở sẽ mất khi đổi nguồn. Tiếp tục?')) {
+      return;
+    }
+    setSrtSource(src);
+  };
 
   // Kiểm tra Gemini API key đã lưu
   useEffect(() => {
@@ -157,14 +178,10 @@ export default function SubtitleEditor({ tasks }: Props) {
       .catch(() => setHasApiKey(false));
   }, []);
 
-  // Tải SRT khi đổi tác vụ (chỉ phụ thuộc selectedTaskId để không mất thay đổi chưa lưu)
+  // Tải SRT khi đổi tác vụ hoặc đổi nguồn bản gốc/bản dịch.
+  // tasks thay đổi liên tục (broadcast) nên effect chỉ phụ thuộc id + đường dẫn file.
   useEffect(() => {
-    if (!selectedTaskId) {
-      setLines([]);
-      return;
-    }
-    const task = tasksRef.current.find((t) => t.id === selectedTaskId);
-    if (!task?.srtPath) {
+    if (!selectedTaskId || !activeSrtPath) {
       setLines([]);
       return;
     }
@@ -174,7 +191,7 @@ export default function SubtitleEditor({ tasks }: Props) {
     setStatusError(false);
     setStatusMessage('Đang tải file SRT...');
     window.vanhsub.tasks
-      .readSrt(task.srtPath)
+      .readSrt(activeSrtPath)
       .then((content) => {
         if (cancelled) return;
         const parsed = parseSrt(content);
@@ -193,7 +210,7 @@ export default function SubtitleEditor({ tasks }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [selectedTaskId]);
+  }, [selectedTaskId, activeSrtPath]);
 
   // Tự cuộn tới dòng đang phát
   useEffect(() => {
@@ -243,14 +260,13 @@ export default function SubtitleEditor({ tasks }: Props) {
   };
 
   const handleSave = async () => {
-    const task = tasksRef.current.find((t) => t.id === selectedTaskId);
-    if (!task?.srtPath) return;
+    if (!activeSrtPath) return;
 
     try {
       setLoading(true);
       setStatusError(false);
       setStatusMessage('Đang lưu file SRT...');
-      await window.vanhsub.tasks.writeSrt(task.srtPath, serializeSrt(lines));
+      await window.vanhsub.tasks.writeSrt(activeSrtPath, serializeSrt(lines));
       setDirty(false);
       setLoading(false);
       setStatusMessage('Đã lưu thành công!');
@@ -323,6 +339,55 @@ export default function SubtitleEditor({ tasks }: Props) {
               </option>
             ))}
           </select>
+
+          {/* Nguồn phụ đề đang hiệu đính: bản gốc hay bản dịch */}
+          {selectedTaskId && selectedTask?.srtPath && (
+            <div className="flex items-center gap-1.5">
+              <label className="text-xs font-semibold text-slate-300">Đang sửa:</label>
+              <div className="flex overflow-hidden rounded-xl border border-slate-700">
+                <button
+                  type="button"
+                  onClick={() => handleSourceChange('original')}
+                  className={[
+                    'px-2.5 py-1.5 text-[11px] font-medium transition cursor-pointer',
+                    srtSource === 'original'
+                      ? 'bg-brand-cyan/20 text-brand-cyan'
+                      : 'bg-slate-800 text-slate-300 hover:bg-slate-700',
+                  ].join(' ')}
+                >
+                  Bản gốc
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSourceChange('translated')}
+                  disabled={!hasTranslatedSrt}
+                  title={
+                    hasTranslatedSrt
+                      ? 'Sửa bản dịch (file các bước TTS/Xuất video sẽ dùng)'
+                      : 'Chưa có bản dịch — hãy dịch ở màn Dịch thuật trước'
+                  }
+                  className={[
+                    'border-l border-slate-700 px-2.5 py-1.5 text-[11px] font-medium transition',
+                    srtSource === 'translated'
+                      ? 'bg-brand-cyan/20 text-brand-cyan cursor-pointer'
+                      : hasTranslatedSrt
+                        ? 'bg-slate-800 text-slate-300 hover:bg-slate-700 cursor-pointer'
+                        : 'bg-slate-800/50 text-slate-500 cursor-not-allowed',
+                  ].join(' ')}
+                >
+                  Bản dịch
+                </button>
+              </div>
+              {activeSrtPath && (
+                <span
+                  className="max-w-[180px] truncate font-mono text-[10px] text-slate-500"
+                  title={activeSrtPath}
+                >
+                  {activeSrtPath.split(/[/\\]/).pop()}
+                </span>
+              )}
+            </div>
+          )}
 
           <button
             type="button"
