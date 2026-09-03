@@ -32,8 +32,8 @@ const vanhsub = {
       ipcRenderer.invoke('translate:start', id, targetLanguage),
   },
   export: {
-    start: (id: string, mode: 'hardsub' | 'softsub') =>
-      ipcRenderer.invoke('export:start', id, mode),
+    start: (id: string, mode: 'hardsub' | 'softsub', mask?: unknown) =>
+      ipcRenderer.invoke('export:start', id, mode, mask ?? null),
   },
   tts: {
     start: (id: string, voice?: string, speed?: number) =>

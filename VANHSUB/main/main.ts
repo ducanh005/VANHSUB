@@ -12,6 +12,7 @@ import { polishSubtitleLine } from './ai/geminiClient'
 import { TaskRunner } from './asr/taskRunner'
 import { TranslateRunner } from './translate/translateRunner'
 import { ExportRunner } from './render/exportRunner'
+import type { MaskRegion } from './render/videoRenderer'
 import { TTSRunner } from './render/ttsRunner'
 import { DubbingRunner } from './render/dubbingRunner'
 import { checkVietTtsConnection, getAvailableVoices, previewTts } from './render/ttsEngine'
@@ -284,13 +285,16 @@ ipcMain.handle('translate:start', async (_event, id: string, targetLanguage?: st
   return true
 })
 
-// Xuất video qua ExportRunner
-ipcMain.handle('export:start', async (_event, id: string, mode: 'hardsub' | 'softsub') => {
-  ExportRunner.runExport(id, mode, () => {
-    broadcastTasksUpdate()
-  })
-  return true
-})
+// Xuất video qua ExportRunner (mask: tùy chọn che vùng phụ đề cũ khi hardsub)
+ipcMain.handle(
+  'export:start',
+  async (_event, id: string, mode: 'hardsub' | 'softsub', mask?: MaskRegion | null) => {
+    ExportRunner.runExport(id, mode, mask, () => {
+      broadcastTasksUpdate()
+    })
+    return true
+  }
+)
 
 // Tạo lồng tiếng bằng VietTTS
 ipcMain.handle('tts:start', async (_event, id: string, voice?: string, speed?: number) => {

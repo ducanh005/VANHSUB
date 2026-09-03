@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { CheckCircle2, Film, FolderOpen, Layers, Loader2, Play } from 'lucide-react';
 import type { Task } from '../types/task';
+import type { SubMaskRegion } from '../types/electron';
 
 type Props = {
   tasks: Task[];
@@ -28,9 +29,17 @@ const MODES: Array<{
   },
 ];
 
+const DEFAULT_MASK: SubMaskRegion = {
+  position: 'bottom',
+  heightPercent: 22,
+  mode: 'blur',
+};
+
 export default function ExportPage({ tasks }: Props) {
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [mode, setMode] = useState<ExportMode>('hardsub');
+  const [maskEnabled, setMaskEnabled] = useState(false);
+  const [mask, setMask] = useState<SubMaskRegion>(DEFAULT_MASK);
   const [message, setMessage] = useState('');
   const [isError, setIsError] = useState(false);
 
@@ -43,7 +52,8 @@ export default function ExportPage({ tasks }: Props) {
     setMessage('');
     setIsError(false);
     try {
-      await window.vanhsub.export.start(selectedTaskId, mode);
+      const maskParam = mode === 'hardsub' && maskEnabled ? mask : null;
+      await window.vanhsub.export.start(selectedTaskId, mode, maskParam);
       setMessage(`Đã bắt đầu xuất video (${mode === 'hardsub' ? 'Hardsub' : 'Softsub'})...`);
     } catch (err: any) {
       setIsError(true);
@@ -130,6 +140,74 @@ export default function ExportPage({ tasks }: Props) {
               );
             })}
           </div>
+
+          {/* Tùy chọn che vùng phụ đề cũ (chỉ dùng cho Hardsub) */}
+          {mode === 'hardsub' && (
+            <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4">
+              <label className="flex items-center gap-2 text-xs font-semibold text-slate-200 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={maskEnabled}
+                  onChange={(e) => setMaskEnabled(e.target.checked)}
+                  disabled={isExporting}
+                  className="h-4 w-4 rounded border-slate-700 bg-slate-800 text-brand-cyan focus:ring-0"
+                />
+                <span>Che vùng phụ đề cũ trong video (phụ đề nước ngoài in sẵn)</span>
+              </label>
+
+              {maskEnabled && (
+                <div className="mt-3 flex flex-wrap items-center gap-4 border-t border-slate-800/80 pt-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-slate-400">Vị trí:</span>
+                    <select
+                      value={mask.position}
+                      onChange={(e) =>
+                        setMask((m) => ({ ...m, position: e.target.value as 'bottom' | 'top' }))
+                      }
+                      disabled={isExporting}
+                      className="rounded-xl border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs text-slate-200 focus:outline-none"
+                    >
+                      <option value="bottom">Đáy khung hình</option>
+                      <option value="top">Đầu khung hình</option>
+                    </select>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-slate-400">Độ cao dải che:</span>
+                    <input
+                      type="range"
+                      min={5}
+                      max={50}
+                      step={1}
+                      value={mask.heightPercent}
+                      onChange={(e) => setMask((m) => ({ ...m, heightPercent: Number(e.target.value) }))}
+                      disabled={isExporting}
+                      className="w-36 accent-cyan-400"
+                    />
+                    <span className="w-10 font-mono text-xs text-brand-cyan">{mask.heightPercent}%</span>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-slate-400">Kiểu che:</span>
+                    <select
+                      value={mask.mode}
+                      onChange={(e) => setMask((m) => ({ ...m, mode: e.target.value as 'solid' | 'blur' }))}
+                      disabled={isExporting}
+                      className="rounded-xl border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs text-slate-200 focus:outline-none"
+                    >
+                      <option value="blur">Làm mờ (giữ mờ khung hình)</option>
+                      <option value="solid">Tô đen hoàn toàn</option>
+                    </select>
+                  </div>
+
+                  <p className="w-full text-[11px] leading-relaxed text-slate-500">
+                    Vùng che được áp trước khi ghi phụ đề mới, nhờ đó sub tiếng Việt không đè chồng lên
+                    chữ cũ. Nếu chưa đúng vị trí, thử tăng/giảm độ cao dải che.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Thông tin xuất + nút */}
           <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4">

@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { TaskStore, type Task } from '../store/taskStore';
 import { SettingsStore } from '../store/settingsStore';
-import { burnHardsub, muxSoftsub } from './videoRenderer';
+import { burnHardsub, muxSoftsub, type MaskRegion } from './videoRenderer';
 
 export class ExportRunner {
   private static runningExports = new Set<string>();
@@ -14,6 +14,7 @@ export class ExportRunner {
   static async runExport(
     taskId: string,
     mode: 'hardsub' | 'softsub',
+    mask?: MaskRegion | null,
     onUpdate?: () => void
   ): Promise<Task | undefined> {
     const task = TaskStore.getById(taskId);
@@ -56,6 +57,7 @@ export class ExportRunner {
           videoPath,
           srtPath,
           outputPath,
+          mask: mask || null,
           onProgress: (percent) => {
             TaskStore.update(taskId, {
               progress: percent,

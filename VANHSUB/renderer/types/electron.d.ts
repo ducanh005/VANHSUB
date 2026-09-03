@@ -13,6 +13,15 @@ export type SettingKey =
   | 'ttsVoice'
   | 'ttsSpeed';
 
+export interface SubMaskRegion {
+  /** Vị trí dải che — phụ đề phim thường nằm ở đáy khung hình */
+  position: 'bottom' | 'top';
+  /** Chiều cao dải che theo % chiều cao khung hình (5-50) */
+  heightPercent: number;
+  /** solid = tô đen, blur = làm mờ vùng đó */
+  mode: 'solid' | 'blur';
+}
+
 export interface VanhsubAPI {
   tasks: {
     getAll: () => Promise<Task[]>;
@@ -50,7 +59,7 @@ export interface VanhsubAPI {
     start: (id: string, replaceAudio?: boolean) => Promise<boolean>;
   };
   export: {
-    start: (id: string, mode: 'hardsub' | 'softsub') => Promise<boolean>;
+    start: (id: string, mode: 'hardsub' | 'softsub', mask?: SubMaskRegion | null) => Promise<boolean>;
   };
   models: {
     list: () => Promise<Array<{ name: string; fileName: string; size: string }>>;

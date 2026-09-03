@@ -29,11 +29,53 @@ function escapeFfmpegSubtitlesPath(srtPath: string): string {
   return escaped;
 }
 
+/**
+ * Vùng che phụ đề cũ (hardsub gốc in sẵn trong video):
+ * áp dụng filter che TRƯỚC filter subtitles để phụ đề mới không đè lên chữ cũ.
+ */
+export interface MaskRegion {
+  /** Vị trí dải che — phụ đề phim thường nằm ở đáy khung hình */
+  position: 'bottom' | 'top';
+  /** Chiều cao dải che theo % chiều cao khung hình (5-50) */
+  heightPercent: number;
+  /** solid = tô đen, blur = làm mờ vùng đó (vẫn lộ mờ khung hình gốc) */
+  mode: 'solid' | 'blur';
+}
+
 export interface RenderOptions {
   videoPath: string;
   srtPath: string;
   outputPath: string;
+  /** Che vùng phụ đề cũ trước khi ghi phụ đề mới (mặc định: không che) */
+  mask?: MaskRegion | null;
   onProgress?: (percent: number) => void;
+}
+
+/** Chuẩn hoá chiều cao dải che về khoảng hợp lệ */
+function clampMaskHeight(heightPercent: number): number {
+  return Math.min(50, Math.max(5, Math.round(heightPercent || 22)));
+}
+
+/**
+ * Sinh đoạn filter che dải phụ đề cũ (dùng trong filter_complex).
+ * Dùng biến ih/iw của ffmpeg nên tự scale theo mọi độ phân giải video.
+ */
+function buildMaskFilter(mask: MaskRegion): string {
+  const height = clampMaskHeight(mask.heightPercent);
+  const bandH = `ih*${height}/100`;
+  const bandY = mask.position === 'top' ? '0' : `ih-${bandH}`;
+
+  if (mask.mode === 'blur') {
+    // Tách dải phụ đề ra làm mờ rồi chồng lại đúng vị trí.
+    // Lưu ý: filter overlay KHÔNG có biến `ih` — biểu thức y phải dùng `main_h`.
+    const overlayY = mask.position === 'top' ? '0' : `main_h-main_h*${height}/100`;
+    return (
+      `[0:v]split=2[base][bandsrc];` +
+      `[bandsrc]crop=iw:${bandH}:0:${bandY},boxblur=16:2[band];` +
+      `[base][band]overlay=0:${overlayY}`
+    );
+  }
+  return `drawbox=x=0:y=${bandY}:w=iw:h=${bandH}:color=black@1:t=fill`;
 }
 
 /**
@@ -103,8 +145,22 @@ export async function burnHardsub(options: RenderOptions): Promise<void> {
       }
     };
 
-    ffmpeg(videoPath)
-      .videoFilters(`subtitles=filename='${escapedSubPath}'`)
+    const maskFilter = options.mask ? buildMaskFilter(options.mask) : null;
+
+    const command = ffmpeg(videoPath);
+    if (maskFilter) {
+      // Có che phụ đề cũ: dựng chain filter_complex — che TRƯỚC rồi mới ghi phụ đề mới
+      command.outputOptions([
+        '-filter_complex',
+        `${maskFilter},subtitles=filename='${escapedSubPath}'[vout]`,
+        '-map', '[vout]',
+        '-map', '0:a:0?',
+      ]);
+    } else {
+      command.videoFilters(`subtitles=filename='${escapedSubPath}'`);
+    }
+
+    command
       .videoCodec('libx264')
       .outputOptions([
         '-crf 23',
