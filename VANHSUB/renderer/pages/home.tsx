@@ -68,7 +68,7 @@ const getWorkflows = (): Array<{
     icon: Sparkles,
     gradient: 'from-brand-cyan/15 via-brand-indigo/15 to-brand-rose/15',
     borderGlow: 'hover:border-brand-indigo/50',
-    models: ['PhoWhisper', 'Gemini 2.0', 'VietTTS'],
+    models: ['Whisper ASR', 'Gemini 2.0', 'VietTTS'],
   },
   {
     id: 'bilingual-sub' as WorkflowType,
@@ -88,7 +88,7 @@ const getWorkflows = (): Array<{
     icon: Zap,
     gradient: 'from-emerald-500/15 to-brand-cyan/10',
     borderGlow: 'hover:border-emerald-500/50',
-    models: ['PhoWhisper Base'],
+    models: ['Whisper Base'],
   },
 ];
 
@@ -131,6 +131,7 @@ export default function HomePage() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [asrModel, setAsrModel] = useState('base');
 
   const loadTasks = useCallback(async () => {
     if (typeof window !== 'undefined' && window.vanhsub?.tasks) {
@@ -163,6 +164,16 @@ export default function HomePage() {
     setCurrentDateStr(now.toLocaleDateString('vi-VN', options));
 
     loadTasks();
+
+    // Model ASR đang đặt trong Cài đặt (hiển thị ở widget AI Engine + Cấu hình mô hình)
+    if (typeof window !== 'undefined' && window.vanhsub?.settings) {
+      window.vanhsub.settings
+        .get('asrModel')
+        .then((v: string) => {
+          if (v) setAsrModel(String(v));
+        })
+        .catch(() => {});
+    }
 
     if (typeof window !== 'undefined' && window.vanhsub?.tasks?.onUpdate) {
       const unsubscribe = window.vanhsub.tasks.onUpdate((updatedTasks) => {
@@ -343,7 +354,7 @@ export default function HomePage() {
             <div className="space-y-1.5 text-[11px] text-slate-400">
               <div className="flex items-center justify-between">
                 <span>ASR Model</span>
-                <span className="font-mono text-slate-300">PhoWhisper v1</span>
+                <span className="font-mono text-slate-300">Whisper {asrModel}</span>
               </div>
               <div className="flex items-center justify-between">
                 <span>Translate</span>
@@ -675,7 +686,7 @@ export default function HomePage() {
                 <div className="space-y-2.5 text-xs">
                   <div className="flex items-center justify-between rounded-xl border border-slate-800/60 bg-slate-900/80 p-2.5">
                     <span className="text-slate-300">Nhận diện ASR</span>
-                    <span className="font-medium text-white">PhoWhisper (VinAI)</span>
+                    <span className="font-medium text-white">Whisper {asrModel}</span>
                   </div>
                   <div className="flex items-center justify-between rounded-xl border border-slate-800/60 bg-slate-900/80 p-2.5">
                     <span className="text-slate-300">Dịch thuật</span>

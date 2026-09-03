@@ -8,7 +8,8 @@ import { nodewhisper } from 'nodejs-whisper';
 export interface TranscribeOptions {
   /**
    * Tên model whisper cần dùng, vd: 'base', 'small', 'medium'.
-   * Sau này khi convert xong PhoWhisper sang ggml, thêm giá trị tương ứng vào đây.
+   * nodejs-whisper hỗ trợ sẵn định dạng ggml của Whisper (đa ngôn ngữ),
+   * gồm cả tiếng Việt — không cần model riêng như PhoWhisper.
    */
   modelName?: string;
 
