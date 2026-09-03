@@ -24,6 +24,8 @@ export interface Task {
   ttsVoice?: string;
   ttsSpeed?: number;
   ttsAudioDir?: string;
+  /** Gán giọng riêng theo dòng phụ đề: key = số dòng SRT (chuỗi), value = tên giọng */
+  ttsVoiceOverrides?: Record<string, string>;
   createdAt: string;
   updatedAt: string;
 }
