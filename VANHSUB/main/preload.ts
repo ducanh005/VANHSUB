@@ -10,6 +10,8 @@ const vanhsub = {
     start: (id: string) => ipcRenderer.invoke('tasks:start', id),
     readSrt: (srtPath: string) => ipcRenderer.invoke('tasks:readSrt', srtPath),
     writeSrt: (srtPath: string, content: string) => ipcRenderer.invoke('tasks:writeSrt', srtPath, content),
+    importSrt: (id: string, sourceSrtPath: string) =>
+      ipcRenderer.invoke('tasks:importSrt', id, sourceSrtPath),
 
     onUpdate: (callback: (tasks: any[]) => void) => {
       const subscription = (_event: any, tasks: any[]) => callback(tasks)
@@ -54,6 +56,7 @@ const vanhsub = {
   },
   dialog: {
     openMediaFile: () => ipcRenderer.invoke('dialog:openMediaFile'),
+    openSrtFile: () => ipcRenderer.invoke('dialog:openSrtFile'),
     showInFolder: (filePath: string) => ipcRenderer.invoke('dialog:showInFolder', filePath),
     chooseDirectory: () => ipcRenderer.invoke('dialog:chooseDirectory'),
   },

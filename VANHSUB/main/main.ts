@@ -239,6 +239,38 @@ ipcMain.handle('tasks:writeSrt', async (_event, srtPath: string, content: string
   return true
 })
 
+// Nhập file SRT có sẵn cho task (video đã có phụ đề, bỏ qua bước phiên âm):
+// copy vào thư mục video để hiệu đính không đụng vào file gốc của người dùng
+ipcMain.handle('tasks:importSrt', async (_event, id: string, sourceSrtPath: string) => {
+  const task = TaskStore.getById(id)
+  if (!task) throw new Error(`Không tìm thấy tác vụ ID: ${id}`)
+  if (!fs.existsSync(sourceSrtPath)) {
+    throw new Error(`File SRT không tồn tại: ${sourceSrtPath}`)
+  }
+  if (path.extname(sourceSrtPath).toLowerCase() !== '.srt') {
+    throw new Error('Chỉ hỗ trợ file .srt')
+  }
+
+  const videoDir = path.dirname(task.filePath)
+  const base = path.basename(task.fileName, path.extname(task.fileName))
+
+  // Không ghi đè file đã tồn tại — thêm _1, _2...
+  let target = path.join(videoDir, `${base}.srt`)
+  let n = 1
+  while (fs.existsSync(target)) {
+    target = path.join(videoDir, `${base}_${n++}.srt`)
+  }
+
+  fs.copyFileSync(sourceSrtPath, target)
+
+  const updated = TaskStore.update(id, {
+    srtPath: target,
+    stageDescription: 'Đã nhập phụ đề có sẵn — có thể dịch hoặc hiệu đính ngay',
+  })
+  broadcastTasksUpdate()
+  return updated
+})
+
 // =========================================================================
 // SETTINGS & AI IPC HANDLERS
 // =========================================================================
@@ -439,6 +471,21 @@ ipcMain.handle('dialog:openMediaFile', async () => {
 
 ipcMain.handle('dialog:showInFolder', async (_event, filePath: string) => {
   shell.showItemInFolder(filePath)
+})
+
+// Chọn file .srt có sẵn (dùng cho "Nhập phụ đề" trên task)
+ipcMain.handle('dialog:openSrtFile', async () => {
+  if (!mainWindow) return null
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: 'Chọn file phụ đề .srt',
+    properties: ['openFile'],
+    filters: [
+      { name: 'Phụ đề SubRip', extensions: ['srt'] },
+      { name: 'Tất cả file', extensions: ['*'] },
+    ],
+  })
+  if (result.canceled || result.filePaths.length === 0) return null
+  return result.filePaths[0]
 })
 
 // Chọn thư mục (dùng cho cài đặt thư mục xuất mặc định ở trang Settings)

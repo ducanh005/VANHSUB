@@ -32,6 +32,7 @@ export interface VanhsubAPI {
     start: (id: string) => Promise<boolean>;
     readSrt: (srtPath: string) => Promise<string>;
     writeSrt: (srtPath: string, content: string) => Promise<boolean>;
+    importSrt: (id: string, sourceSrtPath: string) => Promise<Task | undefined>;
 
     onUpdate: (callback: (tasks: Task[]) => void) => () => void;
   };
@@ -79,6 +80,7 @@ export interface VanhsubAPI {
   };
   dialog: {
     openMediaFile: () => Promise<string[] | null>;
+    openSrtFile: () => Promise<string | null>;
     showInFolder: (filePath: string) => Promise<void>;
     chooseDirectory: () => Promise<string | null>;
   };
