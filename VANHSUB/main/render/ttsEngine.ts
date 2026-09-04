@@ -6,6 +6,8 @@ import { SettingsStore } from '../store/settingsStore';
 interface TTSOptions {
   voice?: string;
   speed?: number;
+  /** Giọng riêng cho từng dòng phụ đề: key = số dòng SRT (chuỗi), đè lên giọng chung */
+  voiceOverrides?: Record<string, string>;
 }
 
 interface SubtitleLine {
@@ -122,10 +124,12 @@ export async function generateTtsFromSrt(
     onProgress?.(i + 1, subtitles.length);
 
     try {
-      console.log(`[TTS] Đang xử lý dòng ${i + 1}/${subtitles.length}: "${sub.text.slice(0, 50)}..."`);
+      // Dòng được gán giọng riêng trong voiceOverrides sẽ đè lên giọng chung
+      const lineVoice = options?.voiceOverrides?.[String(sub.index)] || voice;
+      console.log(`[TTS] Đang xử lý dòng ${i + 1}/${subtitles.length} (${lineVoice}): "${sub.text.slice(0, 50)}..."`);
 
       // Generate audio từ text subtitle
-      const audioBuffer = await generateAudio(sub.text, voice, speed);
+      const audioBuffer = await generateAudio(sub.text, lineVoice, speed);
 
       // Lưu file audio với tên định dạng: subtitle_XXX.mp3
       const audioFileName = `subtitle_${String(sub.index).padStart(4, '0')}.mp3`;
