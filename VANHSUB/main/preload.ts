@@ -36,8 +36,8 @@ const vanhsub = {
       ipcRenderer.invoke('export:start', id, mode, mask ?? null),
   },
   tts: {
-    start: (id: string, voice?: string, speed?: number) =>
-      ipcRenderer.invoke('tts:start', id, voice, speed),
+    start: (id: string, voice?: string, speed?: number, voiceOverrides?: Record<string, string>) =>
+      ipcRenderer.invoke('tts:start', id, voice, speed, voiceOverrides),
     voices: () => ipcRenderer.invoke('tts:voices'),
     checkConnection: () => ipcRenderer.invoke('tts:check-connection'),
     preview: (text: string, voice?: string, speed?: number) =>

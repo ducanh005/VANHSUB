@@ -14,7 +14,8 @@ export class TTSRunner {
     taskId: string,
     voice?: string,
     speed?: number,
-    onUpdate?: () => void
+    onUpdate?: () => void,
+    voiceOverrides?: Record<string, string>
   ): Promise<Task | undefined> {
     const task = TaskStore.getById(taskId);
     if (!task) throw new Error(`Không tìm thấy tác vụ ID: ${taskId}`);
@@ -35,11 +36,16 @@ export class TTSRunner {
     const speedToUse = speed || task.ttsSpeed || SettingsStore.get('ttsSpeed') || 1.0;
 
     try {
+      // Chỉ ghi đè ttsVoiceOverrides khi caller truyền gán giọng mới —
+      // nếu không sẽ xoá mất gán giọng cũ đã lưu trên task
       TaskStore.update(taskId, {
         status: 'dubbing',
         progress: 0,
         ttsVoice: voiceToUse,
         ttsSpeed: speedToUse,
+        ...(voiceOverrides && Object.keys(voiceOverrides).length > 0
+          ? { ttsVoiceOverrides: voiceOverrides }
+          : {}),
         stageDescription: 'Đang khởi tạo tạo lồng tiếng AI...',
       });
       onUpdate?.();
@@ -56,6 +62,7 @@ export class TTSRunner {
         {
           voice: voiceToUse,
           speed: speedToUse,
+          voiceOverrides: voiceOverrides || task.ttsVoiceOverrides,
         },
         (current, total) => {
           const progress = Math.round((current / total) * 100);

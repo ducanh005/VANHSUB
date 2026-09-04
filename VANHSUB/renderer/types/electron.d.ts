@@ -46,7 +46,12 @@ export interface VanhsubAPI {
     start: (id: string, targetLanguage?: string) => Promise<boolean>;
   };
   tts: {
-    start: (id: string, voice?: string, speed?: number) => Promise<boolean>;
+    start: (
+      id: string,
+      voice?: string,
+      speed?: number,
+      voiceOverrides?: Record<string, string>
+    ) => Promise<boolean>;
     voices: () => Promise<string[]>;
     checkConnection: () => Promise<boolean>;
     preview: (

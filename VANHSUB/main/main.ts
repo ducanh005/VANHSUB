@@ -296,13 +296,16 @@ ipcMain.handle(
   }
 )
 
-// Tạo lồng tiếng bằng VietTTS
-ipcMain.handle('tts:start', async (_event, id: string, voice?: string, speed?: number) => {
-  TTSRunner.runTTS(id, voice, speed, () => {
-    broadcastTasksUpdate()
-  })
-  return true
-})
+// Tạo lồng tiếng bằng VietTTS (voiceOverrides: gán giọng riêng theo dòng phụ đề)
+ipcMain.handle(
+  'tts:start',
+  async (_event, id: string, voice?: string, speed?: number, voiceOverrides?: Record<string, string>) => {
+    TTSRunner.runTTS(id, voice, speed, () => {
+      broadcastTasksUpdate()
+    }, voiceOverrides)
+    return true
+  }
+)
 
 // Lấy danh sách giọng nói có sẵn
 ipcMain.handle('tts:voices', async () => {
