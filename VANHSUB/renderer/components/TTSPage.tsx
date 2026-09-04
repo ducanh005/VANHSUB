@@ -10,9 +10,12 @@ import {
   Volume2,
   XCircle,
   Zap,
+  Users,
+  X,
 } from 'lucide-react';
 import type { Task } from '../types/task';
 import { VOICE_OPTIONS, SPEED_OPTIONS, voiceLabel, speedLabel } from '../lib/ttsOptions';
+import { parseSrt, type SrtLine } from '../lib/srt';
 
 type Props = {
   tasks: Task[];
@@ -62,12 +65,83 @@ export default function TTSPage({ tasks }: Props) {
   const [startingDubbing, setStartingDubbing] = useState(false);
   const previewAudioRef = useRef<HTMLAudioElement | null>(null);
 
+  // Gán giọng riêng theo từng dòng phụ đề
+  const [showVoicePanel, setShowVoicePanel] = useState(false);
+  const [srtLines, setSrtLines] = useState<SrtLine[]>([]);
+  const [voiceOverrides, setVoiceOverrides] = useState<Record<string, string>>({});
+  const [linePreviewing, setLinePreviewing] = useState<number | null>(null);
+
   const selectedTask = tasks.find((t) => t.id === selectedTaskId) || null;
   const isTtsRunning = selectedTask?.status === 'dubbing';
   const isDubbingRunning = selectedTask?.status === 'exporting';
   const hasSrtFile = !!selectedTask?.srtPath;
   const hasTtsAudio = !!selectedTask?.ttsAudioDir && !isTtsRunning;
   const dubbedOutput = selectedTask?.outputPath;
+  const customVoiceCount = Object.keys(voiceOverrides).length;
+
+  // Reset trạng thái gán giọng khi đổi tác vụ
+  useEffect(() => {
+    setShowVoicePanel(false);
+    setSrtLines([]);
+    setVoiceOverrides({});
+    setLinePreviewing(null);
+  }, [selectedTaskId]);
+
+  // Mở/đóng bảng gán giọng; lần đầu mở sẽ tải danh sách dòng phụ đề
+  // (dùng đúng file TTS sẽ đọc: bản dịch nếu có, không thì bản gốc)
+  const toggleVoicePanel = async () => {
+    const next = !showVoicePanel;
+    setShowVoicePanel(next);
+    if (next && srtLines.length === 0) {
+      const srtPath = selectedTask?.translatedSrtPath || selectedTask?.srtPath;
+      if (!srtPath || typeof window === 'undefined' || !window.vanhsub?.tasks?.readSrt) return;
+      try {
+        const content = await window.vanhsub.tasks.readSrt(srtPath);
+        setSrtLines(parseSrt(content));
+        // Khôi phục gán giọng đã lưu trên task (nếu có)
+        setVoiceOverrides(selectedTask?.ttsVoiceOverrides || {});
+      } catch {
+        // bỏ qua — panel sẽ hiện trạng thái rỗng
+      }
+    }
+  };
+
+  // Đặt/xoá giọng của 1 dòng. Key là số dòng SRT (1-based) — trùng với
+  // sub.index mà ttsEngine dùng khi tạo file audio.
+  const setLineVoice = (lineNumber: number, voice: string) => {
+    setVoiceOverrides((prev) => {
+      const next = { ...prev };
+      if (voice) {
+        next[String(lineNumber)] = voice;
+      } else {
+        delete next[String(lineNumber)];
+      }
+      return next;
+    });
+  };
+
+  // Nghe thử 1 dòng với giọng sẽ gán (hoặc giọng chung nếu để mặc định)
+  const handlePreviewLine = async (lineNumber: number, text: string, lineVoice: string) => {
+    setMessage('');
+    setIsError(false);
+    setLinePreviewing(lineNumber);
+    try {
+      const res = await window.vanhsub.tts.preview(
+        text.slice(0, 300),
+        lineVoice || voice,
+        speed
+      );
+      previewAudioRef.current?.pause();
+      if (!previewAudioRef.current) previewAudioRef.current = new Audio();
+      previewAudioRef.current.src = `data:${res.mimeType};base64,${res.audioBase64}`;
+      await previewAudioRef.current.play();
+    } catch (err: any) {
+      setIsError(true);
+      setMessage(err?.message || 'Không thể nghe thử dòng này. Kiểm tra kết nối VietTTS.');
+    } finally {
+      setLinePreviewing(null);
+    }
+  };
 
   const checkConnection = useCallback(async () => {
     if (typeof window === 'undefined' || !window.vanhsub?.tts?.checkConnection) return;
@@ -143,7 +217,7 @@ export default function TTSPage({ tasks }: Props) {
     }
 
     try {
-      await window.vanhsub.tts.start(selectedTaskId, voice, speed);
+      await window.vanhsub.tts.start(selectedTaskId, voice, speed, voiceOverrides);
       setMessage('Đã gửi yêu cầu tạo lồng tiếng — theo dõi tiến trình bên dưới.');
     } catch (err: any) {
       setIsError(true);
@@ -273,6 +347,24 @@ export default function TTSPage({ tasks }: Props) {
             <span>{previewing ? 'Đang tạo...' : 'Nghe thử'}</span>
           </button>
 
+          <button
+            type="button"
+            onClick={toggleVoicePanel}
+            disabled={!selectedTaskId || !hasSrtFile || isTtsRunning || isDubbingRunning}
+            title="Gán giọng đọc riêng cho từng dòng phụ đề"
+            className={[
+              'inline-flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold transition cursor-pointer disabled:cursor-not-allowed disabled:opacity-50',
+              showVoicePanel || customVoiceCount > 0
+                ? 'border-brand-rose/50 bg-brand-rose/10 text-brand-rose hover:bg-brand-rose/20'
+                : 'border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-700',
+            ].join(' ')}
+          >
+            <Users className="h-3.5 w-3.5" />
+            <span>
+              Gán giọng theo câu{customVoiceCount > 0 ? ` (${customVoiceCount})` : ''}
+            </span>
+          </button>
+
           {message && (
             <span
               className={`max-w-[340px] truncate text-xs font-mono ${isError ? 'text-rose-400' : 'text-brand-cyan'}`}
@@ -297,6 +389,109 @@ export default function TTSPage({ tasks }: Props) {
           <span>{isTtsRunning ? 'Đang tạo audio...' : 'Tạo audio lồng tiếng'}</span>
         </button>
       </div>
+
+      {/* Bảng gán giọng theo từng dòng phụ đề */}
+      {showVoicePanel && selectedTaskId && (
+        <div className="flex flex-col overflow-hidden rounded-2xl border border-slate-800 bg-slate-900/80">
+          <div className="flex items-center justify-between border-b border-slate-800/80 px-4 py-2.5">
+            <div className="flex items-center gap-2 text-xs font-semibold text-slate-200">
+              <Users className="h-3.5 w-3.5 text-brand-rose" />
+              <span>
+                Gán giọng theo câu ({srtLines.length} dòng
+                {customVoiceCount > 0 ? ` · ${customVoiceCount} dòng giọng riêng` : ''})
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              {customVoiceCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setVoiceOverrides({})}
+                  className="rounded-lg border border-slate-700 bg-slate-800 px-2.5 py-1 text-[11px] font-medium text-slate-300 hover:bg-slate-700 cursor-pointer"
+                >
+                  Về giọng chung tất cả
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setShowVoicePanel(false)}
+                title="Đóng bảng gán giọng"
+                className="flex h-6 w-6 items-center justify-center rounded-lg border border-slate-700 bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-slate-200 cursor-pointer"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          </div>
+
+          <div className="max-h-[320px] flex-1 space-y-1.5 overflow-y-auto p-3">
+            {srtLines.length === 0 ? (
+              <div className="py-6 text-center text-xs text-slate-500">
+                Đang tải danh sách dòng phụ đề...
+              </div>
+            ) : (
+              srtLines.map((line, i) => {
+                const lineNumber = i + 1; // trùng số dòng SRT mà ttsEngine dùng
+                const lineVoice = voiceOverrides[String(lineNumber)] || '';
+                return (
+                  <div
+                    key={line.id}
+                    className={[
+                      'flex items-center gap-2 rounded-xl border p-2 text-xs',
+                      lineVoice
+                        ? 'border-brand-rose/40 bg-brand-rose/5'
+                        : 'border-slate-800/80 bg-slate-900/80',
+                    ].join(' ')}
+                  >
+                    <span className="w-8 shrink-0 rounded-md bg-slate-800 px-1.5 py-0.5 text-center font-mono text-[10px] font-bold text-brand-cyan">
+                      {lineNumber}
+                    </span>
+                    <p
+                      className="min-w-0 flex-1 truncate text-slate-300"
+                      title={line.text}
+                    >
+                      {line.text}
+                    </p>
+                    <select
+                      value={lineVoice}
+                      onChange={(e) => setLineVoice(lineNumber, e.target.value)}
+                      disabled={isTtsRunning || isDubbingRunning}
+                      className={[
+                        'w-36 shrink-0 rounded-lg border px-2 py-1 text-[11px] focus:outline-none disabled:opacity-50',
+                        lineVoice
+                          ? 'border-brand-rose/50 bg-slate-800 text-brand-rose'
+                          : 'border-slate-700 bg-slate-800 text-slate-300',
+                      ].join(' ')}
+                    >
+                      <option value="">Mặc định ({voiceLabel(voice)})</option>
+                      {voiceList.map((v) => (
+                        <option key={v} value={v}>
+                          {voiceLabel(v)}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => handlePreviewLine(lineNumber, line.text, lineVoice)}
+                      disabled={linePreviewing !== null || vietTtsConnected === false}
+                      title="Nghe thử dòng này với giọng đã chọn"
+                      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg border border-brand-cyan/40 bg-brand-cyan/10 text-brand-cyan hover:bg-brand-cyan/25 cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      {linePreviewing === lineNumber ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <Play className="h-3 w-3" />
+                      )}
+                    </button>
+                  </div>
+                );
+              })
+            )}
+          </div>
+          <p className="border-t border-slate-800/80 px-4 py-2 text-[11px] text-slate-500">
+            Dòng để "Mặc định" sẽ dùng giọng chung đã chọn ở thanh công cụ. Bấm
+            "Tạo audio lồng tiếng" để áp dụng.
+          </p>
+        </div>
+      )}
 
       {/* Thông báo kết nối */}
       {vietTtsConnected === false && (
