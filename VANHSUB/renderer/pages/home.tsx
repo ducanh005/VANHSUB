@@ -4,6 +4,7 @@ import {
   ArrowRight,
   CheckCircle2,
   Cpu,
+  FileUp,
   FileVideo,
   Film,
   FolderOpen,
@@ -264,6 +265,19 @@ export default function HomePage() {
     e.stopPropagation();
     if (window.vanhsub?.dialog) {
       window.vanhsub.dialog.showInFolder(filePath);
+    }
+  };
+
+  // Nhập file .srt có sẵn cho task (video đã có phụ đề nước ngoài — bỏ qua phiên âm)
+  const handleImportSrt = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (typeof window === 'undefined' || !window.vanhsub?.dialog?.openSrtFile) return;
+    try {
+      const srtPath = await window.vanhsub.dialog.openSrtFile();
+      if (!srtPath) return;
+      await window.vanhsub.tasks.importSrt(id, srtPath);
+    } catch (err) {
+      console.error('Lỗi khi nhập SRT:', err);
     }
   };
 
@@ -608,6 +622,17 @@ export default function HomePage() {
                               <CheckCircle2 className="h-3 w-3" />
                               Đã hoàn thành
                             </span>
+                          )}
+                          {t.status === 'queued' && !t.srtPath && (
+                            <button
+                              type="button"
+                              onClick={(e) => handleImportSrt(t.id, e)}
+                              title="Video đã có phụ đề .srt? Nhập vào để bỏ qua bước phiên âm"
+                              className="inline-flex items-center gap-1.5 rounded-full border border-slate-700 bg-slate-800 px-2.5 py-1 text-[11px] font-medium text-slate-300 hover:bg-slate-700 hover:text-white transition cursor-pointer"
+                            >
+                              <FileUp className="h-3 w-3" />
+                              Nhập SRT
+                            </button>
                           )}
                           {t.status === 'queued' && (
                             <button
