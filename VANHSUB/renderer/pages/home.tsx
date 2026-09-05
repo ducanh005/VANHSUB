@@ -673,6 +673,17 @@ export default function HomePage() {
                               Thử lại
                             </button>
                           )}
+                          {t.status === 'cancelled' && (
+                            <button
+                              type="button"
+                              onClick={(e) => handleStartTask(t.id, e)}
+                              className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-[11px] font-medium text-amber-400 hover:bg-amber-500/20 transition cursor-pointer"
+                              title="Tác vụ đã bị huỷ — bấm để chạy lại"
+                            >
+                              <Play className="h-3 w-3 fill-amber-400" />
+                              Chạy lại
+                            </button>
+                          )}
                           {(t.status === 'transcribing' || t.status === 'translating' || t.status === 'exporting' || t.status === 'dubbing') && (
                             <div className="flex items-center gap-2">
                               <div className="w-20 rounded-full bg-slate-800 h-1.5 overflow-hidden">

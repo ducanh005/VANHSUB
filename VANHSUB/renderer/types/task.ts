@@ -1,4 +1,4 @@
-﻿export type TaskStatus = 'queued' | 'transcribing' | 'translating' | 'exporting' | 'dubbing' | 'done' | 'error';
+﻿export type TaskStatus = 'queued' | 'transcribing' | 'translating' | 'exporting' | 'dubbing' | 'done' | 'error' | 'cancelled';
 
 export type WorkflowType = 'full-dubbing' | 'bilingual-sub' | 'fast-transcribe' | 'custom';
 

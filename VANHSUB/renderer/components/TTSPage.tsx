@@ -381,6 +381,16 @@ export default function TTSPage({ tasks }: Props) {
     window.vanhsub.settings.set('ttsSpeed', speed).catch(() => {});
   }, [speed]);
 
+  const handleCancelTTS = async () => {
+    if (!selectedTaskId) return;
+    try {
+      await window.vanhsub.tts.cancel(selectedTaskId);
+      setMessage('Đã gửi yêu cầu huỷ — dừng sau câu hiện tại.');
+    } catch {
+      // bỏ qua
+    }
+  };
+
   const handleStartTTS = async () => {
     if (!selectedTaskId) return;
     setMessage('');
@@ -567,19 +577,32 @@ export default function TTSPage({ tasks }: Props) {
           )}
         </div>
 
-        <button
-          type="button"
-          onClick={handleStartTTS}
-          disabled={!selectedTaskId || !hasSrtFile || isTtsRunning || isDubbingRunning || vietTtsConnected === false}
-          className="btn-vanh-gradient inline-flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-semibold cursor-pointer disabled:opacity-50"
-        >
-          {isTtsRunning ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <Volume2 className="h-4 w-4" />
+        <div className="flex items-center gap-2">
+          {isTtsRunning && (
+            <button
+              type="button"
+              onClick={handleCancelTTS}
+              title="Huỷ tạo lồng tiếng — dừng sau câu hiện tại"
+              className="inline-flex items-center gap-2 rounded-xl border border-rose-500/40 bg-rose-500/10 px-4 py-2 text-xs font-semibold text-rose-400 hover:bg-rose-500/20 cursor-pointer"
+            >
+              <XCircle className="h-4 w-4" />
+              <span>Huỷ</span>
+            </button>
           )}
-          <span>{isTtsRunning ? 'Đang tạo audio...' : 'Tạo audio lồng tiếng'}</span>
-        </button>
+          <button
+            type="button"
+            onClick={handleStartTTS}
+            disabled={!selectedTaskId || !hasSrtFile || isTtsRunning || isDubbingRunning || vietTtsConnected === false}
+            className="btn-vanh-gradient inline-flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-semibold cursor-pointer disabled:opacity-50"
+          >
+            {isTtsRunning ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Volume2 className="h-4 w-4" />
+            )}
+            <span>{isTtsRunning ? 'Đang tạo audio...' : 'Tạo audio lồng tiếng'}</span>
+          </button>
+        </div>
       </div>
 
       {/* Panel thêm giọng đọc từ file audio mẫu */}

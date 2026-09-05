@@ -2,12 +2,21 @@ import path from 'path';
 import { TaskStore, type Task } from '../store/taskStore';
 import { SettingsStore } from '../store/settingsStore';
 import { generateTtsFromSrt } from '../render/ttsEngine';
+import { isCancelledError } from '../lib/cancel';
 
 export class TTSRunner {
   private static runningTasks = new Set<string>();
+  private static cancelledTasks = new Set<string>();
 
   static isRunning(taskId: string): boolean {
     return this.runningTasks.has(taskId);
+  }
+
+  /** Yêu cầu huỷ: hiệu lực sau khi câu hiện tại tạo audio xong */
+  static cancel(taskId: string): boolean {
+    if (!this.runningTasks.has(taskId)) return false;
+    this.cancelledTasks.add(taskId);
+    return true;
   }
 
   static async runTTS(
@@ -31,6 +40,7 @@ export class TTSRunner {
     }
 
     this.runningTasks.add(taskId);
+    this.cancelledTasks.delete(taskId);
 
     const voiceToUse = voice || task.ttsVoice || SettingsStore.get('ttsVoice') || 'alloy';
     const speedToUse = speed || task.ttsSpeed || SettingsStore.get('ttsSpeed') || 1.0;
@@ -63,6 +73,7 @@ export class TTSRunner {
           voice: voiceToUse,
           speed: speedToUse,
           voiceOverrides: voiceOverrides || task.ttsVoiceOverrides,
+          shouldStop: () => this.cancelledTasks.has(taskId),
         },
         (current, total) => {
           const progress = Math.round((current / total) * 100);
@@ -84,6 +95,15 @@ export class TTSRunner {
 
       return updated;
     } catch (err: any) {
+      if (isCancelledError(err)) {
+        console.log(`Người dùng đã huỷ tạo lồng tiếng task ${taskId}`);
+        const updated = TaskStore.update(taskId, {
+          status: 'cancelled',
+          stageDescription: 'Đã huỷ tạo lồng tiếng',
+        });
+        onUpdate?.();
+        return updated;
+      }
       console.error(`Lỗi khi tạo lồng tiếng task ${taskId}:`, err);
       const updated = TaskStore.update(taskId, {
         status: 'error',
@@ -93,6 +113,7 @@ export class TTSRunner {
       onUpdate?.();
       return updated;
     } finally {
+      this.cancelledTasks.delete(taskId);
       this.runningTasks.delete(taskId);
     }
   }

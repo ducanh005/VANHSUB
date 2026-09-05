@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Globe2, Languages, Loader2, MessageSquareText, RefreshCw } from 'lucide-react';
+import { Globe2, Languages, Loader2, MessageSquareText, RefreshCw, XCircle } from 'lucide-react';
 import type { Task } from '../types/task';
 import { parseSrt, type SrtLine } from '../lib/srt';
 
@@ -98,6 +98,16 @@ export default function TranslatePage({ tasks }: Props) {
     }
   };
 
+  const handleCancelTranslate = async () => {
+    if (!selectedTaskId) return;
+    try {
+      await window.vanhsub.translate.cancel(selectedTaskId);
+      setMessage('Đã gửi yêu cầu huỷ — dừng sau batch hiện tại.');
+    } catch {
+      // bỏ qua
+    }
+  };
+
   // Tự xoá thông báo lỗi khi task chuyển trạng thái
   useEffect(() => {
     if (selectedTask && selectedTask.status !== 'error') return;
@@ -159,21 +169,34 @@ export default function TranslatePage({ tasks }: Props) {
           )}
         </div>
 
-        <button
-          type="button"
-          onClick={handleTranslate}
-          disabled={!selectedTaskId || isTranslating || loading}
-          className="btn-vanh-gradient inline-flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-semibold cursor-pointer disabled:opacity-50"
-        >
-          {isTranslating ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : hasTranslatedSrt ? (
-            <RefreshCw className="h-4 w-4" />
-          ) : (
-            <Languages className="h-4 w-4" />
+        <div className="flex items-center gap-2">
+          {isTranslating && (
+            <button
+              type="button"
+              onClick={handleCancelTranslate}
+              title="Huỷ dịch — dừng sau batch hiện tại"
+              className="inline-flex items-center gap-2 rounded-xl border border-rose-500/40 bg-rose-500/10 px-4 py-2 text-xs font-semibold text-rose-400 hover:bg-rose-500/20 cursor-pointer"
+            >
+              <XCircle className="h-4 w-4" />
+              <span>Huỷ dịch</span>
+            </button>
           )}
-          <span>{isTranslating ? 'Đang dịch...' : hasTranslatedSrt ? 'Dịch lại' : 'Dịch bằng Gemini'}</span>
-        </button>
+          <button
+            type="button"
+            onClick={handleTranslate}
+            disabled={!selectedTaskId || isTranslating || loading}
+            className="btn-vanh-gradient inline-flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-semibold cursor-pointer disabled:opacity-50"
+          >
+            {isTranslating ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : hasTranslatedSrt ? (
+              <RefreshCw className="h-4 w-4" />
+            ) : (
+              <Languages className="h-4 w-4" />
+            )}
+            <span>{isTranslating ? 'Đang dịch...' : hasTranslatedSrt ? 'Dịch lại' : 'Dịch bằng Gemini'}</span>
+          </button>
+        </div>
       </div>
 
       {/* Tiến trình khi đang dịch */}

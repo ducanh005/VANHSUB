@@ -3,12 +3,15 @@ import path from 'path';
 import { OpenAI } from 'openai';
 import { SettingsStore } from '../store/settingsStore';
 import { VoiceSampleStore } from '../store/voiceSampleStore';
+import { CancelledError } from '../lib/cancel';
 
 interface TTSOptions {
   voice?: string;
   speed?: number;
   /** Giọng riêng cho từng dòng phụ đề: key = số dòng SRT (chuỗi), đè lên giọng chung */
   voiceOverrides?: Record<string, string>;
+  /** Trả về true để dừng giữa chừng (huỷ bởi người dùng) — kiểm tra trước mỗi dòng */
+  shouldStop?: () => boolean;
 }
 
 interface SubtitleLine {
@@ -175,6 +178,10 @@ export async function generateTtsFromSrt(
   for (let i = 0; i < subtitles.length; i++) {
     const sub = subtitles[i];
     onProgress?.(i + 1, subtitles.length);
+
+    if (options?.shouldStop?.()) {
+      throw new CancelledError();
+    }
 
     try {
       // Dòng được gán giọng riêng trong voiceOverrides sẽ đè lên giọng chung

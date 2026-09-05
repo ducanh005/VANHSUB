@@ -53,6 +53,7 @@ export interface VanhsubAPI {
   };
   translate: {
     start: (id: string, targetLanguage?: string) => Promise<boolean>;
+    cancel: (id: string) => Promise<boolean>;
   };
   tts: {
     start: (
@@ -61,6 +62,7 @@ export interface VanhsubAPI {
       speed?: number,
       voiceOverrides?: Record<string, string>
     ) => Promise<boolean>;
+    cancel: (id: string) => Promise<boolean>;
     voices: () => Promise<string[]>;
     checkConnection: () => Promise<boolean>;
     preview: (

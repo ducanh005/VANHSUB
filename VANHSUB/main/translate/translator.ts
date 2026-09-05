@@ -4,6 +4,7 @@ import { jsonrepair } from 'jsonrepair';
 import { createGeminiClient, friendlyGeminiError } from '../ai/geminiClient';
 import { SettingsStore } from '../store/settingsStore';
 import { parseSrt, serializeSrt, SrtLine } from '../lib/srt';
+import { CancelledError } from '../lib/cancel';
 
 interface BatchItem {
   i: string;
@@ -18,7 +19,8 @@ interface TranslatedItem {
 export async function translateSrtFile(
   srtPath: string,
   targetLanguage: string = 'vi',
-  onProgress?: (percent: number) => void
+  onProgress?: (percent: number) => void,
+  shouldStop?: () => boolean
 ): Promise<{ translatedSrtPath: string }> {
   if (!fs.existsSync(srtPath)) {
     throw new Error(`File SRT không tồn tại: ${srtPath}`);
@@ -38,6 +40,9 @@ export async function translateSrtFile(
   let previousContext: { original: string; translated: string }[] = [];
 
   for (let b = 0; b < totalBatches; b++) {
+    if (shouldStop?.()) {
+      throw new CancelledError();
+    }
     const batchLines = lines.slice(b * batchSize, (b + 1) * batchSize);
     const itemsToTranslate: BatchItem[] = batchLines.map((l) => ({
       i: l.id,

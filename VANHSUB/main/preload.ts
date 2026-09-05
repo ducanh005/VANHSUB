@@ -32,6 +32,7 @@ const vanhsub = {
   translate: {
     start: (id: string, targetLanguage?: string) =>
       ipcRenderer.invoke('translate:start', id, targetLanguage),
+    cancel: (id: string) => ipcRenderer.invoke('translate:cancel', id),
   },
   export: {
     start: (id: string, mode: 'hardsub' | 'softsub', mask?: unknown) =>
@@ -40,6 +41,7 @@ const vanhsub = {
   tts: {
     start: (id: string, voice?: string, speed?: number, voiceOverrides?: Record<string, string>) =>
       ipcRenderer.invoke('tts:start', id, voice, speed, voiceOverrides),
+    cancel: (id: string) => ipcRenderer.invoke('tts:cancel', id),
     voices: () => ipcRenderer.invoke('tts:voices'),
     checkConnection: () => ipcRenderer.invoke('tts:check-connection'),
     preview: (text: string, voice?: string, speed?: number) =>

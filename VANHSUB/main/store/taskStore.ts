@@ -1,4 +1,4 @@
-import Store from 'electron-store';
+﻿import Store from 'electron-store';
 import { v4 as uuidv4 } from 'uuid';
 
 export type TaskStatus =
@@ -8,7 +8,8 @@ export type TaskStatus =
   | 'exporting'
   | 'dubbing'
   | 'done'
-  | 'error';
+  | 'error'
+  | 'cancelled';
 export type WorkflowType = 'full-dubbing' | 'bilingual-sub' | 'fast-transcribe' | 'custom';
 
 export interface Task {

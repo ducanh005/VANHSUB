@@ -323,6 +323,11 @@ ipcMain.handle('translate:start', async (_event, id: string, targetLanguage?: st
   return true
 })
 
+// Huỷ dịch đang chạy (hiệu lực sau khi batch hiện tại xong)
+ipcMain.handle('translate:cancel', async (_event, id: string) => {
+  return TranslateRunner.cancel(id)
+})
+
 // Xuất video qua ExportRunner (mask: tùy chọn che vùng phụ đề cũ khi hardsub)
 ipcMain.handle(
   'export:start',
@@ -348,6 +353,11 @@ ipcMain.handle(
 // Lấy danh sách giọng nói có sẵn
 ipcMain.handle('tts:voices', async () => {
   return getAvailableVoices()
+})
+
+// Huỷ tạo lồng tiếng đang chạy (hiệu lực sau khi câu hiện tại xong)
+ipcMain.handle('tts:cancel', async (_event, id: string) => {
+  return TTSRunner.cancel(id)
 })
 
 // Kiểm tra kết nối VietTTS
