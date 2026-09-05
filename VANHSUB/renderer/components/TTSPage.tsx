@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  AlertTriangle,
   CheckCircle2,
   FolderOpen,
   Headphones,
@@ -1006,6 +1007,37 @@ export default function TTSPage({ tasks }: Props) {
                   <span>Mở thư mục chứa file</span>
                 </button>
               </div>
+            </div>
+          )}
+
+          {/* Báo cáo câu tràn thời lượng (cập nhật sau mỗi lần dubbing) */}
+          {(selectedTask?.ttsOverruns?.length ?? 0) > 0 && !isDubbingRunning && (
+            <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4">
+              <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-amber-300">
+                <AlertTriangle className="h-4 w-4 text-amber-400" />
+                <span>
+                  {selectedTask!.ttsOverruns!.length} câu tràn thời lượng đã được tăng tốc để vừa khung
+                </span>
+              </div>
+              <div className="max-h-28 space-y-1 overflow-y-auto">
+                {selectedTask!.ttsOverruns!.map((o) => (
+                  <div key={o.index} className="flex items-center gap-2 text-[11px] text-slate-300">
+                    <span className="w-8 shrink-0 rounded bg-slate-800 px-1.5 py-0.5 text-center font-mono text-brand-cyan">
+                      {o.index}
+                    </span>
+                    <span>tăng tốc {o.tempo.toFixed(2)}x</span>
+                    {o.truncated && (
+                      <span className="font-medium text-rose-400">
+                        — tràn quá 1.5x, phần cuối bị cắt: nên rút gọn text rồi tạo lại audio
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <p className="mt-2 text-[11px] text-slate-500">
+                Sửa text ở tab Hiệu đính, dùng nút "Tạo lại" trên dòng tương ứng ở bảng gán giọng,
+                rồi ghép lại video.
+              </p>
             </div>
           )}
 

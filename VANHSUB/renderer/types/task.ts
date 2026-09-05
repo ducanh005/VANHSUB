@@ -26,6 +26,8 @@ export interface Task {
   ttsAudioDir?: string;
   /** Gán giọng riêng theo dòng phụ đề: key = số dòng SRT (chuỗi), value = tên giọng */
   ttsVoiceOverrides?: Record<string, string>;
+  /** Các câu TTS tràn thời lượng khung của nó (cập nhật sau mỗi lần dubbing) */
+  ttsOverruns?: { index: number; tempo: number; truncated: boolean }[];
   createdAt: string;
   updatedAt: string;
 }

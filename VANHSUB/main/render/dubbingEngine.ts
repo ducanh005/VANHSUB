@@ -159,6 +159,16 @@ async function buildSegment(
   return { tempo: 1, truncated: false };
 }
 
+/** Thông tin 1 câu TTS tràn thời lượng khung của nó */
+export interface TtsOverrun {
+  /** Số dòng phụ đề */
+  index: number;
+  /** Hệ số tăng tốc đã áp dụng (1.0 = không tăng tốc) */
+  tempo: number;
+  /** true nếu tràn quá 1.5x và vẫn bị cắt phần cuối */
+  truncated: boolean;
+}
+
 /**
  * Ghép các audio files thành 1 file audio duy nhất đúng timeline SRT:
  * mỗi dòng được pad/cắt về đúng độ dài đoạn của nó rồi nối lại (concat),
@@ -169,7 +179,7 @@ export async function mergeAudioFiles(
   ttsAudioDir: string,
   outputAudioPath: string,
   onProgress?: (percent: number) => void
-): Promise<string> {
+): Promise<{ audioPath: string; overruns: TtsOverrun[] }> {
   const subtitles = parseSrtFile(srtPath);
   if (subtitles.length === 0) {
     throw new Error('File SRT không có dòng phụ đề hợp lệ để ghép audio.');
@@ -186,8 +196,7 @@ export async function mergeAudioFiles(
     console.log(`[Dubbing] Ghép audio ${subtitles.length} dòng theo timeline SRT...`);
 
     const segPaths: string[] = [];
-    let speedUpCount = 0;
-    let truncatedLines: number[] = [];
+    const overruns: TtsOverrun[] = [];
     for (let i = 0; i < subtitles.length; i++) {
       const sub = subtitles[i];
       const next = subtitles[i + 1];
@@ -206,13 +215,12 @@ export async function mergeAudioFiles(
         segPath
       );
       if (tempo > TEMPO_THRESHOLD) {
-        speedUpCount++;
+        overruns.push({ index: sub.index, tempo, truncated });
         console.log(
           `[Dubbing] Dòng ${sub.index} tràn thời lượng → tăng tốc ${tempo.toFixed(2)}x` +
             (truncated ? ' (vượt 1.5x, phần cuối bị cắt)' : '')
         );
       }
-      if (truncated) truncatedLines.push(sub.index);
       segPaths.push(segPath);
 
       if (i % 10 === 0 || i === subtitles.length - 1) {
@@ -232,16 +240,17 @@ export async function mergeAudioFiles(
     ]);
     onProgress?.(100);
 
-    if (speedUpCount > 0) {
+    if (overruns.length > 0) {
+      const truncatedList = overruns.filter((o) => o.truncated);
       console.log(
-        `[Dubbing] Đã tăng tốc ${speedUpCount}/${subtitles.length} câu để vừa timeline` +
-          (truncatedLines.length > 0
-            ? ` — ${truncatedLines.length} câu tràn quá 1.5x còn bị cắt phần cuối: dòng ${truncatedLines.join(', ')}. Nên rút gọn text những dòng này rồi tạo lại audio.`
+        `[Dubbing] Đã tăng tốc ${overruns.length}/${subtitles.length} câu để vừa timeline` +
+          (truncatedList.length > 0
+            ? ` — ${truncatedList.length} câu tràn quá 1.5x còn bị cắt phần cuối: dòng ${truncatedList.map((o) => o.index).join(', ')}. Nên rút gọn text những dòng này rồi tạo lại audio.`
             : '')
       );
     }
     console.log(`[Dubbing] ✓ Audio merge successful: ${outputAudioPath}`);
-    return outputAudioPath;
+    return { audioPath: outputAudioPath, overruns };
   } catch (err) {
     console.error(`[Dubbing] ✗ Audio merge failed:`, err);
     throw new Error(`Không thể ghép audio: ${err}`);
@@ -328,7 +337,7 @@ export async function dubVideo(
     replaceAudio?: boolean;
   },
   onProgress?: (percent: number) => void
-): Promise<{ outputPath: string; mergedAudioPath: string }> {
+): Promise<{ outputPath: string; mergedAudioPath: string; overruns: TtsOverrun[] }> {
   const tempAudioPath = path.join(
     path.dirname(outputVideoPath),
     `.dubbed_audio_${Date.now()}.m4a`
@@ -339,7 +348,7 @@ export async function dubVideo(
 
     // Bước 1: Ghép audio
     onProgress?.(0);
-    await mergeAudioFiles(srtPath, ttsAudioDir, tempAudioPath, (p) => {
+    const { audioPath, overruns } = await mergeAudioFiles(srtPath, ttsAudioDir, tempAudioPath, (p) => {
       onProgress?.(Math.round(p * 0.45)); // 0-45%
     });
 
@@ -356,7 +365,7 @@ export async function dubVideo(
     );
 
     console.log(`[Dubbing] ✓ Full dubbing complete: ${finalPath}`);
-    return { outputPath: finalPath, mergedAudioPath: tempAudioPath };
+    return { outputPath: finalPath, mergedAudioPath: tempAudioPath, overruns };
   } catch (err) {
     console.error(`[Dubbing] ✗ Dubbing pipeline failed:`, err);
     throw err;

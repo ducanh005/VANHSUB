@@ -49,7 +49,7 @@ export class DubbingRunner {
       );
 
       // Chạy full dubbing pipeline
-      const { outputPath: finalPath } = await dubVideo(
+      const { outputPath: finalPath, overruns } = await dubVideo(
         task.filePath,
         task.translatedSrtPath || task.srtPath, // Ưu tiên dùng bản dịch
         task.ttsAudioDir,
@@ -68,7 +68,12 @@ export class DubbingRunner {
         status: 'done',
         progress: 100,
         outputPath: finalPath,
-        stageDescription: 'Đã hoàn tất dubbing video',
+        // Ghi đè báo cáo câu tràn của lần dubbing này (rỗng = không có câu nào tràn)
+        ttsOverruns: overruns,
+        stageDescription:
+          overruns.filter((o) => o.truncated).length > 0
+            ? `Đã hoàn tất dubbing — ${overruns.filter((o) => o.truncated).length} câu tràn quá 1.5x bị cắt phần cuối`
+            : 'Đã hoàn tất dubbing video',
       });
       onUpdate?.();
 
