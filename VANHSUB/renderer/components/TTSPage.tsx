@@ -19,6 +19,7 @@ import {
 import type { Task } from '../types/task';
 import type { VoiceSampleInfo } from '../types/electron';
 import { VOICE_OPTIONS, SPEED_OPTIONS, voiceLabel, speedLabel } from '../lib/ttsOptions';
+import { fullPreviewPlayer, type FullPreviewState } from '../lib/fullPreviewPlayer';
 import { parseSrt, type SrtLine } from '../lib/srt';
 
 type Props = {
@@ -82,10 +83,36 @@ export default function TTSPage({ tasks }: Props) {
   const [addingVoice, setAddingVoice] = useState(false);
   const [voiceSamples, setVoiceSamples] = useState<VoiceSampleInfo[]>([]);
 
-  // Nghe thử toàn bộ phụ đề 1 mạch (phát liên tiếp từng dòng theo giọng đã gán)
-  const [fullPreviewing, setFullPreviewing] = useState(false);
-  const [fullPreviewLine, setFullPreviewLine] = useState<number | null>(null);
-  const fullPreviewAbortRef = useRef(false);
+  // Nghe thử toàn bộ phụ đề 1 mạch — playback sống trong fullPreviewPlayer
+  // (singleton ngoài React) nên chuyển tab rồi quay lại vẫn thấy tiến trình chạy.
+  const fullPreview: FullPreviewState = React.useSyncExternalStore(
+    fullPreviewPlayer.subscribe,
+    fullPreviewPlayer.getState
+  );
+  const fullPreviewing = fullPreview.playing;
+  const fullPreviewLine = fullPreview.currentLine;
+
+  const startFullPreview = (startLine: number = 1) => {
+    if (srtLines.length === 0) return;
+    setMessage('');
+    setIsError(false);
+    // Chụp giọng/speed tại thời điểm bấm — đổi gán giọng trong lúc phát
+    // không ảnh hưởng phiên đang chạy (bấm lại để nghe bản mới)
+    const lines = srtLines.map((line, i) => ({
+      lineNumber: i + 1,
+      text: line.text,
+      voice: voiceOverrides[String(i + 1)] || voice,
+    }));
+    fullPreviewPlayer.start(
+      {
+        lines,
+        fetchAudio: (l) => window.vanhsub.tts.preview(l.text.slice(0, 300), l.voice, speed),
+      },
+      startLine
+    );
+  };
+
+  const stopFullPreview = () => fullPreviewPlayer.stop();
 
   const selectedTask = tasks.find((t) => t.id === selectedTaskId) || null;
   const isTtsRunning = selectedTask?.status === 'dubbing';
@@ -95,9 +122,8 @@ export default function TTSPage({ tasks }: Props) {
   const dubbedOutput = selectedTask?.outputPath;
   const customVoiceCount = Object.keys(voiceOverrides).length;
 
-  // Reset trạng thái gán giọng khi đổi tác vụ
+  // Reset trạng thái gán giọng khi đổi tác vụ (playback 1 mạch vẫn chạy tiếp)
   useEffect(() => {
-    fullPreviewAbortRef.current = true;
     previewAudioRef.current?.pause();
     setShowVoicePanel(false);
     setSrtLines([]);
@@ -105,10 +131,9 @@ export default function TTSPage({ tasks }: Props) {
     setLinePreviewing(null);
   }, [selectedTaskId]);
 
-  // Dọn audio preview khi rời trang
+  // Dọn audio preview đơn lẻ khi rời trang (playback 1 mạch vẫn tiếp tục)
   useEffect(() => {
     return () => {
-      fullPreviewAbortRef.current = true;
       previewAudioRef.current?.pause();
     };
   }, []);
@@ -131,6 +156,21 @@ export default function TTSPage({ tasks }: Props) {
       }
     }
   };
+
+  // Quay lại trang khi đang nghe 1 mạch → mở lại bảng gán giọng để thấy tiến trình
+  const restoredPanelForTask = useRef<number | null>(null);
+  useEffect(() => {
+    if (
+      fullPreview.playing &&
+      selectedTaskId &&
+      restoredPanelForTask.current !== fullPreview.session
+    ) {
+      restoredPanelForTask.current = fullPreview.session;
+      if (!showVoicePanel) void toggleVoicePanel();
+    }
+    // chỉ chạy khi phiên phát mới bắt đầu hoặc lần đầu mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fullPreview.playing, fullPreview.session]);
 
   // Đặt/xoá giọng của 1 dòng. Key là số dòng SRT (1-based) — trùng với
   // sub.index mà ttsEngine dùng khi tạo file audio.
@@ -168,62 +208,6 @@ export default function TTSPage({ tasks }: Props) {
     } finally {
       setLinePreviewing(null);
     }
-  };
-
-  // ---- Nghe thử toàn bộ phụ đề 1 mạch: phát liên tiếp từng dòng theo giọng đã gán ----
-  const handlePlayAllLines = async (startLine: number = 1) => {
-    if (srtLines.length === 0 || fullPreviewing) return;
-    setMessage('');
-    setIsError(false);
-    setFullPreviewing(true);
-    setFullPreviewLine(startLine);
-    fullPreviewAbortRef.current = false;
-
-    previewAudioRef.current?.pause();
-    const audio = previewAudioRef.current ?? (previewAudioRef.current = new Audio());
-
-    // Tải audio của 1 dòng (dùng đúng giọng sẽ gán khi tạo lồng tiếng)
-    const fetchAudio = (idx: number) => {
-      const line = srtLines[idx - 1];
-      if (!line) return null;
-      const lineVoice = voiceOverrides[String(idx)] || voice;
-      return window.vanhsub.tts.preview(line.text.slice(0, 300), lineVoice, speed);
-    };
-
-    try {
-      let current = fetchAudio(startLine);
-      for (let i = startLine; i <= srtLines.length; i++) {
-        if (fullPreviewAbortRef.current) break;
-        setFullPreviewLine(i);
-        const res = await current;
-        if (!res || fullPreviewAbortRef.current) break;
-
-        // Tải trước câu kế tiếp trong lúc câu hiện tại đang phát để giảm khoảng lặng
-        const next = i < srtLines.length ? fetchAudio(i + 1) : null;
-
-        audio.src = `data:${res.mimeType};base64,${res.audioBase64}`;
-        await new Promise<void>((resolve) => {
-          const done = () => resolve();
-          audio.onended = done;
-          audio.onerror = done;
-          audio.onpause = done; // bấm Dừng cũng thoát khỏi vòng lặp
-          audio.play().catch(done);
-        });
-        current = next;
-      }
-    } catch (err: any) {
-      setIsError(true);
-      setMessage(err?.message || 'Không thể nghe thử toàn bộ. Kiểm tra kết nối VietTTS.');
-    } finally {
-      audio.pause();
-      setFullPreviewing(false);
-      setFullPreviewLine(null);
-    }
-  };
-
-  const stopFullPreview = () => {
-    fullPreviewAbortRef.current = true;
-    previewAudioRef.current?.pause();
   };
 
   // Cuộn tới dòng đang phát trong bảng gán giọng
@@ -717,7 +701,7 @@ export default function TTSPage({ tasks }: Props) {
               {fullPreviewing ? (
                 <>
                   <span className="font-mono text-[11px] text-brand-cyan">
-                    Đang nghe: {fullPreviewLine}/{srtLines.length}
+                    Đang nghe: {fullPreviewLine}/{fullPreview.total || srtLines.length}
                   </span>
                   <button
                     type="button"
@@ -732,7 +716,7 @@ export default function TTSPage({ tasks }: Props) {
               ) : (
                 <button
                   type="button"
-                  onClick={() => handlePlayAllLines(1)}
+                  onClick={() => startFullPreview(1)}
                   disabled={srtLines.length === 0 || vietTtsConnected === false || linePreviewing !== null}
                   title="Phát liên tiếp toàn bộ phụ đề để nghe 1 mạch giọng đọc của video"
                   className="inline-flex items-center gap-1.5 rounded-lg border border-brand-cyan/40 bg-brand-cyan/10 px-2.5 py-1 text-[11px] font-semibold text-brand-cyan hover:bg-brand-cyan/20 cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"
@@ -765,7 +749,7 @@ export default function TTSPage({ tasks }: Props) {
             <div className="h-1 w-full overflow-hidden bg-slate-800">
               <div
                 className="h-full bg-gradient-to-r from-brand-cyan to-brand-indigo transition-all duration-300"
-                style={{ width: `${((fullPreviewLine || 0) / Math.max(srtLines.length, 1)) * 100}%` }}
+                style={{ width: `${((fullPreviewLine || 0) / Math.max(fullPreview.total || srtLines.length, 1)) * 100}%` }}
               />
             </div>
           )}
