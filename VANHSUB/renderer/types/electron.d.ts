@@ -13,6 +13,14 @@ export type SettingKey =
   | 'ttsVoice'
   | 'ttsSpeed';
 
+/** Giọng đọc clone từ file audio mẫu (đồng bộ với VoiceSample trong main/store) */
+export interface VoiceSampleInfo {
+  name: string;
+  fileName: string;
+  originalName: string;
+  createdAt: string;
+}
+
 export interface SubMaskRegion {
   /** Vị trí dải che — phụ đề phim thường nằm ở đáy khung hình */
   position: 'bottom' | 'top';
@@ -60,6 +68,11 @@ export interface VanhsubAPI {
       voice?: string,
       speed?: number
     ) => Promise<{ audioBase64: string; mimeType: string }>;
+    voiceSamples: () => Promise<VoiceSampleInfo[]>;
+    addVoiceSample: (
+      name: string
+    ) => Promise<{ canceled?: boolean; sample?: VoiceSampleInfo; samples?: VoiceSampleInfo[]; error?: string }>;
+    removeVoiceSample: (name: string) => Promise<VoiceSampleInfo[]>;
   };
   dubbing: {
     start: (id: string, replaceAudio?: boolean) => Promise<boolean>;

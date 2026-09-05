@@ -16,6 +16,7 @@ import type { MaskRegion } from './render/videoRenderer'
 import { TTSRunner } from './render/ttsRunner'
 import { DubbingRunner } from './render/dubbingRunner'
 import { checkVietTtsConnection, getAvailableVoices, previewTts } from './render/ttsEngine'
+import { VoiceSampleStore } from './store/voiceSampleStore'
 
 const isProd = process.env.NODE_ENV === 'production'
 
@@ -347,6 +348,40 @@ ipcMain.handle('tts:voices', async () => {
 // Kiểm tra kết nối VietTTS
 ipcMain.handle('tts:check-connection', async () => {
   return checkVietTtsConnection()
+})
+
+// =========================================================================
+// GIỌNG ĐỌC CLONE TỪ FILE MẪU (voice sample)
+// =========================================================================
+
+ipcMain.handle('tts:voice-samples', async () => {
+  return VoiceSampleStore.list()
+})
+
+// Mở dialog chọn file audio giọng mẫu rồi lưu với tên do người dùng đặt
+ipcMain.handle('tts:add-voice-sample', async (_event, name: string) => {
+  if (!mainWindow) return { error: 'Ứng dụng chưa sẵn sàng.' }
+  try {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: 'Chọn file audio giọng mẫu (khuyên 5–15 giây, rõ tiếng, ít nhiễu)',
+      properties: ['openFile'],
+      filters: [
+        { name: 'Audio', extensions: ['mp3', 'wav', 'm4a', 'flac', 'ogg', 'aac', 'mp4', 'webm'] },
+      ],
+    })
+    if (result.canceled || result.filePaths.length === 0) {
+      return { canceled: true }
+    }
+    const sample = VoiceSampleStore.add({ name, sourcePath: result.filePaths[0] })
+    return { sample, samples: VoiceSampleStore.list() }
+  } catch (err: any) {
+    return { error: err?.message || 'Không thể thêm giọng mẫu.' }
+  }
+})
+
+ipcMain.handle('tts:remove-voice-sample', async (_event, name: string) => {
+  VoiceSampleStore.remove(name)
+  return VoiceSampleStore.list()
 })
 
 // Nghe thử giọng đọc TTS (1 câu ngắn) — trả base64 mp3 cho renderer phát trực tiếp
