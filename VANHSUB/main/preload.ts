@@ -13,6 +13,7 @@ const vanhsub = {
     addFromUrl: (url: string) => ipcRenderer.invoke('tasks:addFromUrl', url),
     runPipeline: (id: string, opts?: { replaceAudio?: boolean }) =>
       ipcRenderer.invoke('tasks:runPipeline', id, opts ?? null),
+    runPipelineBatch: (ids: string[]) => ipcRenderer.invoke('tasks:runPipelineBatch', ids),
     importSrt: (id: string, sourceSrtPath: string) =>
       ipcRenderer.invoke('tasks:importSrt', id, sourceSrtPath),
 

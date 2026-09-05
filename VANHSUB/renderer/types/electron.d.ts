@@ -45,6 +45,7 @@ export interface VanhsubAPI {
       url: string
     ) => Promise<{ task?: Task; error?: string }>;
     runPipeline: (id: string, opts?: { replaceAudio?: boolean }) => Promise<boolean>;
+    runPipelineBatch: (ids: string[]) => Promise<number>;
 
     onUpdate: (callback: (tasks: Task[]) => void) => () => void;
   };

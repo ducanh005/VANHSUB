@@ -314,6 +314,25 @@ export default function HomePage() {
     }
   };
 
+  // Các task còn việc để chạy pipeline: chưa chạy dở, và chưa có video output
+  const tasksNeedingPipeline = tasks.filter(
+    (t) =>
+      !['transcribing', 'translating', 'dubbing', 'exporting'].includes(t.status) &&
+      !(t.status === 'done' && t.outputPath)
+  );
+
+  // Batch: enqueue tất cả task còn việc — main process tự điều phối tối đa
+  // 2 pipeline song song qua hàng đợi
+  const handleRunPipelineBatch = async () => {
+    if (tasksNeedingPipeline.length === 0) return;
+    if (typeof window === 'undefined' || !window.vanhsub?.tasks?.runPipelineBatch) return;
+    try {
+      await window.vanhsub.tasks.runPipelineBatch(tasksNeedingPipeline.map((t) => t.id));
+    } catch (err) {
+      console.error('Lỗi khi chạy batch:', err);
+    }
+  };
+
   const handleImportSrt = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (typeof window === 'undefined' || !window.vanhsub?.dialog?.openSrtFile) return;
@@ -669,7 +688,19 @@ export default function HomePage() {
                       {filteredTasks.length}
                     </span>
                   </div>
-                  {tasks.length > 0 && (
+                  <div className="flex items-center gap-2">
+                    {tasksNeedingPipeline.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={handleRunPipelineBatch}
+                        title="Đưa tất cả tác vụ còn việc vào hàng đợi — chạy tối đa 2 tác vụ song song"
+                        className="inline-flex items-center gap-1.5 rounded-xl border border-brand-indigo/40 bg-brand-indigo/10 px-2.5 py-1 text-[11px] font-semibold text-brand-indigo hover:bg-brand-indigo/20 cursor-pointer"
+                      >
+                        <Zap className="h-3 w-3" />
+                        <span>Chạy batch ({tasksNeedingPipeline.length})</span>
+                      </button>
+                    )}
+                    {tasks.length > 0 && (
                     <button
                       type="button"
                       onClick={loadTasks}
@@ -678,7 +709,8 @@ export default function HomePage() {
                       <RefreshCw className="h-3 w-3" />
                       <span>Làm mới</span>
                     </button>
-                  )}
+                    )}
+                  </div>
                 </div>
 
                 {filteredTasks.length === 0 ? (
