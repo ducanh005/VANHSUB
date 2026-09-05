@@ -31,6 +31,7 @@ import {
 import type { Task, WorkflowType } from '../types/task';
 import { t, formatTimeAgo as formatTimeAgoHelper } from '../lib/i18n';
 import SubtitleEditor from '../components/SubtitleEditor';
+import ASRWorkspace from '../components/ASRWorkspace';
 import TranslatePage from '../components/TranslatePage';
 import TTSPage from '../components/TTSPage';
 import ExportPage from '../components/ExportPage';
@@ -506,22 +507,11 @@ export default function HomePage() {
           <div
             className={
               activeTab === 'subtitles'
-                ? 'flex min-h-0 flex-1 flex-col items-center justify-center gap-3 text-center'
+                ? 'flex min-h-0 flex-1 flex-col overflow-hidden'
                 : 'hidden'
             }
           >
-              <div className="flex h-16 w-16 items-center justify-center rounded-3xl border border-slate-800 bg-slate-900/70 text-brand-indigo">
-                <Subtitles className="h-7 w-7" />
-              </div>
-              <h3 className="text-base font-semibold text-white">
-                Phụ đề & ASR
-              </h3>
-              <p className="max-w-sm text-xs leading-relaxed text-slate-400">
-                Tính năng đang được gộp vào Trang chủ và màn hình Hiệu đính. Màn hình riêng sẽ ra mắt ở Nhóm 3.
-              </p>
-              <span className="rounded-full border border-brand-indigo/30 bg-brand-indigo/10 px-3 py-1 text-[11px] font-medium text-brand-cyan">
-                Sắp ra mắt
-              </span>
+            <ASRWorkspace tasks={tasks} />
           </div>
 
           <div
