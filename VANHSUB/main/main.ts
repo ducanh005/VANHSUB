@@ -238,6 +238,66 @@ ipcMain.handle('tasks:addFromUrl', async (_event, url: string) => {
   }
 })
 
+// Chạy cả quy trình còn thiếu: phiên âm → dịch → tạo giọng → ghép video.
+// Mỗi bước chỉ chạy khi kết quả của nó chưa tồn tại (resume được), và pipeline
+// dừng ngay nếu bước nào bị lỗi hoặc bị huỷ. Chạy nền — UI tự cập nhật qua broadcast.
+const pipelineRunning = new Set<string>()
+ipcMain.handle('tasks:runPipeline', async (_event, id: string, opts?: { replaceAudio?: boolean }) => {
+  if (pipelineRunning.has(id)) return true
+  const task = TaskStore.getById(id)
+  if (!task) return false
+  if (['transcribing', 'translating', 'dubbing', 'exporting'].includes(task.status)) return false
+
+  pipelineRunning.add(id)
+  const onUpdate = () => broadcastTasksUpdate()
+  const stop = (t: Task | undefined, label: string): boolean => {
+    if (!t || t.status === 'error' || t.status === 'cancelled') {
+      console.log(`[Pipeline] Dừng ở bước ${label} (status: ${t?.status || 'unknown'})`)
+      return true
+    }
+    return false
+  }
+
+  void (async () => {
+    try {
+      console.log(`[Pipeline] Bắt đầu chạy cả quy trình cho task ${id}`)
+
+      // 1. Phiên âm (bỏ qua nếu đã có SRT)
+      let current = TaskStore.getById(id)!
+      if (!current.srtPath) {
+        current = (await TaskRunner.runTask(id, onUpdate))!
+        if (stop(current, 'phiên âm')) return
+      }
+
+      // 2. Dịch (bỏ qua nếu đã có bản dịch hoặc chưa có Gemini key)
+      if (!current.translatedSrtPath && SettingsStore.hasGeminiKey()) {
+        current = (await TranslateRunner.runTranslate(id, undefined, onUpdate))!
+        if (stop(current, 'dịch thuật')) return
+      }
+
+      // 3. Tạo giọng đọc (bỏ qua nếu đã có audio TTS)
+      current = TaskStore.getById(id)!
+      if (current.srtPath && !current.ttsAudioDir) {
+        current = (await TTSRunner.runTTS(id, undefined, undefined, onUpdate))!
+        if (stop(current, 'tạo lồng tiếng')) return
+      }
+
+      // 4. Ghép audio vào video
+      current = TaskStore.getById(id)!
+      if (current.srtPath && current.ttsAudioDir) {
+        await DubbingRunner.runDubbing(id, opts?.replaceAudio ?? true, onUpdate)
+      }
+      console.log(`[Pipeline] Hoàn tất quy trình cho task ${id}`)
+    } catch (err) {
+      console.error('[Pipeline] Lỗi không mong muốn:', err)
+    } finally {
+      pipelineRunning.delete(id)
+    }
+  })()
+
+  return true
+})
+
 ipcMain.handle('tasks:create', async (_event, input: CreateTaskInput) => {
   const task = TaskStore.create(input)
   broadcastTasksUpdate()

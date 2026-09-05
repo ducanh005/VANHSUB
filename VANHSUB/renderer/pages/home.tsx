@@ -303,6 +303,17 @@ export default function HomePage() {
     }
   };
 
+  // Chạy cả quy trình còn thiếu (phiên âm → dịch → giọng → ghép)
+  const handleRunPipeline = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (typeof window === 'undefined' || !window.vanhsub?.tasks?.runPipeline) return;
+    try {
+      await window.vanhsub.tasks.runPipeline(id);
+    } catch (err) {
+      console.error('Lỗi khi chạy quy trình:', err);
+    }
+  };
+
   const handleImportSrt = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (typeof window === 'undefined' || !window.vanhsub?.dialog?.openSrtFile) return;
@@ -748,6 +759,17 @@ export default function HomePage() {
                             >
                               <Play className="h-3 w-3 fill-amber-400" />
                               Chạy lại
+                            </button>
+                          )}
+                          {(t.status === 'queued' || t.status === 'done' || t.status === 'error' || t.status === 'cancelled') && (
+                            <button
+                              type="button"
+                              onClick={(e) => handleRunPipeline(t.id, e)}
+                              title="Tự động chạy các bước còn thiếu: phiên âm → dịch → tạo giọng → ghép video (bỏ qua bước đã có kết quả)"
+                              className="inline-flex items-center gap-1.5 rounded-full border border-brand-indigo/40 bg-brand-indigo/10 px-2.5 py-1 text-[11px] font-medium text-brand-indigo hover:bg-brand-indigo/20 transition cursor-pointer"
+                            >
+                              <Zap className="h-3 w-3" />
+                              Chạy cả quy trình
                             </button>
                           )}
                           {(t.status === 'transcribing' || t.status === 'translating' || t.status === 'exporting' || t.status === 'dubbing') && (
