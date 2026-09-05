@@ -76,6 +76,16 @@ async function generateAudio(
   const endpoint = SettingsStore.get('vietTtsEndpoint');
 
   try {
+    // Chặn lỗi 404 "Voice not found": nếu voice cấu hình không có trên server
+    // (vd cài đặt cũ 'alloy' của OpenAI) thì dùng voice đầu tiên server có.
+    const availableVoices = await getAvailableVoices();
+    if (availableVoices.length > 0 && !availableVoices.includes(voice)) {
+      console.warn(
+        `Voice "${voice}" không có trên VietTTS, dùng "${availableVoices[0]}" thay thế`
+      );
+      voice = availableVoices[0];
+    }
+
     const client = new OpenAI({
       apiKey: 'not-used', // VietTTS local không cần key
       baseURL: `${endpoint}/v1`,
@@ -152,12 +162,24 @@ export async function generateTtsFromSrt(
 
 /**
  * Lấy danh sách giọng nói có sẵn trên VietTTS
- * (Trong triển khai đơn giản, trả về danh sách cố định)
+ * Gọi endpoint /v1/voices của server; trả về mảng rỗng nếu server không phản hồi
+ * (UI sẽ tự dùng danh sách fallback).
  */
 export async function getAvailableVoices(): Promise<string[]> {
-  // TODO: Call VietTTS endpoint để lấy danh sách voice động
-  // Hiện tại trả về danh sách mặc định
-  return ['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer'];
+  const endpoint = SettingsStore.get('vietTtsEndpoint');
+  try {
+    const response = await fetch(`${endpoint}/v1/voices`, {
+      method: 'GET',
+      timeout: 5000,
+    } as any);
+    if (response.ok) {
+      const voices = await response.json();
+      if (Array.isArray(voices) && voices.length > 0) return voices;
+    }
+  } catch {
+    // server không chạy — trả về rỗng, để UI dùng fallback
+  }
+  return [];
 }
 
 /**
@@ -179,7 +201,7 @@ export async function previewTts(
 export async function checkVietTtsConnection(): Promise<boolean> {
   const endpoint = SettingsStore.get('vietTtsEndpoint');
   try {
-    const response = await fetch(`${endpoint}/v1/models`, {
+    const response = await fetch(`${endpoint}/v1/voices`, {
       method: 'GET',
       timeout: 5000,
     } as any);

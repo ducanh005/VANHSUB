@@ -7,13 +7,30 @@ export interface VoiceOption {
   label: string;
 }
 
+/**
+ * Fallback khi server VietTTS không phản hồi.
+ * Khi server chạy, danh sách voice được lấy động từ endpoint /v1/voices.
+ */
 export const VOICE_OPTIONS: VoiceOption[] = [
-  { value: 'alloy', label: 'Alloy (Trung tính)' },
-  { value: 'echo', label: 'Echo (Nam)' },
-  { value: 'fable', label: 'Fable (Kể chuyện)' },
-  { value: 'onyx', label: 'Onyx (Sâu, lịch sự)' },
-  { value: 'nova', label: 'Nova (Nữ, tươi sáng)' },
-  { value: 'shimmer', label: 'Shimmer (Nữ, mềm mại)' },
+  { value: 'son-tung-mtp', label: 'Sơn Tùng M-TP (Nam)' },
+  { value: 'nguyen-ngoc-ngan', label: 'Nguyễn Ngọc Ngạn (Nam)' },
+  { value: 'quynh', label: 'Quỳnh (Nữ)' },
+  { value: 'diep-chi', label: 'Diệp Chi (Nữ)' },
+  { value: 'nu-nhe-nhang', label: 'Nữ nhẹ nhàng' },
+  { value: 'cdteam', label: 'CD Team (Nam)' },
+  { value: 'doremon', label: 'Doremon (Hoạt hình)' },
+  { value: 'speechify_1', label: 'Speechify 1' },
+  { value: 'speechify_2', label: 'Speechify 2' },
+  { value: 'speechify_3', label: 'Speechify 3' },
+  { value: 'speechify_4', label: 'Speechify 4' },
+  { value: 'speechify_5', label: 'Speechify 5' },
+  { value: 'speechify_6', label: 'Speechify 6' },
+  { value: 'speechify_7', label: 'Speechify 7' },
+  { value: 'speechify_8', label: 'Speechify 8' },
+  { value: 'speechify_9', label: 'Speechify 9' },
+  { value: 'speechify_10', label: 'Speechify 10' },
+  { value: 'speechify_11', label: 'Speechify 11' },
+  { value: 'speechify_12', label: 'Speechify 12' },
 ];
 
 export const SPEED_OPTIONS: { value: number; label: string }[] = [

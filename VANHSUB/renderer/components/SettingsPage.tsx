@@ -36,6 +36,7 @@ export default function SettingsPage() {
   const [ttsSpeed, setTtsSpeed] = useState(1.0);
   const [ttsConnected, setTtsConnected] = useState<boolean | null>(null);
   const [checkingTts, setCheckingTts] = useState(false);
+  const [voiceOptions, setVoiceOptions] = useState(VOICE_OPTIONS);
 
   const [modelsList, setModelsList] = useState<ModelInfo[]>([]);
   const [loadingModels, setLoadingModels] = useState(false);
@@ -72,6 +73,18 @@ export default function SettingsPage() {
         if (spd) setTtsSpeed(Number(spd) || 1.0);
       })
       .catch((err) => console.error('Lỗi khi nạp cài đặt:', err));
+
+    // Danh sách giọng đọc thật từ server VietTTS (fallback: VOICE_OPTIONS)
+    if (window.vanhsub?.tts?.voices) {
+      window.vanhsub.tts
+        .voices()
+        .then((list) => {
+          if (Array.isArray(list) && list.length > 0) {
+            setVoiceOptions(list.map((v) => ({ value: v, label: v })));
+          }
+        })
+        .catch(() => {});
+    }
 
     loadModelsList();
   }, []);
@@ -450,7 +463,7 @@ export default function SettingsPage() {
                   onChange={(e) => setTtsVoice(e.target.value)}
                   className="w-full rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-white focus:outline-none"
                 >
-                  {VOICE_OPTIONS.map((v) => (
+                  {voiceOptions.map((v) => (
                     <option key={v.value} value={v.value}>
                       {v.label}
                     </option>
