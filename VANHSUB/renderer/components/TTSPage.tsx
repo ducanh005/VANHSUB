@@ -7,6 +7,8 @@ import {
   Mic,
   Play,
   RefreshCw,
+  Trash2,
+  UserPlus,
   Volume2,
   XCircle,
   Zap,
@@ -14,6 +16,7 @@ import {
   X,
 } from 'lucide-react';
 import type { Task } from '../types/task';
+import type { VoiceSampleInfo } from '../types/electron';
 import { VOICE_OPTIONS, SPEED_OPTIONS, voiceLabel, speedLabel } from '../lib/ttsOptions';
 import { parseSrt, type SrtLine } from '../lib/srt';
 
@@ -70,6 +73,12 @@ export default function TTSPage({ tasks }: Props) {
   const [srtLines, setSrtLines] = useState<SrtLine[]>([]);
   const [voiceOverrides, setVoiceOverrides] = useState<Record<string, string>>({});
   const [linePreviewing, setLinePreviewing] = useState<number | null>(null);
+
+  // Thêm giọng đọc từ file audio mẫu (voice clone)
+  const [showAddVoice, setShowAddVoice] = useState(false);
+  const [newVoiceName, setNewVoiceName] = useState('');
+  const [addingVoice, setAddingVoice] = useState(false);
+  const [voiceSamples, setVoiceSamples] = useState<VoiceSampleInfo[]>([]);
 
   const selectedTask = tasks.find((t) => t.id === selectedTaskId) || null;
   const isTtsRunning = selectedTask?.status === 'dubbing';
@@ -143,6 +152,75 @@ export default function TTSPage({ tasks }: Props) {
     }
   };
 
+  // Nạp lại danh sách giọng (server + giọng mẫu) sau khi thêm/xoá
+  const refreshVoices = useCallback(async () => {
+    if (typeof window === 'undefined' || !window.vanhsub?.tts?.voices) return;
+    try {
+      const list = await window.vanhsub.tts.voices();
+      setAvailableVoices(Array.isArray(list) ? list : []);
+    } catch {
+      // giữ nguyên danh sách cũ
+    }
+  }, []);
+
+  const loadVoiceSamples = useCallback(async () => {
+    if (typeof window === 'undefined' || !window.vanhsub?.tts?.voiceSamples) return;
+    try {
+      const list = await window.vanhsub.tts.voiceSamples();
+      setVoiceSamples(Array.isArray(list) ? list : []);
+    } catch {
+      // bỏ qua
+    }
+  }, []);
+
+  const handleAddVoiceSample = async () => {
+    const name = newVoiceName.trim();
+    setMessage('');
+    setIsError(false);
+    if (!name) {
+      setIsError(true);
+      setMessage('Nhập tên cho giọng trước khi chọn file.');
+      return;
+    }
+    setAddingVoice(true);
+    try {
+      const res = await window.vanhsub.tts.addVoiceSample(name);
+      if (res?.error) {
+        setIsError(true);
+        setMessage(res.error);
+        return;
+      }
+      if (res?.canceled) return;
+      setNewVoiceName('');
+      setShowAddVoice(false);
+      await loadVoiceSamples();
+      await refreshVoices();
+      if (res?.sample) setVoice(res.sample.name);
+      setMessage(`Đã thêm giọng "${res?.sample?.name}" — bấm Nghe thử để kiểm tra.`);
+    } catch (err: any) {
+      setIsError(true);
+      setMessage(err?.message || 'Không thể thêm giọng mẫu.');
+    } finally {
+      setAddingVoice(false);
+    }
+  };
+
+  const handleRemoveVoiceSample = async (name: string) => {
+    try {
+      await window.vanhsub.tts.removeVoiceSample(name);
+      await loadVoiceSamples();
+      await refreshVoices();
+      if (voice === name) {
+        // Giọng đang chọn bị xoá → quay về giọng server đầu tiên (hoặc fallback)
+        const list = await window.vanhsub.tts.voices().catch(() => []);
+        setVoice(list.find((v) => v !== name) || VOICE_OPTIONS[0].value);
+      }
+    } catch (err: any) {
+      setIsError(true);
+      setMessage(err?.message || 'Không thể xoá giọng mẫu.');
+    }
+  };
+
   const checkConnection = useCallback(async () => {
     if (typeof window === 'undefined' || !window.vanhsub?.tts?.checkConnection) return;
     setCheckingConnection(true);
@@ -185,7 +263,9 @@ export default function TTSPage({ tasks }: Props) {
         .then((list) => setAvailableVoices(Array.isArray(list) ? list : []))
         .catch(() => {});
     }
-  }, [checkConnection]);
+
+    loadVoiceSamples();
+  }, [checkConnection, loadVoiceSamples]);
 
   // Lưu giọng/tốc độ người dùng chọn làm mặc định cho lần sau
   useEffect(() => {
@@ -334,6 +414,22 @@ export default function TTSPage({ tasks }: Props) {
 
           <button
             type="button"
+            onClick={() => setShowAddVoice((prev) => !prev)}
+            disabled={isTtsRunning || isDubbingRunning}
+            title="Thêm giọng đọc từ file audio mẫu (clone giọng)"
+            className={[
+              'inline-flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold transition cursor-pointer disabled:cursor-not-allowed disabled:opacity-50',
+              showAddVoice || voiceSamples.length > 0
+                ? 'border-brand-indigo/50 bg-brand-indigo/10 text-brand-indigo hover:bg-brand-indigo/20'
+                : 'border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-700',
+            ].join(' ')}
+          >
+            <UserPlus className="h-3.5 w-3.5" />
+            <span>Thêm giọng{voiceSamples.length > 0 ? ` (${voiceSamples.length})` : ''}</span>
+          </button>
+
+          <button
+            type="button"
             onClick={handlePreview}
             disabled={!vietTtsConnected || previewing || isTtsRunning || isDubbingRunning}
             title="Nghe thử giọng đọc với câu đầu tiên trong phụ đề"
@@ -389,6 +485,83 @@ export default function TTSPage({ tasks }: Props) {
           <span>{isTtsRunning ? 'Đang tạo audio...' : 'Tạo audio lồng tiếng'}</span>
         </button>
       </div>
+
+      {/* Panel thêm giọng đọc từ file audio mẫu */}
+      {showAddVoice && (
+        <div className="rounded-2xl border border-brand-indigo/40 bg-slate-900/80 p-4">
+          <div className="flex items-center justify-between border-b border-slate-800/80 pb-2.5">
+            <div className="flex items-center gap-2 text-xs font-semibold text-slate-200">
+              <UserPlus className="h-3.5 w-3.5 text-brand-indigo" />
+              <span>Thêm giọng từ file audio mẫu (clone giọng)</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowAddVoice(false)}
+              title="Đóng"
+              className="flex h-6 w-6 items-center justify-center rounded-lg border border-slate-700 bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-slate-200 cursor-pointer"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <input
+              type="text"
+              value={newVoiceName}
+              onChange={(e) => setNewVoiceName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !addingVoice) handleAddVoiceSample();
+              }}
+              placeholder="Tên giọng, vd: Giọng cô Hằng"
+              className="min-w-[200px] flex-1 rounded-xl border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs text-white placeholder:text-slate-500 focus:border-brand-cyan focus:outline-none"
+            />
+            <button
+              type="button"
+              onClick={handleAddVoiceSample}
+              disabled={addingVoice}
+              title="Chọn file audio giọng mẫu (5–15 giây, rõ tiếng, ít nhiễu) rồi lưu"
+              className="inline-flex items-center gap-1.5 rounded-xl border border-brand-indigo/40 bg-brand-indigo/10 px-3 py-1.5 text-xs font-semibold text-brand-indigo hover:bg-brand-indigo/20 cursor-pointer disabled:opacity-50"
+            >
+              {addingVoice ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <UserPlus className="h-3.5 w-3.5" />
+              )}
+              <span>{addingVoice ? 'Đang lưu...' : 'Chọn file & Thêm'}</span>
+            </button>
+          </div>
+          <p className="mt-2 text-[11px] text-slate-500">
+            File mẫu nên 5–15 giây, một người nói, ít nhạc/nhiễu. Giọng clone được lưu
+            trong máy và dùng được cho giọng chung lẫn gán theo từng câu.
+          </p>
+
+          {voiceSamples.length > 0 && (
+            <div className="mt-3 space-y-1.5">
+              <p className="text-[11px] font-semibold text-slate-400">Giọng đã lưu:</p>
+              {voiceSamples.map((s) => (
+                <div
+                  key={s.name}
+                  className="flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-900/80 p-2 text-xs"
+                >
+                  <Mic className="h-3.5 w-3.5 shrink-0 text-brand-indigo" />
+                  <span className="font-medium text-slate-200">{s.name}</span>
+                  <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-slate-500" title={s.originalName}>
+                    ({s.originalName})
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveVoiceSample(s.name)}
+                    title={`Xoá giọng "${s.name}"`}
+                    className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg border border-slate-700 bg-slate-800 text-slate-400 hover:border-rose-500/50 hover:text-rose-400 cursor-pointer"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Bảng gán giọng theo từng dòng phụ đề */}
       {showVoicePanel && selectedTaskId && (
