@@ -80,6 +80,11 @@ export default function TTSPage({ tasks }: Props) {
   const [addingVoice, setAddingVoice] = useState(false);
   const [voiceSamples, setVoiceSamples] = useState<VoiceSampleInfo[]>([]);
 
+  // Nghe thử toàn bộ phụ đề 1 mạch (phát liên tiếp từng dòng theo giọng đã gán)
+  const [fullPreviewing, setFullPreviewing] = useState(false);
+  const [fullPreviewLine, setFullPreviewLine] = useState<number | null>(null);
+  const fullPreviewAbortRef = useRef(false);
+
   const selectedTask = tasks.find((t) => t.id === selectedTaskId) || null;
   const isTtsRunning = selectedTask?.status === 'dubbing';
   const isDubbingRunning = selectedTask?.status === 'exporting';
@@ -90,11 +95,21 @@ export default function TTSPage({ tasks }: Props) {
 
   // Reset trạng thái gán giọng khi đổi tác vụ
   useEffect(() => {
+    fullPreviewAbortRef.current = true;
+    previewAudioRef.current?.pause();
     setShowVoicePanel(false);
     setSrtLines([]);
     setVoiceOverrides({});
     setLinePreviewing(null);
   }, [selectedTaskId]);
+
+  // Dọn audio preview khi rời trang
+  useEffect(() => {
+    return () => {
+      fullPreviewAbortRef.current = true;
+      previewAudioRef.current?.pause();
+    };
+  }, []);
 
   // Mở/đóng bảng gán giọng; lần đầu mở sẽ tải danh sách dòng phụ đề
   // (dùng đúng file TTS sẽ đọc: bản dịch nếu có, không thì bản gốc)
@@ -131,6 +146,7 @@ export default function TTSPage({ tasks }: Props) {
 
   // Nghe thử 1 dòng với giọng sẽ gán (hoặc giọng chung nếu để mặc định)
   const handlePreviewLine = async (lineNumber: number, text: string, lineVoice: string) => {
+    if (fullPreviewing) stopFullPreview();
     setMessage('');
     setIsError(false);
     setLinePreviewing(lineNumber);
@@ -151,6 +167,70 @@ export default function TTSPage({ tasks }: Props) {
       setLinePreviewing(null);
     }
   };
+
+  // ---- Nghe thử toàn bộ phụ đề 1 mạch: phát liên tiếp từng dòng theo giọng đã gán ----
+  const handlePlayAllLines = async (startLine: number = 1) => {
+    if (srtLines.length === 0 || fullPreviewing) return;
+    setMessage('');
+    setIsError(false);
+    setFullPreviewing(true);
+    setFullPreviewLine(startLine);
+    fullPreviewAbortRef.current = false;
+
+    previewAudioRef.current?.pause();
+    const audio = previewAudioRef.current ?? (previewAudioRef.current = new Audio());
+
+    // Tải audio của 1 dòng (dùng đúng giọng sẽ gán khi tạo lồng tiếng)
+    const fetchAudio = (idx: number) => {
+      const line = srtLines[idx - 1];
+      if (!line) return null;
+      const lineVoice = voiceOverrides[String(idx)] || voice;
+      return window.vanhsub.tts.preview(line.text.slice(0, 300), lineVoice, speed);
+    };
+
+    try {
+      let current = fetchAudio(startLine);
+      for (let i = startLine; i <= srtLines.length; i++) {
+        if (fullPreviewAbortRef.current) break;
+        setFullPreviewLine(i);
+        const res = await current;
+        if (!res || fullPreviewAbortRef.current) break;
+
+        // Tải trước câu kế tiếp trong lúc câu hiện tại đang phát để giảm khoảng lặng
+        const next = i < srtLines.length ? fetchAudio(i + 1) : null;
+
+        audio.src = `data:${res.mimeType};base64,${res.audioBase64}`;
+        await new Promise<void>((resolve) => {
+          const done = () => resolve();
+          audio.onended = done;
+          audio.onerror = done;
+          audio.onpause = done; // bấm Dừng cũng thoát khỏi vòng lặp
+          audio.play().catch(done);
+        });
+        current = next;
+      }
+    } catch (err: any) {
+      setIsError(true);
+      setMessage(err?.message || 'Không thể nghe thử toàn bộ. Kiểm tra kết nối VietTTS.');
+    } finally {
+      audio.pause();
+      setFullPreviewing(false);
+      setFullPreviewLine(null);
+    }
+  };
+
+  const stopFullPreview = () => {
+    fullPreviewAbortRef.current = true;
+    previewAudioRef.current?.pause();
+  };
+
+  // Cuộn tới dòng đang phát trong bảng gán giọng
+  useEffect(() => {
+    if (fullPreviewLine == null) return;
+    document
+      .getElementById(`voice-line-${fullPreviewLine}`)
+      ?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }, [fullPreviewLine]);
 
   // Nạp lại danh sách giọng (server + giọng mẫu) sau khi thêm/xoá
   const refreshVoices = useCallback(async () => {
@@ -277,13 +357,6 @@ export default function TTSPage({ tasks }: Props) {
     if (typeof window === 'undefined' || !window.vanhsub?.settings) return;
     window.vanhsub.settings.set('ttsSpeed', speed).catch(() => {});
   }, [speed]);
-
-  // Dọn audio preview khi rời trang
-  useEffect(() => {
-    return () => {
-      previewAudioRef.current?.pause();
-    };
-  }, []);
 
   const handleStartTTS = async () => {
     if (!selectedTaskId) return;
@@ -431,7 +504,7 @@ export default function TTSPage({ tasks }: Props) {
           <button
             type="button"
             onClick={handlePreview}
-            disabled={!vietTtsConnected || previewing || isTtsRunning || isDubbingRunning}
+            disabled={!vietTtsConnected || previewing || isTtsRunning || isDubbingRunning || fullPreviewing}
             title="Nghe thử giọng đọc với câu đầu tiên trong phụ đề"
             className="inline-flex items-center gap-1.5 rounded-xl border border-brand-cyan/40 bg-brand-cyan/10 px-3 py-1.5 text-xs font-semibold text-brand-cyan transition hover:bg-brand-cyan/20 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
           >
@@ -575,6 +648,33 @@ export default function TTSPage({ tasks }: Props) {
               </span>
             </div>
             <div className="flex items-center gap-2">
+              {fullPreviewing ? (
+                <>
+                  <span className="font-mono text-[11px] text-brand-cyan">
+                    Đang nghe: {fullPreviewLine}/{srtLines.length}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={stopFullPreview}
+                    title="Dừng nghe thử toàn bộ"
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-rose-500/50 bg-rose-500/10 px-2.5 py-1 text-[11px] font-semibold text-rose-400 hover:bg-rose-500/20 cursor-pointer"
+                  >
+                    <X className="h-3 w-3" />
+                    <span>Dừng</span>
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => handlePlayAllLines(1)}
+                  disabled={srtLines.length === 0 || vietTtsConnected === false || linePreviewing !== null}
+                  title="Phát liên tiếp toàn bộ phụ đề để nghe 1 mạch giọng đọc của video"
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-brand-cyan/40 bg-brand-cyan/10 px-2.5 py-1 text-[11px] font-semibold text-brand-cyan hover:bg-brand-cyan/20 cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <Headphones className="h-3 w-3" />
+                  <span>Nghe toàn bộ (1 mạch)</span>
+                </button>
+              )}
               {customVoiceCount > 0 && (
                 <button
                   type="button"
@@ -595,6 +695,15 @@ export default function TTSPage({ tasks }: Props) {
             </div>
           </div>
 
+          {fullPreviewing && (
+            <div className="h-1 w-full overflow-hidden bg-slate-800">
+              <div
+                className="h-full bg-gradient-to-r from-brand-cyan to-brand-indigo transition-all duration-300"
+                style={{ width: `${((fullPreviewLine || 0) / Math.max(srtLines.length, 1)) * 100}%` }}
+              />
+            </div>
+          )}
+
           <div className="max-h-[320px] flex-1 space-y-1.5 overflow-y-auto p-3">
             {srtLines.length === 0 ? (
               <div className="py-6 text-center text-xs text-slate-500">
@@ -607,11 +716,14 @@ export default function TTSPage({ tasks }: Props) {
                 return (
                   <div
                     key={line.id}
+                    id={`voice-line-${lineNumber}`}
                     className={[
                       'flex items-center gap-2 rounded-xl border p-2 text-xs',
-                      lineVoice
-                        ? 'border-brand-rose/40 bg-brand-rose/5'
-                        : 'border-slate-800/80 bg-slate-900/80',
+                      fullPreviewLine === lineNumber
+                        ? 'border-brand-cyan bg-brand-cyan/10'
+                        : lineVoice
+                          ? 'border-brand-rose/40 bg-brand-rose/5'
+                          : 'border-slate-800/80 bg-slate-900/80',
                     ].join(' ')}
                   >
                     <span className="w-8 shrink-0 rounded-md bg-slate-800 px-1.5 py-0.5 text-center font-mono text-[10px] font-bold text-brand-cyan">
@@ -644,7 +756,7 @@ export default function TTSPage({ tasks }: Props) {
                     <button
                       type="button"
                       onClick={() => handlePreviewLine(lineNumber, line.text, lineVoice)}
-                      disabled={linePreviewing !== null || vietTtsConnected === false}
+                      disabled={linePreviewing !== null || vietTtsConnected === false || fullPreviewing}
                       title="Nghe thử dòng này với giọng đã chọn"
                       className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg border border-brand-cyan/40 bg-brand-cyan/10 text-brand-cyan hover:bg-brand-cyan/25 cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"
                     >
