@@ -88,37 +88,75 @@ async function runFfmpeg(args: string[]): Promise<void> {
 }
 
 /**
- * Tạo 1 segment WAV có độ dài CHÍNH XẠC bằng khoảng từ startMs của dòng hiện tại
+ * Đọc duration của file audio bằng ffmpeg (không cần ffprobe riêng):
+ * ffmpeg in "Duration: HH:MM:SS.ms" vào stderr rồi thoát lỗi vì không có output —
+ * ta chỉ quan tâm stderr. Lỗi → trả 0 (caller coi như không biết duration).
+ */
+function getAudioDurationSec(audioFile: string): Promise<number> {
+  return new Promise((resolve) => {
+    execFile(getFfmpegPath(), ['-i', audioFile], (_err, _stdout, stderr) => {
+      const m = /Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)/.exec(stderr || '');
+      if (m) {
+        resolve(Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]));
+      } else {
+        resolve(0);
+      }
+    });
+  });
+}
+
+/**
+ * Tạo 1 segment WAV có độ dài CHÍNH XÁC bằng khoảng từ startMs của dòng hiện tại
  * đến startMs của dòng kế tiếp:
  * - Audio ngắn hơn → apad lấp đầy bằng im lặng (giữ đúng timing SRT)
- * - Audio dài hơn (câu TTS tràn thời lượng) → cắt bớt theo -t
+ * - Audio dài hơn (câu TTS tràn thời lượng) → tự tăng tốc atempo để vừa khung
+ *   (tối đa MAX_TEMPO), phần vượt quá giới hạn mới cắt bớt — tránh mất chữ.
  * - Thiếu file audio → tạo segment im lặng toàn phần (timeline không bị trôi)
  */
+const MAX_TEMPO = 1.5;
+/** Chỉ tăng tốc khi tràn quá 5% — sai số vài chục ms không đáng đổi tốc độ đọc */
+const TEMPO_THRESHOLD = 1.05;
+
 async function buildSegment(
   audioFile: string | null,
   segDurationSec: number,
   segPath: string
-): Promise<void> {
+): Promise<{ tempo: number; truncated: boolean }> {
   const t = segDurationSec.toFixed(3);
   if (audioFile && fs.existsSync(audioFile)) {
+    const audioDur = await getAudioDurationSec(audioFile);
+    const filters: string[] = [];
+    let tempo = 1;
+    let truncated = false;
+
+    if (audioDur > segDurationSec * TEMPO_THRESHOLD) {
+      const rawTempo = audioDur / segDurationSec;
+      tempo = Math.min(rawTempo, MAX_TEMPO);
+      filters.push(`atempo=${tempo.toFixed(4)}`);
+      truncated = rawTempo > MAX_TEMPO;
+    }
+    filters.push('apad');
+
     await runFfmpeg([
       '-i', audioFile,
-      '-af', 'apad',
+      '-af', filters.join(','),
       '-t', t,
       '-ar', '44100',
       '-ac', '2',
       '-c:a', 'pcm_s16le',
       '-y', segPath,
     ]);
-  } else {
-    await runFfmpeg([
-      '-f', 'lavfi',
-      '-i', 'anullsrc=r=44100:cl=stereo',
-      '-t', t,
-      '-c:a', 'pcm_s16le',
-      '-y', segPath,
-    ]);
+    return { tempo, truncated };
   }
+
+  await runFfmpeg([
+    '-f', 'lavfi',
+    '-i', 'anullsrc=r=44100:cl=stereo',
+    '-t', t,
+    '-c:a', 'pcm_s16le',
+    '-y', segPath,
+  ]);
+  return { tempo: 1, truncated: false };
 }
 
 /**
@@ -148,6 +186,8 @@ export async function mergeAudioFiles(
     console.log(`[Dubbing] Ghép audio ${subtitles.length} dòng theo timeline SRT...`);
 
     const segPaths: string[] = [];
+    let speedUpCount = 0;
+    let truncatedLines: number[] = [];
     for (let i = 0; i < subtitles.length; i++) {
       const sub = subtitles[i];
       const next = subtitles[i + 1];
@@ -160,7 +200,19 @@ export async function mergeAudioFiles(
       const audioFile = path.join(ttsAudioDir, `subtitle_${String(sub.index).padStart(4, '0')}.mp3`);
       const segPath = path.join(workDir, `seg_${String(i).padStart(5, '0')}.wav`);
 
-      await buildSegment(fs.existsSync(audioFile) ? audioFile : null, segDurationSec, segPath);
+      const { tempo, truncated } = await buildSegment(
+        fs.existsSync(audioFile) ? audioFile : null,
+        segDurationSec,
+        segPath
+      );
+      if (tempo > TEMPO_THRESHOLD) {
+        speedUpCount++;
+        console.log(
+          `[Dubbing] Dòng ${sub.index} tràn thời lượng → tăng tốc ${tempo.toFixed(2)}x` +
+            (truncated ? ' (vượt 1.5x, phần cuối bị cắt)' : '')
+        );
+      }
+      if (truncated) truncatedLines.push(sub.index);
       segPaths.push(segPath);
 
       if (i % 10 === 0 || i === subtitles.length - 1) {
@@ -180,6 +232,14 @@ export async function mergeAudioFiles(
     ]);
     onProgress?.(100);
 
+    if (speedUpCount > 0) {
+      console.log(
+        `[Dubbing] Đã tăng tốc ${speedUpCount}/${subtitles.length} câu để vừa timeline` +
+          (truncatedLines.length > 0
+            ? ` — ${truncatedLines.length} câu tràn quá 1.5x còn bị cắt phần cuối: dòng ${truncatedLines.join(', ')}. Nên rút gọn text những dòng này rồi tạo lại audio.`
+            : '')
+      );
+    }
     console.log(`[Dubbing] ✓ Audio merge successful: ${outputAudioPath}`);
     return outputAudioPath;
   } catch (err) {
