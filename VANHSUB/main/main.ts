@@ -208,6 +208,36 @@ ipcMain.handle('tasks:get', async (_event, id: string) => {
   return TaskStore.getById(id)
 })
 
+// Thêm tác vụ từ link video công khai (TikTok, YouTube, …) — yt-dlp tải toàn bộ
+// audio về thư mục Downloads/VANHSUB rồi tạo task như một file audio thường.
+ipcMain.handle('tasks:addFromUrl', async (_event, url: string) => {
+  try {
+    if (!/^https?:\/\//i.test(url || '')) {
+      throw new Error('Link không hợp lệ — phải bắt đầu bằng http(s)://')
+    }
+    const stamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 15)
+    const downloadsDir = path.join(app.getPath('downloads'), 'VANHSUB')
+    const audioPath = await extractAudioFromUrl(
+      url.trim(),
+      path.join(downloadsDir, `link-${stamp}.mp3`),
+      900_000, // video dài có thể mất vài phút tải
+      0 // không giới hạn thời lượng — lấy toàn bộ audio của video
+    )
+    const stat = fs.statSync(audioPath)
+    const task = TaskStore.create({
+      fileName: path.basename(audioPath),
+      filePath: audioPath,
+      fileSize: `${(stat.size / (1024 * 1024)).toFixed(1)} MB`,
+      workflow: 'full-dubbing',
+      stageDescription: 'Đã tải từ link — sẵn sàng phiên âm',
+    })
+    broadcastTasksUpdate()
+    return { task }
+  } catch (err: any) {
+    return { error: err?.message || 'Không thể tải audio từ link.' }
+  }
+})
+
 ipcMain.handle('tasks:create', async (_event, input: CreateTaskInput) => {
   const task = TaskStore.create(input)
   broadcastTasksUpdate()

@@ -10,6 +10,7 @@ const vanhsub = {
     start: (id: string) => ipcRenderer.invoke('tasks:start', id),
     readSrt: (srtPath: string) => ipcRenderer.invoke('tasks:readSrt', srtPath),
     writeSrt: (srtPath: string, content: string) => ipcRenderer.invoke('tasks:writeSrt', srtPath, content),
+    addFromUrl: (url: string) => ipcRenderer.invoke('tasks:addFromUrl', url),
     importSrt: (id: string, sourceSrtPath: string) =>
       ipcRenderer.invoke('tasks:importSrt', id, sourceSrtPath),
 

@@ -11,6 +11,8 @@ import {
   Globe2,
   Keyboard,
   Layers,
+  Link2,
+  Loader2,
   MessageSquareText,
   Mic,
   Play,
@@ -132,6 +134,10 @@ export default function HomePage() {
   const [currentDateStr, setCurrentDateStr] = useState('');
   const [tasks, setTasks] = useState<Task[]>([]);
   const [isDragging, setIsDragging] = useState(false);
+  const [linkUrl, setLinkUrl] = useState('');
+  const [downloadingLink, setDownloadingLink] = useState(false);
+  const [linkMessage, setLinkMessage] = useState('');
+  const [linkError, setLinkError] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [asrModel, setAsrModel] = useState('base');
 
@@ -270,6 +276,33 @@ export default function HomePage() {
   };
 
   // Nhập file .srt có sẵn cho task (video đã có phụ đề nước ngoài — bỏ qua phiên âm)
+  // Tải audio từ link video công khai (TikTok/YouTube) và tạo tác vụ mới
+  const handleAddFromUrl = async () => {
+    const url = linkUrl.trim();
+    if (!url || downloadingLink) return;
+    if (typeof window === 'undefined' || !window.vanhsub?.tasks?.addFromUrl) return;
+
+    setDownloadingLink(true);
+    setLinkMessage('');
+    setLinkError(false);
+    try {
+      const res = await window.vanhsub.tasks.addFromUrl(url);
+      if (res?.error) {
+        setLinkError(true);
+        setLinkMessage(res.error);
+        return;
+      }
+      setLinkUrl('');
+      setLinkMessage('Đã tải xong và tạo tác vụ — bấm "Bắt đầu phiên âm" trên thẻ tác vụ.');
+      await loadTasks();
+    } catch (err: any) {
+      setLinkError(true);
+      setLinkMessage(err?.message || 'Không thể tải audio từ link.');
+    } finally {
+      setDownloadingLink(false);
+    }
+  };
+
   const handleImportSrt = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (typeof window === 'undefined' || !window.vanhsub?.dialog?.openSrtFile) return;
@@ -581,6 +614,39 @@ export default function HomePage() {
                     <span>Duyệt file từ máy tính</span>
                   </button>
                 </div>
+
+                {/* Thêm tác vụ từ link video công khai (TikTok/YouTube…) */}
+                <div className="mt-3 flex w-full max-w-md items-center gap-2">
+                  <input
+                    type="text"
+                    value={linkUrl}
+                    onChange={(e) => setLinkUrl(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !downloadingLink) handleAddFromUrl();
+                    }}
+                    placeholder="Hoặc dán link TikTok/YouTube…"
+                    className="min-w-0 flex-1 rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 font-mono text-xs text-white placeholder:text-slate-500 focus:border-brand-cyan focus:outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleAddFromUrl}
+                    disabled={downloadingLink || !linkUrl.trim()}
+                    title="Tải audio từ link bằng yt-dlp (lần đầu tự tải yt-dlp ~18MB) rồi tạo tác vụ"
+                    className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-brand-cyan/40 bg-brand-cyan/10 px-3 py-2 text-xs font-semibold text-brand-cyan hover:bg-brand-cyan/20 cursor-pointer disabled:opacity-50"
+                  >
+                    {downloadingLink ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Link2 className="h-3.5 w-3.5" />
+                    )}
+                    <span>{downloadingLink ? 'Đang tải...' : 'Tải & Tạo task'}</span>
+                  </button>
+                </div>
+                {linkMessage && (
+                  <p className={`mt-2 text-[11px] ${linkError ? 'text-rose-400' : 'text-brand-cyan'}`}>
+                    {linkMessage}
+                  </p>
+                )}
               </div>
 
               {/* Recent Tasks List */}

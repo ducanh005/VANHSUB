@@ -41,6 +41,9 @@ export interface VanhsubAPI {
     readSrt: (srtPath: string) => Promise<string>;
     writeSrt: (srtPath: string, content: string) => Promise<boolean>;
     importSrt: (id: string, sourceSrtPath: string) => Promise<Task | undefined>;
+    addFromUrl: (
+      url: string
+    ) => Promise<{ task?: Task; error?: string }>;
 
     onUpdate: (callback: (tasks: Task[]) => void) => () => void;
   };

@@ -87,8 +87,9 @@ export async function ensureYtDlp(): Promise<string> {
 }
 
 /**
- * Tải audio (mp3) từ link video ra file output — chỉ lấy tối đa MAX_SAMPLE_SEC
- * giây đầu vì giọng mẫu chỉ cần đoạn ngắn (tránh tải cả video dài).
+ * Tải audio (mp3) từ link video ra file output — chỉ lấy tối đa maxDurationSec
+ * giây đầu nếu truyền vào (giọng mẫu chỉ cần đoạn ngắn, tác vụ dịch/lồng tiếng
+ * cần cả file → truyền 0 để lấy toàn bộ).
  * Trả về đường dẫn file mp3 đã tạo.
  */
 const MAX_SAMPLE_SEC = 120;
@@ -96,7 +97,8 @@ const MAX_SAMPLE_SEC = 120;
 export async function extractAudioFromUrl(
   url: string,
   outputMp3Path: string,
-  timeoutMs: number = 180_000
+  timeoutMs: number = 180_000,
+  maxDurationSec: number = MAX_SAMPLE_SEC
 ): Promise<string> {
   const ytDlp = await ensureYtDlp();
   fs.mkdirSync(path.dirname(outputMp3Path), { recursive: true });
@@ -104,7 +106,7 @@ export async function extractAudioFromUrl(
   const args = [
     '-x', // chỉ lấy audio
     '--audio-format', 'mp3',
-    '--download-sections', `*0-${MAX_SAMPLE_SEC}`,
+    ...(maxDurationSec > 0 ? ['--download-sections', `*0-${maxDurationSec}`] : []),
     '--no-playlist',
     '--no-warnings',
     '-o', outputMp3Path.replace(/\.mp3$/, '.%(ext)s'),
