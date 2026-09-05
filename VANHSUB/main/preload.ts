@@ -69,6 +69,15 @@ const vanhsub = {
     // Electron >=32 đã bỏ File.path — phải lấy đường dẫn qua webUtils ở phía renderer
     getPath: (file: File) => webUtils.getPathForFile(file),
   },
+  logs: {
+    // Đăng ký nhận log từ main process; trả về hàm huỷ đăng ký
+    onLog: (callback: (entry: { level: string; text: string; ts: number }) => void) => {
+      const handler = (_event: unknown, entry: { level: string; text: string; ts: number }) =>
+        callback(entry);
+      ipcRenderer.on('app:log', handler);
+      return () => ipcRenderer.removeListener('app:log', handler);
+    },
+  },
 }
 
 const handler = {

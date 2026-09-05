@@ -104,6 +104,9 @@ export interface VanhsubAPI {
   files: {
     getPath: (file: File) => string;
   };
+  logs: {
+    onLog: (callback: (entry: { level: string; text: string; ts: number }) => void) => () => void;
+  };
 }
 
 declare global {

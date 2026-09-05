@@ -18,8 +18,12 @@ import { DubbingRunner } from './render/dubbingRunner'
 import { checkVietTtsConnection, getAvailableVoices, previewTts } from './render/ttsEngine'
 import { VoiceSampleStore } from './store/voiceSampleStore'
 import { extractAudioFromUrl } from './helpers/voiceFromUrl'
+import { installRendererLogger } from './helpers/logger'
 
 const isProd = process.env.NODE_ENV === 'production'
+
+// Forward log của main process tới terminal trong app (renderer)
+installRendererLogger()
 
 // Phải đăng ký scheme trước khi app ready — 'app' dùng cho render output ở prod,
 // 'vanhmedia' dùng để stream file media local vào <video> (cả dev lẫn prod).

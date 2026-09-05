@@ -33,6 +33,7 @@ import TranslatePage from '../components/TranslatePage';
 import TTSPage from '../components/TTSPage';
 import ExportPage from '../components/ExportPage';
 import SettingsPage from '../components/SettingsPage';
+import TerminalPanel from '../components/TerminalPanel';
 
 type NavItem = {
   id: string;
@@ -788,6 +789,10 @@ export default function HomePage() {
               </div>
             </aside>
           </div>
+
+          {/* Terminal mini: log tiến trình ASR/dịch/TTS/export — nằm ngoài các tab
+              nên luôn hiển thị và giữ nguyên nội dung khi chuyển tab */}
+          <TerminalPanel />
         </main>
       </div>
     </>
