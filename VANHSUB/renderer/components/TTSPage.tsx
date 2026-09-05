@@ -87,8 +87,10 @@ export default function TTSPage({ tasks }: Props) {
 
   // Nghe thử toàn bộ phụ đề 1 mạch — playback sống trong fullPreviewPlayer
   // (singleton ngoài React) nên chuyển tab rồi quay lại vẫn thấy tiến trình chạy.
+  // Tham số thứ 3 (getServerSnapshot) bắt buộc khi Next.js pre-render trang.
   const fullPreview: FullPreviewState = React.useSyncExternalStore(
     fullPreviewPlayer.subscribe,
+    fullPreviewPlayer.getState,
     fullPreviewPlayer.getState
   );
   const fullPreviewing = fullPreview.playing;
