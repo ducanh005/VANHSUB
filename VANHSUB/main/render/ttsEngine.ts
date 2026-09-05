@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { OpenAI } from 'openai';
 import { SettingsStore } from '../store/settingsStore';
+import { VoiceSampleStore } from '../store/voiceSampleStore';
 
 interface TTSOptions {
   voice?: string;
@@ -66,6 +67,42 @@ function parseSrtFile(srtPath: string): SubtitleLine[] {
 }
 
 /**
+ * Gọi VietTTS API để tạo audio từ text bằng giọng clone từ file mẫu
+ * (zero-shot voice cloning qua POST /v1/tts — server trả về mp3)
+ */
+async function generateAudioFromSample(
+  text: string,
+  samplePath: string,
+  speed: number
+): Promise<Buffer> {
+  const endpoint = SettingsStore.get('vietTtsEndpoint');
+
+  try {
+    const form = new FormData();
+    form.append('text', text);
+    form.append('speed', String(speed));
+    form.append(
+      'audio_file',
+      new Blob([fs.readFileSync(samplePath)]),
+      path.basename(samplePath)
+    );
+
+    const response = await fetch(`${endpoint}/v1/tts`, {
+      method: 'POST',
+      body: form,
+    });
+    if (!response.ok) {
+      const detail = await response.text().catch(() => '');
+      throw new Error(`HTTP ${response.status} ${detail}`.trim());
+    }
+    return Buffer.from(await response.arrayBuffer());
+  } catch (err) {
+    console.error('VietTTS voice clone error:', err);
+    throw new Error(`Không thể tạo audio từ giọng mẫu: ${err}`);
+  }
+}
+
+/**
  * Gọi VietTTS API để tạo audio từ text
  */
 async function generateAudio(
@@ -76,6 +113,12 @@ async function generateAudio(
   const endpoint = SettingsStore.get('vietTtsEndpoint');
 
   try {
+    // Giọng clone từ file mẫu: đi đường /v1/tts thay vì voice built-in
+    const samplePath = VoiceSampleStore.getPath(voice);
+    if (samplePath) {
+      return await generateAudioFromSample(text, samplePath, speed);
+    }
+
     // Chặn lỗi 404 "Voice not found": nếu voice cấu hình không có trên server
     // (vd cài đặt cũ 'alloy' của OpenAI) thì dùng voice đầu tiên server có.
     const availableVoices = await getAvailableVoices();
@@ -161,11 +204,24 @@ export async function generateTtsFromSrt(
 }
 
 /**
- * Lấy danh sách giọng nói có sẵn trên VietTTS
- * Gọi endpoint /v1/voices của server; trả về mảng rỗng nếu server không phản hồi
- * (UI sẽ tự dùng danh sách fallback).
+ * Lấy danh sách giọng nói có sẵn: giọng clone từ file mẫu (ưu tiên hiển thị trước)
+ * + giọng built-in trên server VietTTS qua GET /v1/voices.
+ * Server không phản hồi → chỉ trả về danh sách giọng mẫu (UI tự dùng fallback).
  */
+// Cache kết quả server 60s để không gọi /v1/voices cho từng dòng phụ đề
+let serverVoicesCache: { at: number; voices: string[] } | null = null;
+const SERVER_VOICES_CACHE_MS = 60_000;
+
 export async function getAvailableVoices(): Promise<string[]> {
+  const sampleVoices = VoiceSampleStore.list().map((s) => s.name);
+
+  if (
+    serverVoicesCache &&
+    Date.now() - serverVoicesCache.at < SERVER_VOICES_CACHE_MS
+  ) {
+    return [...sampleVoices, ...serverVoicesCache.voices];
+  }
+
   const endpoint = SettingsStore.get('vietTtsEndpoint');
   try {
     const response = await fetch(`${endpoint}/v1/voices`, {
@@ -174,12 +230,15 @@ export async function getAvailableVoices(): Promise<string[]> {
     } as any);
     if (response.ok) {
       const voices = await response.json();
-      if (Array.isArray(voices) && voices.length > 0) return voices;
+      if (Array.isArray(voices) && voices.length > 0) {
+        serverVoicesCache = { at: Date.now(), voices };
+        return [...sampleVoices, ...voices];
+      }
     }
   } catch {
-    // server không chạy — trả về rỗng, để UI dùng fallback
+    // server không chạy — chỉ trả về giọng mẫu
   }
-  return [];
+  return sampleVoices;
 }
 
 /**
