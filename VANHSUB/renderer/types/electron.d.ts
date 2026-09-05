@@ -72,6 +72,10 @@ export interface VanhsubAPI {
     addVoiceSample: (
       name: string
     ) => Promise<{ canceled?: boolean; sample?: VoiceSampleInfo; samples?: VoiceSampleInfo[]; error?: string }>;
+    addVoiceSampleFromUrl: (
+      name: string,
+      url: string
+    ) => Promise<{ sample?: VoiceSampleInfo; samples?: VoiceSampleInfo[]; error?: string }>;
     removeVoiceSample: (name: string) => Promise<VoiceSampleInfo[]>;
   };
   dubbing: {

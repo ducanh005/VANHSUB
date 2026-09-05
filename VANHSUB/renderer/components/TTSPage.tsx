@@ -3,6 +3,7 @@ import {
   CheckCircle2,
   FolderOpen,
   Headphones,
+  Link2,
   Loader2,
   Mic,
   Play,
@@ -77,6 +78,7 @@ export default function TTSPage({ tasks }: Props) {
   // Thêm giọng đọc từ file audio mẫu (voice clone)
   const [showAddVoice, setShowAddVoice] = useState(false);
   const [newVoiceName, setNewVoiceName] = useState('');
+  const [newVoiceUrl, setNewVoiceUrl] = useState('');
   const [addingVoice, setAddingVoice] = useState(false);
   const [voiceSamples, setVoiceSamples] = useState<VoiceSampleInfo[]>([]);
 
@@ -280,6 +282,43 @@ export default function TTSPage({ tasks }: Props) {
     } catch (err: any) {
       setIsError(true);
       setMessage(err?.message || 'Không thể thêm giọng mẫu.');
+    } finally {
+      setAddingVoice(false);
+    }
+  };
+
+  const handleAddVoiceSampleFromUrl = async () => {
+    const name = newVoiceName.trim();
+    const url = newVoiceUrl.trim();
+    setMessage('');
+    setIsError(false);
+    if (!name) {
+      setIsError(true);
+      setMessage('Nhập tên cho giọng trước khi tải link.');
+      return;
+    }
+    if (!url) {
+      setIsError(true);
+      setMessage('Dán link video (TikTok/YouTube) vào ô link.');
+      return;
+    }
+    setAddingVoice(true);
+    try {
+      const res = await window.vanhsub.tts.addVoiceSampleFromUrl(name, url);
+      if (res?.error) {
+        setIsError(true);
+        setMessage(res.error);
+        return;
+      }
+      setNewVoiceName('');
+      setNewVoiceUrl('');
+      await loadVoiceSamples();
+      await refreshVoices();
+      if (res?.sample) setVoice(res.sample.name);
+      setMessage(`Đã thêm giọng "${res?.sample?.name}" từ link — bấm Nghe thử để kiểm tra.`);
+    } catch (err: any) {
+      setIsError(true);
+      setMessage(err?.message || 'Không thể tải audio từ link.');
     } finally {
       setAddingVoice(false);
     }
@@ -577,35 +616,62 @@ export default function TTSPage({ tasks }: Props) {
             </button>
           </div>
 
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            <input
-              type="text"
-              value={newVoiceName}
-              onChange={(e) => setNewVoiceName(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !addingVoice) handleAddVoiceSample();
-              }}
-              placeholder="Tên giọng, vd: Giọng cô Hằng"
-              className="min-w-[200px] flex-1 rounded-xl border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs text-white placeholder:text-slate-500 focus:border-brand-cyan focus:outline-none"
-            />
-            <button
-              type="button"
-              onClick={handleAddVoiceSample}
-              disabled={addingVoice}
-              title="Chọn file audio giọng mẫu (5–15 giây, rõ tiếng, ít nhiễu) rồi lưu"
-              className="inline-flex items-center gap-1.5 rounded-xl border border-brand-indigo/40 bg-brand-indigo/10 px-3 py-1.5 text-xs font-semibold text-brand-indigo hover:bg-brand-indigo/20 cursor-pointer disabled:opacity-50"
-            >
-              {addingVoice ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <UserPlus className="h-3.5 w-3.5" />
-              )}
-              <span>{addingVoice ? 'Đang lưu...' : 'Chọn file & Thêm'}</span>
-            </button>
+          <div className="mt-3 space-y-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                type="text"
+                value={newVoiceName}
+                onChange={(e) => setNewVoiceName(e.target.value)}
+                placeholder="Tên giọng, vd: Giọng cô Hằng"
+                className="min-w-[200px] flex-1 rounded-xl border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs text-white placeholder:text-slate-500 focus:border-brand-cyan focus:outline-none"
+              />
+              <button
+                type="button"
+                onClick={handleAddVoiceSample}
+                disabled={addingVoice}
+                title="Chọn file audio giọng mẫu (5–15 giây, rõ tiếng, ít nhiễu) rồi lưu"
+                className="inline-flex items-center gap-1.5 rounded-xl border border-brand-indigo/40 bg-brand-indigo/10 px-3 py-1.5 text-xs font-semibold text-brand-indigo hover:bg-brand-indigo/20 cursor-pointer disabled:opacity-50"
+              >
+                {addingVoice ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <UserPlus className="h-3.5 w-3.5" />
+                )}
+                <span>Chọn file & Thêm</span>
+              </button>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                type="text"
+                value={newVoiceUrl}
+                onChange={(e) => setNewVoiceUrl(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !addingVoice) handleAddVoiceSampleFromUrl();
+                }}
+                placeholder="Hoặc dán link video có giọng muốn lấy (TikTok, YouTube…)"
+                className="min-w-[200px] flex-1 rounded-xl border border-slate-700 bg-slate-800 px-3 py-1.5 font-mono text-xs text-white placeholder:text-slate-500 focus:border-brand-cyan focus:outline-none"
+              />
+              <button
+                type="button"
+                onClick={handleAddVoiceSampleFromUrl}
+                disabled={addingVoice}
+                title="Tải audio từ link video (yt-dlp tự tải về lần đầu) rồi lưu làm giọng mẫu"
+                className="inline-flex items-center gap-1.5 rounded-xl border border-brand-cyan/40 bg-brand-cyan/10 px-3 py-1.5 text-xs font-semibold text-brand-cyan hover:bg-brand-cyan/20 cursor-pointer disabled:opacity-50"
+              >
+                {addingVoice ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Link2 className="h-3.5 w-3.5" />
+                )}
+                <span>Tải từ link & Thêm</span>
+              </button>
+            </div>
           </div>
           <p className="mt-2 text-[11px] text-slate-500">
-            File mẫu nên 5–15 giây, một người nói, ít nhạc/nhiễu. Giọng clone được lưu
-            trong máy và dùng được cho giọng chung lẫn gán theo từng câu.
+            File/link mẫu nên chọn đoạn một người nói, rõ tiếng, ít nhạc nền. Lần đầu
+            tải từ link app sẽ tự tải yt-dlp (~18MB). Chỉ lấy giọng của bạn hoặc người
+            đã đồng ý cho sử dụng giọng.
           </p>
 
           {voiceSamples.length > 0 && (

@@ -17,6 +17,7 @@ import { TTSRunner } from './render/ttsRunner'
 import { DubbingRunner } from './render/dubbingRunner'
 import { checkVietTtsConnection, getAvailableVoices, previewTts } from './render/ttsEngine'
 import { VoiceSampleStore } from './store/voiceSampleStore'
+import { extractAudioFromUrl } from './helpers/voiceFromUrl'
 
 const isProd = process.env.NODE_ENV === 'production'
 
@@ -382,6 +383,23 @@ ipcMain.handle('tts:add-voice-sample', async (_event, name: string) => {
 ipcMain.handle('tts:remove-voice-sample', async (_event, name: string) => {
   VoiceSampleStore.remove(name)
   return VoiceSampleStore.list()
+})
+
+// Thêm giọng mẫu từ link video công khai (TikTok, YouTube, …) — yt-dlp tải audio
+// ra file tạm rồi lưu như giọng mẫu thường. yt-dlp tự tải về lần đầu tiên.
+ipcMain.handle('tts:add-voice-sample-from-url', async (_event, name: string, url: string) => {
+  try {
+    if (!/^https?:\/\//i.test(url || '')) {
+      throw new Error('Link không hợp lệ — phải bắt đầu bằng http(s)://')
+    }
+    const tmpAudioPath = path.join(app.getPath('temp'), `vanhsub-voice-${Date.now()}.mp3`)
+    await extractAudioFromUrl(url.trim(), tmpAudioPath)
+    const sample = VoiceSampleStore.add({ name, sourcePath: tmpAudioPath })
+    if (fs.existsSync(tmpAudioPath)) fs.unlinkSync(tmpAudioPath)
+    return { sample, samples: VoiceSampleStore.list() }
+  } catch (err: any) {
+    return { error: err?.message || 'Không thể tải audio từ link.' }
+  }
 })
 
 // Nghe thử giọng đọc TTS (1 câu ngắn) — trả base64 mp3 cho renderer phát trực tiếp
