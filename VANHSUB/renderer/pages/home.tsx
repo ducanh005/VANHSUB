@@ -421,19 +421,31 @@ export default function HomePage() {
             </div>
           </header>
 
-          {/* Body Dashboard (2 Columns) */}
-          {activeTab === 'editor' ? (
+          {/* Body Dashboard (2 Columns)
+              Các tab luôn mounted, chỉ ẩn bằng CSS — giữ nguyên trạng thái
+              (audio đang nghe thử, panel mở, dữ liệu đã tải) khi chuyển tab */}
+          <div className={activeTab === 'editor' ? 'flex min-h-0 flex-1 flex-col overflow-hidden' : 'hidden'}>
             <SubtitleEditor tasks={tasks} />
-          ) : activeTab === 'translate' ? (
+          </div>
+          <div className={activeTab === 'translate' ? 'flex min-h-0 flex-1 flex-col overflow-hidden' : 'hidden'}>
             <TranslatePage tasks={tasks} />
-          ) : activeTab === 'dubbing' ? (
+          </div>
+          <div className={activeTab === 'dubbing' ? 'flex min-h-0 flex-1 flex-col overflow-hidden' : 'hidden'}>
             <TTSPage tasks={tasks} />
-          ) : activeTab === 'export' ? (
+          </div>
+          <div className={activeTab === 'export' ? 'flex min-h-0 flex-1 flex-col overflow-hidden' : 'hidden'}>
             <ExportPage tasks={tasks} />
-          ) : activeTab === 'settings' ? (
+          </div>
+          <div className={activeTab === 'settings' ? 'flex min-h-0 flex-1 flex-col overflow-hidden' : 'hidden'}>
             <SettingsPage />
-          ) : activeTab === 'subtitles' ? (
-            <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
+          </div>
+          <div
+            className={
+              activeTab === 'subtitles'
+                ? 'flex min-h-0 flex-1 flex-col items-center justify-center gap-3 text-center'
+                : 'hidden'
+            }
+          >
               <div className="flex h-16 w-16 items-center justify-center rounded-3xl border border-slate-800 bg-slate-900/70 text-brand-indigo">
                 <Subtitles className="h-7 w-7" />
               </div>
@@ -446,10 +458,15 @@ export default function HomePage() {
               <span className="rounded-full border border-brand-indigo/30 bg-brand-indigo/10 px-3 py-1 text-[11px] font-medium text-brand-cyan">
                 Sắp ra mắt
               </span>
-            </div>
-          ) : (
+          </div>
 
-          <div className="grid flex-1 grid-cols-[minmax(0,1fr)_330px] gap-5 overflow-hidden p-6">
+          <div
+            className={
+              activeTab === 'home'
+                ? 'grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_330px] gap-5 overflow-hidden p-6'
+                : 'hidden'
+            }
+          >
             {/* Cột Trái: Workflows & Recent Tasks */}
             <section className="flex flex-col gap-5 overflow-y-auto pr-1">
               {/* Lời chào Hero */}
@@ -771,7 +788,6 @@ export default function HomePage() {
               </div>
             </aside>
           </div>
-          )}
         </main>
       </div>
     </>
