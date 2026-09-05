@@ -450,6 +450,11 @@ ipcMain.handle('tts:cancel', async (_event, id: string) => {
   return TTSRunner.cancel(id)
 })
 
+// Tạo lại audio cho 1 dòng phụ đề (sau khi sửa text / đổi giọng)
+ipcMain.handle('tts:regenerateLine', async (_event, id: string, lineIndex: number) => {
+  return TTSRunner.regenerateLine(id, lineIndex)
+})
+
 // Kiểm tra kết nối VietTTS
 ipcMain.handle('tts:check-connection', async () => {
   return checkVietTtsConnection()

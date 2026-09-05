@@ -76,6 +76,7 @@ export default function TTSPage({ tasks }: Props) {
   const [srtLines, setSrtLines] = useState<SrtLine[]>([]);
   const [voiceOverrides, setVoiceOverrides] = useState<Record<string, string>>({});
   const [linePreviewing, setLinePreviewing] = useState<number | null>(null);
+  const [regeneratingLine, setRegeneratingLine] = useState<number | null>(null);
 
   // Thêm giọng đọc từ file audio mẫu (voice clone)
   const [showAddVoice, setShowAddVoice] = useState(false);
@@ -130,6 +131,7 @@ export default function TTSPage({ tasks }: Props) {
     setSrtLines([]);
     setVoiceOverrides({});
     setLinePreviewing(null);
+    setRegeneratingLine(null);
   }, [selectedTaskId]);
 
   // Dọn audio preview đơn lẻ khi rời trang (playback 1 mạch vẫn tiếp tục)
@@ -381,6 +383,31 @@ export default function TTSPage({ tasks }: Props) {
     if (typeof window === 'undefined' || !window.vanhsub?.settings) return;
     window.vanhsub.settings.set('ttsSpeed', speed).catch(() => {});
   }, [speed]);
+
+  // Tạo lại audio cho 1 dòng đã có audio TTS (dùng khi sửa text ở Hiệu đính
+  // hoặc muốn đổi giọng riêng dòng đó mà không chạy lại toàn bộ)
+  const handleRegenerateLine = async (lineNumber: number) => {
+    if (!selectedTaskId || regeneratingLine !== null) return;
+    setMessage('');
+    setIsError(false);
+    setRegeneratingLine(lineNumber);
+    try {
+      const res = await window.vanhsub.tts.regenerateLine(selectedTaskId, lineNumber);
+      if (!res?.ok) {
+        setIsError(true);
+        setMessage(res?.error || 'Không thể tạo lại audio cho dòng này.');
+        return;
+      }
+      setMessage(
+        `Đã tạo lại audio dòng ${lineNumber} — bấm "Ghép audio vào video" để áp dụng vào video.`
+      );
+    } catch (err: any) {
+      setIsError(true);
+      setMessage(err?.message || 'Không thể tạo lại audio cho dòng này.');
+    } finally {
+      setRegeneratingLine(null);
+    }
+  };
 
   const handleCancelTTS = async () => {
     if (!selectedTaskId) return;
@@ -840,6 +867,21 @@ export default function TTSPage({ tasks }: Props) {
                         <Play className="h-3 w-3" />
                       )}
                     </button>
+                    {selectedTask?.ttsAudioDir && (
+                      <button
+                        type="button"
+                        onClick={() => handleRegenerateLine(lineNumber)}
+                        disabled={regeneratingLine !== null || isTtsRunning || isDubbingRunning}
+                        title="Tạo lại audio dòng này với text hiện tại (sau khi sửa text ở Hiệu đính)"
+                        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg border border-slate-700 bg-slate-800 text-slate-300 hover:border-brand-indigo/50 hover:text-brand-indigo cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        {regeneratingLine === lineNumber ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <RefreshCw className="h-3 w-3" />
+                        )}
+                      </button>
+                    )}
                   </div>
                 );
               })

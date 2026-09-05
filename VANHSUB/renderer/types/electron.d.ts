@@ -67,6 +67,7 @@ export interface VanhsubAPI {
       voiceOverrides?: Record<string, string>
     ) => Promise<boolean>;
     cancel: (id: string) => Promise<boolean>;
+    regenerateLine: (id: string, lineIndex: number) => Promise<{ ok: boolean; error?: string }>;
     voices: () => Promise<string[]>;
     checkConnection: () => Promise<boolean>;
     preview: (

@@ -152,6 +152,38 @@ async function generateAudio(
 }
 
 /**
+ * Tạo lại audio cho MỘT dòng phụ đề (sau khi người dùng sửa text hoặc đổi giọng)
+ * và ghi đè file audio cũ trong ttsAudioDir. Dùng đúng nguồn SRT mà lần TTS
+ * trước đã đọc (ưu tiên bản dịch).
+ */
+export async function regenerateTtsLine(
+  srtPath: string,
+  ttsAudioDir: string,
+  lineIndex: number,
+  voice?: string,
+  speed?: number
+): Promise<void> {
+  const subtitles = parseSrtFile(srtPath);
+  const sub = subtitles.find((s) => s.index === lineIndex);
+  if (!sub) {
+    throw new Error(`Không tìm thấy dòng ${lineIndex} trong file phụ đề.`);
+  }
+
+  const voiceToUse = voice || SettingsStore.get('ttsVoice') || 'default';
+  const speedToUse = speed || SettingsStore.get('ttsSpeed') || 1.0;
+
+  console.log(`[TTS] Tạo lại audio dòng ${lineIndex} (${voiceToUse}): "${sub.text.slice(0, 50)}..."`);
+  const audioBuffer = await generateAudio(sub.text, voiceToUse, speedToUse);
+
+  if (!fs.existsSync(ttsAudioDir)) {
+    fs.mkdirSync(ttsAudioDir, { recursive: true });
+  }
+  const audioPath = path.join(ttsAudioDir, `subtitle_${String(lineIndex).padStart(4, '0')}.mp3`);
+  fs.writeFileSync(audioPath, audioBuffer);
+  console.log(`[TTS] ✓ Đã ghi đè ${audioPath}`);
+}
+
+/**
  * Tạo audio files từ file SRT
  * Trả về danh sách đường dẫn file audio đã tạo (1 file/subtitle line)
  */

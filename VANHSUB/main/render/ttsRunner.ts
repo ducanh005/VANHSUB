@@ -1,12 +1,13 @@
 import path from 'path';
 import { TaskStore, type Task } from '../store/taskStore';
 import { SettingsStore } from '../store/settingsStore';
-import { generateTtsFromSrt } from '../render/ttsEngine';
+import { generateTtsFromSrt, regenerateTtsLine } from '../render/ttsEngine';
 import { isCancelledError } from '../lib/cancel';
 
 export class TTSRunner {
   private static runningTasks = new Set<string>();
   private static cancelledTasks = new Set<string>();
+  private static regeneratingLines = new Set<string>();
 
   static isRunning(taskId: string): boolean {
     return this.runningTasks.has(taskId);
@@ -17,6 +18,48 @@ export class TTSRunner {
     if (!this.runningTasks.has(taskId)) return false;
     this.cancelledTasks.add(taskId);
     return true;
+  }
+
+  /**
+   * Tạo lại audio cho 1 dòng phụ đề (sau khi sửa text/đổi giọng) — ghi đè file
+   * audio cũ. Trả về { ok, error? } thay vì throw để UI hiển thị trực tiếp.
+   */
+  static async regenerateLine(
+    taskId: string,
+    lineIndex: number,
+    voice?: string,
+    speed?: number
+  ): Promise<{ ok: boolean; error?: string }> {
+    const task = TaskStore.getById(taskId);
+    if (!task) return { ok: false, error: 'Không tìm thấy tác vụ.' };
+    if (!task.ttsAudioDir) {
+      return { ok: false, error: 'Tác vụ chưa tạo audio lồng tiếng — hãy chạy TTS trước.' };
+    }
+
+    const key = `${taskId}:${lineIndex}`;
+    if (this.regeneratingLines.has(key)) {
+      return { ok: false, error: `Dòng ${lineIndex} đang được tạo lại.` };
+    }
+    this.regeneratingLines.add(key);
+
+    try {
+      const srtPath = task.translatedSrtPath || task.srtPath;
+      if (!srtPath) return { ok: false, error: 'Tác vụ không có file phụ đề.' };
+
+      await regenerateTtsLine(
+        srtPath,
+        task.ttsAudioDir,
+        lineIndex,
+        voice || task.ttsVoice,
+        speed || task.ttsSpeed
+      );
+      return { ok: true };
+    } catch (err: any) {
+      console.error(`Lỗi khi tạo lại audio dòng ${lineIndex} task ${taskId}:`, err);
+      return { ok: false, error: err?.message || 'Không thể tạo lại audio cho dòng này.' };
+    } finally {
+      this.regeneratingLines.delete(key);
+    }
   }
 
   static async runTTS(
