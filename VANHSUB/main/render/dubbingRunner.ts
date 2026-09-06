@@ -1,5 +1,6 @@
 import path from 'path';
 import { TaskStore, type Task } from '../store/taskStore';
+import { nextAvailablePath } from '../lib/paths';
 import { dubVideo, type SyncMode } from './dubbingEngine';
 
 export interface DubbingOptions {
@@ -49,12 +50,11 @@ export class DubbingRunner {
       });
       onUpdate?.();
 
-      // Xác định đường dẫn output
+      // Xác định đường dẫn output — thêm _1, _2… nếu đã có bản dubbed trước đó
       const videoDir = path.dirname(task.filePath);
       const videoName = path.parse(task.fileName).name;
-      const outputPath = path.join(
-        videoDir,
-        `${videoName}_dubbed_${replaceAudio ? 'mono' : 'bilingual'}.mp4`
+      const outputPath = nextAvailablePath(
+        path.join(videoDir, `${videoName}_dubbed_${replaceAudio ? 'mono' : 'bilingual'}.mp4`)
       );
 
       // Chạy full dubbing pipeline

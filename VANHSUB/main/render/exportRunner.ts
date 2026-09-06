@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { TaskStore, type Task } from '../store/taskStore';
 import { SettingsStore } from '../store/settingsStore';
+import { nextAvailablePath } from '../lib/paths';
 import { burnHardsub, muxSoftsub, type MaskRegion } from './videoRenderer';
 
 export class ExportRunner {
@@ -42,7 +43,8 @@ export class ExportRunner {
 
     const suffix = mode === 'hardsub' ? 'hardsub' : 'softsub';
     const outputName = `${videoBase}.${suffix}.mp4`;
-    const outputPath = path.join(targetDir, outputName);
+    // Không ghi đè bản xuất trước đó — thêm _1, _2… nếu file đã tồn tại
+    const outputPath = nextAvailablePath(path.join(targetDir, outputName));
 
     try {
       TaskStore.update(taskId, {

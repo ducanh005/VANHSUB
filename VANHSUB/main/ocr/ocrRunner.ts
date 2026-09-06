@@ -5,6 +5,7 @@ import { app } from 'electron';
 import { TaskStore, type Task } from '../store/taskStore';
 import { SettingsStore } from '../store/settingsStore';
 import { CancelledError, isCancelledError } from '../lib/cancel';
+import { nextAvailablePath } from '../lib/paths';
 import { TranslateRunner } from '../translate/translateRunner';
 import { OcrPool } from './ocrEngine';
 import { extractFrames, cleanupFrames, type OcrRegion } from './frameExtractor';
@@ -118,7 +119,9 @@ export class OcrRunner {
       }
 
       // Giai đoạn 4: ghi file .srt cạnh video (không ghi đè file có sẵn)
-      const targetPath = nextAvailablePath(task.filePath, '_ocr');
+      const videoDir = path.dirname(task.filePath);
+      const base = path.basename(task.filePath, path.extname(task.filePath));
+      const targetPath = nextAvailablePath(path.join(videoDir, `${base}_ocr.srt`));
       fs.writeFileSync(targetPath, srtContent, 'utf-8');
       console.log(`[OCR] Đã ghi ${segments.length} dòng phụ đề vào ${targetPath}`);
 
@@ -152,18 +155,6 @@ export class OcrRunner {
       this.cancelRequested.delete(taskId);
     }
   }
-}
-
-/** Sinh đường dẫn <tên_video>_ocr.srt cạnh video, thêm _1/_2… nếu đã tồn tại */
-function nextAvailablePath(videoPath: string, suffix: string): string {
-  const dir = path.dirname(videoPath);
-  const base = path.basename(videoPath, path.extname(videoPath));
-  let target = path.join(dir, `${base}${suffix}.srt`);
-  let n = 1;
-  while (fs.existsSync(target)) {
-    target = path.join(dir, `${base}${suffix}_${n++}.srt`);
-  }
-  return target;
 }
 
 function clampNumber(value: number, min: number, max: number): number {
