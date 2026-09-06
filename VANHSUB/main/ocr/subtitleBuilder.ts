@@ -1,8 +1,12 @@
 import { serializeSrt, type SrtLine } from '../lib/srt';
 import type { OcrFrameResult } from './ocrEngine';
 
-/** Ngưỡng tin cậy tối thiểu để giữ text của 1 khung (tesseract 0-100) */
-const MIN_CONFIDENCE = 45;
+/**
+ * Ngưỡng tin cậy tối thiểu để giữ text của 1 khung. Bộ lọc chính là
+ * MIN_LINE_CONFIDENCE trong ocrEngine (theo từng dòng) — đây chỉ là cửa
+ * phụ trên mean của các dòng đã được lọc nên đặt ngang mức đó.
+ */
+const MIN_CONFIDENCE = 40;
 
 /**
  * Ghép kết quả OCR từng khung thành dòng phụ đề có timestamp.
