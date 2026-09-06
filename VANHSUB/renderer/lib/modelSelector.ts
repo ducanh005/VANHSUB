@@ -79,6 +79,17 @@ export const WHISPER_MODELS: Record<string, ModelInfo> = {
     cpuCoresMin: 8,
     useCase: 'Máy cao cấp, GPU CUDA/Metal khuyến nghị',
   },
+  'large-v3-turbo': {
+    name: 'large-v3-turbo',
+    displayName: 'Large Turbo (Gần bằng Large, nhanh gấp nhiều lần)',
+    size: '1.6 GB',
+    sizeBytes: 1624 * 1024 * 1024,
+    accuracy: '~83% (Xuất sắc)',
+    speedCPU: 'Khá (~2x real-time)',
+    ramRequired: 4096, // 4 GB
+    cpuCoresMin: 4,
+    useCase: 'Lựa chọn tốt nhất cho máy CPU-only muốn chất lượng cao',
+  },
 };
 
 /**
@@ -111,8 +122,9 @@ export function recommendModel(systemInfo: SystemInfo): string {
   
   // Nếu RAM >= 4 GB
   if (cpuCores >= 8) {
-    // Máy mạnh, dùng Medium hoặc Large
-    return ramGB >= 8 ? 'large' : 'medium';
+    // Máy mạnh — large-v3-turbo cho chất lượng gần large nhưng CPU chạy nổi
+    // (large 2.9GB chỉ hợp lý khi có GPU tăng tốc)
+    return ramGB >= 8 ? 'large-v3-turbo' : 'medium';
   }
   
   // RAM >= 4 GB nhưng CPU cores < 8, dùng Medium

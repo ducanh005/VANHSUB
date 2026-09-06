@@ -370,10 +370,12 @@ export default function SettingsPage() {
                 <option value="base">base (147MB - Cân bằng tốc độ & chính xác)</option>
                 <option value="small">small (488MB - Chính xác cao hơn)</option>
                 <option value="medium">medium (1.5GB - Tốt cho tiếng Việt phong phú)</option>
-                <option value="large-v3">large-v3 (3GB - Tối đa độ chính xác)</option>
+                <option value="large-v3-turbo">large-v3-turbo (1.6GB - Gần bằng large, nhanh gấp nhiều lần)</option>
+                <option value="large">large (2.9GB - Tối đa độ chính xác, rất chậm trên CPU)</option>
               </select>
               <p className="mt-1 text-[11px] text-slate-400">
-                Tự động tải model tương ứng khi khởi chạy lần đầu nếu chưa có trong máy.
+                Mặc định cho task mới — từng task vẫn chọn được model riêng ở tab Phụ đề &amp; ASR.
+                Model nào chưa có trên máy sẽ tự tải khi phiên âm đầu tiên (xem vị trí lưu ở khối bên dưới).
               </p>
             </div>
           </div>
