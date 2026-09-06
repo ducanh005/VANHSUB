@@ -125,6 +125,24 @@ export class OcrRunner {
       fs.writeFileSync(targetPath, srtContent, 'utf-8');
       console.log(`[OCR] Đã ghi ${segments.length} dòng phụ đề vào ${targetPath}`);
 
+      // Dump từng khung cạnh file srt — đối chiếu được OCR đọc gì ở giây nào,
+      // khung nào bị lọc (conf 0) để chẩn đoán font/nhiễu/vị trí phụ đề
+      const dumpPath = targetPath.replace(/\.srt$/i, '.frames.txt');
+      const dumpLines = frameResults.map((r, i) => {
+        const t = ((i * frameIntervalMs) / 1000).toFixed(1);
+        const conf = r.confidence.toFixed(0).padStart(3);
+        const text = r.text.replace(/\s+/g, ' ').trim();
+        return `${String(i).padStart(5)}  ${t.padStart(7)}s  ${conf}  ${text}`;
+      });
+      fs.writeFileSync(
+        dumpPath,
+        `# VANHSUB OCR frame dump — ${task.fileName}\n` +
+          `# idx   time      conf  text (conf 000 = khung trống/bị lọc)\n` +
+          `${dumpLines.join('\n')}\n`,
+        'utf-8',
+      );
+      console.log(`[OCR] Dump chi tiết từng khung: ${dumpPath}`);
+
       const updated = TaskStore.update(taskId, {
         status: 'done',
         progress: 100,
