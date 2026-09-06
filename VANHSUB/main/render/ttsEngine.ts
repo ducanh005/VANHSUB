@@ -306,7 +306,7 @@ export async function generateTtsFromSrt(
   let cacheHits = 0;
   let cacheSkipped = 0;
 
-  console.log(`[TTS] Bắt đầu tạo audio từ ${subtitles.length} dòng phụ đề`);
+  console.log(`[TTS] Bắt đầu tạo audio từ ${subtitles.length} dòng phụ đề (engine: ${engine}, giọng: ${voice})`);
 
   for (let i = 0; i < subtitles.length; i++) {
     const sub = subtitles[i];
