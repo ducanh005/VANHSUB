@@ -47,13 +47,20 @@ export class TTSRunner {
       const srtPath = task.translatedSrtPath || task.srtPath;
       if (!srtPath) return { ok: false, error: 'Tác vụ không có file phụ đề.' };
 
+      // Giọng của dòng: gán riêng trên task (ttsVoiceOverrides) ưu tiên trước
+      // giọng chung — trước đây bỏ qua nên "Tạo lại audio dòng" luôn ra giọng mặc định
+      const voiceForLine =
+        voice || task.ttsVoiceOverrides?.[String(lineIndex)] || task.ttsVoice;
+      const engineForLine: TTSEngine =
+        engine || task.ttsEngine || (task.ttsVoice ? 'viettts' : 'tiktok');
+
       await regenerateTtsLine(
         srtPath,
         task.ttsAudioDir,
         lineIndex,
-        voice || task.ttsVoice,
+        voiceForLine,
         speed || task.ttsSpeed,
-        engine || task.ttsEngine
+        engineForLine
       );
       return { ok: true };
     } catch (err: any) {
@@ -96,17 +103,16 @@ export class TTSRunner {
     const engineToUse: TTSEngine = engine || task.ttsEngine || (task.ttsVoice ? 'viettts' : 'tiktok');
 
     try {
-      // Chỉ ghi đè ttsVoiceOverrides khi caller truyền gán giọng mới —
-      // nếu không sẽ xoá mất gán giọng cũ đã lưu trên task
+      // Ghi đè gán giọng khi caller truyền vào (kể cả object rỗng = xoá hết gán
+      // cũ — trước đây object rỗng bị bỏ qua nên gán cũ còn dính); undefined
+      // (pipeline) thì giữ nguyên gán đã lưu
       TaskStore.update(taskId, {
         status: 'dubbing',
         progress: 0,
         ttsVoice: voiceToUse,
         ttsSpeed: speedToUse,
         ttsEngine: engineToUse,
-        ...(voiceOverrides && Object.keys(voiceOverrides).length > 0
-          ? { ttsVoiceOverrides: voiceOverrides }
-          : {}),
+        ...(voiceOverrides !== undefined ? { ttsVoiceOverrides: voiceOverrides } : {}),
         stageDescription: 'Đang khởi tạo tạo lồng tiếng AI...',
       });
       onUpdate?.();
