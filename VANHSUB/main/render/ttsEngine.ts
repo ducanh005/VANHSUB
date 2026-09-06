@@ -93,6 +93,9 @@ async function generateAudioFromSample(
     const response = await fetch(`${endpoint}/v1/tts`, {
       method: 'POST',
       body: form,
+      // fetch của Node không có timeout mặc định — không đặt giới hạn thì server
+      // treo sẽ làm TTS đứng vĩnh viễn. 2 phút là đủ cho 1 câu dài nhất.
+      signal: AbortSignal.timeout(120_000),
     });
     if (!response.ok) {
       const detail = await response.text().catch(() => '');
@@ -135,6 +138,8 @@ async function generateAudio(
     const client = new OpenAI({
       apiKey: 'not-used', // VietTTS local không cần key
       baseURL: `${endpoint}/v1`,
+      timeout: 120_000, // server treo → ném lỗi để withRetry thử lại thay vì treo vĩnh viễn
+      maxRetries: 0,
     });
 
     const response = await client.audio.speech.create({
@@ -365,10 +370,12 @@ export async function getAvailableVoices(): Promise<string[]> {
 
   const endpoint = SettingsStore.get('vietTtsEndpoint');
   try {
+    // LƯU Ý: fetch của Node không hỗ trợ option `timeout` (axios-style) — phải
+    // dùng signal để request treo không làm kẹt caller vô thời hạn.
     const response = await fetch(`${endpoint}/v1/voices`, {
       method: 'GET',
-      timeout: 5000,
-    } as any);
+      signal: AbortSignal.timeout(5000),
+    });
     if (response.ok) {
       const voices = await response.json();
       if (Array.isArray(voices) && voices.length > 0) {
@@ -403,8 +410,8 @@ export async function checkVietTtsConnection(): Promise<boolean> {
   try {
     const response = await fetch(`${endpoint}/v1/voices`, {
       method: 'GET',
-      timeout: 5000,
-    } as any);
+      signal: AbortSignal.timeout(5000),
+    });
     return response.ok;
   } catch {
     return false;
