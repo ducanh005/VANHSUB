@@ -12,6 +12,7 @@
       'electron-store',
       'fluent-ffmpeg',
       '@ffmpeg-installer/ffmpeg',
+      '@ffprobe-installer/ffprobe',
       'nodejs-whisper',
       // tesseract.js spawn worker-script từ thư mục package — không bundle được
       'tesseract.js',

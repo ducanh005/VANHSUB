@@ -10,8 +10,11 @@ files:
           - package.json
           - app
 # tesseract.js nạp worker-script và wasm từ file thật trên đĩa — không đọc được
-# từ trong asar nên phải giải nén node_modules của nó ra app.asar.unpacked
+# từ trong asar nên phải giải nén node_modules của nó ra app.asar.unpacked.
+# Tương tự với binary ffmpeg/ffprobe (@ffmpeg-installer, @ffprobe-installer).
 asarUnpack:
     - node_modules/tesseract.js/**
     - node_modules/tesseract.js-core/**
+    - node_modules/@ffmpeg-installer/**
+    - node_modules/@ffprobe-installer/**
 publish: null

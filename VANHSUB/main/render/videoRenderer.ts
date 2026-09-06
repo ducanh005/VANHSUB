@@ -3,6 +3,7 @@ import path from 'path';
 import os from 'os';
 import ffmpeg from 'fluent-ffmpeg';
 import ffmpegInstaller from '@ffmpeg-installer/ffmpeg';
+import ffprobeInstaller from '@ffprobe-installer/ffprobe';
 
 // Thiết lập đường dẫn ffmpeg binary — cùng pattern phòng thủ với audioExtractor.ts
 // (hỗ trợ cả môi trường dev và packaged asar)
@@ -13,6 +14,18 @@ try {
   }
 } catch (err) {
   console.error('Lỗi khi thiết lập đường dẫn ffmpeg:', err);
+}
+
+// ffprobe đi kèm app (trước đây phụ thuộc ffprobe trong PATH hệ thống —
+// máy sạch sẽ khiến progress hardsub kẹt 0% vì không đọc được duration)
+const rawFfprobePath =
+  (ffprobeInstaller as any)?.path || (ffprobeInstaller as any)?.default?.path || '';
+try {
+  if (rawFfprobePath) {
+    ffmpeg.setFfprobePath(rawFfprobePath.replace('app.asar', 'app.asar.unpacked'));
+  }
+} catch (err) {
+  console.error('Lỗi khi thiết lập đường dẫn ffprobe:', err);
 }
 
 /**
