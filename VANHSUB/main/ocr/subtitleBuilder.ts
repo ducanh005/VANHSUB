@@ -42,8 +42,16 @@ export function buildSubtitleSegments(
     const timeMs = i * frameIntervalMs;
     const last = segments[segments.length - 1];
 
-    // Khung này khớp khung trước (trong thời gian cho phép) → kéo dài dòng hiện tại
-    if (last && last.text === text && timeMs - last.endMs <= mergeGapMs) {
+    // Khung này khớp khung trước (trong thời gian cho phép) → kéo dài dòng hiện tại.
+    // So sánh theo mergeKey + cho phép sai khác 1 ký tự với dòng đủ dài: khung
+    // cùng phụ đề nhưng OCR chênh vài ký tự nhiễu (nền, watermark) không bị
+    // tách thành nghìn dòng 0.5s. Dòng ngắn (< 10 ký tự) phải giống hệt — câu
+    // thoại CJK liền nhau thường chỉ khác nhau 1-2 ký tự, nới lỏng sẽ gộp oan.
+    if (
+      last &&
+      timeMs - last.endMs <= mergeGapMs &&
+      isSimilarMerge(last.text, text)
+    ) {
       last.endMs = timeMs + frameIntervalMs;
       continue;
     }
@@ -76,6 +84,53 @@ function isUsableText(text: string, confidence: number): boolean {
   if (!text) return false;
   if (confidence < MIN_CONFIDENCE) return false;
   return true;
+}
+
+/** Khóa so sánh khi gộp khung: bỏ space/dấu câu, lowercase — chỉ còn "chữ cái" */
+function mergeKey(text: string): string {
+  return text
+    .replace(/[\s.,!?;:、。，！？…·'"“”‘’()（）[\]{}<>《》—–\-]+/g, '')
+    .toLowerCase();
+}
+
+/**
+ * Hai dòng phải đủ dài (>= MIN_SIMILAR_LENGTH) mới được phép sai khác 1 ký tự.
+ * Ngưỡng 10 là THẤT BẠI thực tế: "水印标志这是第一句话" vs "…第二句话" chênh
+ * đúng 1 ký tự trên 10 — hai câu khác nhau bị gộp oan thành 1 dòng. Với dòng
+ * ngắn thì phải giống hệt nhau sau mergeKey.
+ */
+const MIN_SIMILAR_LENGTH = 24;
+
+function isSimilarMerge(a: string, b: string): boolean {
+  if (a === b) return true;
+  const ka = mergeKey(a);
+  const kb = mergeKey(b);
+  if (ka === kb) return true;
+  if (ka.length < MIN_SIMILAR_LENGTH || kb.length < MIN_SIMILAR_LENGTH) return false;
+  return levenshteinWithin(ka, kb, 1);
+}
+
+/** Levenshtein với giới hạn — vượt maxDist trả false sớm, không tính hết */
+function levenshteinWithin(a: string, b: string, maxDist: number): boolean {
+  if (Math.abs(a.length - b.length) > maxDist) return false;
+
+  let prev = new Array<number>(b.length + 1);
+  let curr = new Array<number>(b.length + 1);
+  for (let j = 0; j <= b.length; j++) prev[j] = j;
+
+  for (let i = 1; i <= a.length; i++) {
+    curr[0] = i;
+    let rowMin = curr[0];
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      curr[j] = Math.min(prev[j] + 1, curr[j - 1] + 1, prev[j - 1] + cost);
+      if (curr[j] < rowMin) rowMin = curr[j];
+    }
+    // Cả hàng đều vượt ngưỡng → không bao giờ hội tụ về <= maxDist
+    if (rowMin > maxDist) return false;
+    [prev, curr] = [curr, prev];
+  }
+  return prev[b.length] <= maxDist;
 }
 
 /** Chuẩn hoá text OCR: gộp dòng/khoảng trắng, sửa dấu câu dính khoảng trắng */
