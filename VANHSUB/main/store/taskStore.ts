@@ -139,4 +139,32 @@ export const TaskStore = {
   clear(): void {
     getStore().set('tasks', []);
   },
+
+  /**
+   * Gỡ kẹt các task còn dính trạng thái "đang chạy" của phiên trước
+   * (app bị crash/đóng giữa chừng — runner không còn tồn tại nên không bao giờ
+   * tự kết thúc). Đánh dấu error để người dùng chạy lại được; pipeline vẫn
+   * bỏ qua các bước đã có kết quả (srtPath/translatedSrtPath/ttsAudioDir).
+   * Trả về danh sách task đã được sửa.
+   */
+  resetStaleRunning(): Task[] {
+    const RUNNING_STATUSES: TaskStatus[] = ['transcribing', 'ocr', 'translating', 'exporting', 'dubbing'];
+    const tasks = getStore().get('tasks', []);
+    const now = new Date().toISOString();
+    const fixedIds = new Set<string>();
+    const fixed = tasks.map((t) => {
+      if (!RUNNING_STATUSES.includes(t.status)) return t;
+      fixedIds.add(t.id);
+      return {
+        ...t,
+        status: 'error' as TaskStatus,
+        errorMessage:
+          'Job bị gián đoạn do app đóng giữa chừng — bấm "Chạy cả quy trình" để tiếp tục (các bước đã xong sẽ được giữ).',
+        stageDescription: 'Bị gián đoạn ở phiên trước',
+        updatedAt: now,
+      };
+    });
+    if (fixedIds.size > 0) getStore().set('tasks', fixed);
+    return fixed.filter((t) => fixedIds.has(t.id));
+  },
 };

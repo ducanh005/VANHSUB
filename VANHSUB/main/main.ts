@@ -174,6 +174,13 @@ function broadcastTasksUpdate() {
 ;(async () => {
   await app.whenReady()
 
+  // Gỡ kẹt task còn dính trạng thái "đang chạy" của phiên trước (crash/đóng app):
+  // đánh dấu error để chạy lại được — pipeline vẫn bỏ qua các bước đã có kết quả
+  const staleFixed = TaskStore.resetStaleRunning()
+  if (staleFixed.length > 0) {
+    console.log(`[Boot] Đã gỡ kẹt ${staleFixed.length} task bị gián đoạn từ phiên trước`)
+  }
+
   mainWindow = createWindow('main', {
     width: 1200,
     height: 800,
