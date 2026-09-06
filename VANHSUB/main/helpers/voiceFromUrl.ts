@@ -25,13 +25,27 @@ function getFfmpegPath(): string | null {
   return p ? p.replace('app.asar', 'app.asar.unpacked') : null;
 }
 
+/** Kill tiến trình con lẫn tiến trình cháu (yt-dlp spawn ffmpeg riêng) */
+function killProcessTree(child: ReturnType<typeof spawn>): void {
+  try {
+    if (process.platform === 'win32' && child.pid) {
+      spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true });
+    } else {
+      child.kill('SIGKILL');
+    }
+  } catch {
+    // tiến trình đã thoát — bỏ qua
+  }
+}
+
 function run(cmd: string, args: string[], timeoutMs: number): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = spawn(cmd, args, { windowsHide: true });
     let stdout = '';
     let stderr = '';
     const timer = setTimeout(() => {
-      child.kill();
+      // child.kill() không giết được ffmpeg do yt-dlp spawn — phải kill cả cây
+      killProcessTree(child);
       reject(new Error('Quá thời gian chạy yt-dlp.'));
     }, timeoutMs);
 
