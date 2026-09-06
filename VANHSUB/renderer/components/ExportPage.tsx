@@ -1,13 +1,13 @@
 import React, { useState } from 'react';
-import { CheckCircle2, Film, FolderOpen, Layers, Loader2, Mic, Play } from 'lucide-react';
+import { AudioLines, CheckCircle2, Film, FolderOpen, Layers, Loader2, Mic, Play } from 'lucide-react';
 import type { Task } from '../types/task';
-import type { SubMaskRegion } from '../types/electron';
+import type { SubMaskRegion, SubStyle } from '../types/electron';
 
 type Props = {
   tasks: Task[];
 };
 
-type ExportMode = 'hardsub' | 'softsub' | 'dub';
+type ExportMode = 'hardsub' | 'softsub' | 'dub' | 'stems';
 
 const MODES: Array<{
   id: ExportMode;
@@ -33,7 +33,45 @@ const MODES: Array<{
     description: 'Ghép audio lồng tiếng (đã tạo ở tab Lồng tiếng) vào video: thay giọng gốc hoặc song ngữ 2 track. Hỗ trợ AI tách lời thoại để giữ nhạc nền.',
     tag: 'Cần audio TTS',
   },
+  {
+    id: 'stems',
+    title: 'Tách nhạc nền — AI Demucs',
+    description: 'Tách video/audio thành 2 file MP3: nhạc nền không lời (làm BGM) và giọng hát đã tách riêng. Cần Python + demucs.',
+    tag: 'Xuất audio',
+  },
 ];
+
+const DEFAULT_STYLE: SubStyle = {
+  fontName: 'Arial',
+  fontSize: 18,
+  primaryColour: '#FFFFFF',
+  outlineColour: '#000000',
+  opacity: 100,
+  outline: 2,
+  shadow: 1,
+  bold: false,
+  borderStyle: 1,
+  alignment: 2,
+  marginV: 25,
+};
+
+const STYLE_PRESETS: Array<{ name: string; style: SubStyle }> = [
+  { name: 'Chuẩn', style: DEFAULT_STYLE },
+  {
+    name: 'TikTok nổi',
+    style: { ...DEFAULT_STYLE, fontName: 'Arial', fontSize: 30, primaryColour: '#FFE135', outline: 3, shadow: 0, bold: true, marginV: 30 },
+  },
+  {
+    name: 'Nền box',
+    style: { ...DEFAULT_STYLE, borderStyle: 3, outline: 0, shadow: 0 },
+  },
+  {
+    name: 'Chiếu rạp',
+    style: { ...DEFAULT_STYLE, fontName: 'Georgia', fontSize: 20, outlineColour: '#101010', shadow: 2, marginV: 20 },
+  },
+];
+
+const FONT_OPTIONS = ['Arial', 'Segoe UI', 'Verdana', 'Tahoma', 'Times New Roman', 'Georgia', 'Impact', 'Courier New'];
 
 const DEFAULT_MASK: SubMaskRegion = {
   position: 'bottom',
@@ -56,6 +94,10 @@ export default function ExportPage({ tasks }: Props) {
   const [vocalSeparation, setVocalSeparation] = useState(false);
   const [startingDub, setStartingDub] = useState(false);
 
+  // Style phụ đề hardsub
+  const [style, setStyle] = useState<SubStyle>(DEFAULT_STYLE);
+  const [separatingStems, setSeparatingStems] = useState(false);
+
   const selectedTask = tasks.find((t) => t.id === selectedTaskId) || null;
   const isExporting = selectedTask?.status === 'exporting';
   const outputPath = selectedTask?.outputPath;
@@ -66,6 +108,12 @@ export default function ExportPage({ tasks }: Props) {
     setMessage('');
     setIsError(false);
     try {
+      if (mode === 'stems') {
+        setSeparatingStems(true);
+        await window.vanhsub.export.separateStems(selectedTaskId);
+        setMessage('Đã bắt đầu tách nhạc nền bằng AI — theo dõi tiến trình bên dưới...');
+        return;
+      }
       if (mode === 'dub') {
         setStartingDub(true);
         await window.vanhsub.dubbing.start(selectedTaskId, replaceAudio, {
@@ -77,13 +125,15 @@ export default function ExportPage({ tasks }: Props) {
         return;
       }
       const maskParam = mode === 'hardsub' && maskEnabled ? mask : null;
-      await window.vanhsub.export.start(selectedTaskId, mode, maskParam);
+      const styleParam = mode === 'hardsub' ? style : null;
+      await window.vanhsub.export.start(selectedTaskId, mode, maskParam, styleParam);
       setMessage(`Đã bắt đầu xuất video (${mode === 'hardsub' ? 'Hardsub' : 'Softsub'})...`);
     } catch (err: any) {
       setIsError(true);
       setMessage(err?.message || String(err));
     } finally {
       setStartingDub(false);
+      setSeparatingStems(false);
     }
   };
 
@@ -93,12 +143,28 @@ export default function ExportPage({ tasks }: Props) {
     }
   };
 
-  const editorTasks = tasks.filter((t) => t.srtPath || t.translatedSrtPath);
+  const editorTasks = tasks.filter((t) => t.srtPath || t.translatedSrtPath || t.filePath);
   const dubSuffix = replaceAudio ? 'mono' : 'bilingual';
   const resultFileName =
     mode === 'dub'
       ? `${selectedTask?.fileName.replace(/\.[^.]+$/, '') || ''}_dubbed_${dubSuffix}.mp4`
-      : `${selectedTask?.fileName.replace(/\.[^.]+$/, '') || ''}.${mode}.mp4`;
+      : mode === 'stems'
+        ? `${selectedTask?.fileName.replace(/\.[^.]+$/, '') || ''}.nhacnen.mp3 + .giong.mp3`
+        : `${selectedTask?.fileName.replace(/\.[^.]+$/, '') || ''}.${mode}.mp4`;
+
+  // Outline preview bằng text-shadow 4 hướng (xấp xỉ viền ASS của libass)
+  const outlineShadow =
+    style.outline > 0 && style.borderStyle === 1
+      ? [
+          `${style.outline}px 0 0 ${style.outlineColour}`,
+          `0 ${style.outline}px 0 ${style.outlineColour}`,
+          `-${style.outline}px 0 0 ${style.outlineColour}`,
+          `0 -${style.outline}px 0 ${style.outlineColour}`,
+          `${style.outline}px ${style.outline}px 0 ${style.outlineColour}`,
+          `-${style.outline}px -${style.outline}px 0 ${style.outlineColour}`,
+        ].join(', ')
+      : '';
+  const dropShadow = style.shadow > 0 && style.borderStyle === 1 ? `, ${style.shadow * 2}px ${style.shadow * 2}px 3px rgba(0,0,0,0.65)` : '';
 
   return (
     <div className="flex flex-1 flex-col gap-4 overflow-hidden p-6">
@@ -115,7 +181,7 @@ export default function ExportPage({ tasks }: Props) {
             }}
             className="rounded-xl border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs text-slate-200 focus:outline-none"
           >
-            <option value="">-- Chọn tác vụ đã có SRT --</option>
+            <option value="">-- Chọn tác vụ --</option>
             {editorTasks.map((t) => (
               <option key={t.id} value={t.id}>
                 {t.fileName}
@@ -135,12 +201,12 @@ export default function ExportPage({ tasks }: Props) {
       {!selectedTask ? (
         <div className="flex flex-1 flex-col items-center justify-center rounded-3xl border border-dashed border-slate-800 bg-slate-900/40 p-12 text-center text-slate-500 text-xs">
           <Layers className="h-10 w-10 text-slate-600 mb-3 animate-pulse" />
-          <span>Chọn một tác vụ đã có phụ đề để xuất video (Hardsub, Softsub hoặc Lồng tiếng).</span>
+          <span>Chọn một tác vụ đã có phụ đề để xuất video (Hardsub, Softsub, Lồng tiếng hoặc Tách nhạc nền).</span>
         </div>
       ) : (
         <div className="flex flex-1 flex-col gap-4 overflow-y-auto">
           {/* Chọn chế độ xuất */}
-          <div className="grid gap-4 lg:grid-cols-3">
+          <div className="grid gap-4 lg:grid-cols-2 2xl:grid-cols-4">
             {MODES.map((m) => {
               const active = mode === m.id;
               return (
@@ -161,6 +227,8 @@ export default function ExportPage({ tasks }: Props) {
                     <div className="flex items-center gap-2 text-sm font-semibold text-white">
                       {m.id === 'dub' ? (
                         <Mic className={`h-4 w-4 ${active ? 'text-brand-cyan' : 'text-slate-400'}`} />
+                      ) : m.id === 'stems' ? (
+                        <AudioLines className={`h-4 w-4 ${active ? 'text-brand-cyan' : 'text-slate-400'}`} />
                       ) : (
                         <Film className={`h-4 w-4 ${active ? 'text-brand-cyan' : 'text-slate-400'}`} />
                       )}
@@ -241,6 +309,213 @@ export default function ExportPage({ tasks }: Props) {
                   </p>
                 </div>
               )}
+            </div>
+          )}
+
+          {/* Tùy chỉnh style phụ đề (chỉ dùng cho Hardsub) */}
+          {mode === 'hardsub' && (
+            <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <span className="text-xs font-semibold text-slate-200">Style phụ đề ghi cứng</span>
+                <div className="flex flex-wrap gap-1.5">
+                  {STYLE_PRESETS.map((p) => (
+                    <button
+                      key={p.name}
+                      type="button"
+                      onClick={() => setStyle(p.style)}
+                      disabled={isExporting}
+                      className="rounded-lg border border-slate-700 bg-slate-800 px-2.5 py-1 text-[11px] font-medium text-slate-300 hover:bg-slate-700 hover:text-white transition cursor-pointer disabled:opacity-50"
+                    >
+                      {p.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Xem trước xấp xỉ */}
+              <div className="relative mb-4 h-24 overflow-hidden rounded-xl border border-slate-700 bg-gradient-to-br from-slate-700 via-slate-600 to-slate-800">
+                <div
+                  className="absolute inset-x-0 flex justify-center px-4"
+                  style={
+                    style.alignment === 8
+                      ? { top: 8 }
+                      : style.alignment === 5
+                        ? { top: '50%', transform: 'translateY(-50%)' }
+                        : { bottom: Math.max(6, style.marginV / 2) }
+                  }
+                >
+                  <span
+                    style={{
+                      fontFamily: `"${style.fontName}", Arial, sans-serif`,
+                      fontSize: style.fontSize * 1.5,
+                      lineHeight: 1.25,
+                      color: style.primaryColour,
+                      fontWeight: style.bold ? 800 : 500,
+                      opacity: style.opacity / 100,
+                      ...(style.borderStyle === 3
+                        ? { background: style.outlineColour, padding: '2px 10px' }
+                        : { textShadow: `${outlineShadow}${dropShadow}` }),
+                    }}
+                  >
+                    Phụ đề mẫu — Xin chào VANHSUB
+                  </span>
+                </div>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                <div>
+                  <label className="mb-1 block text-[11px] font-medium text-slate-400">Font</label>
+                  <select
+                    value={style.fontName}
+                    onChange={(e) => setStyle((s) => ({ ...s, fontName: e.target.value }))}
+                    disabled={isExporting}
+                    className="w-full rounded-xl border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs text-slate-200 focus:outline-none"
+                  >
+                    {FONT_OPTIONS.map((f) => (
+                      <option key={f} value={f}>
+                        {f}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-[11px] font-medium text-slate-400">
+                    Cỡ chữ: <span className="font-mono text-brand-cyan">{style.fontSize}</span>
+                  </label>
+                  <input
+                    type="range"
+                    min={12}
+                    max={60}
+                    value={style.fontSize}
+                    onChange={(e) => setStyle((s) => ({ ...s, fontSize: Number(e.target.value) }))}
+                    disabled={isExporting}
+                    className="w-full accent-cyan-400"
+                  />
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-[11px] font-medium text-slate-400">Vị trí</label>
+                  <select
+                    value={style.alignment}
+                    onChange={(e) =>
+                      setStyle((s) => ({ ...s, alignment: Number(e.target.value) as SubStyle['alignment'] }))
+                    }
+                    disabled={isExporting}
+                    className="w-full rounded-xl border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs text-slate-200 focus:outline-none"
+                  >
+                    <option value={2}>Đáy khung hình</option>
+                    <option value={5}>Giữa khung hình</option>
+                    <option value={8}>Đỉnh khung hình</option>
+                  </select>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <label className="text-[11px] font-medium text-slate-400">Chữ:</label>
+                  <input
+                    type="color"
+                    value={style.primaryColour}
+                    onChange={(e) => setStyle((s) => ({ ...s, primaryColour: e.target.value }))}
+                    disabled={isExporting}
+                    className="h-7 w-10 cursor-pointer rounded border border-slate-700 bg-slate-800"
+                  />
+                  <label className="ml-2 text-[11px] font-medium text-slate-400">Viền:</label>
+                  <input
+                    type="color"
+                    value={style.outlineColour}
+                    onChange={(e) => setStyle((s) => ({ ...s, outlineColour: e.target.value }))}
+                    disabled={isExporting}
+                    className="h-7 w-10 cursor-pointer rounded border border-slate-700 bg-slate-800"
+                  />
+                  <label className="ml-2 flex items-center gap-1.5 text-[11px] text-slate-300 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={style.bold}
+                      onChange={(e) => setStyle((s) => ({ ...s, bold: e.target.checked }))}
+                      disabled={isExporting}
+                      className="h-3.5 w-3.5 border-slate-700 bg-slate-800 text-brand-cyan focus:ring-0"
+                    />
+                    Đậm
+                  </label>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-3">
+                  <label className="flex items-center gap-2 text-[11px] font-medium text-slate-400">
+                    Độ mờ:
+                    <input
+                      type="range"
+                      min={40}
+                      max={100}
+                      value={style.opacity}
+                      onChange={(e) => setStyle((s) => ({ ...s, opacity: Number(e.target.value) }))}
+                      disabled={isExporting}
+                      className="w-24 accent-cyan-400"
+                    />
+                    <span className="w-8 font-mono text-brand-cyan">{style.opacity}%</span>
+                  </label>
+                  <label className="flex items-center gap-2 text-[11px] font-medium text-slate-400">
+                    Viền:
+                    <input
+                      type="range"
+                      min={0}
+                      max={8}
+                      value={style.outline}
+                      onChange={(e) => setStyle((s) => ({ ...s, outline: Number(e.target.value) }))}
+                      disabled={isExporting}
+                      className="w-20 accent-cyan-400"
+                    />
+                    <span className="w-4 font-mono text-brand-cyan">{style.outline}</span>
+                  </label>
+                  <label className="flex items-center gap-2 text-[11px] font-medium text-slate-400">
+                    Bóng:
+                    <input
+                      type="range"
+                      min={0}
+                      max={6}
+                      value={style.shadow}
+                      onChange={(e) => setStyle((s) => ({ ...s, shadow: Number(e.target.value) }))}
+                      disabled={isExporting}
+                      className="w-20 accent-cyan-400"
+                    />
+                    <span className="w-4 font-mono text-brand-cyan">{style.shadow}</span>
+                  </label>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] font-medium text-slate-400">Kiểu:</span>
+                    <select
+                      value={style.borderStyle}
+                      onChange={(e) =>
+                        setStyle((s) => ({ ...s, borderStyle: Number(e.target.value) as SubStyle['borderStyle'] }))
+                      }
+                      disabled={isExporting}
+                      className="rounded-xl border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs text-slate-200 focus:outline-none"
+                    >
+                      <option value={1}>Viền + bóng</option>
+                      <option value={3}>Nền box đặc</option>
+                    </select>
+                  </div>
+                  <label className="flex items-center gap-2 text-[11px] font-medium text-slate-400">
+                    Cách mép:
+                    <input
+                      type="range"
+                      min={0}
+                      max={120}
+                      value={style.marginV}
+                      onChange={(e) => setStyle((s) => ({ ...s, marginV: Number(e.target.value) }))}
+                      disabled={isExporting}
+                      className="w-24 accent-cyan-400"
+                    />
+                    <span className="w-8 font-mono text-brand-cyan">{style.marginV}</span>
+                  </label>
+                </div>
+              </div>
+
+              <p className="mt-3 text-[11px] leading-relaxed text-slate-500">
+                Style áp dụng cho chế độ Hardsub (phụ đề ghi cứng). Xem trước phía trên là xấp xỉ —
+                kết quả thực tế phụ thuộc font có trên máy và độ phân giải video.
+              </p>
             </div>
           )}
 
@@ -339,20 +614,65 @@ export default function ExportPage({ tasks }: Props) {
             </div>
           )}
 
+          {/* Tùy chọn tách nhạc nền (chỉ dùng cho chế độ Stems) */}
+          {mode === 'stems' && (
+            <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4">
+              <p className="text-xs leading-relaxed text-slate-400">
+                AI Demucs sẽ tách âm thanh của{' '}
+                <span className="font-mono text-slate-200">{selectedTask.fileName}</span> thành 2 file MP3
+                (320kbps) lưu cạnh video gốc:
+              </p>
+              <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                <div className="rounded-xl border border-brand-cyan/30 bg-brand-cyan/5 p-2.5">
+                  <p className="font-mono text-[11px] text-brand-cyan">
+                    {selectedTask.fileName.replace(/\.[^.]+$/, '')}.nhacnen.mp3
+                  </p>
+                  <p className="mt-0.5 text-[11px] text-slate-400">
+                    Nhạc nền/SFX <strong className="text-slate-300">không lời</strong> — dùng làm BGM
+                  </p>
+                </div>
+                <div className="rounded-xl border border-brand-rose/30 bg-brand-rose/5 p-2.5">
+                  <p className="font-mono text-[11px] text-brand-rose">
+                    {selectedTask.fileName.replace(/\.[^.]+$/, '')}.giong.mp3
+                  </p>
+                  <p className="mt-0.5 text-[11px] text-slate-400">
+                    Giọng hát/thoại <strong className="text-slate-300">đã tách riêng</strong>
+                  </p>
+                </div>
+              </div>
+              <p className="mt-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] leading-relaxed text-amber-300">
+                Demucs chạy trên CPU — thời gian xử lý xấp xỉ thời lượng video. Lần đầu cần{' '}
+                <code className="font-mono">python -m pip install demucs</code> và tải model ~80MB
+                (máy này đã kiểm tra sẵn sàng). File video/audio mono cho kết quả tách kém hơn stereo.
+              </p>
+            </div>
+          )}
+
           {/* Thông tin xuất + nút */}
           <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4">
             <div className="mb-3 space-y-1.5 text-xs text-slate-400">
               <p>
                 • Nguồn phụ đề:{' '}
-                <span className="font-mono text-slate-200">
-                  {(selectedTask.translatedSrtPath || selectedTask.srtPath || '').split(/[/\\]/).pop()}
-                </span>
-                {selectedTask.translatedSrtPath && (
-                  <span className="ml-1.5 rounded-full border border-brand-indigo/30 bg-brand-indigo/10 px-2 py-0.5 text-[10px] font-semibold text-brand-cyan">
-                    dùng bản đã dịch
-                  </span>
+                {mode === 'stems' ? (
+                  <span className="text-slate-500">không cần (chế độ tách audio)</span>
+                ) : (
+                  <>
+                    <span className="font-mono text-slate-200">
+                      {(selectedTask.translatedSrtPath || selectedTask.srtPath || '').split(/[/\\]/).pop()}
+                    </span>
+                    {selectedTask.translatedSrtPath && (
+                      <span className="ml-1.5 rounded-full border border-brand-indigo/30 bg-brand-indigo/10 px-2 py-0.5 text-[10px] font-semibold text-brand-cyan">
+                        dùng bản đã dịch
+                      </span>
+                    )}
+                  </>
                 )}
               </p>
+              {mode !== 'stems' && mode !== 'dub' && (
+                <p className="text-slate-500">
+                  (Chế độ này cần phụ đề — vào tab Hiệu đính hoặc Lồng tiếng nếu chưa có.)
+                </p>
+              )}
               {mode === 'dub' && (
                 <p>
                   • Giọng lồng: <span className="font-mono text-slate-200">{selectedTask.ttsVoice || 'mặc định'}</span>
@@ -376,20 +696,22 @@ export default function ExportPage({ tasks }: Props) {
               <button
                 type="button"
                 onClick={handleExport}
-                disabled={isExporting || startingDub || (mode === 'dub' && !hasTtsAudio)}
+                disabled={isExporting || startingDub || separatingStems || (mode === 'dub' && !hasTtsAudio)}
                 className="btn-vanh-gradient inline-flex items-center gap-2 rounded-xl px-5 py-2.5 text-xs font-semibold cursor-pointer disabled:opacity-50"
               >
-                {isExporting || startingDub ? (
+                {isExporting || startingDub || separatingStems ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
                   <Play className="h-4 w-4 fill-white" />
                 )}
                 <span>
-                  {isExporting || startingDub
+                  {isExporting || startingDub || separatingStems
                     ? 'Đang xuất...'
                     : mode === 'dub'
                       ? 'Ghép lồng tiếng vào video'
-                      : 'Bắt đầu xuất video'}
+                      : mode === 'stems'
+                        ? 'Bắt đầu tách nhạc nền (AI)'
+                        : 'Bắt đầu xuất video'}
                 </span>
               </button>
 

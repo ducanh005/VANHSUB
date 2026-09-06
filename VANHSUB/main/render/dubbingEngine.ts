@@ -548,7 +548,7 @@ export async function dubVideo(
       console.log('[Dubbing] Trích audio gốc (44.1kHz stereo) cho AI tách lời...');
       await extractFullQualityAudio(videoPath, origWav);
       onProgress?.(3);
-      backgroundAudioPath = await separateVocals(origWav, separationDir);
+      backgroundAudioPath = (await separateVocals(origWav, separationDir)).noVocals;
       onProgress?.(14);
     }
 

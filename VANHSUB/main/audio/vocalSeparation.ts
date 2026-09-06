@@ -62,15 +62,22 @@ export async function checkDemucs(): Promise<DemucsCheck> {
   }
 }
 
+export interface StemPaths {
+  /** Nhạc nền/SFX không lời */
+  noVocals: string;
+  /** Giọng hát/thoại đã tách riêng */
+  vocals: string;
+}
+
 /**
- * Tách audio thành 2 stem (vocals / no_vocals) và trả về đường dẫn file
- * KHÔNG LỜI (nhạc nền). Model htdemucs tự tải về lần chạy đầu (~80MB).
+ * Tách audio thành 2 stem (vocals / no_vocals) và trả về đường dẫn cả 2 file.
+ * Model htdemucs tự tải về lần chạy đầu (~80MB).
  */
 export async function separateVocals(
   inputAudioPath: string,
   outDir: string,
   shouldStop?: () => boolean,
-): Promise<string> {
+): Promise<StemPaths> {
   fs.mkdirSync(outDir, { recursive: true });
   const modelName = 'htdemucs';
 
@@ -85,7 +92,6 @@ export async function separateVocals(
     ];
     const child = spawn('python', args, { windowsHide: true });
     let stderrTail = '';
-    let lastStopCheck = 0;
 
     const stopTimer = shouldStop
       ? setInterval(() => {
@@ -98,7 +104,6 @@ export async function separateVocals(
           }
         }, 1000)
       : null;
-    void lastStopCheck;
 
     child.stdout?.on('data', (d) => {
       const text = d.toString();
@@ -125,15 +130,16 @@ export async function separateVocals(
         reject(new Error(`Demucs thoát với mã ${code}. ${tail}`));
         return;
       }
-      // Kết quả nằm tại <outDir>/<model>/<tên file không đuôi>/no_vocals.wav
+      // Kết quả nằm tại <outDir>/<model>/<tên file không đuôi>/{no_vocals,vocals}.wav
       const stemDir = path.join(outDir, modelName, path.basename(inputAudioPath, path.extname(inputAudioPath)));
       const noVocals = path.join(stemDir, 'no_vocals.wav');
+      const vocals = path.join(stemDir, 'vocals.wav');
       if (!fs.existsSync(noVocals)) {
         reject(new Error(`Demucs chạy xong nhưng không thấy no_vocals.wav tại ${stemDir}`));
         return;
       }
       console.log(`[Demucs] ✓ Tách xong: ${noVocals}`);
-      resolve(noVocals);
+      resolve({ noVocals, vocals: fs.existsSync(vocals) ? vocals : noVocals });
     });
   });
 }
