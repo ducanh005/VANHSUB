@@ -3,7 +3,7 @@ import path from 'path';
 import { TaskStore, type Task } from '../store/taskStore';
 import { SettingsStore } from '../store/settingsStore';
 import { nextAvailablePath } from '../lib/paths';
-import { burnHardsub, muxSoftsub, type MaskRegion } from './videoRenderer';
+import { burnHardsub, muxSoftsub, type MaskRegion, type SubtitleStyle } from './videoRenderer';
 
 export class ExportRunner {
   private static runningExports = new Set<string>();
@@ -16,7 +16,8 @@ export class ExportRunner {
     taskId: string,
     mode: 'hardsub' | 'softsub',
     mask?: MaskRegion | null,
-    onUpdate?: () => void
+    onUpdate?: () => void,
+    style?: SubtitleStyle | null
   ): Promise<Task | undefined> {
     const task = TaskStore.getById(taskId);
     if (!task) throw new Error(`Không tìm thấy tác vụ ID: ${taskId}`);
@@ -60,6 +61,7 @@ export class ExportRunner {
           srtPath,
           outputPath,
           mask: mask || null,
+          style: style || null,
           onProgress: (percent) => {
             TaskStore.update(taskId, {
               progress: percent,

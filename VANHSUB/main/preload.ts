@@ -40,8 +40,10 @@ const vanhsub = {
     cancel: (id: string) => ipcRenderer.invoke('translate:cancel', id),
   },
   export: {
-    start: (id: string, mode: 'hardsub' | 'softsub', mask?: unknown) =>
-      ipcRenderer.invoke('export:start', id, mode, mask ?? null),
+    start: (id: string, mode: 'hardsub' | 'softsub', mask?: unknown, style?: unknown) =>
+      ipcRenderer.invoke('export:start', id, mode, mask ?? null, style ?? null),
+    // Tách nhạc nền / giọng ra 2 file mp3 bằng Demucs AI
+    separateStems: (id: string) => ipcRenderer.invoke('export:separateStems', id),
   },
   ocr: {
     // Quét phụ đề cứng trong video bằng OCR → tạo file .srt cho tác vụ

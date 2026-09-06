@@ -12,7 +12,8 @@ import { polishSubtitleLine } from './ai/geminiClient'
 import { TaskRunner } from './asr/taskRunner'
 import { TranslateRunner } from './translate/translateRunner'
 import { ExportRunner } from './render/exportRunner'
-import type { MaskRegion } from './render/videoRenderer'
+import type { MaskRegion, SubtitleStyle } from './render/videoRenderer'
+import { StemExportRunner } from './audio/stemExportRunner'
 import { TTSRunner } from './render/ttsRunner'
 import { DubbingRunner } from './render/dubbingRunner'
 import { OcrRunner } from './ocr/ocrRunner'
@@ -493,13 +494,27 @@ ipcMain.handle('translate:cancel', async (_event, id: string) => {
 // Xuất video qua ExportRunner (mask: tùy chọn che vùng phụ đề cũ khi hardsub)
 ipcMain.handle(
   'export:start',
-  async (_event, id: string, mode: 'hardsub' | 'softsub', mask?: MaskRegion | null) => {
+  async (
+    _event,
+    id: string,
+    mode: 'hardsub' | 'softsub',
+    mask?: MaskRegion | null,
+    style?: SubtitleStyle | null
+  ) => {
     ExportRunner.runExport(id, mode, mask, () => {
       broadcastTasksUpdate()
-    })
+    }, style ?? null)
     return true
   }
 )
+
+// Tách nhạc nền / giọng khỏi video bằng AI Demucs — xuất 2 file mp3 cạnh video gốc
+ipcMain.handle('export:separateStems', async (_event, id: string) => {
+  StemExportRunner.runStemExport(id, () => {
+    broadcastTasksUpdate()
+  })
+  return true
+})
 
 // Tạo lồng tiếng bằng VietTTS hoặc TikTok TTS (voiceOverrides: gán giọng riêng theo dòng)
 ipcMain.handle(

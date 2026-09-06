@@ -27,6 +27,23 @@ export interface VoiceSampleInfo {
   createdAt: string;
 }
 
+/**
+ * Style phụ đề hardsub (đồng bộ với SubtitleStyle ở main/render/videoRenderer)
+ */
+export interface SubStyle {
+  fontName: string;
+  fontSize: number;
+  primaryColour: string;
+  outlineColour: string;
+  opacity: number;
+  outline: number;
+  shadow: number;
+  bold: boolean;
+  borderStyle: 1 | 3;
+  alignment: 2 | 5 | 8;
+  marginV: number;
+}
+
 export interface SubMaskRegion {
   /** Vị trí dải che — phụ đề phim thường nằm ở đáy khung hình */
   position: 'bottom' | 'top';
@@ -114,7 +131,13 @@ export interface VanhsubAPI {
     synthesize: (text: string, voice: string) => Promise<{ ok: true; filePath: string } | { ok: false; error: string }>;
   };
   export: {
-    start: (id: string, mode: 'hardsub' | 'softsub', mask?: SubMaskRegion | null) => Promise<boolean>;
+    start: (
+      id: string,
+      mode: 'hardsub' | 'softsub',
+      mask?: SubMaskRegion | null,
+      style?: SubStyle | null
+    ) => Promise<boolean>;
+    separateStems: (id: string) => Promise<boolean>;
   };
   ocr: {
     start: (id: string) => Promise<boolean>;
