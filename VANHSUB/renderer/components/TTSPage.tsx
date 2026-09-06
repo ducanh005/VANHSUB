@@ -1,25 +1,20 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   AlertTriangle,
   CheckCircle2,
   FolderOpen,
   Headphones,
-  Link2,
   Loader2,
   Mic,
   Play,
   RefreshCw,
-  Trash2,
-  UserPlus,
   Volume2,
   XCircle,
-  Zap,
   Users,
   X,
 } from 'lucide-react';
 import type { Task } from '../types/task';
-import type { VoiceSampleInfo } from '../types/electron';
-import { VOICE_OPTIONS, SPEED_OPTIONS, voiceLabel, speedLabel } from '../lib/ttsOptions';
+import { SPEED_OPTIONS, speedLabel } from '../lib/ttsOptions';
 import { fullPreviewPlayer, type FullPreviewState } from '../lib/fullPreviewPlayer';
 import { parseSrt, type SrtLine } from '../lib/srt';
 
@@ -27,7 +22,6 @@ type Props = {
   tasks: Task[];
 };
 
-const SAMPLE_TEXT = 'Xin chào! Đây là giọng đọc thử nghiệm cho tính năng lồng tiếng của VANHSUB.';
 
 function formatTimeAgo(isoString: string): string {
   try {
@@ -38,37 +32,17 @@ function formatTimeAgo(isoString: string): string {
   }
 }
 
-/** Lấy 1 câu mẫu từ SRT của task để nghe thử đúng nội dung thật (fallback: câu mặc định) */
-async function loadPreviewText(task: Task | null): Promise<string> {
-  const srtPath = task?.translatedSrtPath || task?.srtPath;
-  if (!srtPath || typeof window === 'undefined' || !window.vanhsub?.tasks?.readSrt) {
-    return SAMPLE_TEXT;
-  }
-  try {
-    const content = await window.vanhsub.tasks.readSrt(srtPath);
-    const firstText = content
-      .split(/\n\s*\n/)
-      .map((block) => block.trim().split('\n').slice(2).join(' ').trim())
-      .find((line) => line.length > 0);
-    return firstText ? firstText.slice(0, 200) : SAMPLE_TEXT;
-  } catch {
-    return SAMPLE_TEXT;
-  }
-}
+/** Câu nghe thử cố định — bấm nghe ngay, không cần đọc file SRT */
+const SAMPLE_TEXT = 'Xin chào, bạn đang nghe thử giọng đọc tại Vanh sub.';
 
 export default function TTSPage({ tasks }: Props) {
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
-  const [voice, setVoice] = useState<string>('alloy');
+  const [voice, setVoice] = useState<string>('BV074_streaming');
   const [speed, setSpeed] = useState<number>(1.0);
-  // Engine tạo audio: VietTTS (Docker local) hoặc TikTok TTS (~80 giọng, cần session)
-  const [ttsEngine, setTtsEngine] = useState<'viettts' | 'tiktok'>('viettts');
+  // Tab lồng tiếng dùng engine TikTok (~80 giọng); VietTTS cấu hình riêng ở Cài đặt
   const [tiktokVoices, setTiktokVoices] = useState<Array<{ id: string; label: string; language: string }>>([]);
   const [tiktokHasSession, setTiktokHasSession] = useState(false);
-  const [prevVietVoice, setPrevVietVoice] = useState<string>('alloy');
-  const [availableVoices, setAvailableVoices] = useState<string[]>([]);
-  const [vietTtsConnected, setVietTtsConnected] = useState<boolean | null>(null);
-  const [checkingConnection, setCheckingConnection] = useState(false);
-  const [vietTtsEndpoint, setVietTtsEndpoint] = useState('');
+  const [voiceSearch, setVoiceSearch] = useState('');
   const [message, setMessage] = useState('');
   const [isError, setIsError] = useState(false);
   const [previewing, setPreviewing] = useState(false);
@@ -85,13 +59,6 @@ export default function TTSPage({ tasks }: Props) {
   const [linePreviewing, setLinePreviewing] = useState<number | null>(null);
   const [regeneratingLine, setRegeneratingLine] = useState<number | null>(null);
 
-  // Thêm giọng đọc từ file audio mẫu (voice clone)
-  const [showAddVoice, setShowAddVoice] = useState(false);
-  const [newVoiceName, setNewVoiceName] = useState('');
-  const [newVoiceUrl, setNewVoiceUrl] = useState('');
-  const [addingVoice, setAddingVoice] = useState(false);
-  const [voiceSamples, setVoiceSamples] = useState<VoiceSampleInfo[]>([]);
-
   // Nghe thử toàn bộ phụ đề 1 mạch — playback sống trong fullPreviewPlayer
   // (singleton ngoài React) nên chuyển tab rồi quay lại vẫn thấy tiến trình chạy.
   // Tham số thứ 3 (getServerSnapshot) bắt buộc khi Next.js pre-render trang.
@@ -105,11 +72,6 @@ export default function TTSPage({ tasks }: Props) {
 
   const startFullPreview = (startLine: number = 1) => {
     if (srtLines.length === 0) return;
-    if (ttsEngine === 'tiktok') {
-      setMessage('Nghe 1 mạch hiện chỉ hỗ trợ VietTTS — dùng nút "Nghe thử" chính để nghe giọng TikTok.');
-      setIsError(true);
-      return;
-    }
     setMessage('');
     setIsError(false);
     // Chụp giọng/speed tại thời điểm bấm — đổi gán giọng trong lúc phát
@@ -122,7 +84,7 @@ export default function TTSPage({ tasks }: Props) {
     fullPreviewPlayer.start(
       {
         lines,
-        fetchAudio: (l) => window.vanhsub.tts.preview(l.text.slice(0, 300), l.voice, speed),
+        fetchAudio: (l) => window.vanhsub.tts.preview(l.text.slice(0, 300), l.voice, speed, 'tiktok'),
       },
       startLine
     );
@@ -146,8 +108,6 @@ export default function TTSPage({ tasks }: Props) {
     setVoiceOverrides({});
     setLinePreviewing(null);
     setRegeneratingLine(null);
-    // Engine là thuộc tính của task — đổi task thì đổi theo
-    setTtsEngine(selectedTask?.ttsEngine || 'viettts');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedTaskId]);
 
@@ -229,11 +189,6 @@ export default function TTSPage({ tasks }: Props) {
 
   // Nghe thử 1 dòng với giọng sẽ gán (hoặc giọng chung nếu để mặc định)
   const handlePreviewLine = async (lineNumber: number, text: string, lineVoice: string) => {
-    if (ttsEngine === 'tiktok') {
-      setIsError(true);
-      setMessage('Nghe thử theo dòng hiện chỉ hỗ trợ VietTTS — dùng nút "Nghe thử" chính để nghe giọng TikTok.');
-      return;
-    }
     if (fullPreviewing) stopFullPreview();
     setMessage('');
     setIsError(false);
@@ -242,7 +197,8 @@ export default function TTSPage({ tasks }: Props) {
       const res = await window.vanhsub.tts.preview(
         text.slice(0, 300),
         lineVoice || voice,
-        speed
+        speed,
+        'tiktok'
       );
       previewAudioRef.current?.pause();
       if (!previewAudioRef.current) previewAudioRef.current = new Audio();
@@ -264,168 +220,16 @@ export default function TTSPage({ tasks }: Props) {
       ?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   }, [fullPreviewLine]);
 
-  // Nạp lại danh sách giọng (server + giọng mẫu) sau khi thêm/xoá
-  const refreshVoices = useCallback(async () => {
-    if (typeof window === 'undefined' || !window.vanhsub?.tts?.voices) return;
-    try {
-      const list = await window.vanhsub.tts.voices();
-      setAvailableVoices(Array.isArray(list) ? list : []);
-    } catch {
-      // giữ nguyên danh sách cũ
-    }
-  }, []);
-
-  const loadVoiceSamples = useCallback(async () => {
-    if (typeof window === 'undefined' || !window.vanhsub?.tts?.voiceSamples) return;
-    try {
-      const list = await window.vanhsub.tts.voiceSamples();
-      setVoiceSamples(Array.isArray(list) ? list : []);
-    } catch {
-      // bỏ qua
-    }
-  }, []);
-
-  const handleAddVoiceSample = async () => {
-    const name = newVoiceName.trim();
-    setMessage('');
-    setIsError(false);
-    if (!name) {
-      setIsError(true);
-      setMessage('Nhập tên cho giọng trước khi chọn file.');
-      return;
-    }
-    setAddingVoice(true);
-    try {
-      const res = await window.vanhsub.tts.addVoiceSample(name);
-      if (res?.error) {
-        setIsError(true);
-        setMessage(res.error);
-        return;
-      }
-      if (res?.canceled) return;
-      setNewVoiceName('');
-      setShowAddVoice(false);
-      await loadVoiceSamples();
-      await refreshVoices();
-      if (res?.sample) setVoice(res.sample.name);
-      setMessage(`Đã thêm giọng "${res?.sample?.name}" — bấm Nghe thử để kiểm tra.`);
-    } catch (err: any) {
-      setIsError(true);
-      setMessage(err?.message || 'Không thể thêm giọng mẫu.');
-    } finally {
-      setAddingVoice(false);
-    }
-  };
-
-  const handleAddVoiceSampleFromUrl = async () => {
-    const name = newVoiceName.trim();
-    const url = newVoiceUrl.trim();
-    setMessage('');
-    setIsError(false);
-    if (!name) {
-      setIsError(true);
-      setMessage('Nhập tên cho giọng trước khi tải link.');
-      return;
-    }
-    if (!url) {
-      setIsError(true);
-      setMessage('Dán link video (TikTok/YouTube) vào ô link.');
-      return;
-    }
-    setAddingVoice(true);
-    try {
-      const res = await window.vanhsub.tts.addVoiceSampleFromUrl(name, url);
-      if (res?.error) {
-        setIsError(true);
-        setMessage(res.error);
-        return;
-      }
-      setNewVoiceName('');
-      setNewVoiceUrl('');
-      await loadVoiceSamples();
-      await refreshVoices();
-      if (res?.sample) setVoice(res.sample.name);
-      setMessage(`Đã thêm giọng "${res?.sample?.name}" từ link — bấm Nghe thử để kiểm tra.`);
-    } catch (err: any) {
-      setIsError(true);
-      setMessage(err?.message || 'Không thể tải audio từ link.');
-    } finally {
-      setAddingVoice(false);
-    }
-  };
-
-  const handleRemoveVoiceSample = async (name: string) => {
-    try {
-      await window.vanhsub.tts.removeVoiceSample(name);
-      await loadVoiceSamples();
-      await refreshVoices();
-      if (voice === name) {
-        // Giọng đang chọn bị xoá → quay về giọng server đầu tiên (hoặc fallback)
-        const list = await window.vanhsub.tts.voices().catch(() => []);
-        setVoice(list.find((v) => v !== name) || VOICE_OPTIONS[0].value);
-      }
-    } catch (err: any) {
-      setIsError(true);
-      setMessage(err?.message || 'Không thể xoá giọng mẫu.');
-    }
-  };
-
-  const checkConnection = useCallback(async () => {
-    if (typeof window === 'undefined' || !window.vanhsub?.tts?.checkConnection) return;
-    setCheckingConnection(true);
-    try {
-      const connected = await window.vanhsub.tts.checkConnection();
-      setVietTtsConnected(connected);
-      if (!connected) {
-        setIsError(true);
-        setMessage('VietTTS chưa kết nối — xem hướng dẫn chạy Docker bên dưới.');
-      }
-    } catch {
-      setVietTtsConnected(false);
-    } finally {
-      setCheckingConnection(false);
-    }
-  }, []);
-
-  // Kiểm tra kết nối VietTTS + nạp cài đặt + danh sách voice lần đầu
-  useEffect(() => {
-    if (typeof window === 'undefined' || !window.vanhsub) return;
-    checkConnection();
-
-    if (window.vanhsub.settings) {
-      Promise.all([
-        window.vanhsub.settings.get('ttsVoice').catch(() => 'alloy'),
-        window.vanhsub.settings.get('ttsSpeed').catch(() => 1.0),
-        window.vanhsub.settings.get('vietTtsEndpoint').catch(() => ''),
-      ])
-        .then(([v, s, endpoint]) => {
-          if (v) setVoice(String(v));
-          if (s) setSpeed(Number(s) || 1.0);
-          if (endpoint) setVietTtsEndpoint(String(endpoint));
-        })
-        .catch(() => {});
-    }
-
-    if (window.vanhsub.tts?.voices) {
-      window.vanhsub.tts
-        .voices()
-        .then((list) => setAvailableVoices(Array.isArray(list) ? list : []))
-        .catch(() => {});
-    }
-
-    loadVoiceSamples();
-  }, [checkConnection, loadVoiceSamples]);
-
-  // Lưu giọng/tốc độ người dùng chọn làm mặc định cho lần sau
+  // Nạp tốc độ đã lưu (engine TikTok hiện bỏ qua tốc độ nhưng giữ tuỳ chọn cho tương lai)
   useEffect(() => {
     if (typeof window === 'undefined' || !window.vanhsub?.settings) return;
-    window.vanhsub.settings.set('ttsVoice', voice).catch(() => {});
-  }, [voice]);
-
-  useEffect(() => {
-    if (typeof window === 'undefined' || !window.vanhsub?.settings) return;
-    window.vanhsub.settings.set('ttsSpeed', speed).catch(() => {});
-  }, [speed]);
+    window.vanhsub.settings
+      .get('ttsSpeed')
+      .then((s) => {
+        if (s) setSpeed(Number(s) || 1.0);
+      })
+      .catch(() => {});
+  }, []);
 
   // Tạo lại audio cho 1 dòng đã có audio TTS (dùng khi sửa text ở Hiệu đính
   // hoặc muốn đổi giọng riêng dòng đó mà không chạy lại toàn bộ)
@@ -467,19 +271,14 @@ export default function TTSPage({ tasks }: Props) {
     setMessage('');
     setIsError(false);
 
-    if (ttsEngine === 'viettts' && vietTtsConnected === false) {
-      setIsError(true);
-      setMessage('VietTTS không kết nối. Kiểm tra Docker container rồi bấm "Kiểm tra lại".');
-      return;
-    }
-    if (ttsEngine === 'tiktok' && !tiktokHasSession) {
+    if (!tiktokHasSession) {
       setIsError(true);
       setMessage('Chưa có session TikTok — vào Cài đặt → TikTok TTS để lưu sessionid trước.');
       return;
     }
 
     try {
-      await window.vanhsub.tts.start(selectedTaskId, voice, speed, voiceOverrides, ttsEngine);
+      await window.vanhsub.tts.start(selectedTaskId, voice, speed, voiceOverrides, 'tiktok');
       setMessage('Đã gửi yêu cầu tạo lồng tiếng — theo dõi tiến trình bên dưới.');
     } catch (err: any) {
       setIsError(true);
@@ -492,19 +291,7 @@ export default function TTSPage({ tasks }: Props) {
     setIsError(false);
     setPreviewing(true);
     try {
-      const text = await loadPreviewText(selectedTask);
-      if (ttsEngine === 'tiktok') {
-        // TikTok TTS trả về file mp3 trong userData — phát qua protocol vanhmedia
-        const res = await window.vanhsub.tiktokTts.synthesize(text, voice);
-        if (!res.ok) throw new Error(res.error);
-        previewAudioRef.current?.pause();
-        if (!previewAudioRef.current) previewAudioRef.current = new Audio();
-        previewAudioRef.current.src = `vanhmedia://local/${encodeURIComponent(res.filePath)}`;
-        await previewAudioRef.current.play();
-        setMessage('Đang phát bản nghe thử (TikTok TTS)...');
-        return;
-      }
-      const res = await window.vanhsub.tts.preview(text, voice, speed);
+      const res = await window.vanhsub.tts.preview(SAMPLE_TEXT, voice, speed, 'tiktok');
       previewAudioRef.current?.pause();
       if (!previewAudioRef.current) previewAudioRef.current = new Audio();
       previewAudioRef.current.src = `data:${res.mimeType};base64,${res.audioBase64}`;
@@ -512,7 +299,7 @@ export default function TTSPage({ tasks }: Props) {
       setMessage('Đang phát bản nghe thử...');
     } catch (err: any) {
       setIsError(true);
-      setMessage(err?.message || 'Không thể tạo bản nghe thử. Kiểm tra kết nối VietTTS.');
+      setMessage(err?.message || 'Không thể tạo bản nghe thử. Nếu lỗi session, vào Cài đặt lưu lại sessionid TikTok.');
     } finally {
       setPreviewing(false);
     }
@@ -555,39 +342,23 @@ export default function TTSPage({ tasks }: Props) {
   }, [selectedTask?.status, selectedTask?.errorMessage]);
 
   const ttsEligibleTasks = tasks.filter((t) => t.srtPath);
-  const voiceList = availableVoices.length > 0 ? availableVoices : VOICE_OPTIONS.map((v) => v.value);
 
-  // Danh sách giọng + hàm hiển thị theo engine đang chọn
-  const voiceChoices: Array<{ value: string; label: string }> =
-    ttsEngine === 'tiktok'
-      ? tiktokVoices.map((v) => ({ value: v.id, label: `${v.label} · ${v.id}` }))
-      : voiceList.map((v) => ({ value: v, label: voiceLabel(v) }));
-  const currentVoiceLabel = (v: string) => {
-    if (ttsEngine === 'tiktok') {
-      return tiktokVoices.find((t) => t.id === v)?.label || v;
+  // Tìm kiếm giọng TikTok: lọc theo tên/mã không dấu, giọng đang chọn luôn được giữ
+  const normalizedSearch = voiceSearch.trim().toLowerCase().replace(/[\s_]+/g, '');
+  const voiceChoices: Array<{ value: string; label: string }> = tiktokVoices
+    .filter((v) => {
+      if (!normalizedSearch) return true;
+      const hay = `${v.label} ${v.id}`.toLowerCase().replace(/[\s_]+/g, '');
+      return hay.includes(normalizedSearch);
+    })
+    .map((v) => ({ value: v.id, label: `${v.label} · ${v.id}` }));
+  if (voice && !voiceChoices.some((v) => v.value === voice)) {
+    const current = tiktokVoices.find((v) => v.id === voice);
+    if (current) {
+      voiceChoices.unshift({ value: current.id, label: `${current.label} · ${current.id}` });
     }
-    return voiceLabel(v);
-  };
-
-  const handleEngineChange = (engine: 'viettts' | 'tiktok') => {
-    if (engine === ttsEngine) return;
-    setTtsEngine(engine);
-    if (engine === 'tiktok') {
-      setPrevVietVoice(voice);
-      setVoice(
-        tiktokVoices.some((v) => v.id === voice)
-          ? voice
-          : tiktokVoices.find((v) => v.language === 'vi')?.id || 'BV074_streaming',
-      );
-    } else if (tiktokVoices.some((v) => v.id === voice)) {
-      // Quay về VietTTS: giọng đang là id TikTok → trả giọng VietTTS đã dùng trước đó
-      setVoice(prevVietVoice);
-    }
-    // Lưu trên task để pipeline "Chạy cả quy trình" dùng đúng engine
-    if (selectedTaskId) {
-      window.vanhsub.tasks.update(selectedTaskId, { ttsEngine: engine }).catch(() => {});
-    }
-  };
+  }
+  const currentVoiceLabel = (v: string) => tiktokVoices.find((t) => t.id === v)?.label || v;
 
   const activeProgress = isTtsRunning || isDubbingRunning ? selectedTask : null;
   const stageText =
@@ -613,23 +384,14 @@ export default function TTSPage({ tasks }: Props) {
             ))}
           </select>
 
-          <label className="text-xs font-semibold text-slate-300">Engine:</label>
-          <select
-            value={ttsEngine}
-            onChange={(e) => handleEngineChange(e.target.value === 'tiktok' ? 'tiktok' : 'viettts')}
-            disabled={isTtsRunning || isDubbingRunning}
-            className="rounded-xl border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs text-slate-200 focus:outline-none disabled:opacity-50"
-          >
-            <option value="viettts">VietTTS (local)</option>
-            <option value="tiktok">TikTok TTS (~80 giọng)</option>
-          </select>
-          {ttsEngine === 'tiktok' && !tiktokHasSession && (
-            <span className="text-[11px] font-medium text-amber-400">
-              Chưa có session TikTok — vào Cài đặt lưu sessionid
-            </span>
-          )}
-
-          <label className="text-xs font-semibold text-slate-300">Giọng nói:</label>
+          <label className="text-xs font-semibold text-slate-300">Giọng TikTok:</label>
+          <input
+            type="text"
+            value={voiceSearch}
+            onChange={(e) => setVoiceSearch(e.target.value)}
+            placeholder="Tìm giọng (vd: việt, nữ, en_us, BV074...)"
+            className="w-44 rounded-xl border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs text-white placeholder:text-slate-500 focus:border-brand-cyan focus:outline-none"
+          />
           <select
             value={voice}
             onChange={(e) => setVoice(e.target.value)}
@@ -642,13 +404,16 @@ export default function TTSPage({ tasks }: Props) {
               </option>
             ))}
           </select>
+          <span className="text-[11px] text-slate-500">
+            {voiceChoices.length}/{tiktokVoices.length} giọng
+          </span>
 
           <label className="text-xs font-semibold text-slate-300">Tốc độ:</label>
           <select
             value={speed}
             onChange={(e) => setSpeed(Number(e.target.value))}
-            disabled={isTtsRunning || isDubbingRunning || ttsEngine === 'tiktok'}
-            title={ttsEngine === 'tiktok' ? 'TikTok TTS chưa hỗ trợ chỉnh tốc độ' : undefined}
+            disabled={isTtsRunning || isDubbingRunning}
+            title="TikTok TTS chưa hỗ trợ chỉnh tốc độ"
             className="rounded-xl border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs text-slate-200 focus:outline-none disabled:opacity-50"
           >
             {SPEED_OPTIONS.map((s) => (
@@ -660,25 +425,9 @@ export default function TTSPage({ tasks }: Props) {
 
           <button
             type="button"
-            onClick={() => setShowAddVoice((prev) => !prev)}
-            disabled={isTtsRunning || isDubbingRunning}
-            title="Thêm giọng đọc từ file audio mẫu (clone giọng)"
-            className={[
-              'inline-flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold transition cursor-pointer disabled:cursor-not-allowed disabled:opacity-50',
-              showAddVoice || voiceSamples.length > 0
-                ? 'border-brand-indigo/50 bg-brand-indigo/10 text-brand-indigo hover:bg-brand-indigo/20'
-                : 'border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-700',
-            ].join(' ')}
-          >
-            <UserPlus className="h-3.5 w-3.5" />
-            <span>Thêm giọng{voiceSamples.length > 0 ? ` (${voiceSamples.length})` : ''}</span>
-          </button>
-
-          <button
-            type="button"
             onClick={handlePreview}
-            disabled={(ttsEngine === 'viettts' && !vietTtsConnected) || previewing || isTtsRunning || isDubbingRunning || fullPreviewing}
-            title={ttsEngine === 'tiktok' ? 'Nghe thử giọng TikTok với câu đầu tiên trong phụ đề' : 'Nghe thử giọng đọc với câu đầu tiên trong phụ đề'}
+            disabled={previewing || isTtsRunning || isDubbingRunning || fullPreviewing}
+            title="Nghe thử giọng đang chọn"
             className="inline-flex items-center gap-1.5 rounded-xl border border-brand-cyan/40 bg-brand-cyan/10 px-3 py-1.5 text-xs font-semibold text-brand-cyan transition hover:bg-brand-cyan/20 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
           >
             {previewing ? (
@@ -732,7 +481,7 @@ export default function TTSPage({ tasks }: Props) {
           <button
             type="button"
             onClick={handleStartTTS}
-            disabled={!selectedTaskId || !hasSrtFile || isTtsRunning || isDubbingRunning || vietTtsConnected === false}
+            disabled={!selectedTaskId || !hasSrtFile || isTtsRunning || isDubbingRunning}
             className="btn-vanh-gradient inline-flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-semibold cursor-pointer disabled:opacity-50"
           >
             {isTtsRunning ? (
@@ -744,110 +493,6 @@ export default function TTSPage({ tasks }: Props) {
           </button>
         </div>
       </div>
-
-      {/* Panel thêm giọng đọc từ file audio mẫu */}
-      {showAddVoice && (
-        <div className="rounded-2xl border border-brand-indigo/40 bg-slate-900/80 p-4">
-          <div className="flex items-center justify-between border-b border-slate-800/80 pb-2.5">
-            <div className="flex items-center gap-2 text-xs font-semibold text-slate-200">
-              <UserPlus className="h-3.5 w-3.5 text-brand-indigo" />
-              <span>Thêm giọng từ file audio mẫu (clone giọng)</span>
-            </div>
-            <button
-              type="button"
-              onClick={() => setShowAddVoice(false)}
-              title="Đóng"
-              className="flex h-6 w-6 items-center justify-center rounded-lg border border-slate-700 bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-slate-200 cursor-pointer"
-            >
-              <X className="h-3.5 w-3.5" />
-            </button>
-          </div>
-
-          <div className="mt-3 space-y-2">
-            <div className="flex flex-wrap items-center gap-2">
-              <input
-                type="text"
-                value={newVoiceName}
-                onChange={(e) => setNewVoiceName(e.target.value)}
-                placeholder="Tên giọng, vd: Giọng cô Hằng"
-                className="min-w-[200px] flex-1 rounded-xl border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs text-white placeholder:text-slate-500 focus:border-brand-cyan focus:outline-none"
-              />
-              <button
-                type="button"
-                onClick={handleAddVoiceSample}
-                disabled={addingVoice}
-                title="Chọn file audio giọng mẫu (5–15 giây, rõ tiếng, ít nhiễu) rồi lưu"
-                className="inline-flex items-center gap-1.5 rounded-xl border border-brand-indigo/40 bg-brand-indigo/10 px-3 py-1.5 text-xs font-semibold text-brand-indigo hover:bg-brand-indigo/20 cursor-pointer disabled:opacity-50"
-              >
-                {addingVoice ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <UserPlus className="h-3.5 w-3.5" />
-                )}
-                <span>Chọn file & Thêm</span>
-              </button>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2">
-              <input
-                type="text"
-                value={newVoiceUrl}
-                onChange={(e) => setNewVoiceUrl(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !addingVoice) handleAddVoiceSampleFromUrl();
-                }}
-                placeholder="Hoặc dán link video có giọng muốn lấy (TikTok, YouTube…)"
-                className="min-w-[200px] flex-1 rounded-xl border border-slate-700 bg-slate-800 px-3 py-1.5 font-mono text-xs text-white placeholder:text-slate-500 focus:border-brand-cyan focus:outline-none"
-              />
-              <button
-                type="button"
-                onClick={handleAddVoiceSampleFromUrl}
-                disabled={addingVoice}
-                title="Tải audio từ link video (yt-dlp tự tải về lần đầu) rồi lưu làm giọng mẫu"
-                className="inline-flex items-center gap-1.5 rounded-xl border border-brand-cyan/40 bg-brand-cyan/10 px-3 py-1.5 text-xs font-semibold text-brand-cyan hover:bg-brand-cyan/20 cursor-pointer disabled:opacity-50"
-              >
-                {addingVoice ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <Link2 className="h-3.5 w-3.5" />
-                )}
-                <span>Tải từ link & Thêm</span>
-              </button>
-            </div>
-          </div>
-          <p className="mt-2 text-[11px] text-slate-500">
-            File/link mẫu nên chọn đoạn một người nói, rõ tiếng, ít nhạc nền. Lần đầu
-            tải từ link app sẽ tự tải yt-dlp (~18MB). Chỉ lấy giọng của bạn hoặc người
-            đã đồng ý cho sử dụng giọng.
-          </p>
-
-          {voiceSamples.length > 0 && (
-            <div className="mt-3 space-y-1.5">
-              <p className="text-[11px] font-semibold text-slate-400">Giọng đã lưu:</p>
-              {voiceSamples.map((s) => (
-                <div
-                  key={s.name}
-                  className="flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-900/80 p-2 text-xs"
-                >
-                  <Mic className="h-3.5 w-3.5 shrink-0 text-brand-indigo" />
-                  <span className="font-medium text-slate-200">{s.name}</span>
-                  <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-slate-500" title={s.originalName}>
-                    ({s.originalName})
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => handleRemoveVoiceSample(s.name)}
-                    title={`Xoá giọng "${s.name}"`}
-                    className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg border border-slate-700 bg-slate-800 text-slate-400 hover:border-rose-500/50 hover:text-rose-400 cursor-pointer"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
 
       {/* Bảng gán giọng theo từng dòng phụ đề */}
       {showVoicePanel && selectedTaskId && (
@@ -880,7 +525,7 @@ export default function TTSPage({ tasks }: Props) {
                 <button
                   type="button"
                   onClick={() => startFullPreview(1)}
-                  disabled={srtLines.length === 0 || vietTtsConnected === false || linePreviewing !== null}
+                  disabled={srtLines.length === 0 || linePreviewing !== null}
                   title="Phát liên tiếp toàn bộ phụ đề để nghe 1 mạch giọng đọc của video"
                   className="inline-flex items-center gap-1.5 rounded-lg border border-brand-cyan/40 bg-brand-cyan/10 px-2.5 py-1 text-[11px] font-semibold text-brand-cyan hover:bg-brand-cyan/20 cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"
                 >
@@ -969,7 +614,7 @@ export default function TTSPage({ tasks }: Props) {
                     <button
                       type="button"
                       onClick={() => handlePreviewLine(lineNumber, line.text, lineVoice)}
-                      disabled={linePreviewing !== null || vietTtsConnected === false || fullPreviewing || ttsEngine === 'tiktok'}
+                      disabled={linePreviewing !== null || fullPreviewing}
                       title="Nghe thử dòng này với giọng đã chọn"
                       className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg border border-brand-cyan/40 bg-brand-cyan/10 text-brand-cyan hover:bg-brand-cyan/25 cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"
                     >
@@ -1003,37 +648,6 @@ export default function TTSPage({ tasks }: Props) {
             Dòng để "Mặc định" sẽ dùng giọng chung đã chọn ở thanh công cụ. Bấm
             "Tạo audio lồng tiếng" để áp dụng.
           </p>
-        </div>
-      )}
-
-      {/* Thông báo kết nối */}
-      {vietTtsConnected === false && (
-        <div className="rounded-2xl border border-rose-500/30 bg-rose-500/10 p-3">
-          <div className="flex items-start justify-between gap-3">
-            <div className="flex items-start gap-2">
-              <Zap className="h-4 w-4 text-rose-400 mt-0.5 flex-shrink-0" />
-              <div className="text-xs text-rose-300">
-                <p className="font-semibold mb-1">⚠️ VietTTS chưa sẵn sàng</p>
-                <p>
-                  Endpoint đang dùng: <code className="font-mono text-rose-200">{vietTtsEndpoint || 'http://localhost:6006'}</code>{' '}
-                  (đổi được trong Cài đặt)
-                </p>
-                <p className="mt-1">Chạy Docker container:</p>
-                <code className="block mt-1 bg-slate-900 px-2 py-1 rounded text-[10px] font-mono text-slate-200">
-                  docker run -p 6006:6006 vanhsub/viettts
-                </code>
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={checkConnection}
-              disabled={checkingConnection}
-              className="inline-flex flex-shrink-0 items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs font-medium text-slate-200 hover:bg-slate-700 cursor-pointer disabled:opacity-50"
-            >
-              <RefreshCw className={`h-3.5 w-3.5 ${checkingConnection ? 'animate-spin' : ''}`} />
-              <span>Kiểm tra lại</span>
-            </button>
-          </div>
         </div>
       )}
 
@@ -1081,17 +695,11 @@ export default function TTSPage({ tasks }: Props) {
               </div>
               <div className="flex justify-between">
                 <span>Giọng nói:</span>
-                <span className="text-slate-200">{voiceLabel(voice)}</span>
+                <span className="text-slate-200">{currentVoiceLabel(voice)}</span>
               </div>
               <div className="flex justify-between">
                 <span>Tốc độ:</span>
                 <span className="text-slate-200">{speedLabel(speed)}</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Trạng thái VietTTS:</span>
-                <span className={vietTtsConnected ? 'text-emerald-400' : 'text-rose-400'}>
-                  {vietTtsConnected ? '✓ Sẵn sàng' : '✗ Không kết nối'}
-                </span>
               </div>
             </div>
           </div>

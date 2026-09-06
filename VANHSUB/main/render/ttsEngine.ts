@@ -424,9 +424,10 @@ export async function getAvailableVoices(): Promise<string[]> {
 export async function previewTts(
   text: string,
   voice?: string,
-  speed?: number
+  speed?: number,
+  engine?: TTSEngine
 ): Promise<{ audioBase64: string; mimeType: string }> {
-  const buffer = await generateAudio(text, voice, speed);
+  const buffer = await generateAudio(text, voice, speed, engine || 'viettts');
   return { audioBase64: buffer.toString('base64'), mimeType: 'audio/mpeg' };
 }
 

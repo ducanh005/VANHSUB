@@ -82,7 +82,8 @@ export interface VanhsubAPI {
     preview: (
       text: string,
       voice?: string,
-      speed?: number
+      speed?: number,
+      engine?: 'viettts' | 'tiktok'
     ) => Promise<{ audioBase64: string; mimeType: string }>;
     voiceSamples: () => Promise<VoiceSampleInfo[]>;
     addVoiceSample: (

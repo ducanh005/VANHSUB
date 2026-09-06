@@ -61,8 +61,8 @@ const vanhsub = {
       ipcRenderer.invoke('tts:regenerateLine', id, lineIndex),
     voices: () => ipcRenderer.invoke('tts:voices'),
     checkConnection: () => ipcRenderer.invoke('tts:check-connection'),
-    preview: (text: string, voice?: string, speed?: number) =>
-      ipcRenderer.invoke('tts:preview', text, voice, speed),
+    preview: (text: string, voice?: string, speed?: number, engine?: 'viettts' | 'tiktok') =>
+      ipcRenderer.invoke('tts:preview', text, voice, speed, engine),
     voiceSamples: () => ipcRenderer.invoke('tts:voice-samples'),
     addVoiceSample: (name: string) => ipcRenderer.invoke('tts:add-voice-sample', name),
     addVoiceSampleFromUrl: (name: string, url: string) =>

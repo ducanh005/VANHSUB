@@ -90,8 +90,10 @@ export class TTSRunner {
 
     const voiceToUse = voice || task.ttsVoice || SettingsStore.get('ttsVoice') || 'alloy';
     const speedToUse = speed || task.ttsSpeed || SettingsStore.get('ttsSpeed') || 1.0;
-    // Engine: tham số caller > engine đã lưu trên task > mặc định VietTTS
-    const engineToUse: TTSEngine = engine || task.ttsEngine || 'viettts';
+    // Engine: tham số caller > engine đã lưu trên task > mặc định theo trạng thái
+    // task — task mới (chưa từng TTS) dùng TikTok; task cũ đã có giọng cấu hình
+    // từ thời chỉ có VietTTS thì giữ VietTTS
+    const engineToUse: TTSEngine = engine || task.ttsEngine || (task.ttsVoice ? 'viettts' : 'tiktok');
 
     try {
       // Chỉ ghi đè ttsVoiceOverrides khi caller truyền gán giọng mới —
