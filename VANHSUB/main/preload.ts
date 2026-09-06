@@ -65,8 +65,11 @@ const vanhsub = {
     removeVoiceSample: (name: string) => ipcRenderer.invoke('tts:remove-voice-sample', name),
   },
   dubbing: {
-    start: (id: string, replaceAudio: boolean = true) =>
-      ipcRenderer.invoke('dubbing:start', id, replaceAudio),
+    start: (
+      id: string,
+      replaceAudio: boolean = true,
+      options?: { syncMode?: 'strict' | 'flexible' | 'video-stretch'; mixOriginalAudio?: boolean }
+    ) => ipcRenderer.invoke('dubbing:start', id, replaceAudio, options ?? null),
   },
   models: {
     list: () => ipcRenderer.invoke('models:list'),

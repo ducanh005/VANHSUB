@@ -68,6 +68,8 @@ export default function TTSPage({ tasks }: Props) {
   const [isError, setIsError] = useState(false);
   const [previewing, setPreviewing] = useState(false);
   const [replaceAudio, setReplaceAudio] = useState(true);
+  const [syncMode, setSyncMode] = useState<'strict' | 'flexible' | 'video-stretch'>('strict');
+  const [mixOriginalAudio, setMixOriginalAudio] = useState(false);
   const [startingDubbing, setStartingDubbing] = useState(false);
   const previewAudioRef = useRef<HTMLAudioElement | null>(null);
 
@@ -467,7 +469,10 @@ export default function TTSPage({ tasks }: Props) {
     setIsError(false);
     setStartingDubbing(true);
     try {
-      await window.vanhsub.dubbing.start(selectedTaskId, replaceAudio);
+      await window.vanhsub.dubbing.start(selectedTaskId, replaceAudio, {
+        syncMode,
+        mixOriginalAudio: replaceAudio && mixOriginalAudio,
+      });
       setMessage('Đã bắt đầu ghép audio lồng tiếng vào video.');
     } catch (err: any) {
       setIsError(true);
@@ -1007,6 +1012,45 @@ export default function TTSPage({ tasks }: Props) {
                       Thay thế toàn bộ âm thanh gốc (bỏ tick để giữ audio gốc thành track song ngữ)
                     </span>
                   </label>
+
+                  {replaceAudio && (
+                    <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={mixOriginalAudio}
+                        onChange={(e) => setMixOriginalAudio(e.target.checked)}
+                        className="h-4 w-4 rounded border-slate-700 bg-slate-800 text-brand-cyan focus:ring-0"
+                      />
+                      <span>
+                        Giữ nhạc nền / hiệu ứng âm thanh gốc, mix nhỏ (22%) dưới lời thoại lồng tiếng
+                      </span>
+                    </label>
+                  )}
+
+                  <div>
+                    <label className="mb-1.5 block text-xs font-medium text-slate-300">
+                      Chế độ đồng bộ khi câu thoại dài hơn khung phụ đề:
+                    </label>
+                    <select
+                      value={syncMode}
+                      onChange={(e) =>
+                        setSyncMode(
+                          e.target.value === 'flexible'
+                            ? 'flexible'
+                            : e.target.value === 'video-stretch'
+                              ? 'video-stretch'
+                              : 'strict'
+                        )
+                      }
+                      disabled={isTtsRunning || isDubbingRunning}
+                      className="w-full rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-white focus:outline-none disabled:opacity-50"
+                    >
+                      <option value="strict">Chặt — nén audio theo timeline phụ đề (mặc định)</option>
+                      <option value="flexible">Linh hoạt — cho câu dài tràn vào khoảng lặng (tối đa ~3s)</option>
+                      <option value="video-stretch">Kéo giãn video — giãn video tối đa 1.25x để vừa audio</option>
+                    </select>
+                  </div>
+
                   <button
                     type="button"
                     onClick={handleStartDubbing}
@@ -1022,7 +1066,7 @@ export default function TTSPage({ tasks }: Props) {
                   </button>
                   <p className="text-[11px] text-slate-400">
                     Audio được ghép đúng theo timeline phụ đề: câu ngắn hơn sẽ được lấp im lặng,
-                    câu tràn thời lượng sẽ được cắt bớt.
+                    câu tràn thời lượng xử lý theo chế độ đồng bộ đã chọn ở trên.
                   </p>
                 </div>
               )}

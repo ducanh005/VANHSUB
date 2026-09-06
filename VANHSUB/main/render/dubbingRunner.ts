@@ -1,6 +1,14 @@
 import path from 'path';
 import { TaskStore, type Task } from '../store/taskStore';
-import { dubVideo } from './dubbingEngine';
+import { dubVideo, type SyncMode } from './dubbingEngine';
+
+export interface DubbingOptions {
+  replaceAudio?: boolean;
+  /** Chế độ đồng bộ audio-video */
+  syncMode?: SyncMode;
+  /** Giữ nhạc nền/SFX gốc, mix nhỏ dưới lời thoại (chỉ khi replaceAudio) */
+  mixOriginalAudio?: boolean;
+}
 
 export class DubbingRunner {
   private static runningTasks = new Set<string>();
@@ -12,7 +20,8 @@ export class DubbingRunner {
   static async runDubbing(
     taskId: string,
     replaceAudio: boolean = true,
-    onUpdate?: () => void
+    onUpdate?: () => void,
+    options?: Omit<DubbingOptions, 'replaceAudio'>
   ): Promise<Task | undefined> {
     const task = TaskStore.getById(taskId);
     if (!task) throw new Error(`Không tìm thấy tác vụ ID: ${taskId}`);
@@ -49,12 +58,16 @@ export class DubbingRunner {
       );
 
       // Chạy full dubbing pipeline
-      const { outputPath: finalPath, overruns } = await dubVideo(
+      const { outputPath: finalPath, overruns, stretchFactor } = await dubVideo(
         task.filePath,
         task.translatedSrtPath || task.srtPath, // Ưu tiên dùng bản dịch
         task.ttsAudioDir,
         outputPath,
-        { replaceAudio },
+        {
+          replaceAudio,
+          syncMode: options?.syncMode,
+          mixOriginalAudio: options?.mixOriginalAudio,
+        },
         (percent) => {
           TaskStore.update(taskId, {
             progress: percent,
@@ -64,6 +77,7 @@ export class DubbingRunner {
         }
       );
 
+      const truncatedCount = overruns.filter((o) => o.truncated).length;
       const updated = TaskStore.update(taskId, {
         status: 'done',
         progress: 100,
@@ -71,9 +85,11 @@ export class DubbingRunner {
         // Ghi đè báo cáo câu tràn của lần dubbing này (rỗng = không có câu nào tràn)
         ttsOverruns: overruns,
         stageDescription:
-          overruns.filter((o) => o.truncated).length > 0
-            ? `Đã hoàn tất dubbing — ${overruns.filter((o) => o.truncated).length} câu tràn quá 1.5x bị cắt phần cuối`
-            : 'Đã hoàn tất dubbing video',
+          truncatedCount > 0
+            ? `Đã hoàn tất dubbing — ${truncatedCount} câu tràn quá 1.5x bị cắt phần cuối`
+            : stretchFactor > 1.01
+              ? `Đã hoàn tất dubbing (video giãn ${stretchFactor}x)`
+              : 'Đã hoàn tất dubbing video',
       });
       onUpdate?.();
 

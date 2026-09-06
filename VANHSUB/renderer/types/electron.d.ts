@@ -93,7 +93,11 @@ export interface VanhsubAPI {
     removeVoiceSample: (name: string) => Promise<VoiceSampleInfo[]>;
   };
   dubbing: {
-    start: (id: string, replaceAudio?: boolean) => Promise<boolean>;
+    start: (
+      id: string,
+      replaceAudio?: boolean,
+      options?: { syncMode?: 'strict' | 'flexible' | 'video-stretch'; mixOriginalAudio?: boolean }
+    ) => Promise<boolean>;
   };
   export: {
     start: (id: string, mode: 'hardsub' | 'softsub', mask?: SubMaskRegion | null) => Promise<boolean>;

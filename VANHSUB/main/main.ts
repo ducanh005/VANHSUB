@@ -585,12 +585,24 @@ ipcMain.handle('tts:preview', async (_event, text: string, voice?: string, speed
 })
 
 // Dubbing video (mux audio vào video)
-ipcMain.handle('dubbing:start', async (_event, id: string, replaceAudio: boolean = true) => {
-  DubbingRunner.runDubbing(id, replaceAudio, () => {
-    broadcastTasksUpdate()
-  })
-  return true
-})
+// options: syncMode = 'strict' (audio nén theo timeline SRT, mặc định) |
+//          'flexible' (cho audio tràn vào khoảng lặng, tối đa 3s) |
+//          'video-stretch' (kéo giãn video để khớp audio, hệ số ≤ 1.25)
+//          mixOriginalAudio = giữ nhạc nền/th âm gốc, mix nhỏ dưới lời thoại
+ipcMain.handle(
+  'dubbing:start',
+  async (
+    _event,
+    id: string,
+    replaceAudio: boolean = true,
+    options?: { syncMode?: 'strict' | 'flexible' | 'video-stretch'; mixOriginalAudio?: boolean }
+  ) => {
+    DubbingRunner.runDubbing(id, replaceAudio, () => {
+      broadcastTasksUpdate()
+    }, options)
+    return true
+  }
+)
 
 // Quản lý model Whisper
 function getModelsDirectory() {
