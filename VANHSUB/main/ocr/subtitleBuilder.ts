@@ -80,6 +80,59 @@ export function segmentsToSrt(segments: SrtLine[]): string | null {
   return serializeSrt(segments);
 }
 
+/**
+ * Bỏ dòng "lớp phủ tĩnh" ở 1/4 TRÊN khung: watermark/logo/tên kênh in cố định
+ * xuất hiện từ đầu đến cuối video. Chỉ áp dụng cho vùng y < 25% chiều cao —
+ * phụ đề (dù đứng yên suốt video) nằm ở vùng dưới không bao giờ bị đụng tới.
+ * Cần biết height video (ffprobe); height = 0 thì bỏ qua lọc.
+ */
+export function filterPersistentTopLines(
+  frames: OcrFrameResult[],
+  frameIntervalMs: number,
+  videoHeight: number,
+): OcrFrameResult[] {
+  if (!videoHeight || frames.length === 0) return frames;
+  const topLimit = videoHeight * 0.25;
+  const totalMs = frames.length * frameIntervalMs;
+  if (totalMs <= 0) return frames;
+
+  // Band = nhóm dòng theo y0 (bucket 64px) — watermark OCR chênh vài px giữa các khung
+  const bandKeyOf = (y0: number) => Math.round(y0 / 64);
+  const firstSeen = new Map<number, number>();
+  const lastSeen = new Map<number, number>();
+  frames.forEach((f, i) => {
+    const t = i * frameIntervalMs;
+    for (const line of f.lines) {
+      if (line.y0 < 0 || line.y0 >= topLimit) continue;
+      const band = bandKeyOf(line.y0);
+      if (!firstSeen.has(band)) firstSeen.set(band, t);
+      lastSeen.set(band, t);
+    }
+  });
+
+  // Band bị coi là lớp phủ tĩnh nếu xuất hiện cả ở 25% đầu và 25% cuối video
+  // (watermark có thể bị OCR bỏ sót vài khung — cửa sổ 10% là hụt)
+  const staticBands = new Set<number>();
+  for (const [band, first] of firstSeen) {
+    const last = lastSeen.get(band) ?? first;
+    if (first <= totalMs * 0.25 && last >= totalMs * 0.75) staticBands.add(band);
+  }
+  if (staticBands.size === 0) return frames;
+
+  return frames.map((f) => {
+    const kept = f.lines.filter(
+      (l) => !(l.y0 >= 0 && l.y0 < topLimit && staticBands.has(bandKeyOf(l.y0))),
+    );
+    if (kept.length === f.lines.length) return f;
+    if (kept.length === 0) return { text: '', confidence: 0, lines: [] };
+    return {
+      text: kept.map((l) => l.text).join(' '),
+      confidence: kept.reduce((s, l) => s + l.confidence, 0) / kept.length,
+      lines: kept,
+    };
+  });
+}
+
 function isUsableText(text: string, confidence: number): boolean {
   if (!text) return false;
   if (confidence < MIN_CONFIDENCE) return false;

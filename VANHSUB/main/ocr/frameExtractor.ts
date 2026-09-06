@@ -1,8 +1,13 @@
 import path from 'path';
 import fs from 'fs';
 import os from 'os';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
 import ffmpeg from 'fluent-ffmpeg';
 import ffmpegInstaller from '@ffmpeg-installer/ffmpeg';
+import ffprobeInstaller from '@ffprobe-installer/ffprobe';
+
+const execFileAsync = promisify(execFile);
 
 // Thiết lập đường dẫn ffmpeg binary (hỗ trợ cả môi trường dev và packaged asar)
 const rawFfmpegPath = (ffmpegInstaller as any)?.path || (ffmpegInstaller as any)?.default?.path || '';
@@ -23,6 +28,28 @@ export interface FrameExtractResult {
   framePaths: string[];
   /** Khoảng thời gian giữa 2 khung liên tiếp (ms) — dùng để tính timestamp phụ đề */
   frameIntervalMs: number;
+  /** Chiều cao khung hình (px) — lọc dòng theo vùng y; 0 nếu không probe được */
+  height: number;
+}
+
+/** Đọc chiều cao video bằng ffprobe đi kèm app — lỗi trả 0 (caller bỏ qua lọc theo y) */
+async function getVideoHeight(inputPath: string): Promise<number> {
+  try {
+    const rawFfprobe =
+      (ffprobeInstaller as any)?.path || (ffprobeInstaller as any)?.default?.path || '';
+    if (!rawFfprobe) return 0;
+    const { stdout } = await execFileAsync(rawFfprobe.replace('app.asar', 'app.asar.unpacked'), [
+      '-v', 'error',
+      '-select_streams', 'v:0',
+      '-show_entries', 'stream=height',
+      '-of', 'csv=p=0',
+      inputPath,
+    ]);
+    const height = parseInt(String(stdout).trim(), 10);
+    return Number.isFinite(height) && height > 0 ? height : 0;
+  } catch {
+    return 0;
+  }
 }
 
 /**
@@ -50,6 +77,7 @@ export function extractFrames(
       `vanhsub-ocr-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     );
     fs.mkdirSync(framesDir, { recursive: true });
+    const videoHeight = getVideoHeight(inputPath);
 
     // Thứ tự filter: lấy mẫu thưa trước rồi mới crop/đổi màu → xử lý ít khung hơn
     const filters: string[] = [`fps=${fps}`];
@@ -80,10 +108,14 @@ export function extractFrames(
             new Error('Không trích được khung hình nào — file có thể không phải video hoặc đã hỏng.'),
           );
         }
-        resolve({
-          framesDir,
-          framePaths,
-          frameIntervalMs: Math.round(1000 / fps),
+        // getVideoHeight tự bắt lỗi và trả 0 — không bao giờ reject
+        void videoHeight.then((height) => {
+          resolve({
+            framesDir,
+            framePaths,
+            frameIntervalMs: Math.round(1000 / fps),
+            height,
+          });
         });
       })
       .on('error', (err) => {

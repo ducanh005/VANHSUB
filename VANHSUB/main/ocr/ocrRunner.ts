@@ -9,7 +9,7 @@ import { nextAvailablePath } from '../lib/paths';
 import { TranslateRunner } from '../translate/translateRunner';
 import { OcrPool } from './ocrEngine';
 import { extractFrames, cleanupFrames, type OcrRegion } from './frameExtractor';
-import { buildSubtitleSegments, segmentsToSrt } from './subtitleBuilder';
+import { buildSubtitleSegments, filterPersistentTopLines, segmentsToSrt } from './subtitleBuilder';
 
 /** File audio thuần không có khung hình — OCR chỉ áp dụng cho video */
 const AUDIO_EXTENSIONS = new Set(['.mp3', '.wav', '.m4a', '.flac', '.aac', '.ogg', '.opus', '.wma']);
@@ -65,7 +65,7 @@ export class OcrRunner {
       });
       onUpdate?.();
 
-      const { framesDir: dir, framePaths, frameIntervalMs } = await extractFrames(
+      const { framesDir: dir, framePaths, frameIntervalMs, height: videoHeight } = await extractFrames(
         task.filePath,
         fps,
         region,
@@ -110,7 +110,10 @@ export class OcrRunner {
       });
       onUpdate?.();
 
-      const segments = buildSubtitleSegments(frameResults, frameIntervalMs);
+      // Bỏ lớp phủ tĩnh ở 1/4 trên khung (watermark/logo in cố định suốt video)
+      // trước khi ghép dòng phụ đề — dump ở trên vẫn giữ nguyên để đối chiếu
+      const cleanedResults = filterPersistentTopLines(frameResults, frameIntervalMs, videoHeight);
+      const segments = buildSubtitleSegments(cleanedResults, frameIntervalMs);
       const srtContent = segmentsToSrt(segments);
       if (!srtContent) {
         throw new Error(
