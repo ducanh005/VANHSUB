@@ -696,6 +696,7 @@ export default function TTSPage({ tasks }: Props) {
                 );
               })
             )}
+            </div>
           </div>
           <p className="border-t border-slate-800/80 px-4 py-2 text-[11px] text-slate-500">
             Dòng để "Mặc định" sẽ dùng giọng chung đã chọn ở thanh công cụ. Bấm
@@ -780,6 +781,7 @@ export default function TTSPage({ tasks }: Props) {
                   </label>
 
                   {replaceAudio && (
+                    <>
                     <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
                       <input
                         type="checkbox"
