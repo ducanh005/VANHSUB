@@ -223,7 +223,8 @@ ipcMain.handle('tasks:addFromUrl', async (_event, url: string) => {
     if (!/^https?:\/\//i.test(url || '')) {
       throw new Error('Link không hợp lệ — phải bắt đầu bằng http(s)://')
     }
-    const stamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 15)
+    // Thêm hậu tố ngẫu nhiên — stamp theo giây sẽ trùng nếu thêm 2 link trong cùng 1 giây
+    const stamp = `${new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14)}-${Math.random().toString(36).slice(2, 6)}`
     const downloadsDir = path.join(app.getPath('downloads'), 'VANHSUB')
     const audioPath = await extractAudioFromUrl(
       url.trim(),
