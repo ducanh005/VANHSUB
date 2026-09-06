@@ -79,5 +79,8 @@ function normalizeText(raw: string): string {
   return raw
     .replace(/\s+/g, ' ')
     .replace(/\s+([,.!?;:…])/g, '$1')
+    // Tesseract chèn space giữa từng chữ Hán/Nhật — ghép lại thành từ liên tiếp
+    // (chỉ áp dụng cho CJK; tiếng Hàn giữ nguyên space giữa các từ như bản gốc)
+    .replace(/([\u3040-\u30ff\u3400-\u9fff\uf900-\ufaff])\s+(?=[\u3040-\u30ff\u3400-\u9fff\uf900-\ufaff])/g, '$1')
     .trim();
 }
