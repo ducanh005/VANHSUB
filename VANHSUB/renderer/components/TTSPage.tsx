@@ -58,6 +58,9 @@ export default function TTSPage({ tasks }: Props) {
   const [voiceOverrides, setVoiceOverrides] = useState<Record<string, string>>({});
   const [linePreviewing, setLinePreviewing] = useState<number | null>(null);
   const [regeneratingLine, setRegeneratingLine] = useState<number | null>(null);
+  // Video đối chiếu trong bảng gán giọng: bấm dòng → video nhảy tới câu đó
+  const panelVideoRef = useRef<HTMLVideoElement | null>(null);
+  const [panelActiveLine, setPanelActiveLine] = useState<number | null>(null);
 
   // Nghe thử toàn bộ phụ đề 1 mạch — playback sống trong fullPreviewPlayer
   // (singleton ngoài React) nên chuyển tab rồi quay lại vẫn thấy tiến trình chạy.
@@ -343,6 +346,32 @@ export default function TTSPage({ tasks }: Props) {
 
   const ttsEligibleTasks = tasks.filter((t) => t.srtPath);
 
+  // Video đối chiếu trong bảng gán giọng (chỉ với file video, audio thì ẩn)
+  const AUDIO_EXTENSIONS_TTS = ['mp3', 'wav', 'm4a', 'flac', 'aac', 'ogg', 'opus', 'wma'];
+  const isVideoTask =
+    !!selectedTask &&
+    !AUDIO_EXTENSIONS_TTS.includes(selectedTask.filePath.split('.').pop()?.toLowerCase() || '');
+  const panelVideoSrc =
+    selectedTask && isVideoTask ? `vanhmedia://local/${encodeURIComponent(selectedTask.filePath)}` : null;
+
+  /** Video nhảy tới thời điểm bắt đầu 1 dòng phụ đề */
+  const seekVideoToLine = (line: SrtLine) => {
+    const video = panelVideoRef.current;
+    if (!video) return;
+    video.currentTime = line.startMs / 1000 + 0.001;
+    void video.play().catch(() => {});
+  };
+
+  /** Theo dõi thời điểm video → tô sáng dòng phụ đề đang được nói */
+  const handlePanelVideoTime = () => {
+    const video = panelVideoRef.current;
+    if (!video) return;
+    const tMs = video.currentTime * 1000;
+    const active = srtLines.findIndex((l) => tMs >= l.startMs && tMs < l.endMs);
+    setPanelActiveLine(active >= 0 ? active + 1 : null);
+  };
+
+
   // Tìm kiếm giọng TikTok: lọc theo tên/mã không dấu, giọng đang chọn luôn được giữ
   const normalizedSearch = voiceSearch.trim().toLowerCase().replace(/[\s_]+/g, '');
   const voiceChoices: Array<{ value: string; label: string }> = tiktokVoices
@@ -562,7 +591,23 @@ export default function TTSPage({ tasks }: Props) {
             </div>
           )}
 
-          <div className="max-h-[320px] flex-1 space-y-1.5 overflow-y-auto p-3">
+          <div className="flex min-h-[340px] flex-1 gap-3 overflow-hidden p-3">
+            {panelVideoSrc && (
+              <div className="flex w-[300px] shrink-0 flex-col gap-2">
+                <video
+                  ref={panelVideoRef}
+                  src={panelVideoSrc}
+                  controls
+                  onTimeUpdate={handlePanelVideoTime}
+                  className="w-full rounded-xl border border-slate-800 bg-black"
+                />
+                <p className="text-[10px] leading-relaxed text-slate-500">
+                  Bấm vào một dòng bên phải để video nhảy tới đúng câu đó — đối chiếu xem
+                  câu đang nói là của nhân vật nào rồi gán giọng.
+                </p>
+              </div>
+            )}
+            <div className="min-w-0 flex-1 space-y-1.5 overflow-y-auto">
             {srtLines.length === 0 ? (
               <div className="py-6 text-center text-xs text-slate-500">
                 Đang tải danh sách dòng phụ đề...
@@ -571,13 +616,14 @@ export default function TTSPage({ tasks }: Props) {
               srtLines.map((line, i) => {
                 const lineNumber = i + 1; // trùng số dòng SRT mà ttsEngine dùng
                 const lineVoice = voiceOverrides[String(lineNumber)] || '';
+                const isActive = fullPreviewLine === lineNumber || panelActiveLine === lineNumber;
                 return (
                   <div
                     key={line.id}
                     id={`voice-line-${lineNumber}`}
                     className={[
                       'flex items-center gap-2 rounded-xl border p-2 text-xs',
-                      fullPreviewLine === lineNumber
+                      isActive
                         ? 'border-brand-cyan bg-brand-cyan/10'
                         : lineVoice
                           ? 'border-brand-rose/40 bg-brand-rose/5'
@@ -588,8 +634,12 @@ export default function TTSPage({ tasks }: Props) {
                       {lineNumber}
                     </span>
                     <p
-                      className="min-w-0 flex-1 truncate text-slate-300"
-                      title={line.text}
+                      className={[
+                        'min-w-0 flex-1 truncate text-slate-300',
+                        panelVideoSrc ? 'cursor-pointer hover:text-white' : '',
+                      ].join(' ')}
+                      title={panelVideoSrc ? 'Bấm để video nhảy tới câu này' : line.text}
+                      onClick={() => panelVideoSrc && seekVideoToLine(line)}
                     >
                       {line.text}
                     </p>
