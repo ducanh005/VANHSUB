@@ -680,7 +680,7 @@ ipcMain.handle(
     _event,
     id: string,
     replaceAudio: boolean = true,
-    options?: { syncMode?: 'strict' | 'flexible' | 'video-stretch'; mixOriginalAudio?: boolean }
+    options?: { syncMode?: 'strict' | 'flexible' | 'video-stretch'; mixOriginalAudio?: boolean; vocalSeparation?: boolean }
   ) => {
     DubbingRunner.runDubbing(id, replaceAudio, () => {
       broadcastTasksUpdate()

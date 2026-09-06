@@ -73,7 +73,7 @@ const vanhsub = {
     start: (
       id: string,
       replaceAudio: boolean = true,
-      options?: { syncMode?: 'strict' | 'flexible' | 'video-stretch'; mixOriginalAudio?: boolean }
+      options?: { syncMode?: 'strict' | 'flexible' | 'video-stretch'; mixOriginalAudio?: boolean; vocalSeparation?: boolean }
     ) => ipcRenderer.invoke('dubbing:start', id, replaceAudio, options ?? null),
   },
   tiktokTts: {

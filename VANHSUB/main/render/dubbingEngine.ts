@@ -5,7 +5,8 @@ import { execFile } from 'child_process';
 import { promisify } from 'util';
 import ffmpeg from 'fluent-ffmpeg';
 import { parseSrt, serializeSrt, type SrtLine } from '../lib/srt';
-import { getFfmpegBinPath, getMediaDurationSec } from '../asr/audioExtractor';
+import { getFfmpegBinPath, getMediaDurationSec, extractFullQualityAudio } from '../asr/audioExtractor';
+import { separateVocals } from '../audio/vocalSeparation';
 
 const execFileAsync = promisify(execFile);
 
@@ -502,6 +503,8 @@ export async function dubVideo(
     replaceAudio?: boolean;
     syncMode?: SyncMode;
     mixOriginalAudio?: boolean;
+    /** Tách lời thoại gốc khỏi nhạc nền bằng AI (demucs) — nền giữ nguyên, giọng người gốc bị loại */
+    vocalSeparation?: boolean;
   },
   onProgress?: (percent: number) => void
 ): Promise<{ outputPath: string; mergedAudioPath: string; overruns: TtsOverrun[]; stretchFactor: number }> {
@@ -512,6 +515,9 @@ export async function dubVideo(
   const syncMode = options?.syncMode ?? 'strict';
   let stretchFactor = 1;
   let scaledSrtPath: string | null = null;
+  const separationDir = path.join(os.tmpdir(), `vanhsub_separate_${Date.now()}`);
+  let backgroundAudioPath: string | null = null;
+  let mixedAudioPath: string | null = null;
 
   try {
     console.log(`[Dubbing] Starting full dubbing pipeline (mode ${syncMode})...`);
@@ -535,27 +541,56 @@ export async function dubVideo(
       }
     }
 
+    // Tách lời thoại gốc bằng AI: giữ nhạc nền/SFX, loại hẳn giọng người gốc
+    if (options?.vocalSeparation) {
+      onProgress?.(1);
+      const origWav = path.join(separationDir, 'original.wav');
+      console.log('[Dubbing] Trích audio gốc (44.1kHz stereo) cho AI tách lời...');
+      await extractFullQualityAudio(videoPath, origWav);
+      onProgress?.(3);
+      backgroundAudioPath = await separateVocals(origWav, separationDir);
+      onProgress?.(14);
+    }
+
     // Bước 1: Ghép audio
-    onProgress?.(5);
+    onProgress?.(backgroundAudioPath ? 15 : 5);
     const { audioPath, overruns } = await mergeAudioFiles(
       mergeSrtPath,
       ttsAudioDir,
       tempAudioPath,
       (p) => {
-        onProgress?.(Math.round(5 + p * 0.4)); // 5-45%
+        onProgress?.(Math.round((backgroundAudioPath ? 15 : 5) + p * (backgroundAudioPath ? 0.35 : 0.4)));
       },
       { mode: syncMode === 'flexible' ? 'flexible' : 'strict' }
     );
+
+    // Trộn nhạc nền không lời (từ AI tách) với audio TTS — lời thoại thay giọng
+    // người gốc, nhạc/SFX giữ nguyên bản gốc
+    let muxAudioInput = audioPath;
+    if (backgroundAudioPath) {
+      mixedAudioPath = path.join(path.dirname(outputVideoPath), `.dubbed_mix_${Date.now()}.m4a`);
+      console.log('[Dubbing] Trộn audio TTS + nhạc nền không lời...');
+      await runFfmpeg([
+        '-i', audioPath,
+        '-i', backgroundAudioPath,
+        '-filter_complex',
+        '[0:a]volume=1.0[tts];[1:a]volume=1.0[bg];[tts][bg]amix=inputs=2:duration=longest:normalize=0[aout]',
+        '-map', '[aout]',
+        '-c:a', 'aac', '-b:a', '192k',
+        '-y', mixedAudioPath,
+      ]);
+      muxAudioInput = mixedAudioPath;
+    }
 
     // Bước 2: Mux vào video
     onProgress?.(50);
     const finalPath = await muxAudioToVideo(
       videoPath,
-      tempAudioPath,
+      muxAudioInput,
       outputVideoPath,
       {
         replaceAudio: options?.replaceAudio,
-        mixOriginalAudio: options?.mixOriginalAudio,
+        mixOriginalAudio: options?.mixOriginalAudio && !options.vocalSeparation,
         syncMode,
         stretchFactor,
       },
@@ -573,6 +608,16 @@ export async function dubVideo(
     // Dọn file audio tạm (trước đây bị leak sau mỗi lần dub)
     try {
       if (fs.existsSync(tempAudioPath)) fs.unlinkSync(tempAudioPath);
+    } catch {
+      // bỏ qua
+    }
+    try {
+      if (mixedAudioPath && fs.existsSync(mixedAudioPath)) fs.unlinkSync(mixedAudioPath);
+    } catch {
+      // bỏ qua
+    }
+    try {
+      if (fs.existsSync(separationDir)) fs.rmSync(separationDir, { recursive: true, force: true });
     } catch {
       // bỏ qua
     }

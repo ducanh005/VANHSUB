@@ -45,6 +45,41 @@ export interface AudioExtractResult {
 }
 
 /**
+ * Trích audio GỐC đầy đủ chất lượng (44.1kHz stereo) từ video — đầu vào cho
+ * AI tách lời thoại (demucs cần audio stereo đầy dải tần, không phải 16k mono
+ * như đầu vào Whisper).
+ */
+export function extractFullQualityAudio(
+  inputPath: string,
+  outputWavPath: string,
+  onProgress?: (percent: number) => void,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (!fs.existsSync(inputPath)) {
+      return reject(new Error(`Không tìm thấy file đầu vào: ${inputPath}`));
+    }
+
+    ffmpeg(inputPath)
+      .noVideo()
+      .audioFrequency(44100)
+      .audioChannels(2)
+      .audioCodec('pcm_s16le')
+      .format('wav')
+      .output(outputWavPath)
+      .on('progress', (progress) => {
+        if (progress && progress.percent && onProgress) {
+          onProgress(Math.min(99, Math.round(progress.percent)));
+        }
+      })
+      .on('end', () => resolve())
+      .on('error', (err) => {
+        reject(new Error(`Lỗi trích xuất audio gốc bằng ffmpeg: ${err.message}`));
+      })
+      .run();
+  });
+}
+
+/**
  * Trích xuất hoặc chuyển đổi file media (video/audio) thành file WAV 16kHz 16-bit mono
  * chuẩn đầu vào của Whisper ASR.
  */

@@ -49,6 +49,8 @@ export default function TTSPage({ tasks }: Props) {
   const [replaceAudio, setReplaceAudio] = useState(true);
   const [syncMode, setSyncMode] = useState<'strict' | 'flexible' | 'video-stretch'>('strict');
   const [mixOriginalAudio, setMixOriginalAudio] = useState(false);
+  // AI tách lời thoại gốc (demucs): giữ nhạc nền, loại giọng người gốc — thay mix 0.22
+  const [vocalSeparation, setVocalSeparation] = useState(false);
   const [startingDubbing, setStartingDubbing] = useState(false);
   const previewAudioRef = useRef<HTMLAudioElement | null>(null);
 
@@ -316,7 +318,8 @@ export default function TTSPage({ tasks }: Props) {
     try {
       await window.vanhsub.dubbing.start(selectedTaskId, replaceAudio, {
         syncMode,
-        mixOriginalAudio: replaceAudio && mixOriginalAudio,
+        mixOriginalAudio: replaceAudio && mixOriginalAudio && !vocalSeparation,
+        vocalSeparation: replaceAudio && vocalSeparation,
       });
       setMessage('Đã bắt đầu ghép audio lồng tiếng vào video.');
     } catch (err: any) {
@@ -788,6 +791,25 @@ export default function TTSPage({ tasks }: Props) {
                         Giữ nhạc nền / hiệu ứng âm thanh gốc, mix nhỏ (22%) dưới lời thoại lồng tiếng
                       </span>
                     </label>
+
+                    <label className="flex items-start gap-2 text-xs font-medium text-slate-200 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={vocalSeparation}
+                        onChange={(e) => setVocalSeparation(e.target.checked)}
+                        disabled={isTtsRunning || isDubbingRunning}
+                        className="mt-0.5 h-4 w-4 rounded border-slate-700 bg-slate-800 text-brand-cyan focus:ring-0"
+                      />
+                      <span>
+                        <span className="font-semibold text-white">Tách lời thoại bằng AI (kiểu CapCut)</span>{' '}
+                        — loại hẳn giọng người gốc, giữ nguyên nhạc nền/SFX ở mức bình thường.
+                        <span className="block text-[11px] font-normal text-slate-400">
+                          Demucs chạy trên CPU, thời gian xử lý xấp xỉ thời lượng video. Lần đầu cần{' '}
+                          <code className="font-mono">python -m pip install demucs</code> + tải model ~80MB.
+                        </span>
+                      </span>
+                    </label>
+                    </>
                   )}
 
                   <div>

@@ -99,7 +99,7 @@ export interface VanhsubAPI {
     start: (
       id: string,
       replaceAudio?: boolean,
-      options?: { syncMode?: 'strict' | 'flexible' | 'video-stretch'; mixOriginalAudio?: boolean }
+      options?: { syncMode?: 'strict' | 'flexible' | 'video-stretch'; mixOriginalAudio?: boolean; vocalSeparation?: boolean }
     ) => Promise<boolean>;
   };
   tiktokTts: {

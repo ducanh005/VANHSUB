@@ -9,6 +9,8 @@ export interface DubbingOptions {
   syncMode?: SyncMode;
   /** Giữ nhạc nền/SFX gốc, mix nhỏ dưới lời thoại (chỉ khi replaceAudio) */
   mixOriginalAudio?: boolean;
+  /** AI tách lời thoại gốc (demucs): nhạc nền giữ nguyên, giọng người gốc bị loại */
+  vocalSeparation?: boolean;
 }
 
 export class DubbingRunner {
@@ -67,6 +69,7 @@ export class DubbingRunner {
           replaceAudio,
           syncMode: options?.syncMode,
           mixOriginalAudio: options?.mixOriginalAudio,
+          vocalSeparation: options?.vocalSeparation,
         },
         (percent) => {
           TaskStore.update(taskId, {
