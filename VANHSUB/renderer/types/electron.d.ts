@@ -11,7 +11,10 @@ export type SettingKey =
   | 'autoTranslateAfterAsr'
   | 'vietTtsEndpoint'
   | 'ttsVoice'
-  | 'ttsSpeed';
+  | 'ttsSpeed'
+  | 'ocrLanguage'
+  | 'ocrFps'
+  | 'ocrRegion';
 
 /** Giọng đọc clone từ file audio mẫu (đồng bộ với VoiceSample trong main/store) */
 export interface VoiceSampleInfo {
@@ -91,6 +94,10 @@ export interface VanhsubAPI {
   };
   export: {
     start: (id: string, mode: 'hardsub' | 'softsub', mask?: SubMaskRegion | null) => Promise<boolean>;
+  };
+  ocr: {
+    start: (id: string) => Promise<boolean>;
+    cancel: (id: string) => Promise<boolean>;
   };
   models: {
     list: () => Promise<Array<{ name: string; fileName: string; size: string }>>;

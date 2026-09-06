@@ -13,6 +13,8 @@
       'fluent-ffmpeg',
       '@ffmpeg-installer/ffmpeg',
       'nodejs-whisper',
+      // tesseract.js spawn worker-script từ thư mục package — không bundle được
+      'tesseract.js',
       'uuid',
     ];
     return config;

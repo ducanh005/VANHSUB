@@ -22,6 +22,12 @@ export interface AppSettings {
   ttsVoice: string;
   /** Tốc độ TTS (0.5 - 2.0) */
   ttsSpeed: number;
+  /** Ngôn ngữ quét OCR phụ đề cứng (mã tessdata: vie, eng, …) */
+  ocrLanguage: string;
+  /** Số khung hình quét mỗi giây khi OCR (0.5 - 5) */
+  ocrFps: number;
+  /** Vùng quét phụ đề trong khung hình: đáy khung hoặc toàn khung */
+  ocrRegion: 'bottom' | 'full';
 }
 
 // Lazy singleton — cùng pattern với taskStore.ts để tránh lỗi
@@ -47,6 +53,9 @@ function getStore(): Store<AppSettings> {
         vietTtsEndpoint: 'http://localhost:6006',
         ttsVoice: 'default',
         ttsSpeed: 1.0,
+        ocrLanguage: 'vie',
+        ocrFps: 2,
+        ocrRegion: 'bottom',
       },
     });
   }

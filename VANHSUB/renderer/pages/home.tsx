@@ -318,7 +318,7 @@ export default function HomePage() {
   // Các task còn việc để chạy pipeline: chưa chạy dở, và chưa có video output
   const tasksNeedingPipeline = tasks.filter(
     (t) =>
-      !['transcribing', 'translating', 'dubbing', 'exporting'].includes(t.status) &&
+      !['transcribing', 'ocr', 'translating', 'dubbing', 'exporting'].includes(t.status) &&
       !(t.status === 'done' && t.outputPath)
   );
 
@@ -794,7 +794,7 @@ export default function HomePage() {
                               Chạy cả quy trình
                             </button>
                           )}
-                          {(t.status === 'transcribing' || t.status === 'translating' || t.status === 'exporting' || t.status === 'dubbing') && (
+                          {(t.status === 'transcribing' || t.status === 'ocr' || t.status === 'translating' || t.status === 'exporting' || t.status === 'dubbing') && (
                             <div className="flex items-center gap-2">
                               <div className="w-20 rounded-full bg-slate-800 h-1.5 overflow-hidden">
                                 <div

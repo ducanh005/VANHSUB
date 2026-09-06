@@ -42,6 +42,11 @@ const vanhsub = {
     start: (id: string, mode: 'hardsub' | 'softsub', mask?: unknown) =>
       ipcRenderer.invoke('export:start', id, mode, mask ?? null),
   },
+  ocr: {
+    // Quét phụ đề cứng trong video bằng OCR → tạo file .srt cho tác vụ
+    start: (id: string) => ipcRenderer.invoke('ocr:start', id),
+    cancel: (id: string) => ipcRenderer.invoke('ocr:cancel', id),
+  },
   tts: {
     start: (id: string, voice?: string, speed?: number, voiceOverrides?: Record<string, string>) =>
       ipcRenderer.invoke('tts:start', id, voice, speed, voiceOverrides),

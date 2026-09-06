@@ -15,6 +15,7 @@ import { ExportRunner } from './render/exportRunner'
 import type { MaskRegion } from './render/videoRenderer'
 import { TTSRunner } from './render/ttsRunner'
 import { DubbingRunner } from './render/dubbingRunner'
+import { OcrRunner } from './ocr/ocrRunner'
 import { checkVietTtsConnection, getAvailableVoices, previewTts } from './render/ttsEngine'
 import { VoiceSampleStore } from './store/voiceSampleStore'
 import { extractAudioFromUrl } from './helpers/voiceFromUrl'
@@ -417,7 +418,10 @@ const SETTING_KEYS: Array<keyof AppSettings> = [
   'autoTranslateAfterAsr',
   'vietTtsEndpoint',
   'ttsVoice',
-  'ttsSpeed'
+  'ttsSpeed',
+  'ocrLanguage',
+  'ocrFps',
+  'ocrRegion'
 ]
 
 ipcMain.handle('settings:get', async (_event, key: keyof AppSettings) => {
@@ -438,6 +442,20 @@ ipcMain.handle('settings:set', async (_event, key: keyof AppSettings, value: any
 // "Sửa câu bằng AI": hiệu đính 1 câu phụ đề bằng Gemini, kèm ngữ cảnh câu trước/sau
 ipcMain.handle('ai:polishLine', async (_event, payload: { text: string; prev?: string; next?: string }) => {
   return polishSubtitleLine(payload)
+})
+
+// Quét phụ đề cứng (hardsub) trong video bằng OCR — kết quả là file .srt
+// như phiên âm, nên sau đó dịch / tạo lồng tiếng / ghép video chạy bình thường
+ipcMain.handle('ocr:start', async (_event, id: string) => {
+  OcrRunner.runOcr(id, () => {
+    broadcastTasksUpdate()
+  })
+  return true
+})
+
+// Huỷ quét OCR đang chạy (hiệu lực trước khung hình kế tiếp)
+ipcMain.handle('ocr:cancel', async (_event, id: string) => {
+  return OcrRunner.cancel(id)
 })
 
 // Dịch thuật AI qua TranslateRunner

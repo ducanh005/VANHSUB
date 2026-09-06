@@ -7,6 +7,8 @@ import {
   Loader2,
   Play,
   RefreshCw,
+  ScanText,
+  Square,
 } from 'lucide-react';
 import type { Task, TaskStatus } from '../types/task';
 import { parseSrt } from '../lib/srt';
@@ -15,6 +17,7 @@ import ASRModelSelector from './ASRModelSelector';
 /**
  * Workspace dành riêng cho giai đoạn Phụ đề & ASR:
  * - Phiên âm / phiên âm lại từng tác vụ với model Whisper tuỳ chọn
+ * - Quét phụ đề cứng (hardsub) bằng OCR cho video
  * - Nhập file .srt có sẵn (bỏ qua phiên âm)
  * - Xem nhanh + copy phụ đề đã tạo
  */
@@ -22,6 +25,7 @@ import ASRModelSelector from './ASRModelSelector';
 const STATUS_STYLE: Record<TaskStatus, { label: string; cls: string }> = {
   queued: { label: 'Chờ xử lý', cls: 'border-slate-700 bg-slate-800 text-slate-400' },
   transcribing: { label: 'Đang phiên âm', cls: 'border-brand-cyan/40 bg-brand-cyan/10 text-brand-cyan' },
+  ocr: { label: 'Đang quét OCR', cls: 'border-brand-cyan/40 bg-brand-cyan/10 text-brand-cyan' },
   translating: { label: 'Đang dịch', cls: 'border-brand-indigo/40 bg-brand-indigo/10 text-brand-indigo' },
   exporting: { label: 'Đang xuất', cls: 'border-brand-indigo/40 bg-brand-indigo/10 text-brand-indigo' },
   dubbing: { label: 'Đang lồng tiếng', cls: 'border-brand-indigo/40 bg-brand-indigo/10 text-brand-indigo' },
@@ -29,6 +33,13 @@ const STATUS_STYLE: Record<TaskStatus, { label: string; cls: string }> = {
   error: { label: 'Lỗi', cls: 'border-rose-500/30 bg-rose-500/10 text-rose-400' },
   cancelled: { label: 'Đã huỷ', cls: 'border-amber-500/30 bg-amber-500/10 text-amber-400' },
 };
+
+const AUDIO_EXTENSIONS = ['mp3', 'wav', 'm4a', 'flac', 'aac', 'ogg', 'opus', 'wma'];
+
+function isAudioFile(filePath: string): boolean {
+  const ext = filePath.split('.').pop()?.toLowerCase() || '';
+  return AUDIO_EXTENSIONS.includes(ext);
+}
 
 export default function ASRWorkspace({ tasks }: { tasks: Task[] }) {
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
@@ -40,6 +51,9 @@ export default function ASRWorkspace({ tasks }: { tasks: Task[] }) {
 
   const selectedTask = tasks.find((t) => t.id === selectedTaskId) || null;
   const isTranscribing = selectedTask?.status === 'transcribing';
+  const isOcrRunning = selectedTask?.status === 'ocr';
+  const isBusy = isTranscribing || isOcrRunning || starting;
+  const isAudio = selectedTask ? isAudioFile(selectedTask.filePath) : false;
   const hasSrt = !!selectedTask?.srtPath;
 
   // Mặc định chọn task đầu tiên
@@ -85,7 +99,7 @@ export default function ASRWorkspace({ tasks }: { tasks: Task[] }) {
   };
 
   const handleStart = async (force: boolean) => {
-    if (!selectedTask || starting || isTranscribing) return;
+    if (!selectedTask || isBusy) return;
     if (
       force &&
       !window.confirm('Phiên âm lại sẽ GHI ĐÈ phụ đề hiện có của tác vụ này. Tiếp tục?')
@@ -104,6 +118,38 @@ export default function ASRWorkspace({ tasks }: { tasks: Task[] }) {
       setMessage(err?.message || String(err));
     } finally {
       setStarting(false);
+    }
+  };
+
+  // Quét phụ đề cứng (hardsub) trong video bằng OCR → tạo file .srt cho tác vụ
+  const handleStartOcr = async () => {    if (!selectedTask || isBusy || isAudio) return;
+    if (
+      hasSrt &&
+      !window.confirm(
+        'Tác vụ đã có phụ đề. Quét OCR sẽ tạo file .srt mới và trỏ tác vụ sang file đó (file cũ vẫn giữ trên đĩa). Tiếp tục?'
+      )
+    ) {
+      return;
+    }
+    setMessage('');
+    setIsError(false);
+    try {
+      await window.vanhsub.ocr.start(selectedTask.id);
+      setMessage('Đã bắt đầu quét OCR — theo dõi tiến trình ở Trang chủ.');
+    } catch (err: any) {
+      setIsError(true);
+      setMessage(err?.message || String(err));
+    }
+  };
+
+  const handleCancelOcr = async () => {
+    if (!selectedTask || !isOcrRunning) return;
+    try {
+      await window.vanhsub.ocr.cancel(selectedTask.id);
+      setMessage('Đã gửi yêu cầu huỷ quét OCR — dừng sau khung hình hiện tại.');
+    } catch (err: any) {
+      setIsError(true);
+      setMessage(err?.message || String(err));
     }
   };
 
@@ -225,10 +271,10 @@ export default function ASRWorkspace({ tasks }: { tasks: Task[] }) {
                 <button
                   type="button"
                   onClick={() => handleStart(hasSrt)}
-                  disabled={starting || isTranscribing}
+                  disabled={isBusy}
                   className="btn-vanh-gradient inline-flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-semibold cursor-pointer disabled:opacity-50"
                 >
-                  {starting || isTranscribing ? (
+                  {isTranscribing ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
                   ) : hasSrt ? (
                     <RefreshCw className="h-4 w-4" />
@@ -243,10 +289,41 @@ export default function ASRWorkspace({ tasks }: { tasks: Task[] }) {
                         : 'Bắt đầu phiên âm'}
                   </span>
                 </button>
+                {isAudio ? (
+                  <button
+                    type="button"
+                    disabled
+                    title="OCR chỉ hỗ trợ file video có phụ đề ghẽ trong khung hình"
+                    className="inline-flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-900 px-3.5 py-2 text-xs font-medium text-slate-500 disabled:opacity-60"
+                  >
+                    <ScanText className="h-3.5 w-3.5" />
+                    <span>Quét OCR</span>
+                  </button>
+                ) : isOcrRunning ? (
+                  <button
+                    type="button"
+                    onClick={handleCancelOcr}
+                    className="inline-flex items-center gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 px-3.5 py-2 text-xs font-medium text-amber-400 hover:bg-amber-500/20 cursor-pointer"
+                  >
+                    <Square className="h-3 w-3 fill-amber-400" />
+                    <span>Huỷ quét OCR</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleStartOcr}
+                    disabled={isBusy}
+                    title="Video có phụ đề ghẽ sẵn trong khung hình? Quét bằng OCR để tạo phụ đề — không cần phiên âm"
+                    className="inline-flex items-center gap-2 rounded-xl border border-brand-cyan/40 bg-brand-cyan/10 px-3.5 py-2 text-xs font-semibold text-brand-cyan hover:bg-brand-cyan/20 cursor-pointer disabled:opacity-50"
+                  >
+                    <ScanText className="h-3.5 w-3.5" />
+                    <span>Quét OCR</span>
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={handleImportSrt}
-                  disabled={isTranscribing}
+                  disabled={isBusy}
                   title="Video đã có sẵn phụ đề .srt? Nhập vào để bỏ qua phiên âm"
                   className="inline-flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-800 px-3.5 py-2 text-xs font-medium text-slate-200 hover:bg-slate-700 cursor-pointer disabled:opacity-50"
                 >
@@ -289,7 +366,9 @@ export default function ASRWorkspace({ tasks }: { tasks: Task[] }) {
                 <div className="min-h-0 flex-1 overflow-y-auto p-3 font-mono text-[11px] leading-relaxed">
                   {!hasSrt ? (
                     <p className="py-8 text-center text-slate-500">
-                      Tác vụ chưa có phụ đề — bấm "Bắt đầu phiên âm" hoặc "Nhập SRT".
+                      {isOcrRunning
+                        ? 'Đang quét phụ đề bằng OCR — kết quả sẽ hiện ở đây khi xong...'
+                        : 'Tác vụ chưa có phụ đề — bấm "Bắt đầu phiên âm", "Quét OCR" hoặc "Nhập SRT".'}
                     </p>
                   ) : srtContent === null ? (
                     <p className="py-8 text-center text-slate-500">Đang tải phụ đề...</p>

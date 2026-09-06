@@ -4,6 +4,7 @@ import { v4 as uuidv4 } from 'uuid';
 export type TaskStatus =
   | 'queued'
   | 'transcribing'
+  | 'ocr'
   | 'translating'
   | 'exporting'
   | 'dubbing'
@@ -139,4 +140,3 @@ export const TaskStore = {
     getStore().set('tasks', []);
   },
 };
-

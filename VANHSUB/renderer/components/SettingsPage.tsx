@@ -6,11 +6,13 @@ import {
   Globe2,
   HardDrive,
   Key,
+  Languages,
   Layers,
   Loader2,
   Mic,
   RefreshCw,
   Save,
+  ScanText,
   Trash2,
   Zap,
 } from 'lucide-react';
@@ -34,6 +36,9 @@ export default function SettingsPage() {
   const [vietTtsEndpoint, setVietTtsEndpoint] = useState('http://localhost:6006');
   const [ttsVoice, setTtsVoice] = useState('alloy');
   const [ttsSpeed, setTtsSpeed] = useState(1.0);
+  const [ocrLanguage, setOcrLanguage] = useState('vie');
+  const [ocrFps, setOcrFps] = useState(2);
+  const [ocrRegion, setOcrRegion] = useState<'bottom' | 'full'>('bottom');
   const [ttsConnected, setTtsConnected] = useState<boolean | null>(null);
   const [checkingTts, setCheckingTts] = useState(false);
   const [voiceOptions, setVoiceOptions] = useState(VOICE_OPTIONS);
@@ -59,8 +64,11 @@ export default function SettingsPage() {
       window.vanhsub.settings.get('vietTtsEndpoint'),
       window.vanhsub.settings.get('ttsVoice'),
       window.vanhsub.settings.get('ttsSpeed'),
+      window.vanhsub.settings.get('ocrLanguage'),
+      window.vanhsub.settings.get('ocrFps'),
+      window.vanhsub.settings.get('ocrRegion'),
     ])
-      .then(([key, gModel, lang, aModel, expDir, batchSize, autoTrans, ttsEndpoint, voice, spd]) => {
+      .then(([key, gModel, lang, aModel, expDir, batchSize, autoTrans, ttsEndpoint, voice, spd, oLang, oFps, oRegion]) => {
         if (key) setApiKey(key);
         if (gModel) setGeminiModel(gModel);
         if (lang) setTargetLanguage(lang);
@@ -71,6 +79,9 @@ export default function SettingsPage() {
         if (ttsEndpoint) setVietTtsEndpoint(String(ttsEndpoint));
         if (voice) setTtsVoice(String(voice));
         if (spd) setTtsSpeed(Number(spd) || 1.0);
+        if (oLang) setOcrLanguage(String(oLang));
+        if (oFps) setOcrFps(Number(oFps) || 2);
+        if (oRegion) setOcrRegion(oRegion === 'full' ? 'full' : 'bottom');
       })
       .catch((err) => console.error('Lỗi khi nạp cài đặt:', err));
 
@@ -117,6 +128,9 @@ export default function SettingsPage() {
         window.vanhsub.settings.set('vietTtsEndpoint', vietTtsEndpoint.trim() || 'http://localhost:6006'),
         window.vanhsub.settings.set('ttsVoice', ttsVoice),
         window.vanhsub.settings.set('ttsSpeed', Number(ttsSpeed) || 1.0),
+        window.vanhsub.settings.set('ocrLanguage', ocrLanguage),
+        window.vanhsub.settings.set('ocrFps', Math.min(5, Math.max(0.5, Number(ocrFps) || 2))),
+        window.vanhsub.settings.set('ocrRegion', ocrRegion),
       ]);
       setSavedMessage('Đã lưu tất cả cài đặt thành công!');
       setTimeout(() => setSavedMessage(''), 3000);
@@ -490,6 +504,78 @@ export default function SettingsPage() {
             <p className="text-[11px] text-slate-400">
               Mặc định chỉ áp dụng cho task mới — có thể đổi riêng từng lần ở tab{' '}
               <strong className="text-slate-300">Lồng tiếng</strong>.
+            </p>
+          </div>
+        </div>
+
+        {/* Khối 5: OCR — quét phụ đề cứng trong video */}
+        <div className="flex flex-col gap-4 rounded-3xl border border-slate-800 bg-slate-900/60 p-5">
+          <div className="flex items-center gap-2 border-b border-slate-800 pb-3 text-sm font-bold text-white">
+            <ScanText className="h-4 w-4 text-brand-cyan" />
+            <span>Quét phụ đề cứng (OCR)</span>
+          </div>
+
+          <div className="space-y-4">
+            <p className="text-[11px] text-slate-400">
+              Trích phụ đề đã ghẽ sẵn trong khung hình video thành file .srt. Lần quét đầu tiên
+              cần internet để tải gói ngôn ngữ (~15MB), sau đó lưu offline trong máy.
+            </p>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="mb-1 block font-medium text-slate-200">Ngôn ngữ quét</label>
+                <select
+                  value={ocrLanguage}
+                  onChange={(e) => setOcrLanguage(e.target.value)}
+                  className="w-full rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-white focus:outline-none"
+                >
+                  <option value="vie">Tiếng Việt</option>
+                  <option value="eng">English</option>
+                  <option value="vie+eng">Việt + Anh (song ngữ)</option>
+                  <option value="jpn">Japanese</option>
+                  <option value="kor">Korean</option>
+                  <option value="chi_sim">Chinese (Giản thể)</option>
+                  <option value="chi_tra">Chinese (Phồn thể)</option>
+                  <option value="tha">Thai</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="mb-1 block font-medium text-slate-200">Vùng quét phụ đề</label>
+                <select
+                  value={ocrRegion}
+                  onChange={(e) => setOcrRegion(e.target.value === 'full' ? 'full' : 'bottom')}
+                  className="w-full rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-white focus:outline-none"
+                >
+                  <option value="bottom">Đáy khung hình (Khuyên dùng)</option>
+                  <option value="full">Toàn khung hình</option>
+                </select>
+                <span className="text-[10px] text-slate-400">Đổi sang "Toàn khung" nếu phụ đề nằm giữa màn hình</span>
+              </div>
+            </div>
+
+            <div>
+              <label className="mb-1 block font-medium text-slate-200">Số khung quét mỗi giây</label>
+              <input
+                type="number"
+                min={0.5}
+                max={5}
+                step={0.5}
+                value={ocrFps}
+                onChange={(e) => setOcrFps(Number(e.target.value))}
+                className="w-full rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 font-mono text-xs text-white focus:outline-none"
+              />
+              <span className="text-[10px] text-slate-400">
+                2 khung/giây là cân bằng tốc độ — độ chính xác (quét chậm hơn nhưng đỡ sót dòng)
+              </span>
+            </div>
+
+            <p className="flex items-start gap-1.5 text-[11px] text-slate-400">
+              <Languages className="mt-0.5 h-3.5 w-3.5 shrink-0 text-brand-cyan" />
+              <span>
+                Nút <strong className="text-slate-300">Quét OCR</strong> nằm ở tab{' '}
+                <strong className="text-slate-300">Phụ đề &amp; ASR</strong>, cạnh nút Nhập SRT.
+              </span>
             </p>
           </div>
         </div>
