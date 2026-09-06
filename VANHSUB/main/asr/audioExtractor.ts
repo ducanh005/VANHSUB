@@ -1,5 +1,6 @@
 import path from 'path';
 import fs from 'fs';
+import { execFile } from 'child_process';
 import ffmpeg from 'fluent-ffmpeg';
 import ffmpegInstaller from '@ffmpeg-installer/ffmpeg';
 
@@ -7,6 +8,35 @@ import ffmpegInstaller from '@ffmpeg-installer/ffmpeg';
 const rawFfmpegPath = (ffmpegInstaller as any)?.path || (ffmpegInstaller as any)?.default?.path || '';
 if (rawFfmpegPath) {
   ffmpeg.setFfmpegPath(rawFfmpegPath.replace('app.asar', 'app.asar.unpacked'));
+}
+
+let _ffmpegBin: string | null = null;
+
+/** Đường dẫn ffmpeg binary để gọi trực tiếp qua execFile (spawn riêng cho từng lệnh) */
+export function getFfmpegBinPath(): string {
+  if (_ffmpegBin) return _ffmpegBin;
+  const raw =
+    (ffmpegInstaller as any)?.path || (ffmpegInstaller as any)?.default?.path || 'ffmpeg';
+  _ffmpegBin = String(raw).replace('app.asar', 'app.asar.unpacked');
+  return _ffmpegBin;
+}
+
+/**
+ * Đọc thời lượng (giây) của file media bằng ffmpeg — không cần ffprobe riêng:
+ * ffmpeg in "Duration: HH:MM:SS.ms" vào stderr rồi thoát lỗi vì không có output.
+ * Lỗi → trả về 0 (caller coi như không biết duration).
+ */
+export function getMediaDurationSec(inputPath: string): Promise<number> {
+  return new Promise((resolve) => {
+    execFile(getFfmpegBinPath(), ['-i', inputPath], (_err, _stdout, stderr) => {
+      const m = /Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)/.exec(stderr || '');
+      if (m) {
+        resolve(Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]));
+      } else {
+        resolve(0);
+      }
+    });
+  });
 }
 
 export interface AudioExtractResult {

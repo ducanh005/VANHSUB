@@ -142,6 +142,18 @@ export default function ASRWorkspace({ tasks }: { tasks: Task[] }) {
     }
   };
 
+  // Huỷ phiên âm đang chạy — dừng giữa các chunk audio
+  const handleCancelTranscribe = async () => {
+    if (!selectedTask || !isTranscribing) return;
+    try {
+      await window.vanhsub.tasks.cancel(selectedTask.id);
+      setMessage('Đã gửi yêu cầu huỷ phiên âm — dừng sau chunk hiện tại.');
+    } catch (err: any) {
+      setIsError(true);
+      setMessage(err?.message || String(err));
+    }
+  };
+
   const handleCancelOcr = async () => {
     if (!selectedTask || !isOcrRunning) return;
     try {
@@ -289,6 +301,16 @@ export default function ASRWorkspace({ tasks }: { tasks: Task[] }) {
                         : 'Bắt đầu phiên âm'}
                   </span>
                 </button>
+                {isTranscribing && (
+                  <button
+                    type="button"
+                    onClick={handleCancelTranscribe}
+                    className="inline-flex items-center gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 px-3.5 py-2 text-xs font-medium text-amber-400 hover:bg-amber-500/20 cursor-pointer"
+                  >
+                    <Square className="h-3 w-3 fill-amber-400" />
+                    <span>Huỷ phiên âm</span>
+                  </button>
+                )}
                 {isAudio ? (
                   <button
                     type="button"

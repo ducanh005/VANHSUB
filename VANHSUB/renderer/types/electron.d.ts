@@ -41,6 +41,7 @@ export interface VanhsubAPI {
     update: (id: string, updates: Partial<Task>) => Promise<Task | undefined>;
     delete: (id: string) => Promise<boolean>;
     start: (id: string) => Promise<boolean>;
+    cancel: (id: string) => Promise<boolean>;
     readSrt: (srtPath: string) => Promise<string>;
     writeSrt: (srtPath: string, content: string) => Promise<boolean>;
     importSrt: (id: string, sourceSrtPath: string) => Promise<Task | undefined>;

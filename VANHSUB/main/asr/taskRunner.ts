@@ -4,12 +4,21 @@ import { SettingsStore } from '../store/settingsStore';
 import { extract16kHzWav } from './audioExtractor';
 import { transcribe } from './whisperEngine';
 import { TranslateRunner } from '../translate/translateRunner';
+import { CancelledError, isCancelledError } from '../lib/cancel';
 
 export class TaskRunner {
   private static runningTasks = new Set<string>();
+  private static cancelledTasks = new Set<string>();
 
   static isRunning(taskId: string): boolean {
     return this.runningTasks.has(taskId);
+  }
+
+  /** Yêu cầu huỷ phiên âm — có hiệu lực giữa các chunk audio (hợp tác) */
+  static cancel(taskId: string): boolean {
+    if (!this.runningTasks.has(taskId)) return false;
+    this.cancelledTasks.add(taskId);
+    return true;
   }
 
   static async runTask(taskId: string, onUpdate?: () => void): Promise<Task | undefined> {
@@ -21,6 +30,7 @@ export class TaskRunner {
     }
 
     this.runningTasks.add(taskId);
+    this.cancelledTasks.delete(taskId);
 
     try {
       // Giai đoạn 1: Chuẩn bị & trích xuất audio 16kHz
@@ -39,6 +49,7 @@ export class TaskRunner {
       });
 
       // Giai đoạn 2: Nhận diện giọng nói bằng Whisper ASR
+      // Audio dài sẽ được chia chunk trong whisperEngine — progress theo từng chunk
       TaskStore.update(taskId, {
         progress: 35,
         audioPath: wavPath,
@@ -48,6 +59,17 @@ export class TaskRunner {
 
       const result = await transcribe(wavPath, {
         modelName: task.asrModel || SettingsStore.get('asrModel') || 'base',
+        onProgress: (percent) => {
+          TaskStore.update(taskId, {
+            progress: 35 + Math.round(percent * 0.55), // 35% -> 90%
+            stageDescription:
+              percent < 100
+                ? `Đang phiên âm (${percent}%)...`
+                : 'Đang hoàn tất file phụ đề...',
+          });
+          onUpdate?.();
+        },
+        shouldStop: () => this.cancelledTasks.has(taskId),
       });
 
       // Giai đoạn 3: Hoàn thành tạo phụ đề .srt
@@ -66,6 +88,15 @@ export class TaskRunner {
 
       return TaskStore.getById(taskId);
     } catch (err: any) {
+      if (isCancelledError(err)) {
+        console.log(`Người dùng đã huỷ phiên âm task ${taskId}`);
+        const updated = TaskStore.update(taskId, {
+          status: 'cancelled',
+          stageDescription: 'Đã huỷ phiên âm',
+        });
+        onUpdate?.();
+        return updated;
+      }
       console.error(`Lỗi khi xử lý task ${taskId}:`, err);
       const updated = TaskStore.update(taskId, {
         status: 'error',
@@ -76,6 +107,7 @@ export class TaskRunner {
       return updated;
     } finally {
       this.runningTasks.delete(taskId);
+      this.cancelledTasks.delete(taskId);
     }
   }
 }

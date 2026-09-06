@@ -366,6 +366,11 @@ ipcMain.handle('tasks:start', async (_event, id: string) => {
   return true
 })
 
+// Huỷ phiên âm đang chạy (dừng giữa các chunk audio)
+ipcMain.handle('tasks:cancel', async (_event, id: string) => {
+  return TaskRunner.cancel(id)
+})
+
 ipcMain.handle('tasks:readSrt', async (_event, srtPath: string) => {
   if (!fs.existsSync(srtPath)) {
     throw new Error(`File SRT không tồn tại: ${srtPath}`)

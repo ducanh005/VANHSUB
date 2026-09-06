@@ -8,6 +8,7 @@ const vanhsub = {
     update: (id: string, updates: any) => ipcRenderer.invoke('tasks:update', id, updates),
     delete: (id: string) => ipcRenderer.invoke('tasks:delete', id),
     start: (id: string) => ipcRenderer.invoke('tasks:start', id),
+    cancel: (id: string) => ipcRenderer.invoke('tasks:cancel', id),
     readSrt: (srtPath: string) => ipcRenderer.invoke('tasks:readSrt', srtPath),
     writeSrt: (srtPath: string, content: string) => ipcRenderer.invoke('tasks:writeSrt', srtPath, content),
     addFromUrl: (url: string) => ipcRenderer.invoke('tasks:addFromUrl', url),
