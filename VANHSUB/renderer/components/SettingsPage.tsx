@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import ASRModelSelector from './ASRModelSelector';
 import { VOICE_OPTIONS, SPEED_OPTIONS } from '../lib/ttsOptions';
+import type { SettingKey } from '../types/electron';
 
 interface ModelInfo {
   name: string;
@@ -62,6 +63,23 @@ export default function SettingsPage() {
   const [tiktokStatusMsg, setTiktokStatusMsg] = useState('');
   const [tiktokStatusOk, setTiktokStatusOk] = useState(false);
   const tiktokPreviewRef = useRef<HTMLAudioElement | null>(null);
+
+  // Tự động lưu các setting dạng chọn (dropdown) ngay khi đổi — trước đây chỉ
+  // ghi xuống khi bấm "Lưu cài đặt" toàn cục, người dùng đổi ngôn ngữ OCR xong
+  // quét ngay thì app vẫn dùng giá trị cũ (lỗi "OCR vẫn nhận diện tiếng Việt")
+  const [autoSavedFlash, setAutoSavedFlash] = useState(false);
+  const autoSaveTimerRef = useRef<number | null>(null);
+
+  const autoSaveSetting = async (key: SettingKey, value: unknown) => {
+    try {
+      await window.vanhsub.settings.set(key, value);
+      setAutoSavedFlash(true);
+      if (autoSaveTimerRef.current) window.clearTimeout(autoSaveTimerRef.current);
+      autoSaveTimerRef.current = window.setTimeout(() => setAutoSavedFlash(false), 2500);
+    } catch (err) {
+      console.error(`Lỗi khi tự lưu setting ${key}:`, err);
+    }
+  };
 
   useEffect(() => {
     if (typeof window === 'undefined' || !window.vanhsub?.settings) return;
@@ -498,7 +516,11 @@ export default function SettingsPage() {
               <label className="mb-1 block font-medium text-slate-200">Model Whisper ASR mặc định</label>
               <select
                 value={asrModel}
-                onChange={(e) => setAsrModel(e.target.value)}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setAsrModel(v);
+                  void autoSaveSetting('asrModel', v);
+                }}
                 className="w-full rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-white focus:outline-none"
               >
                 <option value="tiny">tiny (75MB - Nhanh nhất, độ chính xác vừa)</option>
@@ -838,15 +860,25 @@ export default function SettingsPage() {
 
         {/* Khối 5: OCR — quét phụ đề cứng trong video */}
         <div className="flex flex-col gap-4 rounded-3xl border border-slate-800 bg-slate-900/60 p-5">
-          <div className="flex items-center gap-2 border-b border-slate-800 pb-3 text-sm font-bold text-white">
-            <ScanText className="h-4 w-4 text-brand-cyan" />
-            <span>Quét phụ đề cứng (OCR)</span>
+          <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+            <div className="flex items-center gap-2 text-sm font-bold text-white">
+              <ScanText className="h-4 w-4 text-brand-cyan" />
+              <span>Quét phụ đề cứng (OCR)</span>
+            </div>
+            {autoSavedFlash && (
+              <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-400">
+                <CheckCircle2 className="h-3 w-3" />
+                Đã lưu tự động
+              </span>
+            )}
           </div>
 
           <div className="space-y-4">
             <p className="text-[11px] text-slate-400">
               Trích phụ đề đã ghẽ sẵn trong khung hình video thành file .srt. Lần quét đầu tiên
-              cần internet để tải gói ngôn ngữ (~15MB), sau đó lưu offline trong máy.
+              cần internet để tải gói ngôn ngữ (~15MB), sau đó lưu offline trong máy. Ngôn ngữ /
+              vùng / fps <strong className="text-slate-300">được lưu tự động khi đổi</strong> — áp
+              dụng cho lần quét kế tiếp, không cần bấm "Lưu cài đặt".
             </p>
 
             <div className="grid grid-cols-2 gap-3">
@@ -854,7 +886,11 @@ export default function SettingsPage() {
                 <label className="mb-1 block font-medium text-slate-200">Ngôn ngữ quét</label>
                 <select
                   value={ocrLanguage}
-                  onChange={(e) => setOcrLanguage(e.target.value)}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setOcrLanguage(v);
+                    void autoSaveSetting('ocrLanguage', v);
+                  }}
                   className="w-full rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-white focus:outline-none"
                 >
                   <option value="vie">Tiếng Việt</option>
@@ -872,7 +908,11 @@ export default function SettingsPage() {
                 <label className="mb-1 block font-medium text-slate-200">Vùng quét phụ đề</label>
                 <select
                   value={ocrRegion}
-                  onChange={(e) => setOcrRegion(e.target.value === 'full' ? 'full' : 'bottom')}
+                  onChange={(e) => {
+                    const v = e.target.value === 'full' ? 'full' : 'bottom';
+                    setOcrRegion(v);
+                    void autoSaveSetting('ocrRegion', v);
+                  }}
                   className="w-full rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-white focus:outline-none"
                 >
                   <option value="bottom">Đáy khung hình (Khuyên dùng)</option>
@@ -890,7 +930,12 @@ export default function SettingsPage() {
                 max={5}
                 step={0.5}
                 value={ocrFps}
-                onChange={(e) => setOcrFps(Number(e.target.value))}
+                onChange={(e) => {
+                  const v = Number(e.target.value);
+                  setOcrFps(v);
+                  // Chỉ tự lưu giá trị hợp lệ — gõ dở thì đợi giá trị đạt khoảng cho phép
+                  if (v >= 0.5 && v <= 5) void autoSaveSetting('ocrFps', v);
+                }}
                 className="w-full rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 font-mono text-xs text-white focus:outline-none"
               />
               <span className="text-[10px] text-slate-400">
