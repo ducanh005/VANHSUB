@@ -12,3 +12,7 @@ next-env.d.ts
 # typescript build info
 tsconfig.tsbuildinfo
 renderer/tsconfig.tsbuildinfo
+
+# env — session TikTok / secret, không bao giờ commit (.env.example thì được)
+.env
+.env.local
