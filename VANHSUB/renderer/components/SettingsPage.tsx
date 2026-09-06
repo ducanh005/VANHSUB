@@ -39,6 +39,8 @@ export default function SettingsPage() {
   const [ocrLanguage, setOcrLanguage] = useState('vie');
   const [ocrFps, setOcrFps] = useState(2);
   const [ocrRegion, setOcrRegion] = useState<'bottom' | 'full'>('bottom');
+  const [glossary, setGlossary] = useState('');
+  const [translationStyleGuide, setTranslationStyleGuide] = useState('');
   const [ttsConnected, setTtsConnected] = useState<boolean | null>(null);
   const [checkingTts, setCheckingTts] = useState(false);
   const [voiceOptions, setVoiceOptions] = useState(VOICE_OPTIONS);
@@ -67,8 +69,10 @@ export default function SettingsPage() {
       window.vanhsub.settings.get('ocrLanguage'),
       window.vanhsub.settings.get('ocrFps'),
       window.vanhsub.settings.get('ocrRegion'),
+      window.vanhsub.settings.get('glossary'),
+      window.vanhsub.settings.get('translationStyleGuide'),
     ])
-      .then(([key, gModel, lang, aModel, expDir, batchSize, autoTrans, ttsEndpoint, voice, spd, oLang, oFps, oRegion]) => {
+      .then(([key, gModel, lang, aModel, expDir, batchSize, autoTrans, ttsEndpoint, voice, spd, oLang, oFps, oRegion, glossaryVal, styleVal]) => {
         if (key) setApiKey(key);
         if (gModel) setGeminiModel(gModel);
         if (lang) setTargetLanguage(lang);
@@ -82,6 +86,8 @@ export default function SettingsPage() {
         if (oLang) setOcrLanguage(String(oLang));
         if (oFps) setOcrFps(Number(oFps) || 2);
         if (oRegion) setOcrRegion(oRegion === 'full' ? 'full' : 'bottom');
+        if (glossaryVal !== undefined) setGlossary(String(glossaryVal || ''));
+        if (styleVal !== undefined) setTranslationStyleGuide(String(styleVal || ''));
       })
       .catch((err) => console.error('Lỗi khi nạp cài đặt:', err));
 
@@ -131,6 +137,8 @@ export default function SettingsPage() {
         window.vanhsub.settings.set('ocrLanguage', ocrLanguage),
         window.vanhsub.settings.set('ocrFps', Math.min(5, Math.max(0.5, Number(ocrFps) || 2))),
         window.vanhsub.settings.set('ocrRegion', ocrRegion),
+        window.vanhsub.settings.set('glossary', glossary),
+        window.vanhsub.settings.set('translationStyleGuide', translationStyleGuide),
       ]);
       setSavedMessage('Đã lưu tất cả cài đặt thành công!');
       setTimeout(() => setSavedMessage(''), 3000);
@@ -577,6 +585,44 @@ export default function SettingsPage() {
                 <strong className="text-slate-300">Phụ đề &amp; ASR</strong>, cạnh nút Nhập SRT.
               </span>
             </p>
+          </div>
+        </div>
+        {/* Khối 6: Nhất quán bản dịch (Glossary & Văn phong) */}
+        <div className="flex flex-col gap-4 rounded-3xl border border-slate-800 bg-slate-900/60 p-5">
+          <div className="flex items-center gap-2 border-b border-slate-800 pb-3 text-sm font-bold text-white">
+            <Languages className="h-4 w-4 text-brand-rose" />
+            <span>Nhất quán bản dịch (Glossary &amp; Văn phong)</span>
+          </div>
+
+          <div className="space-y-4">
+            <p className="text-[11px] text-slate-400">
+              Hai mục này được đưa thẳng vào prompt khi dịch bằng Gemini — áp dụng cho toàn bộ
+              video, giữ tên riêng / thuật ngữ / cách xưng hô đồng nhất từ đầu đến cuối.
+            </p>
+
+            <div>
+              <label className="mb-1 block font-medium text-slate-200">
+                Bảng thuật ngữ — mỗi dòng: <code className="font-mono text-[10px] text-brand-cyan">gốc = bản dịch</code>
+              </label>
+              <textarea
+                rows={5}
+                value={glossary}
+                onChange={(e) => setGlossary(e.target.value)}
+                placeholder={'Ví dụ:\nLý Bạch = Lý Bạch\nsword = kiếm\nTiên Đế = Thiên Đế\ngiemony = Zhen Mon'}
+                className="w-full rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 font-mono text-xs text-white placeholder:text-slate-600 focus:border-brand-cyan focus:outline-none"
+              />
+            </div>
+
+            <div>
+              <label className="mb-1 block font-medium text-slate-200">Văn phong &amp; xưng hô (tự do)</label>
+              <textarea
+                rows={4}
+                value={translationStyleGuide}
+                onChange={(e) => setTranslationStyleGuide(e.target.value)}
+                placeholder={'Ví dụ:\n- Văn phong cổ trang, trang trọng\n- Vua tự xưng "trẫm", kẻ dưới gọi vua là "bệ hạ"\n- Hai kẻ thù xưng hô "tao/mày", người quen xưng "tôi/cậu"'}
+                className="w-full rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-white placeholder:text-slate-600 focus:border-brand-cyan focus:outline-none"
+              />
+            </div>
           </div>
         </div>
       </div>

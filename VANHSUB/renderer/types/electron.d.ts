@@ -14,7 +14,9 @@ export type SettingKey =
   | 'ttsSpeed'
   | 'ocrLanguage'
   | 'ocrFps'
-  | 'ocrRegion';
+  | 'ocrRegion'
+  | 'glossary'
+  | 'translationStyleGuide';
 
 /** Giọng đọc clone từ file audio mẫu (đồng bộ với VoiceSample trong main/store) */
 export interface VoiceSampleInfo {

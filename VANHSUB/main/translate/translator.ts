@@ -66,7 +66,31 @@ export function saveCheckpoint(
   fs.writeFileSync(getCheckpointPath(srtPath), JSON.stringify(data), 'utf-8');
 }
 
-/** Ghép prompt hệ thống */
+// =========================================================================
+// GLOSSARY & VĂN PHONG — cấu hình ở Cài đặt, đưa thẳng vào system prompt
+// để giữ nhất quán thuật ngữ / xưng hô xuyên suốt bản dịch.
+// =========================================================================
+
+function buildGlossaryPrompt(): string {
+  const raw = (SettingsStore.get('glossary') || '').trim();
+  if (!raw) return '';
+  const lines = raw
+    .split('\n')
+    .map((l) => l.trim().replace(/^[-•*]\s*/, ''))
+    .filter(Boolean);
+  if (lines.length === 0) return '';
+  return `\nBẢNG THUẬT NGỮ BẮT BUỘC — phải dịch đúng và nhất quán theo bảng này cho TOÀN BỘ bản dịch (mỗi dòng có dạng "nguồn = cách dịch"):\n${lines
+    .map((l) => `- ${l}`)
+    .join('\n')}`;
+}
+
+function buildStyleGuidePrompt(): string {
+  const raw = (SettingsStore.get('translationStyleGuide') || '').trim();
+  if (!raw) return '';
+  return `\nVĂN PHONG & QUY TẮC XƯNG HÔ — áp dụng nhất quán toàn bộ bản dịch:\n${raw}`;
+}
+
+/** Ghép prompt hệ thống: rules gốc + glossary + style guide */
 export function buildSystemPrompt(targetLanguage: string): string {
   const base = `Bạn là biên dịch viên phụ đề chuyên nghiệp.
 Nhiệm vụ: Dịch danh sách các câu phụ đề sang ngôn ngữ đích: "${targetLanguage}".
@@ -77,7 +101,7 @@ Quy tắc BẮT BUỘC:
 4. Giữ đúng thứ tự và số lượng phần tử. Giữ nguyên định dạng ID.
 5. Dịch tự nhiên, phù hợp với ngữ cảnh video.
 6. Dịch nhất quán: cùng 1 từ/tên riêng/thuật ngữ thì dùng cùng 1 cách dịch ở mọi dòng.`;
-  return base;
+  return base + buildGlossaryPrompt() + buildStyleGuidePrompt();
 }
 
 export async function translateSrtFile(

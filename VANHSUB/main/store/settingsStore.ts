@@ -28,6 +28,10 @@ export interface AppSettings {
   ocrFps: number;
   /** Vùng quét phụ đề trong khung hình: đáy khung hoặc toàn khung */
   ocrRegion: 'bottom' | 'full';
+  /** Bảng thuật ngữ dịch nhất quán — mỗi dòng "gốc = bản dịch" */
+  glossary: string;
+  /** Hướng dẫn văn phong/xưng hô đưa vào prompt dịch (tự do) */
+  translationStyleGuide: string;
 }
 
 // Lazy singleton — cùng pattern với taskStore.ts để tránh lỗi
@@ -56,6 +60,8 @@ function getStore(): Store<AppSettings> {
         ocrLanguage: 'vie',
         ocrFps: 2,
         ocrRegion: 'bottom',
+        glossary: '',
+        translationStyleGuide: '',
       },
     });
   }

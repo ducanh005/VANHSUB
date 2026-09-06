@@ -433,7 +433,9 @@ const SETTING_KEYS: Array<keyof AppSettings> = [
   'ttsSpeed',
   'ocrLanguage',
   'ocrFps',
-  'ocrRegion'
+  'ocrRegion',
+  'glossary',
+  'translationStyleGuide'
 ]
 
 ipcMain.handle('settings:get', async (_event, key: keyof AppSettings) => {
