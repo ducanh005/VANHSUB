@@ -43,16 +43,20 @@ export default function ASRModelSelector({ currentModel, onModelChange }: ASRMod
       });
   }, []);
 
-  // Check nếu model có thể chạy
+  // Kiểm tra model có thể chạy trên máy hiện tại. KHÔNG gọi onModelChange ở
+  // đây — trước đây effect gọi onModelChange với onModelChange trong deps,
+  // tạo vòng lặp vô hạn: update task → broadcast → re-render → hàm prop mới
+  // → effect chạy lại → update task... (ghi đĩa + IPC liên tục)
   useEffect(() => {
     if (!systemInfo) return;
+    setCanRun(canRunModel(selectedModel, systemInfo));
+  }, [selectedModel, systemInfo]);
 
-    const result = canRunModel(selectedModel, systemInfo);
-    setCanRun(result);
-
-    // Update model selection
-    onModelChange(selectedModel);
-  }, [selectedModel, systemInfo, onModelChange]);
+  // Theo currentModel prop khi đổi tác vụ / nạp cài đặt (không báo ngược lên
+  // parent — chỉ hiển thị)
+  useEffect(() => {
+    setSelectedModel(currentModel);
+  }, [currentModel]);
 
   if (loadingSystemInfo) {
     return (
@@ -131,7 +135,11 @@ export default function ASRModelSelector({ currentModel, onModelChange }: ASRMod
         <label className="mb-2 block font-medium text-slate-200 text-xs">Chọn Model</label>
         <select
           value={selectedModel}
-          onChange={(e) => setSelectedModel(e.target.value)}
+          onChange={(e) => {
+            const next = e.target.value;
+            setSelectedModel(next);
+            onModelChange(next);
+          }}
           className="w-full rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-white focus:outline-none focus:border-brand-cyan"
         >
           {Object.entries(WHISPER_MODELS).map(([key, model]) => (
