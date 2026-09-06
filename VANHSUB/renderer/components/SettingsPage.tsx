@@ -401,16 +401,25 @@ export default function SettingsPage() {
 
             <div>
               <label className="mb-1 block font-medium text-slate-200">Mô hình Gemini (Model)</label>
-              <select
+              <input
+                type="text"
+                list="gemini-model-suggestions"
                 value={geminiModel}
                 onChange={(e) => setGeminiModel(e.target.value)}
-                className="w-full rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-white focus:outline-none"
-              >
-                <option value="gemini-flash-latest">gemini-flash-latest (Khuyên dùng — tự động bản Flash mới nhất)</option>
-                <option value="gemini-3.6-flash">gemini-3.6-flash</option>
-                <option value="gemini-3.5-flash">gemini-3.5-flash</option>
-                <option value="gemini-pro-latest">gemini-pro-latest (Chính xác cao nhất)</option>
-              </select>
+                placeholder="gemini-flash-latest"
+                spellCheck={false}
+                className="w-full rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 font-mono text-xs text-white focus:border-brand-cyan focus:outline-none"
+              />
+              <datalist id="gemini-model-suggestions">
+                <option value="gemini-flash-latest">Khuyên dùng — tự động bản Flash mới nhất</option>
+                <option value="gemini-3.6-flash" />
+                <option value="gemini-3.5-flash" />
+                <option value="gemini-pro-latest">Chính xác cao nhất</option>
+              </datalist>
+              <p className="mt-1 text-[11px] text-slate-400">
+                Nhập tên model bất kỳ Google đang hỗ trợ (vd gemini-2.5-flash, gemini-3.0-pro) hoặc
+                chọn từ gợi ý. Sai tên model sẽ báo lỗi khi dịch.
+              </p>
             </div>
 
             <div className="grid grid-cols-2 gap-3 pt-1">
