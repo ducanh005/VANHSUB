@@ -125,20 +125,27 @@ export class OcrRunner {
       fs.writeFileSync(targetPath, srtContent, 'utf-8');
       console.log(`[OCR] Đã ghi ${segments.length} dòng phụ đề vào ${targetPath}`);
 
-      // Dump từng khung cạnh file srt — đối chiếu được OCR đọc gì ở giây nào,
-      // khung nào bị lọc (conf 0) để chẩn đoán font/nhiễu/vị trí phụ đề
+      // Dump từng dòng/khung cạnh file srt — đối chiếu được OCR đọc gì ở giây
+      // nào, vị trí y nào, khung nào bị lọc (không có dòng đạt ngưỡng)
       const dumpPath = targetPath.replace(/\.srt$/i, '.frames.txt');
-      const dumpLines = frameResults.map((r, i) => {
+      const dumpRows: string[] = [];
+      frameResults.forEach((r, i) => {
         const t = ((i * frameIntervalMs) / 1000).toFixed(1);
-        const conf = r.confidence.toFixed(0).padStart(3);
-        const text = r.text.replace(/\s+/g, ' ').trim();
-        return `${String(i).padStart(5)}  ${t.padStart(7)}s  ${conf}  ${text}`;
+        if (r.lines.length === 0) {
+          dumpRows.push(`${String(i).padStart(5)}  ${t.padStart(7)}s  (khung trống/bị lọc)`);
+          return;
+        }
+        r.lines.forEach((l, li) => {
+          dumpRows.push(
+            `${String(i).padStart(5)}  ${t.padStart(7)}s  ${li + 1}.${l.confidence.toFixed(0).padStart(3)}  y=${String(Math.round(l.y0)).padStart(4)}  ${l.text}`,
+          );
+        });
       });
       fs.writeFileSync(
         dumpPath,
         `# VANHSUB OCR frame dump — ${task.fileName}\n` +
-          `# idx   time      conf  text (conf 000 = khung trống/bị lọc)\n` +
-          `${dumpLines.join('\n')}\n`,
+          `# idx   time      #.conf    y  text (mỗi dòng OCR 1 hàng; y = vị trí đỉnh dòng trong khung)\n` +
+          `${dumpRows.join('\n')}\n`,
         'utf-8',
       );
       console.log(`[OCR] Dump chi tiết từng khung: ${dumpPath}`);

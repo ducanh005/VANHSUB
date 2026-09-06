@@ -6,17 +6,55 @@ import { CancelledError } from '../lib/cancel';
 /** Ngưỡng tin cậy tối thiểu của TỪNG DÒNG chữ để được giữ (0-100) */
 export const MIN_LINE_CONFIDENCE = 40;
 
+/**
+ * Regex "ký tự hợp lệ" theo ngôn ngữ quét — token KHÔNG chứa ký tự nào của
+ * ngôn ngữ là rác từ nền (người/cảnh vật/chữ nước ngoài) và bị loại.
+ * Ví dụ video Trung: "| | ss", "UN S", "TSNS IN AN", "7" bị bỏ; "老外" giữ.
+ * Vie/eng không áp dụng (bảng chữ Latin trùng với rác nên không phân biệt được).
+ */
+const CJK_TOKEN_FILTER: Record<string, RegExp> = {
+  chi_sim: /[\u3000-\u303f\u3400-\u9fff\uf900-\ufaff]/,
+  chi_tra: /[\u3000-\u303f\u3400-\u9fff\uf900-\ufaff]/,
+  jpn: /[\u3000-\u303f\u3040-\u30ff\u3400-\u9fff\uf900-\ufaff]/,
+  kor: /[\u3000-\u303f\uac00-\ud7af]/,
+};
+
+/**
+ * Lọc token của 1 khung theo ngôn ngữ: tách theo khoảng trắng, bỏ token không
+ * chứa ký tự của ngôn ngữ, ghép lại liền nhau (CJK không cần space). Trả về
+ * text nguyên bản với ngôn ngữ không có filter.
+ */
+function filterTokensByLanguage(text: string, tokenFilter: RegExp | null): string {
+  if (!tokenFilter || !text.trim()) return text;
+  const kept = text
+    .split(/\s+/)
+    .filter((token) => tokenFilter.test(token));
+  return kept.join('');
+}
+
+export interface OcrFrameLine {
+  /** Text của dòng đã qua lọc token theo ngôn ngữ */
+  text: string;
+  confidence: number;
+  /** Tọa độ y đỉnh của dòng trong khung (px) — chẩn đoán vị trí phụ đề/nhiễu */
+  y0: number;
+}
+
 export interface OcrFrameResult {
   /** Text của khung = các dòng đạt ngưỡng ghép lại */
   text: string;
   /** Tin cậy trung bình của các dòng đã giữ (0 nếu không giữ dòng nào) */
   confidence: number;
+  /** Các dòng đã giữ kèm vị trí — dump chẩn đoán + lọc theo vùng về sau */
+  lines: OcrFrameLine[];
 }
 
 /** 1 dòng chữ Tesseract trả về trong khung */
 interface RecognizedLine {
   text: string;
   confidence: number;
+  /** y0 đỉnh dòng trong khung (px), -1 nếu không có bbox */
+  y0: number;
 }
 
 /** Gom các dòng từ cấu trúc blocks của tesseract.js — bỏ qua nếu version không trả blocks */
@@ -28,10 +66,12 @@ function extractLines(data: unknown): RecognizedLine[] {
     const paragraphs = (block as { paragraphs?: unknown[] })?.paragraphs;
     if (!Array.isArray(paragraphs)) continue;
     for (const para of paragraphs) {
-      for (const line of (para as { lines?: Array<{ text?: string; confidence?: number }> })?.lines ?? []) {
+      for (const line of (para as {
+        lines?: Array<{ text?: string; confidence?: number; bbox?: { y0?: number } }>;
+      })?.lines ?? []) {
         const text = (line.text || '').trim();
         if (!text) continue;
-        lines.push({ text, confidence: line.confidence ?? 0 });
+        lines.push({ text, confidence: line.confidence ?? 0, y0: line.bbox?.y0 ?? -1 });
       }
     }
   }
@@ -48,6 +88,7 @@ function extractLines(data: unknown): RecognizedLine[] {
  */
 export class OcrPool {
   private workers: Worker[] = [];
+  private tokenFilter: RegExp | null = null;
 
   static async create(
     language: string,
@@ -60,6 +101,7 @@ export class OcrPool {
     fs.mkdirSync(cachePath, { recursive: true });
 
     const pool = new OcrPool();
+    pool.tokenFilter = CJK_TOKEN_FILTER[language] ?? null;
     pool.workers = await Promise.all(
       Array.from({ length: workerCount }, async () => {
         const worker = await createWorker(language, 1, { cachePath, logger: () => {} });
@@ -104,17 +146,28 @@ export class OcrPool {
         if (!Array.isArray((data as { blocks?: unknown } | null)?.blocks)) {
           const whole = ((data as { text?: string } | null)?.text || '').trim();
           const conf = (data as { confidence?: number } | null)?.confidence ?? 0;
-          results[index] = { text: whole, confidence: conf };
+          results[index] = {
+            text: whole,
+            confidence: whole ? conf : 0,
+            lines: whole ? [{ text: whole, confidence: conf, y0: -1 }] : [],
+          };
         } else {
+          // Lọc theo từng dòng, rồi lọc token rác nền theo ngôn ngữ ngay trong
+          // từng dòng (token không chứa ký tự của ngôn ngữ = rác từ nền)
           const kept = extractLines(data)
             .filter((l) => l.confidence >= MIN_LINE_CONFIDENCE)
-            .map((l) => ({ text: l.text, confidence: l.confidence }));
+            .map((l) => ({ ...l, text: filterTokensByLanguage(l.text, this.tokenFilter) }))
+            .filter((l) => l.text.length > 0);
 
           if (kept.length > 0) {
             const meanConf = kept.reduce((s, l) => s + l.confidence, 0) / kept.length;
-            results[index] = { text: kept.map((l) => l.text).join(' '), confidence: meanConf };
+            results[index] = {
+              text: kept.map((l) => l.text).join(' '),
+              confidence: meanConf,
+              lines: kept,
+            };
           } else {
-            results[index] = { text: '', confidence: 0 };
+            results[index] = { text: '', confidence: 0, lines: [] };
           }
         }
 
