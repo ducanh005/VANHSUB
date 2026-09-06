@@ -664,13 +664,19 @@ ipcMain.handle('models:list', async () => {
         const stat = fs.statSync(filePath);
         const sizeMb = (stat.size / (1024 * 1024)).toFixed(1) + ' MB';
         const name = file.substring(5, file.length - 4);
-        return { name, fileName: file, size: sizeMb };
+        return { name, fileName: file, size: sizeMb, filePath };
       });
     return models;
   } catch (err) {
     console.error('Lỗi khi đọc danh sách model:', err);
     return [];
   }
+})
+
+// Đường dẫn thư mục lưu model Whisper trên đĩa (hiển thị ở Cài đặt)
+ipcMain.handle('models:directory', async () => {
+  const dir = getModelsDirectory();
+  return { path: dir, exists: fs.existsSync(dir) };
 })
 
 ipcMain.handle('models:delete', async (_event, modelName: string) => {

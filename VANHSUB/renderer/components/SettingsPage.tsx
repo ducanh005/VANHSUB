@@ -23,6 +23,7 @@ interface ModelInfo {
   name: string;
   fileName: string;
   size: string;
+  filePath: string;
 }
 
 export default function SettingsPage() {
@@ -112,8 +113,12 @@ export default function SettingsPage() {
     if (typeof window === 'undefined' || !window.vanhsub?.models) return;
     setLoadingModels(true);
     try {
-      const list = await window.vanhsub.models.list();
+      const [list, dir] = await Promise.all([
+        window.vanhsub.models.list(),
+        window.vanhsub.models.directory?.() ?? Promise.resolve(null),
+      ]);
       setModelsList(list || []);
+      if (dir) setModelsDir(dir);
     } catch (err) {
       console.error('Lỗi khi tải danh sách model:', err);
     } finally {
@@ -418,37 +423,100 @@ export default function SettingsPage() {
             </button>
           </div>
 
+          {/* Model đang dùng mặc định + trạng thái tải */}
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-brand-cyan/30 bg-brand-cyan/5 px-3.5 py-3">
+            <div className="flex items-center gap-2.5">
+              <Cpu className="h-4 w-4 text-brand-cyan" />
+              <div>
+                <div className="text-[10px] uppercase tracking-wider text-slate-500">
+                  Model đang dùng mặc định (cho task mới)
+                </div>
+                <div className="font-mono text-sm font-semibold text-white">whisper {asrModel}</div>
+              </div>
+            </div>
+            {modelsList.some((m) => m.name === asrModel) ? (
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-medium text-emerald-400">
+                <CheckCircle2 className="h-3 w-3" />
+                Đã tải trên máy
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-[11px] font-medium text-amber-400">
+                Chưa tải — tự tải khi phiên âm đầu tiên
+              </span>
+            )}
+          </div>
+
+          {/* Vị trí lưu model trên đĩa */}
+          {modelsDir && (
+            <div className="rounded-2xl border border-slate-800 bg-slate-950 px-3.5 py-3">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[10px] uppercase tracking-wider text-slate-500">
+                  Vị trí lưu model
+                </span>
+                <button
+                  type="button"
+                  onClick={() => window.vanhsub.dialog.showInFolder(modelsDir.path)}
+                  className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 text-[11px] font-medium text-slate-300 hover:bg-slate-800 hover:text-white transition cursor-pointer"
+                  title="Mở thư mục chứa model trong Explorer"
+                >
+                  <FolderOpen className="h-3 w-3" />
+                  <span>Mở thư mục</span>
+                </button>
+              </div>
+              <p className="mt-1.5 break-all font-mono text-[11px] leading-relaxed text-slate-400" title={modelsDir.path}>
+                {modelsDir.path}
+                {!modelsDir.exists && (
+                  <span className="text-amber-400"> — thư mục sẽ được tạo khi tải model đầu tiên</span>
+                )}
+              </p>
+            </div>
+          )}
+
           {modelsList.length === 0 ? (
             <p className="py-4 text-center text-slate-500 text-xs">
               Chưa tìm thấy model offline nào đã tải. Khi bạn bắt đầu phiên âm task đầu tiên, app sẽ tự động tải model base.
             </p>
           ) : (
             <div className="space-y-2">
-              {modelsList.map((m) => (
-                <div
-                  key={m.fileName}
-                  className="flex items-center justify-between rounded-xl border border-slate-800 bg-slate-950 px-3 py-2.5"
-                >
-                  <div className="flex items-center gap-2.5">
-                    <Cpu className="h-4 w-4 text-brand-cyan" />
-                    <div>
-                      <div className="font-semibold text-white">Model {m.name}</div>
-                      <div className="font-mono text-[10px] text-slate-500">{m.fileName}</div>
+              {modelsList.map((m) => {
+                const isCurrent = m.name === asrModel;
+                return (
+                  <div
+                    key={m.fileName}
+                    className={`flex items-center justify-between rounded-xl border px-3 py-2.5 ${
+                      isCurrent ? 'border-emerald-500/40 bg-emerald-500/5' : 'border-slate-800 bg-slate-950'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <Cpu className={`h-4 w-4 ${isCurrent ? 'text-emerald-400' : 'text-brand-cyan'}`} />
+                      <div>
+                        <div className="flex items-center gap-2 font-semibold text-white">
+                          Model {m.name}
+                          {isCurrent && (
+                            <span className="rounded-full border border-emerald-500/30 bg-emerald-500/15 px-1.5 py-0.5 text-[9px] font-semibold text-emerald-400">
+                              Đang dùng
+                            </span>
+                          )}
+                        </div>
+                        <div className="font-mono text-[10px] text-slate-500" title={m.filePath}>
+                          {m.fileName}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className="font-mono text-xs font-medium text-slate-300">{m.size}</span>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteModel(m.name)}
+                        className="rounded-lg p-1.5 text-slate-400 hover:bg-rose-500/20 hover:text-rose-400 transition cursor-pointer"
+                        title="Xoá model khỏi ổ đĩa"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
                     </div>
                   </div>
-                  <div className="flex items-center gap-3">
-                    <span className="font-mono text-xs font-medium text-slate-300">{m.size}</span>
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteModel(m.name)}
-                      className="rounded-lg p-1.5 text-slate-400 hover:bg-rose-500/20 hover:text-rose-400 transition cursor-pointer"
-                      title="Xoá model khỏi ổ đĩa"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>

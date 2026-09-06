@@ -108,8 +108,10 @@ export interface VanhsubAPI {
     cancel: (id: string) => Promise<boolean>;
   };
   models: {
-    list: () => Promise<Array<{ name: string; fileName: string; size: string }>>;
+    list: () => Promise<Array<{ name: string; fileName: string; size: string; filePath: string }>>;
     delete: (modelName: string) => Promise<boolean>;
+    /** Thư mục lưu model Whisper trên đĩa (để hiển thị vị trí ở Cài đặt) */
+    directory: () => Promise<{ path: string; exists: boolean }>;
     getSystemInfo: () => Promise<{
       totalMemory: number;
       freeMemory: number;
