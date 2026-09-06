@@ -20,6 +20,9 @@ import { checkVietTtsConnection, getAvailableVoices, previewTts } from './render
 import { VoiceSampleStore } from './store/voiceSampleStore'
 import { extractAudioFromUrl } from './helpers/voiceFromUrl'
 import { installRendererLogger } from './helpers/logger'
+import { createTikTokProvider } from './tts-providers/tiktok/TikTokTTSProvider'
+import { ElectronTikTokSessionStore } from './tts-providers/tiktok/sessionStores'
+import { TikTokTTSError } from './tts-providers/tiktok/types'
 
 const isProd = process.env.NODE_ENV === 'production'
 
@@ -166,7 +169,7 @@ app.whenReady().then(() => {
 let mainWindow: any = null
 
 function broadcastTasksUpdate() {
-  if (mainWindow && !mainWindow.isDestroyed()) {
+  if (mainWindow && !mainWindow.isDestroyed())  {
     mainWindow.webContents.send('tasks:updated', TaskStore.getAll())
   }
 }
@@ -190,6 +193,7 @@ function broadcastTasksUpdate() {
       preload: path.join(__dirname, 'preload.js'),
     },
   })
+
 
   if (isProd) {
     await mainWindow.loadURL('app://./home')
