@@ -32,6 +32,7 @@ export default function SettingsPage() {
   const [asrModel, setAsrModel] = useState('base');
   const [exportDir, setExportDir] = useState('');
   const [translateBatchSize, setTranslateBatchSize] = useState(15);
+  const [translateConcurrency, setTranslateConcurrency] = useState(1);
   const [autoTranslateAfterAsr, setAutoTranslateAfterAsr] = useState(false);
   const [vietTtsEndpoint, setVietTtsEndpoint] = useState('http://localhost:6006');
   const [ttsVoice, setTtsVoice] = useState('alloy');
@@ -62,6 +63,7 @@ export default function SettingsPage() {
       window.vanhsub.settings.get('asrModel'),
       window.vanhsub.settings.get('exportDir'),
       window.vanhsub.settings.get('translateBatchSize'),
+      window.vanhsub.settings.get('translateConcurrency'),
       window.vanhsub.settings.get('autoTranslateAfterAsr'),
       window.vanhsub.settings.get('vietTtsEndpoint'),
       window.vanhsub.settings.get('ttsVoice'),
@@ -130,6 +132,7 @@ export default function SettingsPage() {
         window.vanhsub.settings.set('asrModel', asrModel),
         window.vanhsub.settings.set('exportDir', exportDir),
         window.vanhsub.settings.set('translateBatchSize', Number(translateBatchSize)),
+        window.vanhsub.settings.set('translateConcurrency', Math.min(8, Math.max(1, Math.round(Number(translateConcurrency) || 1)))),
         window.vanhsub.settings.set('autoTranslateAfterAsr', autoTranslateAfterAsr),
         window.vanhsub.settings.set('vietTtsEndpoint', vietTtsEndpoint.trim() || 'http://localhost:6006'),
         window.vanhsub.settings.set('ttsVoice', ttsVoice),
@@ -304,6 +307,23 @@ export default function SettingsPage() {
                   <option value="ko">Korean</option>
                   <option value="zh">Chinese</option>
                 </select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 pt-1">
+              <div>
+                <label className="mb-1 block font-medium text-slate-200">Số request dịch song song</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={8}
+                  value={translateConcurrency}
+                  onChange={(e) => setTranslateConcurrency(Number(e.target.value))}
+                  className="w-full rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 font-mono text-xs text-white focus:outline-none"
+                />
+                <span className="text-[10px] text-slate-400">
+                  1 = lần lượt (an toàn với rate limit) — tăng để dịch nhanh hơn
+                </span>
               </div>
             </div>
 

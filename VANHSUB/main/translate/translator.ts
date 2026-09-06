@@ -145,13 +145,19 @@ export async function translateSrtFile(
   }
 
   const totalBatches = Math.ceil(lines.length / batchSize);
-  const translatedLines: SrtLine[] = [];
-  let previousContext: { original: string; translated: string }[] = [];
+  const concurrencySetting = Number(SettingsStore.get('translateConcurrency')) || 1;
+  const concurrency = Math.min(Math.max(Math.round(concurrencySetting) || 1, 1), 8);
+  if (concurrency > 1) {
+    console.log(`[Translate] Dịch song song ${concurrency} request cùng lúc`);
+  }
 
-  for (let b = 0; b < totalBatches; b++) {
-    if (shouldStop?.()) {
-      throw new CancelledError();
-    }
+  /**
+   * Dịch 1 batch, có retry. Ngữ cảnh = 2 dòng cuối của batch trước: bản dịch
+   * của chúng chỉ dùng được khi batch trước đã xong — concurrency 1 thì luôn
+   * có, chạy song song batch trước chưa xong thì gửi tạm text gốc (vẫn giúp
+   * model hiểu mạch nội dung).
+   */
+  const translateBatch = async (b: number): Promise<SrtLine[]> => {
     const batchLines = lines.slice(b * batchSize, (b + 1) * batchSize);
 
     // Dòng nào đã có trong cache (text gốc trùng khớp) thì dùng lại, không gọi API
@@ -160,7 +166,15 @@ export async function translateSrtFile(
       .map((l) => ({ i: l.id, text: l.text }));
 
     let batchResult: TranslatedItem[] = [];
+
     if (itemsToTranslate.length > 0) {
+      const prevLines = b > 0 ? lines.slice((b - 1) * batchSize, b * batchSize) : [];
+      const prevTranslated = b > 0 ? batchResults[b - 1] : undefined;
+      const previousContext = prevLines.slice(-2).map((orig, idx) => ({
+        original: orig.text,
+        translated: prevTranslated?.[prevTranslated.length - 2 + idx]?.text || orig.text,
+      }));
+
       const userPayload = { context: previousContext, items: itemsToTranslate };
 
       let attempts = 0;
@@ -234,11 +248,6 @@ export async function translateSrtFile(
       }
     }
 
-    const translatedBatch: SrtLine[] = batchLines.map((line) => {
-      const transText = resultMap.get(line.id) ?? cachedTarget.get(line.id) ?? line.text;
-      return { ...line, text: transText };
-    });
-
     // Lưu vào cache + ghi checkpoint NGAY sau mỗi batch (chỉ các dòng mới dịch)
     for (const line of batchLines) {
       const target = resultMap.get(line.id) ?? cachedTarget.get(line.id);
@@ -248,19 +257,48 @@ export async function translateSrtFile(
     }
     saveCheckpoint(srtPath, targetLanguage, checkpointData);
 
-    translatedLines.push(...translatedBatch);
+    return batchLines.map((line) => {
+      const transText = resultMap.get(line.id) ?? cachedTarget.get(line.id) ?? line.text;
+      return { ...line, text: transText };
+    });
+  };
 
-    const lastTwoOriginal = batchLines.slice(-2);
-    const lastTwoTranslated = translatedBatch.slice(-2);
-    previousContext = lastTwoOriginal.map((orig, idx) => ({
-      original: orig.text,
-      translated: lastTwoTranslated[idx]?.text || orig.text,
-    }));
+  // Pool worker: mỗi worker rót lần lượt các batch — số worker = concurrency
+  // (setting "Số request dịch song song"). Batch đầu lỗi thì ngừng nhận batch
+  // mới, các batch đang chạy chạy nốt (checkpoint vẫn giữ phần đã dịch) rồi
+  // mới báo lỗi/huỷ.
+  const batchResults: (SrtLine[] | undefined)[] = new Array(totalBatches);
+  let nextBatchIndex = 0;
+  let completedBatches = 0;
+  let failure: unknown = null;
+  let cancelled = false;
 
-    if (onProgress) {
-      onProgress(Math.round(((b + 1) / totalBatches) * 100));
+  const worker = async (): Promise<void> => {
+    while (!failure && !cancelled) {
+      if (shouldStop?.()) {
+        cancelled = true;
+        return;
+      }
+      const b = nextBatchIndex++;
+      if (b >= totalBatches) return;
+      try {
+        batchResults[b] = await translateBatch(b);
+        completedBatches++;
+        onProgress?.(Math.round((completedBatches / totalBatches) * 100));
+      } catch (err) {
+        if (!failure) failure = err;
+      }
     }
-  }
+  };
+
+  await Promise.all(Array.from({ length: Math.min(concurrency, totalBatches) }, () => worker()));
+
+  if (failure) throw failure;
+  if (cancelled) throw new CancelledError();
+
+  const translatedLines: SrtLine[] = batchResults.filter(
+    (r): r is SrtLine[] => Array.isArray(r),
+  ).flat();
 
   const srtDir = path.dirname(srtPath);
   const srtBasename = path.basename(srtPath, '.srt');
