@@ -152,6 +152,66 @@ async function generateAudio(
 }
 
 /**
+ * Chạy tác vụ có retry — server TTS local đôi lúc 500/timeout, thử lại vài
+ * lần trước khi bỏ cuộc (dùng cho từng câu phụ đề để 1 câu hỏng không giết
+ * cả hàng nghìn câu còn lại vô lý).
+ */
+async function withRetry<T>(
+  fn: () => Promise<T>,
+  attempts: number = 3,
+  baseDelayMs: number = 1200,
+): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastError = err;
+      if (attempt < attempts) {
+        const delay = baseDelayMs * attempt;
+        console.warn(`[TTS] Lỗi (lần ${attempt}/${attempts}) — thử lại sau ${delay}ms`);
+        await new Promise((res) => setTimeout(res, delay));
+      }
+    }
+  }
+  throw lastError;
+}
+
+// =========================================================================
+// CACHE AUDIO TỪNG CÂU — manifest JSON trong thư mục audio ghi lại mỗi dòng
+// đã tạo với giọng/tốc độ/text nào. Chạy lại TTS (đổi 1 câu, giật server,
+// đóng app giữa chừng...) sẽ bỏ qua các file còn hợp lệ thay vì regenerate
+// toàn bộ — điều kiện cần để chạy batch video dài qua đêm.
+// =========================================================================
+
+interface TtsManifestEntry {
+  voice: string;
+  speed: number;
+  text: string;
+}
+
+const MANIFEST_FILE = 'manifest.json';
+
+function loadManifest(outputDir: string): Record<string, TtsManifestEntry> {
+  const manifestPath = path.join(outputDir, MANIFEST_FILE);
+  try {
+    const data = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+    if (data && typeof data === 'object') return data;
+  } catch {
+    // chưa có / hỏng — coi như cache rỗng
+  }
+  return {};
+}
+
+function saveManifest(outputDir: string, manifest: Record<string, TtsManifestEntry>): void {
+  try {
+    fs.writeFileSync(path.join(outputDir, MANIFEST_FILE), JSON.stringify(manifest), 'utf-8');
+  } catch (err) {
+    console.warn('[TTS] Không ghi được manifest cache:', err);
+  }
+}
+
+/**
  * Tạo lại audio cho MỘT dòng phụ đề (sau khi người dùng sửa text hoặc đổi giọng)
  * và ghi đè file audio cũ trong ttsAudioDir. Dùng đúng nguồn SRT mà lần TTS
  * trước đã đọc (ưu tiên bản dịch).
@@ -173,13 +233,19 @@ export async function regenerateTtsLine(
   const speedToUse = speed || SettingsStore.get('ttsSpeed') || 1.0;
 
   console.log(`[TTS] Tạo lại audio dòng ${lineIndex} (${voiceToUse}): "${sub.text.slice(0, 50)}..."`);
-  const audioBuffer = await generateAudio(sub.text, voiceToUse, speedToUse);
+  const audioBuffer = await withRetry(() => generateAudio(sub.text, voiceToUse, speedToUse));
 
   if (!fs.existsSync(ttsAudioDir)) {
     fs.mkdirSync(ttsAudioDir, { recursive: true });
   }
   const audioPath = path.join(ttsAudioDir, `subtitle_${String(lineIndex).padStart(4, '0')}.mp3`);
   fs.writeFileSync(audioPath, audioBuffer);
+
+  // Cập nhật manifest cache để lần TTS chạy lại không regenerate dòng này
+  const manifest = loadManifest(ttsAudioDir);
+  manifest[String(lineIndex)] = { voice: voiceToUse, speed: speedToUse, text: sub.text };
+  saveManifest(ttsAudioDir, manifest);
+
   console.log(`[TTS] ✓ Đã ghi đè ${audioPath}`);
 }
 
@@ -204,6 +270,9 @@ export async function generateTtsFromSrt(
   const subtitles = parseSrtFile(srtPath);
   const audioFiles = new Map<number, string>();
   let totalDuration = 0;
+  const manifest = loadManifest(outputDir);
+  let cacheHits = 0;
+  let cacheSkipped = 0;
 
   console.log(`[TTS] Bắt đầu tạo audio từ ${subtitles.length} dòng phụ đề`);
 
@@ -212,22 +281,49 @@ export async function generateTtsFromSrt(
     onProgress?.(i + 1, subtitles.length);
 
     if (options?.shouldStop?.()) {
+      saveManifest(outputDir, manifest);
       throw new CancelledError();
     }
 
     try {
       // Dòng được gán giọng riêng trong voiceOverrides sẽ đè lên giọng chung
       const lineVoice = options?.voiceOverrides?.[String(sub.index)] || voice;
-      console.log(`[TTS] Đang xử lý dòng ${i + 1}/${subtitles.length} (${lineVoice}): "${sub.text.slice(0, 50)}..."`);
-
-      // Generate audio từ text subtitle
-      const audioBuffer = await generateAudio(sub.text, lineVoice, speed);
-
-      // Lưu file audio với tên định dạng: subtitle_XXX.mp3
       const audioFileName = `subtitle_${String(sub.index).padStart(4, '0')}.mp3`;
       const audioPath = path.join(outputDir, audioFileName);
 
+      // Cache hit: file đã tồn tại và tạo bằng cùng giọng/tốc độ/text → bỏ qua
+      const manifestEntry = manifest[String(sub.index)];
+      if (
+        manifestEntry &&
+        manifestEntry.voice === lineVoice &&
+        Number(manifestEntry.speed) === Number(speed) &&
+        manifestEntry.text === sub.text &&
+        fs.existsSync(audioPath) &&
+        fs.statSync(audioPath).size > 0
+      ) {
+        audioFiles.set(sub.index, audioPath);
+        totalDuration += sub.durationMs;
+        cacheHits++;
+        continue;
+      }
+
+      console.log(
+        `[TTS] Đang xử lý dòng ${i + 1}/${subtitles.length} (${lineVoice}): "${sub.text.slice(0, 50)}..."`
+      );
+
+      // Generate audio từ text subtitle (có retry — server TTS đôi lúc hỏng 1 câu)
+      const audioBuffer = await withRetry(() =>
+        generateAudio(sub.text, lineVoice, speed)
+      );
+
       fs.writeFileSync(audioPath, audioBuffer);
+      manifest[String(sub.index)] = {
+        voice: lineVoice,
+        speed: speed,
+        text: sub.text,
+      };
+      // Ghi manifest sau mỗi câu — app đóng giữa chừng vẫn giữ cache phần đã tạo
+      if (++cacheSkipped % 10 === 0) saveManifest(outputDir, manifest);
       audioFiles.set(sub.index, audioPath);
       totalDuration += sub.durationMs;
 
@@ -238,6 +334,12 @@ export async function generateTtsFromSrt(
     }
   }
 
+  saveManifest(outputDir, manifest);
+  if (cacheHits > 0) {
+    console.log(
+      `[TTS] Tái sử dụng ${cacheHits}/${subtitles.length} file audio từ cache (không gọi lại server)`
+    );
+  }
   console.log(`[TTS] Hoàn tất! Tạo ${audioFiles.size} file audio`);
   return { audioFiles, totalDuration };
 }
