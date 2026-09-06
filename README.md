@@ -11,22 +11,28 @@
    - Hỗ trợ chọn các model Whisper khác nhau (base, small, medium, PhoWhisper...).
    - Tự động tách âm thanh (ffmpeg → WAV 16kHz) và tạo file phụ đề `.srt` chuẩn.
 
-2. **Màn hình hiệu đính phụ đề (Subtitle Editor)**
+2. **Quét phụ đề cứng bằng OCR**
+   - Trích phụ đề đã ghẽ sẵn trong khung hình video thành file `.srt` bằng Tesseract OCR (`tesseract.js`).
+   - Chỉ quét vùng đáy khung hình (cấu hình được: đáy/toàn khung), lấy mẫu thưa 2 khung/giây, chuyển xám — nhanh và chính xác.
+   - Hỗ trợ đa ngôn ngữ (Việt, Anh, Nhật, Hàn, Trung...) — gói ngôn ngữ tự tải lần đầu rồi lưu offline.
+   - Nhiều worker OCR chạy song song, có nút huỷ giữa chừng; kết quả đưa thẳng vào luồng dịch / lồng tiếng như phiên âm thường.
+
+3. **Màn hình hiệu đính phụ đề (Subtitle Editor)**
    - Đọc & xem trước video với protocol tùy chỉnh `vanhmedia://` (hỗ trợ HTTP Range request & seek mượt mà).
    - Chỉnh sửa văn bản và mốc thời gian (start/end) trực tiếp từng dòng câu.
    - Các phím bấm tinh chỉnh mốc thời gian nhanh (`±0.1s`, `±1s`, gán theo thời điểm playback video).
    - **Tích hợp Gemini AI**: Đánh bóng câu văn, chỉnh sửa lỗi chính tả/ngữ pháp tự động bằng AI.
 
-3. **Dịch thuật AI với Gemini (Google AI)**
+4. **Dịch thuật AI với Gemini (Google AI)**
    - Dịch toàn bộ file phụ đề sang tiếng Việt hoặc các ngôn ngữ khác qua Gemini API (tương thích OpenAI SDK).
    - Cơ chế xử lý theo batch kết hợp ngữ cảnh câu trước, đảm bảo tính mạch lạc và nhất quán giữa các đoạn thoại.
    - Giao diện đối chiếu song song giữa bản gốc và bản dịch.
 
-4. **Xuất Video (Video Render & Muxing)**
+5. **Xuất Video (Video Render & Muxing)**
    - **Hardsub**: Burn ghi cứng phụ đề vào khung hình video bằng ffmpeg (`libx264`, mã hóa an toàn mốc ký tự Unicode và đường dẫn tạm Windows).
    - **Softsub**: Đóng gói phụ đề mềm vào container MP4 (`mov_text`) với tốc độ siêu nhanh (stream copy).
 
-5. **Trang Cài đặt & Quản lý**
+6. **Trang Cài đặt & Quản lý**
    - Lưu trữ API Key Gemini an toàn qua `electron-store`.
    - Quản lý danh sách các model Whisper đã nạp, hiển thị dung lượng đĩa và cho phép xoá bớt model không sử dụng.
    - Tùy chỉnh thư mục xuất video mặc định.
