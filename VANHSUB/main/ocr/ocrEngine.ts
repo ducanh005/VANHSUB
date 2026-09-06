@@ -1,6 +1,6 @@
 import os from 'os';
 import fs from 'fs';
-import { createWorker, type Worker } from 'tesseract.js';
+import { createWorker, PSM, type Worker } from 'tesseract.js';
 import { CancelledError } from '../lib/cancel';
 
 export interface OcrFrameResult {
@@ -31,9 +31,14 @@ export class OcrPool {
 
     const pool = new OcrPool();
     pool.workers = await Promise.all(
-      Array.from({ length: workerCount }, () =>
-        createWorker(language, 1, { cachePath, logger: () => {} }),
-      ),
+      Array.from({ length: workerCount }, async () => {
+        const worker = await createWorker(language, 1, { cachePath, logger: () => {} });
+        // PSM 6 (khối văn bản duy nhất) khớp với dải phụ đề đã crop — PSM auto
+        // (mặc định) thử phân tích bố cục nhiều cột nên hay đoán sai trên ảnh
+        // dải dài ngang, sinh ký tự rác
+        await worker.setParameters({ tessedit_pageseg_mode: PSM.SINGLE_BLOCK });
+        return worker;
+      }),
     );
     return pool;
   }
