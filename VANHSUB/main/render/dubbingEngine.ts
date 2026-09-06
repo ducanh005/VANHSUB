@@ -450,9 +450,12 @@ export async function muxAudioToVideo(
         outputOptions.push('-c:a', 'aac', '-b:a', '192k', '-map', '1:a:0');
       }
 
-      // flexible có thể dài hơn video vài giây — giữ nguyên audio đuôi
-      if (!flexible && !needReencode) {
-        outputOptions.push('-shortest');
+      // KHÔNG dùng -shortest: audio ghép kết thúc ở câu phụ đề cuối (+0.5s đệm),
+      // -shortest sẽ cắt mất toàn bộ video phía sau đó (credit, outro...).
+      // Giới hạn output bằng -t theo thời lượng video; nếu không đọc được
+      // thời lượng thì bỏ qua — lệch tối đa 0.5s đuôi audio là vô hại.
+      if (!flexible && !needReencode && videoDurationSec > 0) {
+        outputOptions.push('-t', videoDurationSec.toFixed(3));
       }
 
       if (videoFilters) command.videoFilters(videoFilters);
