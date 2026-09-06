@@ -71,9 +71,21 @@ const vanhsub = {
       options?: { syncMode?: 'strict' | 'flexible' | 'video-stretch'; mixOriginalAudio?: boolean }
     ) => ipcRenderer.invoke('dubbing:start', id, replaceAudio, options ?? null),
   },
+  tiktokTts: {
+    // TikTok TTS thử nghiệm — sessionid chỉ đi LÊN main process, không bao giờ
+    // có method nào đọc lại giá trị session
+    status: () => ipcRenderer.invoke('tiktok-tts:status'),
+    saveSession: (sessionId: string) => ipcRenderer.invoke('tiktok-tts:save-session', sessionId),
+    removeSession: () => ipcRenderer.invoke('tiktok-tts:remove-session'),
+    validate: () => ipcRenderer.invoke('tiktok-tts:validate'),
+    voices: () => ipcRenderer.invoke('tiktok-tts:voices'),
+    synthesize: (text: string, voice: string) => ipcRenderer.invoke('tiktok-tts:synthesize', text, voice),
+  },
   models: {
     list: () => ipcRenderer.invoke('models:list'),
     delete: (modelName: string) => ipcRenderer.invoke('models:delete', modelName),
+    // Thư mục lưu model Whisper trên đĩa — hiển thị vị trí ở trang Cài đặt
+    directory: () => ipcRenderer.invoke('models:directory'),
     getSystemInfo: () => ipcRenderer.invoke('system:info'),
   },
   dialog: {

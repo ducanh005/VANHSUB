@@ -534,6 +534,79 @@ ipcMain.handle('tts:check-connection', async () => {
 })
 
 // =========================================================================
+// TIKTOK TTS (THỬ NGHIỆM) — sessionid do người dùng tự cung cấp, lưu mã hoá
+// bằng safeStorage. Sessionid KHÔNG BAO GIỜ được trả về renderer — mọi IPC
+// chỉ trả trạng thái/đường dẫn file/kết quả validate (text mô tả).
+// =========================================================================
+
+const tikTokProvider = createTikTokProvider(new ElectronTikTokSessionStore())
+
+/** Bọc lỗi thành payload an toàn — không bao giờ chứa sessionid */
+function tiktokErrorPayload(err: unknown): { ok: false; error: string } {
+  if (err instanceof TikTokTTSError) return { ok: false, error: err.message }
+  const message = err instanceof Error ? err.message : 'Lỗi TikTok TTS không xác định'
+  return { ok: false, error: message.replace(/sessionid=[^;\s"']+/gi, 'sessionid=[REDACTED]') }
+}
+
+// Trạng thái session — chỉ boolean, không trả giá trị sessionid
+ipcMain.handle('tiktok-tts:status', async () => {
+  return { hasSession: tikTokProvider.hasSession() }
+})
+
+// Lưu sessionid mới — validate format qua manager, chỉ trả { ok }, không echo giá trị
+ipcMain.handle('tiktok-tts:save-session', async (_event, sessionId: string) => {
+  try {
+    tikTokProvider.saveSession(String(sessionId || ''))
+    return { ok: true }
+  } catch (err) {
+    return tiktokErrorPayload(err)
+  }
+})
+
+ipcMain.handle('tiktok-tts:remove-session', async () => {
+  try {
+    tikTokProvider.clearSession()
+    return { ok: true }
+  } catch (err) {
+    return tiktokErrorPayload(err)
+  }
+})
+
+// Kiểm tra session còn hạn không — trả { valid, detail }, detail là mô tả, không chứa session
+ipcMain.handle('tiktok-tts:validate', async () => {
+  try {
+    return await tikTokProvider.validateSession()
+  } catch (err) {
+    return { valid: false, detail: tiktokErrorPayload(err).error }
+  }
+})
+
+// Danh sách voice TikTok (catalog tĩnh — xem TikTokVoiceService)
+ipcMain.handle('tiktok-tts:voices', async () => {
+  try {
+    return { ok: true, voices: await tikTokProvider.getVoices() }
+  } catch (err) {
+    return tiktokErrorPayload(err)
+  }
+})
+
+// Tổng hợp audio và lưu ra userData/tiktok-tts — trả đường dẫn file, không trả audio base64
+ipcMain.handle('tiktok-tts:synthesize', async (_event, text: string, voice: string) => {
+  try {
+    const stamp = Date.now().toString(36)
+    const outPath = path.join(
+      app.getPath('userData'),
+      'tiktok-tts',
+      `tts-${stamp}.mp3`,
+    )
+    const filePath = await tikTokProvider.saveAudio(String(text || ''), String(voice || ''), outPath)
+    return { ok: true, filePath }
+  } catch (err) {
+    return tiktokErrorPayload(err)
+  }
+})
+
+// =========================================================================
 // GIỌNG ĐỌC CLONE TỪ FILE MẪU (voice sample)
 // =========================================================================
 

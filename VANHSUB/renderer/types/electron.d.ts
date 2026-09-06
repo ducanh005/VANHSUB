@@ -100,6 +100,17 @@ export interface VanhsubAPI {
       options?: { syncMode?: 'strict' | 'flexible' | 'video-stretch'; mixOriginalAudio?: boolean }
     ) => Promise<boolean>;
   };
+  tiktokTts: {
+    status: () => Promise<{ hasSession: boolean }>;
+    saveSession: (sessionId: string) => Promise<{ ok: boolean; error?: string }>;
+    removeSession: () => Promise<{ ok: boolean; error?: string }>;
+    validate: () => Promise<{ valid: boolean; detail: string }>;
+    voices: () => Promise<
+      { ok: true; voices: Array<{ id: string; label: string; language: string; gender?: string }> }
+      | { ok: false; error: string }
+    >;
+    synthesize: (text: string, voice: string) => Promise<{ ok: true; filePath: string } | { ok: false; error: string }>;
+  };
   export: {
     start: (id: string, mode: 'hardsub' | 'softsub', mask?: SubMaskRegion | null) => Promise<boolean>;
   };

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   CheckCircle2,
   Cpu,
@@ -48,11 +48,20 @@ export default function SettingsPage() {
   const [voiceOptions, setVoiceOptions] = useState(VOICE_OPTIONS);
 
   const [modelsList, setModelsList] = useState<ModelInfo[]>([]);
+  const [modelsDir, setModelsDir] = useState<{ path: string; exists: boolean } | null>(null);
   const [loadingModels, setLoadingModels] = useState(false);
 
   const [savedMessage, setSavedMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
   const [showApiKey, setShowApiKey] = useState(false);
+
+  // TikTok TTS thử nghiệm — sessionid KHÔNG được load lại vào input (chỉ biết has/chưa)
+  const [tiktokSessionInput, setTiktokSessionInput] = useState('');
+  const [tiktokHasSession, setTiktokHasSession] = useState(false);
+  const [tiktokBusy, setTiktokBusy] = useState<'save' | 'validate' | 'remove' | 'preview' | null>(null);
+  const [tiktokStatusMsg, setTiktokStatusMsg] = useState('');
+  const [tiktokStatusOk, setTiktokStatusOk] = useState(false);
+  const tiktokPreviewRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
     if (typeof window === 'undefined' || !window.vanhsub?.settings) return;
@@ -75,13 +84,14 @@ export default function SettingsPage() {
       window.vanhsub.settings.get('glossary'),
       window.vanhsub.settings.get('translationStyleGuide'),
     ])
-      .then(([key, gModel, lang, aModel, expDir, batchSize, autoTrans, ttsEndpoint, voice, spd, oLang, oFps, oRegion, glossaryVal, styleVal]) => {
+      .then(([key, gModel, lang, aModel, expDir, batchSize, concurrency, autoTrans, ttsEndpoint, voice, spd, oLang, oFps, oRegion, glossaryVal, styleVal]) => {
         if (key) setApiKey(key);
         if (gModel) setGeminiModel(gModel);
         if (lang) setTargetLanguage(lang);
         if (aModel) setAsrModel(aModel);
         if (expDir) setExportDir(expDir);
         if (batchSize) setTranslateBatchSize(Number(batchSize));
+        if (concurrency) setTranslateConcurrency(Number(concurrency) || 1);
         if (autoTrans !== undefined) setAutoTranslateAfterAsr(Boolean(autoTrans));
         if (ttsEndpoint) setVietTtsEndpoint(String(ttsEndpoint));
         if (voice) setTtsVoice(String(voice));
@@ -163,6 +173,106 @@ export default function SettingsPage() {
       }
     } catch (err) {
       console.error('Lỗi khi chọn thư mục:', err);
+    }
+  };
+
+  // ---- TikTok TTS (thử nghiệm) ----
+  const loadTiktokStatus = async () => {
+    try {
+      const res = await window.vanhsub.tiktokTts.status();
+      setTiktokHasSession(Boolean(res?.hasSession));
+    } catch {
+      setTiktokHasSession(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadTiktokStatus();
+  }, []);
+
+  const handleTiktokSave = async () => {
+    const value = tiktokSessionInput.trim();
+    setTiktokStatusMsg('');
+    if (!value) {
+      setTiktokStatusOk(false);
+      setTiktokStatusMsg('Chưa nhập sessionid — dán giá trị cookie "sessionid" từ tiktok.com.');
+      return;
+    }
+    setTiktokBusy('save');
+    try {
+      const res = await window.vanhsub.tiktokTts.saveSession(value);
+      if (res.ok) {
+        setTiktokSessionInput('');
+        setTiktokHasSession(true);
+        setTiktokStatusOk(true);
+        setTiktokStatusMsg('Đã lưu session (mã hoá trên máy). Bấm "Kiểm tra" để xác thực với TikTok.');
+      } else {
+        setTiktokStatusOk(false);
+        setTiktokStatusMsg(res.error || 'Không lưu được session.');
+      }
+    } finally {
+      setTiktokBusy(null);
+    }
+  };
+
+  const handleTiktokValidate = async () => {
+    setTiktokStatusMsg('');
+    setTiktokBusy('validate');
+    try {
+      const res = await window.vanhsub.tiktokTts.validate();
+      setTiktokStatusOk(res.valid);
+      setTiktokStatusMsg(res.detail);
+    } catch (err: any) {
+      setTiktokStatusOk(false);
+      setTiktokStatusMsg(err?.message || 'Không kiểm tra được session.');
+    } finally {
+      setTiktokBusy(null);
+    }
+  };
+
+  const handleTiktokRemove = async () => {
+    setTiktokStatusMsg('');
+    setTiktokBusy('remove');
+    try {
+      const res = await window.vanhsub.tiktokTts.removeSession();
+      if (res.ok) {
+        setTiktokHasSession(false);
+        setTiktokStatusOk(true);
+        setTiktokStatusMsg('Đã xoá session khỏi máy.');
+      } else {
+        setTiktokStatusOk(false);
+        setTiktokStatusMsg(res.error || 'Không xoá được session.');
+      }
+    } finally {
+      setTiktokBusy(null);
+    }
+  };
+
+  // Nghe thử: tổng hợp 1 câu ngắn bằng giọng Việt rồi phát qua vanhmedia://
+  const handleTiktokPreview = async () => {
+    setTiktokStatusMsg('');
+    setTiktokBusy('preview');
+    try {
+      const res = await window.vanhsub.tiktokTts.synthesize(
+        'Xin chào! Đây là giọng đọc thử nghiệm từ TikTok trong VANHSUB.',
+        'BV074_streaming',
+      );
+      if (res.ok) {
+        tiktokPreviewRef.current?.pause();
+        if (!tiktokPreviewRef.current) tiktokPreviewRef.current = new Audio();
+        tiktokPreviewRef.current.src = `vanhmedia://local/${encodeURIComponent(res.filePath)}`;
+        await tiktokPreviewRef.current.play();
+        setTiktokStatusOk(true);
+        setTiktokStatusMsg('Đã tạo audio thử — đang phát giọng Việt nữ (BV074_streaming).');
+      } else {
+        setTiktokStatusOk(false);
+        setTiktokStatusMsg(res.error);
+      }
+    } catch (err: any) {
+      setTiktokStatusOk(false);
+      setTiktokStatusMsg(err?.message || 'Không tạo được audio thử.');
+    } finally {
+      setTiktokBusy(null);
     }
   };
 
@@ -411,7 +521,7 @@ export default function SettingsPage() {
           <div className="flex items-center justify-between border-b border-slate-800 pb-3">
             <div className="flex items-center gap-2 text-sm font-bold text-white">
               <HardDrive className="h-4 w-4 text-emerald-400" />
-              <span>Model Whisper ASR đã lưu trên đĩa</span>
+              <span>Model Whisper ASR trên đĩa</span>
             </div>
             <button
               type="button"
@@ -603,6 +713,126 @@ export default function SettingsPage() {
               Mặc định chỉ áp dụng cho task mới — có thể đổi riêng từng lần ở tab{' '}
               <strong className="text-slate-300">Lồng tiếng</strong>.
             </p>
+          </div>
+        </div>
+
+        {/* Khối 4.5: TikTok TTS (thử nghiệm) — sessionid do người dùng tự cung cấp */}
+        <div className="flex flex-col gap-4 rounded-3xl border border-slate-800 bg-slate-900/60 p-5">
+          <div className="flex items-center gap-2 border-b border-slate-800 pb-3 text-sm font-bold text-white">
+            <Key className="h-4 w-4 text-amber-400" />
+            <span>TikTok TTS (Thử nghiệm — ~80 giọng đa ngôn ngữ)</span>
+          </div>
+
+          <div className="space-y-4">
+            <p className="text-[11px] leading-relaxed text-slate-400">
+              Dùng API TTS nội bộ của TikTok với <strong className="text-slate-300">sessionid của chính bạn</strong> —
+              đăng nhập tiktok.com trên trình duyệt, dùng tiện ích Cookie-Editor copy giá trị cookie{' '}
+              <code className="rounded bg-slate-900 px-1 py-0.5 font-mono text-[10px] text-slate-300">sessionid</code>{' '}
+              rồi dán vào đây. Session được mã hoá bằng safeStorage của hệ điều hành, không bao giờ hiển thị lại hay ghi
+              vào log. Đây là API <strong className="text-slate-300">không chính thức</strong> — TikTok có thể thay đổi
+              bất cứ lúc nào; khi có lỗi, mô tả bên dưới sẽ nói rõ nguyên nhân (session hết hạn, rate limit, API đổi…).
+              Catalog có 2 giọng tiếng Việt: <code className="font-mono text-[10px]">BV074_streaming</code> (nữ),{' '}
+              <code className="font-mono text-[10px]">BV075_streaming</code> (nam).
+            </p>
+
+            <div>
+              <label className="mb-1 block font-medium text-slate-200">Session TikTok (sessionid)</label>
+              <div className="flex gap-2">
+                <input
+                  type="password"
+                  autoComplete="off"
+                  value={tiktokSessionInput}
+                  onChange={(e) => setTiktokSessionInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !tiktokBusy) void handleTiktokSave();
+                  }}
+                  placeholder={
+                    tiktokHasSession
+                      ? '•••••••••••••••• (đã lưu trên máy — nhập session mới để ghi đè)'
+                      : 'Dán giá trị cookie sessionid vào đây'
+                  }
+                  className="w-full rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 font-mono text-xs text-white placeholder:text-slate-500 focus:border-brand-cyan focus:outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={handleTiktokSave}
+                  disabled={tiktokBusy !== null}
+                  className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-brand-cyan/40 bg-brand-cyan/10 px-3 py-2 text-xs font-semibold text-brand-cyan hover:bg-brand-cyan/20 cursor-pointer disabled:opacity-50"
+                >
+                  {tiktokBusy === 'save' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+                  <span>Lưu</span>
+                </button>
+                {tiktokHasSession && (
+                  <button
+                    type="button"
+                    onClick={handleTiktokRemove}
+                    disabled={tiktokBusy !== null}
+                    title="Xoá session khỏi máy"
+                    className="inline-flex shrink-0 items-center rounded-xl border border-slate-700 bg-slate-800 px-2.5 py-2 text-slate-400 hover:bg-rose-500/20 hover:text-rose-400 transition cursor-pointer disabled:opacity-50"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
+
+              <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                <span
+                  className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium ${
+                    tiktokHasSession
+                      ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400'
+                      : 'border-slate-700 bg-slate-800 text-slate-400'
+                  }`}
+                >
+                  {tiktokHasSession ? 'Đã lưu session trên máy' : 'Chưa có session'}
+                </span>
+                <button
+                  type="button"
+                  onClick={handleTiktokValidate}
+                  disabled={tiktokBusy !== null || !tiktokHasSession}
+                  title="Gửi 1 request thử tới TikTok để xác nhận session còn hiệu lực"
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs font-medium text-slate-200 hover:bg-slate-700 cursor-pointer disabled:opacity-50"
+                >
+                  {tiktokBusy === 'validate' ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <RefreshCw className="h-3.5 w-3.5" />
+                  )}
+                  <span>Kiểm tra session</span>
+                </button>
+              </div>
+            </div>
+
+            {tiktokStatusMsg && (
+              <p
+                className={`rounded-xl border px-3 py-2 text-[11px] leading-relaxed ${
+                  tiktokStatusOk
+                    ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
+                    : 'border-rose-500/30 bg-rose-500/10 text-rose-300'
+                }`}
+              >
+                {tiktokStatusMsg}
+              </p>
+            )}
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleTiktokPreview}
+                disabled={tiktokBusy !== null}
+                title="Tạo 1 câu ngắn bằng giọng Việt nữ (BV074_streaming) và phát thử"
+                className="inline-flex items-center gap-1.5 rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-xs font-medium text-amber-400 hover:bg-amber-500/20 cursor-pointer disabled:opacity-50"
+              >
+                {tiktokBusy === 'preview' ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Mic className="h-3.5 w-3.5" />
+                )}
+                <span>Nghe thử giọng Việt</span>
+              </button>
+              <span className="text-[10px] text-slate-500">
+                Tích hợp vào pipeline lồng tiếng sẽ làm sau khi session của bạn chạy ổn.
+              </span>
+            </div>
           </div>
         </div>
 
