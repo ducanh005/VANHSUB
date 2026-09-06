@@ -34,6 +34,8 @@ export interface Task {
   // TTS / Dubbing fields
   ttsVoice?: string;
   ttsSpeed?: number;
+  /** Engine tạo audio: 'viettts' (server local) hoặc 'tiktok' (TikTok TTS — cần session) */
+  ttsEngine?: 'viettts' | 'tiktok';
   ttsAudioDir?: string;
   /** Gán giọng riêng theo dòng phụ đề: key = số dòng SRT (chuỗi), value = tên giọng */
   ttsVoiceOverrides?: Record<string, string>;
@@ -101,6 +103,7 @@ export const TaskStore = {
       errorMessage: input.errorMessage,
       ttsVoice: input.ttsVoice,
       ttsSpeed: input.ttsSpeed,
+      ttsEngine: input.ttsEngine,
       ttsAudioDir: input.ttsAudioDir,
       ttsVoiceOverrides: input.ttsVoiceOverrides,
       createdAt: now,

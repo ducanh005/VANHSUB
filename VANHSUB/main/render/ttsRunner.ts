@@ -1,7 +1,7 @@
 import path from 'path';
 import { TaskStore, type Task } from '../store/taskStore';
 import { SettingsStore } from '../store/settingsStore';
-import { generateTtsFromSrt, regenerateTtsLine } from '../render/ttsEngine';
+import { generateTtsFromSrt, regenerateTtsLine, type TTSEngine } from '../render/ttsEngine';
 import { isCancelledError } from '../lib/cancel';
 
 export class TTSRunner {
@@ -28,7 +28,8 @@ export class TTSRunner {
     taskId: string,
     lineIndex: number,
     voice?: string,
-    speed?: number
+    speed?: number,
+    engine?: TTSEngine
   ): Promise<{ ok: boolean; error?: string }> {
     const task = TaskStore.getById(taskId);
     if (!task) return { ok: false, error: 'Không tìm thấy tác vụ.' };
@@ -51,7 +52,8 @@ export class TTSRunner {
         task.ttsAudioDir,
         lineIndex,
         voice || task.ttsVoice,
-        speed || task.ttsSpeed
+        speed || task.ttsSpeed,
+        engine || task.ttsEngine
       );
       return { ok: true };
     } catch (err: any) {
@@ -67,7 +69,8 @@ export class TTSRunner {
     voice?: string,
     speed?: number,
     onUpdate?: () => void,
-    voiceOverrides?: Record<string, string>
+    voiceOverrides?: Record<string, string>,
+    engine?: TTSEngine
   ): Promise<Task | undefined> {
     const task = TaskStore.getById(taskId);
     if (!task) throw new Error(`Không tìm thấy tác vụ ID: ${taskId}`);
@@ -87,6 +90,8 @@ export class TTSRunner {
 
     const voiceToUse = voice || task.ttsVoice || SettingsStore.get('ttsVoice') || 'alloy';
     const speedToUse = speed || task.ttsSpeed || SettingsStore.get('ttsSpeed') || 1.0;
+    // Engine: tham số caller > engine đã lưu trên task > mặc định VietTTS
+    const engineToUse: TTSEngine = engine || task.ttsEngine || 'viettts';
 
     try {
       // Chỉ ghi đè ttsVoiceOverrides khi caller truyền gán giọng mới —
@@ -96,6 +101,7 @@ export class TTSRunner {
         progress: 0,
         ttsVoice: voiceToUse,
         ttsSpeed: speedToUse,
+        ttsEngine: engineToUse,
         ...(voiceOverrides && Object.keys(voiceOverrides).length > 0
           ? { ttsVoiceOverrides: voiceOverrides }
           : {}),
@@ -115,6 +121,7 @@ export class TTSRunner {
         {
           voice: voiceToUse,
           speed: speedToUse,
+          engine: engineToUse,
           voiceOverrides: voiceOverrides || task.ttsVoiceOverrides,
           shouldStop: () => this.cancelledTasks.has(taskId),
         },

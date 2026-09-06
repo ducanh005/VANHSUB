@@ -49,8 +49,13 @@ const vanhsub = {
     cancel: (id: string) => ipcRenderer.invoke('ocr:cancel', id),
   },
   tts: {
-    start: (id: string, voice?: string, speed?: number, voiceOverrides?: Record<string, string>) =>
-      ipcRenderer.invoke('tts:start', id, voice, speed, voiceOverrides),
+    start: (
+      id: string,
+      voice?: string,
+      speed?: number,
+      voiceOverrides?: Record<string, string>,
+      engine?: 'viettts' | 'tiktok'
+    ) => ipcRenderer.invoke('tts:start', id, voice, speed, voiceOverrides, engine),
     cancel: (id: string) => ipcRenderer.invoke('tts:cancel', id),
     regenerateLine: (id: string, lineIndex: number) =>
       ipcRenderer.invoke('tts:regenerateLine', id, lineIndex),

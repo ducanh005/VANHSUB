@@ -12,6 +12,7 @@
 import fs from 'fs';
 import { safeStorage } from 'electron';
 import Store from 'electron-store';
+import { createTikTokProvider, type TikTokTTSProvider } from './TikTokTTSProvider';
 import type { TikTokSessionStore } from './types';
 
 const ENC_PREFIX = 'enc:v1:';
@@ -72,4 +73,16 @@ export class ElectronTikTokSessionStore implements TikTokSessionStore {
       // bỏ qua — session đã được set rỗng là đủ
     }
   }
+}
+
+// Singleton dùng chung toàn main process (TTSRunner/ttsEngine/IPC handlers) —
+// cùng 1 store, cùng 1 manager nên session lưu ở IPC handler có tác dụng ngay
+// với luồng TTS pipeline.
+let sharedProvider: TikTokTTSProvider | null = null;
+
+export function getSharedTikTokProvider(): TikTokTTSProvider {
+  if (!sharedProvider) {
+    sharedProvider = createTikTokProvider(new ElectronTikTokSessionStore());
+  }
+  return sharedProvider;
 }

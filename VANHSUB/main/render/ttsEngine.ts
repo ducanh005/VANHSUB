@@ -3,11 +3,17 @@ import path from 'path';
 import { OpenAI } from 'openai';
 import { SettingsStore } from '../store/settingsStore';
 import { VoiceSampleStore } from '../store/voiceSampleStore';
+import { getSharedTikTokProvider } from '../tts-providers/tiktok/sessionStores';
 import { CancelledError } from '../lib/cancel';
+
+/** Engine tạo audio cho lồng tiếng */
+export type TTSEngine = 'viettts' | 'tiktok';
 
 interface TTSOptions {
   voice?: string;
   speed?: number;
+  /** Engine dùng cho lần chạy này (mặc định 'viettss' — lỗi chính tả sẽ thành 'viettts') */
+  engine?: TTSEngine;
   /** Giọng riêng cho từng dòng phụ đề: key = số dòng SRT (chuỗi), đè lên giọng chung */
   voiceOverrides?: Record<string, string>;
   /** Trả về true để dừng giữa chừng (huỷ bởi người dùng) — kiểm tra trước mỗi dòng */
@@ -109,13 +115,28 @@ async function generateAudioFromSample(
 }
 
 /**
- * Gọi VietTTS API để tạo audio từ text
+ * Gọi engine để tạo audio từ text.
+ * - 'viettss'→'viettts': VietTTS local (voice clone qua /v1/tts hoặc voice built-in)
+ * - 'tiktok': TikTok TTS (cần session đã lưu trong Cài đặt) — không hỗ trợ speed
  */
 async function generateAudio(
   text: string,
   voice: string = 'default',
-  speed: number = 1.0
+  speed: number = 1.0,
+  engine: TTSEngine = 'viettts'
 ): Promise<Buffer> {
+  if (engine === 'tiktok') {
+    try {
+      const result = await getSharedTikTokProvider().synthesize(text, voice);
+      return result.audio;
+    } catch (err) {
+      console.error('TikTok TTS error:', err instanceof Error ? err.message : err);
+      throw new Error(
+        `TikTok TTS: ${err instanceof Error ? err.message : 'lỗi không xác định'}`,
+      );
+    }
+  }
+
   const endpoint = SettingsStore.get('vietTtsEndpoint');
 
   try {
@@ -193,6 +214,8 @@ interface TtsManifestEntry {
   voice: string;
   speed: number;
   text: string;
+  /** Engine tạo ra file — đổi engine phải regenerate, không tái sử dụng chéo */
+  engine: string;
 }
 
 const MANIFEST_FILE = 'manifest.json';
@@ -226,7 +249,8 @@ export async function regenerateTtsLine(
   ttsAudioDir: string,
   lineIndex: number,
   voice?: string,
-  speed?: number
+  speed?: number,
+  engine?: TTSEngine
 ): Promise<void> {
   const subtitles = parseSrtFile(srtPath);
   const sub = subtitles.find((s) => s.index === lineIndex);
@@ -236,9 +260,10 @@ export async function regenerateTtsLine(
 
   const voiceToUse = voice || SettingsStore.get('ttsVoice') || 'default';
   const speedToUse = speed || SettingsStore.get('ttsSpeed') || 1.0;
+  const engineToUse: TTSEngine = engine || 'viettts';
 
-  console.log(`[TTS] Tạo lại audio dòng ${lineIndex} (${voiceToUse}): "${sub.text.slice(0, 50)}..."`);
-  const audioBuffer = await withRetry(() => generateAudio(sub.text, voiceToUse, speedToUse));
+  console.log(`[TTS] Tạo lại audio dòng ${lineIndex} (${engineToUse}/${voiceToUse}): "${sub.text.slice(0, 50)}..."`);
+  const audioBuffer = await withRetry(() => generateAudio(sub.text, voiceToUse, speedToUse, engineToUse));
 
   if (!fs.existsSync(ttsAudioDir)) {
     fs.mkdirSync(ttsAudioDir, { recursive: true });
@@ -248,7 +273,7 @@ export async function regenerateTtsLine(
 
   // Cập nhật manifest cache để lần TTS chạy lại không regenerate dòng này
   const manifest = loadManifest(ttsAudioDir);
-  manifest[String(lineIndex)] = { voice: voiceToUse, speed: speedToUse, text: sub.text };
+  manifest[String(lineIndex)] = { voice: voiceToUse, speed: speedToUse, text: sub.text, engine: engineToUse };
   saveManifest(ttsAudioDir, manifest);
 
   console.log(`[TTS] ✓ Đã ghi đè ${audioPath}`);
@@ -266,6 +291,7 @@ export async function generateTtsFromSrt(
 ): Promise<{ audioFiles: Map<number, string>; totalDuration: number }> {
   const voice = options?.voice || SettingsStore.get('ttsVoice') || 'default';
   const speed = options?.speed || SettingsStore.get('ttsSpeed') || 1.0;
+  const engine: TTSEngine = options?.engine || 'viettts';
 
   // Đảm bảo thư mục output tồn tại
   if (!fs.existsSync(outputDir)) {
@@ -296,10 +322,11 @@ export async function generateTtsFromSrt(
       const audioFileName = `subtitle_${String(sub.index).padStart(4, '0')}.mp3`;
       const audioPath = path.join(outputDir, audioFileName);
 
-      // Cache hit: file đã tồn tại và tạo bằng cùng giọng/tốc độ/text → bỏ qua
+      // Cache hit: file đã tồn tại và tạo bằng cùng engine/giọng/tốc độ/text → bỏ qua
       const manifestEntry = manifest[String(sub.index)];
       if (
         manifestEntry &&
+        (manifestEntry.engine || 'viettts') === engine &&
         manifestEntry.voice === lineVoice &&
         Number(manifestEntry.speed) === Number(speed) &&
         manifestEntry.text === sub.text &&
@@ -318,7 +345,7 @@ export async function generateTtsFromSrt(
 
       // Generate audio từ text subtitle (có retry — server TTS đôi lúc hỏng 1 câu)
       const audioBuffer = await withRetry(() =>
-        generateAudio(sub.text, lineVoice, speed)
+        generateAudio(sub.text, lineVoice, speed, engine)
       );
 
       fs.writeFileSync(audioPath, audioBuffer);
@@ -326,6 +353,7 @@ export async function generateTtsFromSrt(
         voice: lineVoice,
         speed: speed,
         text: sub.text,
+        engine,
       };
       // Ghi manifest sau mỗi câu — app đóng giữa chừng vẫn giữ cache phần đã tạo
       if (++cacheSkipped % 10 === 0) saveManifest(outputDir, manifest);

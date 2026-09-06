@@ -72,7 +72,8 @@ export interface VanhsubAPI {
       id: string,
       voice?: string,
       speed?: number,
-      voiceOverrides?: Record<string, string>
+      voiceOverrides?: Record<string, string>,
+      engine?: 'viettts' | 'tiktok'
     ) => Promise<boolean>;
     cancel: (id: string) => Promise<boolean>;
     regenerateLine: (id: string, lineIndex: number) => Promise<{ ok: boolean; error?: string }>;

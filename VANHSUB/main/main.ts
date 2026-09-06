@@ -20,8 +20,7 @@ import { checkVietTtsConnection, getAvailableVoices, previewTts } from './render
 import { VoiceSampleStore } from './store/voiceSampleStore'
 import { extractAudioFromUrl } from './helpers/voiceFromUrl'
 import { installRendererLogger } from './helpers/logger'
-import { createTikTokProvider } from './tts-providers/tiktok/TikTokTTSProvider'
-import { ElectronTikTokSessionStore } from './tts-providers/tiktok/sessionStores'
+import { getSharedTikTokProvider } from './tts-providers/tiktok/sessionStores'
 import { TikTokTTSError } from './tts-providers/tiktok/types'
 
 const isProd = process.env.NODE_ENV === 'production'
@@ -502,13 +501,20 @@ ipcMain.handle(
   }
 )
 
-// Tạo lồng tiếng bằng VietTTS (voiceOverrides: gán giọng riêng theo dòng phụ đề)
+// Tạo lồng tiếng bằng VietTTS hoặc TikTok TTS (voiceOverrides: gán giọng riêng theo dòng)
 ipcMain.handle(
   'tts:start',
-  async (_event, id: string, voice?: string, speed?: number, voiceOverrides?: Record<string, string>) => {
+  async (
+    _event,
+    id: string,
+    voice?: string,
+    speed?: number,
+    voiceOverrides?: Record<string, string>,
+    engine?: 'viettts' | 'tiktok'
+  ) => {
     TTSRunner.runTTS(id, voice, speed, () => {
       broadcastTasksUpdate()
-    }, voiceOverrides)
+    }, voiceOverrides, engine)
     return true
   }
 )
@@ -539,7 +545,7 @@ ipcMain.handle('tts:check-connection', async () => {
 // chỉ trả trạng thái/đường dẫn file/kết quả validate (text mô tả).
 // =========================================================================
 
-const tikTokProvider = createTikTokProvider(new ElectronTikTokSessionStore())
+const tikTokProvider = getSharedTikTokProvider()
 
 /** Bọc lỗi thành payload an toàn — không bao giờ chứa sessionid */
 function tiktokErrorPayload(err: unknown): { ok: false; error: string } {

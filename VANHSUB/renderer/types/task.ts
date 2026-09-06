@@ -23,6 +23,8 @@ export interface Task {
   // TTS / Dubbing fields
   ttsVoice?: string;
   ttsSpeed?: number;
+  /** Engine tạo audio: 'viettts' hoặc 'tiktok' */
+  ttsEngine?: 'viettts' | 'tiktok';
   ttsAudioDir?: string;
   /** Gán giọng riêng theo dòng phụ đề: key = số dòng SRT (chuỗi), value = tên giọng */
   ttsVoiceOverrides?: Record<string, string>;
