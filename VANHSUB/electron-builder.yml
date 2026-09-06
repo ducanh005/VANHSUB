@@ -11,10 +11,12 @@ files:
           - app
 # tesseract.js nạp worker-script và wasm từ file thật trên đĩa — không đọc được
 # từ trong asar nên phải giải nén node_modules của nó ra app.asar.unpacked.
-# Tương tự với binary ffmpeg/ffprobe (@ffmpeg-installer, @ffprobe-installer).
+# Tương tự với binary ffmpeg/ffprobe (@ffmpeg-installer, @ffprobe-installer)
+# và whisper.cpp (nodejs-whisper) — binary whisper-cli không thể chạy từ asar.
 asarUnpack:
     - node_modules/tesseract.js/**
     - node_modules/tesseract.js-core/**
     - node_modules/@ffmpeg-installer/**
     - node_modules/@ffprobe-installer/**
+    - node_modules/nodejs-whisper/**
 publish: null

@@ -1,23 +1,28 @@
-// Module xử lý ASR (Speech-to-Text) bằng whisper.cpp qua package nodejs-whisper.
+// Module xử lý ASR (Speech-to-Text) bằng whisper.cpp — gọi TRỰC TIẾP binary
+// whisper-cli thay vì qua package nodejs-whisper. Lý do: shelljs của
+// nodejs-whisper không expose tiến trình con nên không thể huỷ giữa chừng —
+// bấm huỷ phải đợi chunk 10 phút đang chạy xong. Spawn trực tiếp cho phép kill
+// tiến trình ngay lập tức, đồng thời tự tải model thiếu bằng script chính thức
+// của whisper.cpp (hành vi "auto download lần đầu" giữ nguyên như trước).
+//
 // Đây là "domain logic" thuần túy — KHÔNG import gì từ electron, để có thể test
 // độc lập qua script terminal (scripts/test-asr.ts) mà không cần mở app lên.
 
 import fs from 'fs';
 import path from 'path';
-import { execFile } from 'child_process';
+import { execFile, spawn, type ChildProcess } from 'child_process';
 import { promisify } from 'util';
-import { nodewhisper } from 'nodejs-whisper';
 import { parseSrt, serializeSrt, type SrtLine } from '../lib/srt';
 import { CancelledError } from '../lib/cancel';
-import { getFfmpegBinPath, getMediaDurationSec } from './audioExtractor';
+import { getFfmpegBinPath, getMediaDurationSec, extract16kHzWav } from './audioExtractor';
 
 const execFileAsync = promisify(execFile);
 
 export interface TranscribeOptions {
   /**
-   * Tên model whisper cần dùng, vd: 'base', 'small', 'medium'.
-   * nodejs-whisper hỗ trợ sẵn định dạng ggml của Whisper (đa ngôn ngữ),
-   * gồm cả tiếng Việt — không cần model riêng như PhoWhisper.
+   * Tên model whisper cần dùng, vd: 'base', 'small', 'large-v3-turbo'.
+   * whisper.cpp hỗ trợ sẵn định dạng ggml (đa ngôn ngữ), gồm cả tiếng Việt —
+   * không cần model riêng như PhoWhisper.
    */
   modelName?: string;
 
@@ -30,7 +35,7 @@ export interface TranscribeOptions {
   /** Tiến trình 0-100 (đo theo chunk khi audio dài — whisper.cpp không có event progress) */
   onProgress?: (percent: number) => void;
 
-  /** Trả về true để huỷ — dừng giữa các chunk audio (hợp tác) */
+  /** Trả về true để huỷ — kill tiến trình whisper-cli đang chạy (kiểm tra 400ms/lần) */
   shouldStop?: () => boolean;
 }
 
@@ -40,6 +45,83 @@ export interface TranscribeResult {
 }
 
 const DEFAULT_MODEL = 'base';
+
+/** Các model nodejs-whisper hỗ trợ (bản đa ngôn ngữ — dùng được cho tiếng Việt) */
+const SUPPORTED_MODELS = ['tiny', 'base', 'small', 'medium', 'large', 'large-v3-turbo'];
+
+// =========================================================================
+// ĐỊNH VỊ BINARY WHISPER.CPP + MODEL
+// ========================================================================
+
+/**
+ * Thư mục gốc whisper.cpp đi kèm nodejs-whisper. Thứ tự ưu tiên:
+ * 1. app.asar.unpacked (prod — binary không thể chạy từ trong asar)
+ * 2. node_modules cạnh thư mục build của main process (dev)
+ * 3. node_modules theo cwd (script test chạy từ thư mục repo)
+ */
+function getWhisperCppDir(): string {
+  const candidates: string[] = [];
+  if (process.resourcesPath) {
+    candidates.push(
+      path.resolve(process.resourcesPath, 'app.asar.unpacked', 'node_modules', 'nodejs-whisper', 'cpp', 'whisper.cpp'),
+    );
+  }
+  candidates.push(path.resolve(__dirname, '..', 'node_modules', 'nodejs-whisper', 'cpp', 'whisper.cpp'));
+  candidates.push(path.resolve(process.cwd(), 'node_modules', 'nodejs-whisper', 'cpp', 'whisper.cpp'));
+
+  for (const dir of candidates) {
+    if (fs.existsSync(path.join(dir, 'build'))) return dir;
+  }
+  return candidates[candidates.length - 1];
+}
+
+function getWhisperCliPath(): string {
+  const base = getWhisperCppDir();
+  const execName = process.platform === 'win32' ? 'whisper-cli.exe' : 'whisper-cli';
+  const candidates = [
+    path.join(base, 'build', 'bin', execName), // Unix CMake
+    path.join(base, 'build', 'bin', 'Release', execName), // Windows CMake Release
+    path.join(base, 'build', 'bin', 'Debug', execName), // Windows CMake Debug
+  ];
+  return candidates.find((c) => fs.existsSync(c)) || '';
+}
+
+function resolveModelFile(modelName: string, modelRootPath?: string): string {
+  const file = `ggml-${modelName}.bin`;
+  if (modelRootPath) return path.resolve(modelRootPath, file);
+  return path.join(getWhisperCppDir(), 'models', file);
+}
+
+// =========================================================================
+// HUỶY TIẾN TRÌNH — registry whisper-cli đang chạy, kill được từng task
+// (2 pipeline chạy song song cũng chỉ kill đúng tiến trình của mình)
+// ========================================================================
+
+const runningWhisperChildren = new Set<ChildProcess>();
+
+function killProcessTree(child: ChildProcess): void {
+  try {
+    if (process.platform === 'win32' && child.pid) {
+      // taskkill /T xoá luôn tiến trình con (nếu có) — kill() chỉ giết direct child
+      spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true });
+    } else {
+      child.kill('SIGKILL');
+    }
+  } catch {
+    // tiến trình đã thoát — bỏ qua
+  }
+}
+
+// App đóng giữa chừng → dọn tiến trình whisper còn chạy, tránh để tiến trình mồ côi ngốn CPU
+process.on('exit', () => {
+  for (const child of runningWhisperChildren) {
+    try {
+      child.kill();
+    } catch {
+      // bỏ qua
+    }
+  }
+});
 
 // =========================================================================
 // CHUNKING CHO AUDIO DÀI — whisper.cpp nạp toàn bộ mel-spectrogram vào RAM,
@@ -113,38 +195,175 @@ async function extractChunkWav(
   ]);
 }
 
-/** Phiên âm 1 file qua nodejs-whisper và kiểm tra file .srt đầu ra */
+/**
+ * Tự tải model nếu chưa có trên đĩa — dùng script download chính thức của
+ * whisper.cpp (đúng cách nodejs-whisper làm trước đây), giữ UX "lần đầu tự tải".
+ */
+async function ensureModelDownloaded(modelName: string, modelRootPath?: string): Promise<void> {
+  const modelFile = resolveModelFile(modelName, modelRootPath);
+  if (fs.existsSync(modelFile)) return;
+
+  const modelsDir = path.dirname(modelFile);
+  const scriptName = process.platform === 'win32' ? 'download-ggml-model.cmd' : 'download-ggml-model.sh';
+  const scriptPath = path.join(getWhisperCppDir(), 'models', scriptName);
+  if (!fs.existsSync(scriptPath)) {
+    throw new Error(
+      `Model "${modelName}" chưa có trên đĩa và không tìm thấy script tải model tại: ${scriptPath}`,
+    );
+  }
+
+  fs.mkdirSync(modelsDir, { recursive: true });
+  console.log(`[ASR] Đang tải model ${modelName} về ${modelsDir} (có thể mất vài phút)...`);
+
+  await new Promise<void>((resolve, reject) => {
+    const args =
+      process.platform === 'win32'
+        ? ['/c', scriptPath, modelName, modelsDir]
+        : ['bash', scriptPath, modelName, modelsDir];
+    const child = spawn(args[0], args.slice(1), { windowsHide: true });
+    let stderrTail = '';
+    child.stderr?.on('data', (d: Buffer) => {
+      stderrTail = (stderrTail + d.toString()).slice(-2000);
+    });
+    child.on('error', reject);
+    child.on('exit', (code) => {
+      if (code === 0 && fs.existsSync(modelFile)) return resolve();
+      reject(
+        new Error(
+          `Tải model ${modelName} thất bại (exit ${code}). ${stderrTail.trim().split('\n').slice(-2).join(' | ')}`,
+        ),
+      );
+    });
+  });
+
+  console.log(`[ASR] Đã tải xong model ${modelName}`);
+}
+
+/**
+ * Chạy 1 phiên whisper-cli trên 1 file WAV. Huỷ = kill tiến trình ngay lập tức
+ * (kiểm tra shouldStop 400ms/lần) thay vì đợi chunk chạy xong.
+ */
+function runWhisperCli(
+  wavPath: string,
+  modelName: string,
+  modelRootPath: string | undefined,
+  shouldStop?: () => boolean,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const cliPath = getWhisperCliPath();
+    if (!cliPath) {
+      return reject(
+        new Error(
+          `Không tìm thấy binary whisper-cli — kiểm tra thư mục: ${getWhisperCppDir()}\\build. ` +
+            `Thử xoá node_modules/nodejs-whisper rồi npm install lại để build whisper.cpp.`,
+        ),
+      );
+    }
+
+    const modelFile = resolveModelFile(modelName, modelRootPath);
+    if (!fs.existsSync(modelFile)) {
+      return reject(new Error(`Model Whisper "${modelName}" chưa có trên đĩa tại: ${modelFile}`));
+    }
+
+    // Cờ khớp với cấu hình cũ của nodejs-whisper: -osrt (SRT) + -sow true
+    // (split on word) + -l auto. Model/file dùng đường dẫn tuyệt đối.
+    const args = ['-osrt', '-sow', 'true', '-l', 'auto', '-m', modelFile, '-f', wavPath];
+
+    let stopped = false;
+    let stderrTail = '';
+    const child = spawn(cliPath, args, { windowsHide: true });
+    runningWhisperChildren.add(child);
+
+    // stdout chỉ là log tiến trình — drain để pipe không nghẽn
+    child.stdout?.on('data', () => {});
+    child.stderr?.on('data', (d: Buffer) => {
+      stderrTail = (stderrTail + d.toString()).slice(-4000);
+    });
+
+    const stopTimer = shouldStop
+      ? setInterval(() => {
+          if (shouldStop()) {
+            stopped = true;
+            killProcessTree(child);
+          }
+        }, 400)
+      : null;
+
+    const cleanup = () => {
+      if (stopTimer) clearInterval(stopTimer);
+      runningWhisperChildren.delete(child);
+    };
+
+    child.on('error', (err) => {
+      cleanup();
+      reject(err);
+    });
+    child.on('exit', (code) => {
+      cleanup();
+      if (stopped) return reject(new CancelledError());
+      if (code === 0) return resolve();
+      const lastLog = stderrTail.trim().split('\n').slice(-3).join(' | ');
+      reject(
+        new Error(
+          `whisper-cli thoát với mã ${code}. Log gần nhất: ${lastLog || '(trống)'}`,
+        ),
+      );
+    });
+  });
+}
+
+/** Phiên âm 1 file qua whisper-cli và kiểm tra file .srt đầu ra */
 async function whisperToSrt(
   audioPath: string,
   options: TranscribeOptions,
 ): Promise<string> {
   const modelName = options.modelName ?? DEFAULT_MODEL;
-
-  await nodewhisper(audioPath, {
-    modelName,
-    autoDownloadModelName: modelName,
-    ...(options.modelRootPath ? { modelRootPath: options.modelRootPath } : {}),
-    whisperOptions: {
-      outputInSrt: true,
-      outputInText: false,
-      outputInVtt: false,
-      outputInCsv: false,
-      translateToEnglish: false,
-      wordTimestamps: false,
-      splitOnWord: true,
-    },
-  });
-
-  // nodejs-whisper tạo file SRT bằng cách nối ".srt" vào toàn bộ tên file:
-  // video.wav -> video.wav.srt
-  const srtPath = `${audioPath}.srt`;
-  if (!fs.existsSync(srtPath)) {
+  if (!SUPPORTED_MODELS.includes(modelName)) {
     throw new Error(
-      `nodejs-whisper chạy xong nhưng không thấy file srt tại: ${srtPath}. ` +
-      `Kiểm tra lại output của whisper.cpp.`,
+      `Model Whisper "${modelName}" không được hỗ trợ. Các model khả dụng: ${SUPPORTED_MODELS.join(', ')}.`,
     );
   }
-  return srtPath;
+
+  // whisper-cli nhận WAV 16kHz — flow của app luôn truyền WAV đã trích sẵn,
+  // đường convert giữ lại cho input ngoài (script test) đúng hành vi cũ.
+  let wavInput = audioPath;
+  let tempWav = false;
+  if (path.extname(audioPath).toLowerCase() !== '.wav') {
+    const { wavPath } = await extract16kHzWav(audioPath);
+    wavInput = wavPath;
+    tempWav = true;
+  }
+
+  try {
+    await ensureModelDownloaded(modelName, options.modelRootPath);
+    await runWhisperCli(wavInput, modelName, options.modelRootPath, options.shouldStop);
+
+    // whisper-cli tạo file SRT bằng cách nối ".srt" vào toàn bộ tên file:
+    // video.wav -> video.wav.srt
+    const srtPath = `${wavInput}.srt`;
+    if (!fs.existsSync(srtPath)) {
+      throw new Error(
+        `whisper-cli chạy xong nhưng không thấy file srt tại: ${srtPath}. ` +
+          `Kiểm tra lại output của whisper.cpp.`,
+      );
+    }
+
+    if (wavInput !== audioPath) {
+      // Input ngoài (không phải wav) — chuyển file srt về tên theo file gốc
+      const finalSrt = `${audioPath}.srt`;
+      fs.renameSync(srtPath, finalSrt);
+      return finalSrt;
+    }
+    return srtPath;
+  } finally {
+    if (tempWav) {
+      try {
+        fs.unlinkSync(wavInput);
+      } catch {
+        // bỏ qua
+      }
+    }
+  }
 }
 
 /**
@@ -178,7 +397,7 @@ export async function transcribe(
   const totalChunks = Math.ceil(durationSec / CHUNK_SEC);
   const chunkDir = `${audioPath}.chunks`;
   console.log(
-    `[ASR] Audio dài ${durationSec.toFixed(0)}s → chia ${totalChunks} chunk (~${CHUNK_SEC}s, chồng lấp ${CHUNK_OVERLAP_SEC}s)`
+    `[ASR] Audio dài ${durationSec.toFixed(0)}s → chia ${totalChunks} chunk (~${CHUNK_SEC}s, chồng lấp ${CHUNK_OVERLAP_SEC}s)`,
   );
 
   fs.rmSync(chunkDir, { recursive: true, force: true });
