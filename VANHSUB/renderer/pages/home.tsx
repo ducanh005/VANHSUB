@@ -3,6 +3,7 @@ import Head from 'next/head';
 import {
   ArrowRight,
   CheckCircle2,
+  CircleHelp,
   Cpu,
   FileUp,
   FileVideo,
@@ -37,6 +38,7 @@ import TTSPage from '../components/TTSPage';
 import ExportPage from '../components/ExportPage';
 import SettingsPage from '../components/SettingsPage';
 import TerminalPanel from '../components/TerminalPanel';
+import OnboardingModal from '../components/OnboardingModal';
 
 type NavItem = {
   id: string;
@@ -141,6 +143,16 @@ export default function HomePage() {
   const [linkError, setLinkError] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [asrModel, setAsrModel] = useState('base');
+  // Popup hướng dẫn người dùng mới: hiện lần đầu mở app, mở lại được bằng nút (?)
+  const [showGuide, setShowGuide] = useState(false);
+  const [guideReady, setGuideReady] = useState(false);
+
+  const handleCloseGuide = (dontShowAgain: boolean) => {
+    setShowGuide(false);
+    if (dontShowAgain && typeof window !== 'undefined' && window.vanhsub?.settings) {
+      window.vanhsub.settings.set('onboardingCompleted', true).catch(() => {});
+    }
+  };
 
   const loadTasks = useCallback(async () => {
     if (typeof window !== 'undefined' && window.vanhsub?.tasks) {
@@ -182,6 +194,19 @@ export default function HomePage() {
           if (v) setAsrModel(String(v));
         })
         .catch(() => {});
+
+      // Popup hướng dẫn: chỉ hiện nếu người dùng chưa xem lần nào
+      window.vanhsub.settings
+        .get('onboardingCompleted')
+        .then((v: boolean) => {
+          setShowGuide(!v);
+          setGuideReady(true);
+        })
+        .catch((err) => {
+          console.log('Không đọc được onboardingCompleted, hiện hướng dẫn:', err);
+          setShowGuide(true);
+          setGuideReady(true);
+        });
     }
 
     if (typeof window !== 'undefined' && window.vanhsub?.tasks?.onUpdate) {
@@ -475,6 +500,14 @@ export default function HomePage() {
 
             {/* Header Right Actions */}
             <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setShowGuide(true)}
+                title="Hướng dẫn sử dụng — quy trình 5 bước cho người mới"
+                className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-800 bg-slate-900/80 text-slate-400 transition hover:border-brand-cyan/50 hover:text-brand-cyan cursor-pointer"
+              >
+                <CircleHelp className="h-4 w-4" />
+              </button>
               <button
                 type="button"
                 onClick={() => handleSelectFiles('fast-transcribe')}
@@ -914,6 +947,9 @@ export default function HomePage() {
           {/* Terminal mini: log tiến trình ASR/dịch/TTS/export — nằm ngoài các tab
               nên luôn hiển thị và giữ nguyên nội dung khi chuyển tab */}
           <TerminalPanel />
+
+          {/* Popup hướng dẫn người dùng mới (portal, hiện lần đầu mở app) */}
+          <OnboardingModal open={guideReady && showGuide} onClose={handleCloseGuide} />
         </main>
       </div>
     </>

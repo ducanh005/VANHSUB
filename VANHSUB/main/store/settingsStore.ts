@@ -32,6 +32,8 @@ export interface AppSettings {
   glossary: string;
   /** Hướng dẫn văn phong/xưng hô đưa vào prompt dịch (tự do) */
   translationStyleGuide: string;
+  /** Đã xem popup hướng dẫn cho người dùng mới (không hiện lại) */
+  onboardingCompleted: boolean;
 }
 
 // Lazy singleton — cùng pattern với taskStore.ts để tránh lỗi
@@ -62,6 +64,7 @@ function getStore(): Store<AppSettings> {
         ocrRegion: 'bottom',
         glossary: '',
         translationStyleGuide: '',
+        onboardingCompleted: false,
       },
     });
   }

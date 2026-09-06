@@ -16,7 +16,8 @@ export type SettingKey =
   | 'ocrFps'
   | 'ocrRegion'
   | 'glossary'
-  | 'translationStyleGuide';
+  | 'translationStyleGuide'
+  | 'onboardingCompleted';
 
 /** Giọng đọc clone từ file audio mẫu (đồng bộ với VoiceSample trong main/store) */
 export interface VoiceSampleInfo {
