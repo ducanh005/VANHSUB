@@ -15,14 +15,17 @@ export class TTSRunner {
   }
 
   /**
-   * Giải quyết engine cho 1 lần chạy: caller > task đã lưu > theo session.
-   * Có session TikTok → TikTok (mặc định của tab Lồng tiếng); không session
-   * nhưng đã cấu hình VietTTS ở Cài đặt → rớt về VietTTS để pipeline vẫn chạy.
+   * Giải quyết engine cho 1 lần chạy: caller > session TikTok > task đã lưu.
+   * Session TikTok luôn thắng khi tồn tại — tab Lồng tiếng hiện là TikTok-only,
+   * và các task bị ghi nhầm 'viettts' bởi heuristic cũ (dựa vào ttsVoice) cần
+   * tự phục hồi mà không phải mở lại tab từng task. Không có session → dùng
+   * engine đã lưu, mặc định VietTTS (đã cấu hình ở Cài đặt).
    */
   private static resolveEngine(task: Task, engine?: TTSEngine): TTSEngine {
     if (engine) return engine;
+    if (getSharedTikTokProvider().hasSession()) return 'tiktok';
     if (task.ttsEngine) return task.ttsEngine;
-    return getSharedTikTokProvider().hasSession() ? 'tiktok' : 'viettts';
+    return 'viettts';
   }
 
   /** Yêu cầu huỷ: hiệu lực sau khi câu hiện tại tạo audio xong */
