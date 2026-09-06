@@ -253,7 +253,8 @@ export async function regenerateTtsLine(
   engine?: TTSEngine
 ): Promise<void> {
   const subtitles = parseSrtFile(srtPath);
-  const sub = subtitles.find((s) => s.index === lineIndex);
+  // Tìm theo số dòng ghi trong file; không thấy thì theo vị trí (file đánh số lệch)
+  const sub = subtitles.find((s) => s.index === lineIndex) ?? subtitles[lineIndex - 1];
   if (!sub) {
     throw new Error(`Không tìm thấy dòng ${lineIndex} trong file phụ đề.`);
   }
@@ -317,8 +318,17 @@ export async function generateTtsFromSrt(
     }
 
     try {
-      // Dòng được gán giọng riêng trong voiceOverrides sẽ đè lên giọng chung
-      const lineVoice = options?.voiceOverrides?.[String(sub.index)] || voice;
+      // Dòng được gán giọng riêng trong voiceOverrides sẽ đè lên giọng chung.
+      // Tra theo 2 khoá: số thứ tự GHI TRONG file SRT (sub.index) và vị trí
+      // dòng trong mảng (i+1) — file SRT chỉnh tay có thể đánh số lệch/gap
+      // khiến 1 trong 2 khoá lệch dòng.
+      const lineVoice =
+        options?.voiceOverrides?.[String(sub.index)] ||
+        options?.voiceOverrides?.[String(i + 1)] ||
+        voice;
+      if (lineVoice !== voice) {
+        console.log(`[TTS] Dòng ${sub.index} dùng giọng riêng: ${lineVoice}`);
+      }
       const audioFileName = `subtitle_${String(sub.index).padStart(4, '0')}.mp3`;
       const audioPath = path.join(outputDir, audioFileName);
 
