@@ -77,6 +77,9 @@ export default function TTSPage({ tasks }: Props) {
 
   const startFullPreview = (startLine: number = 1) => {
     if (srtLines.length === 0) return;
+    // Dừng video đối chiếu khi nghe 1 mạch — tiếng video gốc không lấn tiếng
+    // preview, highlight dòng theo audio preview thay vì theo đồng hồ video
+    panelVideoRef.current?.pause();
     setMessage('');
     setIsError(false);
     // Chụp giọng/speed tại thời điểm bấm — đổi gán giọng trong lúc phát
@@ -362,6 +365,8 @@ export default function TTSPage({ tasks }: Props) {
     const video = panelVideoRef.current;
     if (!video) return;
     video.currentTime = line.startMs / 1000 + 0.001;
+    // Đang nghe 1 mạch: chỉ dời khung hình đối chiếu, không phát tiếng video gốc
+    if (fullPreviewing) return;
     void video.play().catch(() => {});
   };
 
@@ -594,15 +599,17 @@ export default function TTSPage({ tasks }: Props) {
             </div>
           )}
 
-          <div className="flex min-h-[340px] flex-1 gap-3 overflow-hidden p-3">
+          {/* Chiều cao cố định: video dọc (9:16) không đẩy tràn panel làm
+              khuyết phần giao diện phía dưới; danh sách dòng tự cuộn trong khung */}
+          <div className="flex h-[min(420px,50vh)] gap-3 overflow-hidden p-3">
             {panelVideoSrc && (
-              <div className="flex w-[300px] shrink-0 flex-col gap-2">
+              <div className="flex w-[300px] shrink-0 flex-col gap-2 overflow-hidden">
                 <video
                   ref={panelVideoRef}
                   src={panelVideoSrc}
                   controls
                   onTimeUpdate={handlePanelVideoTime}
-                  className="w-full rounded-xl border border-slate-800 bg-black"
+                  className="h-[min(260px,35vh)] w-full shrink-0 rounded-xl border border-slate-800 bg-black object-contain"
                 />
                 <p className="text-[10px] leading-relaxed text-slate-500">
                   Bấm vào một dòng bên phải để video nhảy tới đúng câu đó — đối chiếu xem
@@ -619,7 +626,11 @@ export default function TTSPage({ tasks }: Props) {
               srtLines.map((line, i) => {
                 const lineNumber = i + 1; // trùng số dòng SRT mà ttsEngine dùng
                 const lineVoice = voiceOverrides[String(lineNumber)] || '';
-                const isActive = fullPreviewLine === lineNumber || panelActiveLine === lineNumber;
+                // Đang nghe 1 mạch: highlight theo dòng audio preview — không trộn
+                // với panelActiveLine (đồng hồ video) vì 2 đồng hồ chạy lệch nhau
+                const isActive = fullPreviewing
+                  ? fullPreviewLine === lineNumber
+                  : panelActiveLine === lineNumber;
                 return (
                   <div
                     key={line.id}

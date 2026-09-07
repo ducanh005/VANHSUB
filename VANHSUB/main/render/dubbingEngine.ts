@@ -322,16 +322,27 @@ export async function mergeAudioFiles(
           }
         }
       } else {
-        // strict: segment = [start, slotEnd) cố định, audio nén nếu tràn
-        const segDurationSec = Math.max((slotEndMs - sub.startMs) / 1000, 0.05);
-        if (hasAudio && audioDurMs > segDurationSec * TEMPO_THRESHOLD) {
-          const rawTempo = audioDurMs / 1000 / segDurationSec;
-          tempo = Math.min(rawTempo, MAX_TEMPO);
+        // strict: segment = [segStart, slotEnd) cố định, audio nén nếu tràn.
+        // Câu ĐẦU TIÊN phải phủ cả khoảng lặng [0, start) trước câu 1 (audio
+        // được adelay tới đúng start) — nếu không, toàn bộ timeline bị dí sớm
+        // lên đầu video đúng bằng start của câu 1, voice lệch sớm so với phụ đề.
+        const segStartMs = i === 0 ? 0 : sub.startMs;
+        const segDurationSec = Math.max((slotEndMs - segStartMs) / 1000, 0.05);
+        // Khung thời gian cho audio vẫn tính từ start của câu (im lặng đầu không
+        // tính vào khung — tempo không bị nén oan vì khoảng lặng)
+        const audioWindowSec = Math.max((slotEndMs - sub.startMs) / 1000, 0.05);
+        const audioDurSec = audioDurMs / 1000;
+        if (hasAudio && audioDurSec > audioWindowSec * TEMPO_THRESHOLD) {
+          const rawTempo = audioDurSec / audioWindowSec;
+          tempo = Math.min(Math.max(rawTempo, 1), MAX_TEMPO);
           truncated = rawTempo > MAX_TEMPO;
           overruns.push({ index: sub.index, tempo, truncated });
         }
-        await buildSegment(hasAudio ? audioFile : null, segDurationSec, segPath, { tempo });
-        cursorMs = sub.startMs + segDurationSec * 1000;
+        await buildSegment(hasAudio ? audioFile : null, segDurationSec, segPath, {
+          tempo,
+          delayMs: sub.startMs - segStartMs,
+        });
+        cursorMs = sub.startMs + audioWindowSec * 1000;
       }
 
       segPaths.push(segPath);
