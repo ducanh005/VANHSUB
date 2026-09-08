@@ -1,4 +1,4 @@
-﻿import fs from 'fs'
+import fs from 'fs'
 import path from 'path'
 import url from 'url'
 import { Readable } from 'stream'
@@ -8,7 +8,7 @@ import si from 'systeminformation'
 import { createWindow } from './helpers/create-window'
 import { TaskStore, type CreateTaskInput, type Task } from './store/taskStore'
 import { SettingsStore, type AppSettings } from './store/settingsStore'
-import { polishSubtitleLine } from './ai/geminiClient'
+import { polishSubtitleLine, translateSubtitleLine } from './ai/geminiClient'
 import { TaskRunner } from './asr/taskRunner'
 import { TranslateRunner } from './translate/translateRunner'
 import { ExportRunner } from './render/exportRunner'
@@ -385,6 +385,7 @@ ipcMain.handle('tasks:readSrt', async (_event, srtPath: string) => {
 
 ipcMain.handle('tasks:writeSrt', async (_event, srtPath: string, content: string) => {
   fs.writeFileSync(srtPath, content, 'utf-8')
+  broadcastTasksUpdate()
   return true
 })
 
@@ -463,6 +464,14 @@ ipcMain.handle('settings:set', async (_event, key: keyof AppSettings, value: any
 ipcMain.handle('ai:polishLine', async (_event, payload: { text: string; prev?: string; next?: string }) => {
   return polishSubtitleLine(payload)
 })
+
+// Dịch nhanh 1 câu phụ đề bằng Gemini
+ipcMain.handle(
+  'ai:translateLine',
+  async (_event, payload: { text: string; targetLanguage?: string; prev?: string; next?: string }) => {
+    return translateSubtitleLine(payload)
+  }
+)
 
 // Quét phụ đề cứng (hardsub) trong video bằng OCR — kết quả là file .srt
 // như phiên âm, nên sau đó dịch / tạo lồng tiếng / ghép video chạy bình thường

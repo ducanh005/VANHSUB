@@ -1,10 +1,25 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Globe2, Languages, Loader2, MessageSquareText, RefreshCw, XCircle } from 'lucide-react';
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Edit3,
+  Globe2,
+  Languages,
+  Loader2,
+  MessageSquareText,
+  RefreshCw,
+  Save,
+  XCircle,
+} from 'lucide-react';
 import type { Task } from '../types/task';
-import { parseSrt, type SrtLine } from '../lib/srt';
+import { formatMs, parseSrt, serializeSrt, type SrtLine } from '../lib/srt';
 
 type Props = {
   tasks: Task[];
+  selectedTaskId?: string | null;
+  onSelectTaskId?: (id: string | null) => void;
+  onNavigateTab?: (tab: string) => void;
+  isActive?: boolean;
 };
 
 const TARGET_LANGUAGES = [
@@ -24,14 +39,30 @@ function formatTimeAgo(isoString: string): string {
   }
 }
 
-export default function TranslatePage({ tasks }: Props) {
-  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+export default function TranslatePage({
+  tasks,
+  selectedTaskId: controlledTaskId,
+  onSelectTaskId,
+  onNavigateTab,
+  isActive = true,
+}: Props) {
+  const [internalTaskId, setInternalTaskId] = useState<string | null>(null);
+  const selectedTaskId = controlledTaskId !== undefined ? controlledTaskId : internalTaskId;
+
+  const setSelectedTaskId = (id: string | null) => {
+    if (onSelectTaskId) onSelectTaskId(id);
+    else setInternalTaskId(id);
+  };
+
   const [targetLanguage, setTargetLanguage] = useState('vi');
   const [originalLines, setOriginalLines] = useState<SrtLine[]>([]);
   const [translatedLines, setTranslatedLines] = useState<SrtLine[] | null>(null);
+  const [dirty, setDirty] = useState(false);
+  const [savingTranslation, setSavingTranslation] = useState(false);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
   const [isError, setIsError] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
 
   const selectedTask = tasks.find((t) => t.id === selectedTaskId) || null;
   const isTranslating = selectedTask?.status === 'translating';
@@ -48,11 +79,27 @@ export default function TranslatePage({ tasks }: Props) {
       .catch(() => {});
   }, []);
 
-  // Tải SRT gốc + bản dịch (nếu có) khi đổi task
+  // Tự chọn task đầu tiên có SRT nếu chưa chọn
+  useEffect(() => {
+    if (!selectedTaskId && tasks.length > 0) {
+      const firstWithSrt = tasks.find((t) => t.srtPath);
+      if (firstWithSrt) setSelectedTaskId(firstWithSrt.id);
+    }
+  }, [tasks, selectedTaskId]);
+
+  // Khi tab được kích hoạt lại (chuyển sang tab Dịch thuật) và không có sửa đổi dở: tự làm mới từ đĩa
+  useEffect(() => {
+    if (isActive && !dirty) {
+      setReloadKey((k) => k + 1);
+    }
+  }, [isActive]);
+
+  // Tải SRT gốc + bản dịch (nếu có) khi đổi task hoặc reloadKey tăng
   useEffect(() => {
     if (!selectedTask?.srtPath) {
       setOriginalLines([]);
       setTranslatedLines(null);
+      setDirty(false);
       return;
     }
     let cancelled = false;
@@ -70,8 +117,9 @@ export default function TranslatePage({ tasks }: Props) {
         if (cancelled) return;
         setOriginalLines(parseSrt(original));
         setTranslatedLines(translated ? parseSrt(translated) : null);
+        setDirty(false);
         setLoading(false);
-        setMessage(translated ? 'Đã có bản dịch — xem đối chiếu bên dưới.' : 'Chưa dịch: bấm "Dịch bằng Gemini" để bắt đầu.');
+        setMessage(translated ? 'Đã nạp bản dịch mới nhất từ đĩa.' : 'Chưa dịch: bấm "Dịch bằng Gemini" để bắt đầu.');
       })
       .catch((err: any) => {
         if (cancelled) return;
@@ -83,7 +131,7 @@ export default function TranslatePage({ tasks }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [selectedTask?.srtPath, selectedTask?.translatedSrtPath]);
+  }, [selectedTask?.srtPath, selectedTask?.translatedSrtPath, reloadKey]);
 
   const handleTranslate = async () => {
     if (!selectedTaskId) return;
@@ -108,6 +156,31 @@ export default function TranslatePage({ tasks }: Props) {
     }
   };
 
+  const handleSaveTranslatedSrt = async () => {
+    if (!selectedTask?.translatedSrtPath || !translatedLines) return;
+    setSavingTranslation(true);
+    try {
+      await window.vanhsub.tasks.writeSrt(selectedTask.translatedSrtPath, serializeSrt(translatedLines));
+      setDirty(false);
+      setMessage('Đã lưu các chỉnh sửa của bản dịch thành công!');
+      setTimeout(() => setMessage(''), 3000);
+    } catch (err: any) {
+      setIsError(true);
+      setMessage('Lỗi khi lưu bản dịch: ' + (err?.message || err));
+    } finally {
+      setSavingTranslation(false);
+    }
+  };
+
+  const updateTranslatedLine = (index: number, text: string) => {
+    if (!translatedLines) return;
+    setTranslatedLines((prev) => {
+      if (!prev) return prev;
+      return prev.map((line, i) => (i === index ? { ...line, text } : line));
+    });
+    setDirty(true);
+  };
+
   // Tự xoá thông báo lỗi khi task chuyển trạng thái
   useEffect(() => {
     if (selectedTask && selectedTask.status !== 'error') return;
@@ -117,12 +190,17 @@ export default function TranslatePage({ tasks }: Props) {
     }
   }, [selectedTask?.status, selectedTask?.errorMessage]);
 
+  const lineCountMismatch = useMemo(() => {
+    if (!translatedLines || !originalLines.length) return false;
+    return translatedLines.length !== originalLines.length;
+  }, [originalLines, translatedLines]);
+
   const comparisonRows = useMemo(() => {
-    if (!translatedLines) return null;
-    const max = Math.max(originalLines.length, translatedLines.length);
+    if (!translatedLines && originalLines.length === 0) return null;
+    const max = Math.max(originalLines.length, translatedLines?.length || 0);
     const rows: Array<{ index: number; original: SrtLine | undefined; translated: SrtLine | undefined }> = [];
     for (let i = 0; i < max; i++) {
-      rows.push({ index: i, original: originalLines[i], translated: translatedLines[i] });
+      rows.push({ index: i, original: originalLines[i], translated: translatedLines?.[i] });
     }
     return rows;
   }, [originalLines, translatedLines]);
@@ -137,7 +215,10 @@ export default function TranslatePage({ tasks }: Props) {
           <label className="text-xs font-semibold text-slate-300">Tác vụ:</label>
           <select
             value={selectedTaskId || ''}
-            onChange={(e) => setSelectedTaskId(e.target.value || null)}
+            onChange={(e) => {
+              if (dirty && !window.confirm('Bản dịch có chỉnh sửa chưa lưu. Đổi tác vụ sẽ mất thay đổi?')) return;
+              setSelectedTaskId(e.target.value || null);
+            }}
             className="rounded-xl border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs text-slate-200 focus:outline-none"
           >
             <option value="">-- Chọn tác vụ đã có SRT --</option>
@@ -162,6 +243,19 @@ export default function TranslatePage({ tasks }: Props) {
             ))}
           </select>
 
+          {/* Nút làm mới */}
+          <button
+            type="button"
+            onClick={() => {
+              if (dirty && !window.confirm('Tải lại sẽ xoá các chỉnh sửa chưa lưu. Tiếp tục?')) return;
+              setReloadKey((k) => k + 1);
+            }}
+            title="Tải lại nội dung phụ đề và bản dịch mới nhất từ đĩa"
+            className="rounded-xl border border-slate-700 bg-slate-800 p-1.5 text-slate-300 hover:bg-slate-700 hover:text-white transition cursor-pointer"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin text-brand-cyan' : ''}`} />
+          </button>
+
           {message && (
             <span className={`max-w-[340px] truncate text-xs font-mono ${isError ? 'text-rose-400' : 'text-brand-cyan'}`} title={message}>
               {message}
@@ -170,6 +264,19 @@ export default function TranslatePage({ tasks }: Props) {
         </div>
 
         <div className="flex items-center gap-2">
+          {/* Nút mở trong Hiệu đính */}
+          {onNavigateTab && selectedTaskId && (
+            <button
+              type="button"
+              onClick={() => onNavigateTab('editor')}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-xs font-medium text-slate-300 hover:bg-slate-700 cursor-pointer transition"
+              title="Mở video & timeline câu trong tab Hiệu đính phụ đề"
+            >
+              <Edit3 className="h-3.5 w-3.5 text-brand-cyan" />
+              <span>Mở Hiệu đính</span>
+            </button>
+          )}
+
           {isTranslating && (
             <button
               type="button"
@@ -181,6 +288,19 @@ export default function TranslatePage({ tasks }: Props) {
               <span>Huỷ dịch</span>
             </button>
           )}
+
+          {dirty && hasTranslatedSrt && (
+            <button
+              type="button"
+              onClick={handleSaveTranslatedSrt}
+              disabled={savingTranslation}
+              className="btn-vanh-gradient inline-flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-semibold cursor-pointer disabled:opacity-50"
+            >
+              {savingTranslation ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+              <span>Lưu bản dịch (*)</span>
+            </button>
+          )}
+
           <button
             type="button"
             onClick={handleTranslate}
@@ -215,6 +335,25 @@ export default function TranslatePage({ tasks }: Props) {
         </div>
       )}
 
+      {/* Cảnh báo không khớp dòng */}
+      {lineCountMismatch && hasTranslatedSrt && (
+        <div className="flex items-center justify-between rounded-2xl border border-amber-500/40 bg-amber-500/10 px-4 py-2.5 text-xs text-amber-300">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="h-4 w-4 shrink-0 text-amber-400" />
+            <span>
+              Số dòng bản dịch ({translatedLines?.length} dòng) khác với bản gốc ({originalLines.length} dòng) do có chỉnh sửa thêm/bớt dòng ở tab Hiệu đính.
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={handleTranslate}
+            className="rounded-lg border border-amber-500/40 bg-amber-500/20 px-2.5 py-1 font-semibold text-amber-200 hover:bg-amber-500/30 cursor-pointer"
+          >
+            Dịch lại để đồng bộ
+          </button>
+        </div>
+      )}
+
       {/* Nội dung chính */}
       {!selectedTaskId ? (
         <div className="flex flex-1 flex-col items-center justify-center rounded-3xl border border-dashed border-slate-800 bg-slate-900/40 p-12 text-center text-slate-500 text-xs">
@@ -224,12 +363,19 @@ export default function TranslatePage({ tasks }: Props) {
       ) : comparisonRows ? (
         <div className="flex flex-1 flex-col overflow-hidden rounded-3xl border border-slate-800 bg-slate-900/60 p-4">
           <div className="mb-3 flex items-center justify-between border-b border-slate-800/80 pb-3">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-300">
-              Đối chiếu gốc ↔ bản dịch ({comparisonRows.length} dòng)
-            </h3>
+            <div className="flex items-center gap-2">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-300">
+                Đối chiếu gốc ↔ bản dịch ({comparisonRows.length} dòng)
+              </h3>
+              {dirty && (
+                <span className="rounded bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-semibold text-amber-400">
+                  Có sửa đổi chưa lưu
+                </span>
+              )}
+            </div>
             {hasTranslatedSrt && (
-              <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-400">
-                Đã dịch · lưu tại {selectedTask?.translatedSrtPath?.split(/[/\\]/).pop()}
+              <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 text-[10px] font-semibold text-emerald-400">
+                Đã dịch · {selectedTask?.translatedSrtPath?.split(/[/\\]/).pop()}
               </span>
             )}
           </div>
@@ -243,14 +389,26 @@ export default function TranslatePage({ tasks }: Props) {
                   <div className="mb-1 flex items-center gap-2 text-[10px] font-mono text-slate-500">
                     <span className="rounded bg-slate-800 px-1.5 py-0.5 font-bold text-slate-400">#{index + 1}</span>
                     <span>Bản gốc</span>
+                    {original && <span className="text-[9px] text-slate-600">({formatMs(original.startMs)} → {formatMs(original.endMs)})</span>}
                   </div>
                   <p className="whitespace-pre-line text-slate-400">{original?.text || '—'}</p>
                 </div>
                 <div className="min-w-0 border-l border-slate-800 pl-3">
-                  <div className="mb-1 text-[10px] font-mono text-brand-cyan">Bản dịch</div>
-                  <p className={`whitespace-pre-line ${translated ? 'text-white' : 'text-slate-600'}`}>
-                    {translated?.text || 'Chưa dịch'}
-                  </p>
+                  <div className="mb-1 flex items-center justify-between text-[10px] font-mono text-brand-cyan">
+                    <span>Bản dịch</span>
+                    {translated && <span className="text-[9px] text-slate-600">({formatMs(translated.startMs)} → {formatMs(translated.endMs)})</span>}
+                  </div>
+                  {translated ? (
+                    <textarea
+                      rows={2}
+                      value={translated.text}
+                      onChange={(e) => updateTranslatedLine(index, e.target.value)}
+                      placeholder="Nội dung bản dịch..."
+                      className="w-full rounded-xl border border-slate-800 bg-slate-950/80 p-2 text-xs text-white placeholder:text-slate-600 focus:border-brand-cyan focus:outline-none"
+                    />
+                  ) : (
+                    <p className="text-slate-600 italic">Chưa dịch — bấm "Dịch bằng Gemini" ở trên</p>
+                  )}
                 </div>
               </div>
             ))}

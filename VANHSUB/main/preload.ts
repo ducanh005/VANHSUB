@@ -1,4 +1,4 @@
-﻿import { contextBridge, ipcRenderer, webUtils } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
 
 const vanhsub = {
   tasks: {
@@ -33,6 +33,8 @@ const vanhsub = {
   ai: {
     polishLine: (payload: { text: string; prev?: string; next?: string }) =>
       ipcRenderer.invoke('ai:polishLine', payload),
+    translateLine: (payload: { text: string; targetLanguage?: string; prev?: string; next?: string }) =>
+      ipcRenderer.invoke('ai:translateLine', payload),
   },
   translate: {
     start: (id: string, targetLanguage?: string) =>

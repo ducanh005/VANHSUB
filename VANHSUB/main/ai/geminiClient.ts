@@ -85,3 +85,49 @@ export async function polishSubtitleLine(payload: PolishLinePayload): Promise<st
     throw new Error(friendlyGeminiError(err));
   }
 }
+
+export interface TranslateLinePayload {
+  text: string;
+  targetLanguage?: string;
+  prev?: string;
+  next?: string;
+}
+
+export async function translateSubtitleLine(payload: TranslateLinePayload): Promise<string> {
+  const { client, model } = createGeminiClient();
+  const targetLang = payload.targetLanguage || SettingsStore.get('targetLanguage') || 'vi';
+
+  const contextParts: string[] = [];
+  if (payload.prev?.trim()) contextParts.push(`Ngữ cảnh câu trước: "${payload.prev.trim()}"`);
+  if (payload.next?.trim()) contextParts.push(`Ngữ cảnh câu sau: "${payload.next.trim()}"`);
+
+  const prompt = `Bạn là biên dịch viên phụ đề phim chuyên nghiệp.
+Nhiệm vụ: Dịch DUY NHẤT câu sau sang ngôn ngữ: "${targetLang}".
+Yêu cầu:
+- Giữ nguyên ngữ nghĩa, dịch tự nhiên theo văn nói phụ đề phim, ngắn gọn súc tích.
+- Chỉ trả về DUY NHẤT câu đã dịch, không giải thích, không bọc ngoặc kép.`;
+
+  try {
+    const completion = await client.chat.completions.create({
+      model,
+      temperature: 0.3,
+      messages: [
+        { role: 'system', content: prompt },
+        {
+          role: 'user',
+          content: [contextParts.join('\n'), `Câu cần dịch: "${payload.text}"`]
+            .filter(Boolean)
+            .join('\n'),
+        },
+      ],
+    });
+
+    const result = completion.choices[0]?.message?.content?.trim();
+    if (!result) throw new Error('Gemini trả về kết quả rỗng, thử lại nhé.');
+
+    return result.replace(/^["“']+|["”']+$/g, '').trim();
+  } catch (err: any) {
+    throw new Error(friendlyGeminiError(err));
+  }
+}
+

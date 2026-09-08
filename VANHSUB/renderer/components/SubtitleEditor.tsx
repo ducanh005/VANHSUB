@@ -1,23 +1,31 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  AlertCircle,
   CheckCircle2,
   Crosshair,
   FileVideo,
+  Globe2,
   KeyRound,
+  Languages,
   Loader2,
   MessageSquareText,
   Plus,
+  RefreshCw,
+  Sparkles,
   Trash2,
   Wand2,
+  XCircle,
 } from 'lucide-react';
 import type { Task } from '../types/task';
 import { formatMs, parseSrt, parseTimecode, serializeSrt, type SrtLine } from '../lib/srt';
 
 type Props = {
   tasks: Task[];
+  selectedTaskId?: string | null;
+  onSelectTaskId?: (id: string | null) => void;
+  onNavigateTab?: (tab: string) => void;
+  isActive?: boolean;
 };
-
-const TIME_NUDGES = [-1000, -100, 100, 1000];
 
 function makeLineId(): string {
   return `line-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
@@ -108,13 +116,27 @@ function TimeRow({
   );
 }
 
-export default function SubtitleEditor({ tasks }: Props) {
-  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+export default function SubtitleEditor({
+  tasks,
+  selectedTaskId: controlledTaskId,
+  onSelectTaskId,
+  onNavigateTab,
+  isActive = true,
+}: Props) {
+  const [internalTaskId, setInternalTaskId] = useState<string | null>(null);
+  const selectedTaskId = controlledTaskId !== undefined ? controlledTaskId : internalTaskId;
+
+  const setSelectedTaskId = (id: string | null) => {
+    if (onSelectTaskId) onSelectTaskId(id);
+    else setInternalTaskId(id);
+  };
+
   const [lines, setLines] = useState<SrtLine[]>([]);
   const [loading, setLoading] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [statusMessage, setStatusMessage] = useState('');
   const [statusError, setStatusError] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
 
   // Trình xem trước video
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -125,16 +147,21 @@ export default function SubtitleEditor({ tasks }: Props) {
 
   // AI (Gemini)
   const [aiBusyIndex, setAiBusyIndex] = useState<number | null>(null);
+  const [aiActionType, setAiActionType] = useState<'polish' | 'translate' | null>(null);
   const [hasApiKey, setHasApiKey] = useState(false);
+  const [geminiModelName, setGeminiModelName] = useState('gemini-2.5-flash');
   const [keyDraft, setKeyDraft] = useState('');
   const [showKeyInput, setShowKeyInput] = useState(false);
   const [savingKey, setSavingKey] = useState(false);
 
-  // Nguồn SRT đang hiệu đính — ưu tiên bản dịch vì các bước sau (TTS/Export) đều dùng bản dịch
+  // Nguồn SRT đang hiệu đính
   const [srtSource, setSrtSource] = useState<'original' | 'translated'>('original');
+  const prevTaskIdRef = useRef<string | null>(null);
 
   const selectedTask = tasks.find((t) => t.id === selectedTaskId) || null;
+  const isTranslating = selectedTask?.status === 'translating';
   const hasTranslatedSrt = !!selectedTask?.translatedSrtPath;
+
   const mediaUrl = useMemo(() => {
     if (!selectedTask?.filePath) return '';
     return `vanhmedia://local/${encodeURIComponent(selectedTask.filePath)}`;
@@ -153,10 +180,40 @@ export default function SubtitleEditor({ tasks }: Props) {
       : selectedTask.srtPath || '';
   }, [selectedTask, srtSource]);
 
-  // Đổi task hoặc vừa có bản dịch mới → tự chọn nguồn phù hợp (ưu tiên bản dịch)
+  // Tự chọn task đầu tiên có SRT nếu chưa chọn task nào
   useEffect(() => {
-    setSrtSource(selectedTask?.translatedSrtPath ? 'translated' : 'original');
+    if (!selectedTaskId && tasks.length > 0) {
+      const firstWithSrt = tasks.find((t) => t.srtPath);
+      if (firstWithSrt) setSelectedTaskId(firstWithSrt.id);
+    }
+  }, [tasks, selectedTaskId]);
+
+  // Khi tab được kích hoạt lại (chuyển sang tab Hiệu đính) và không có thay đổi dở: tự làm mới để nhận thay đổi từ tab khác
+  useEffect(() => {
+    if (isActive && !dirty) {
+      setReloadKey((k) => k + 1);
+    }
+  }, [isActive]);
+
+  // Chỉ khởi tạo srtSource mặc định khi ĐỔI sang một task khác (tránh ghi đè lựa chọn của người dùng)
+  useEffect(() => {
+    if (selectedTaskId !== prevTaskIdRef.current) {
+      prevTaskIdRef.current = selectedTaskId;
+      if (selectedTask?.translatedSrtPath) {
+        setSrtSource('translated');
+      } else {
+        setSrtSource('original');
+      }
+    }
   }, [selectedTaskId, selectedTask?.translatedSrtPath]);
+
+  const handleTaskChange = (newTaskId: string | null) => {
+    if (newTaskId === selectedTaskId) return;
+    if (dirty && !window.confirm('Có thay đổi phụ đề chưa lưu. Bạn có chắc muốn đổi tác vụ? Thay đổi chưa lưu sẽ mất.')) {
+      return;
+    }
+    setSelectedTaskId(newTaskId);
+  };
 
   const handleSourceChange = (src: 'original' | 'translated') => {
     if (src === srtSource) return;
@@ -166,20 +223,22 @@ export default function SubtitleEditor({ tasks }: Props) {
     setSrtSource(src);
   };
 
-  // Kiểm tra Gemini API key đã lưu
+  // Kiểm tra Gemini API key & model đã lưu
   useEffect(() => {
     if (typeof window === 'undefined' || !window.vanhsub?.settings) return;
-    window.vanhsub.settings
-      .get('geminiApiKey')
-      .then((value: string) => {
-        setHasApiKey(!!(value && value.trim()));
-        setKeyDraft(value || '');
+    Promise.all([
+      window.vanhsub.settings.get('geminiApiKey'),
+      window.vanhsub.settings.get('geminiModel'),
+    ])
+      .then(([keyVal, modelVal]) => {
+        setHasApiKey(!!(keyVal && String(keyVal).trim()));
+        setKeyDraft(keyVal ? String(keyVal) : '');
+        if (modelVal) setGeminiModelName(String(modelVal));
       })
       .catch(() => setHasApiKey(false));
   }, []);
 
-  // Tải SRT khi đổi tác vụ hoặc đổi nguồn bản gốc/bản dịch.
-  // tasks thay đổi liên tục (broadcast) nên effect chỉ phụ thuộc id + đường dẫn file.
+  // Tải SRT khi đổi tác vụ, đổi nguồn hoặc khi reloadKey tăng
   useEffect(() => {
     if (!selectedTaskId || !activeSrtPath) {
       setLines([]);
@@ -198,7 +257,7 @@ export default function SubtitleEditor({ tasks }: Props) {
         setLines(parsed);
         setDirty(false);
         setLoading(false);
-        setStatusMessage(`Đã tải ${parsed.length} dòng phụ đề`);
+        setStatusMessage(`Đã nạp ${parsed.length} dòng phụ đề (${srtSource === 'translated' ? 'Bản dịch' : 'Bản gốc'})`);
       })
       .catch((err: any) => {
         if (cancelled) return;
@@ -210,7 +269,7 @@ export default function SubtitleEditor({ tasks }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [selectedTaskId, activeSrtPath]);
+  }, [selectedTaskId, activeSrtPath, srtSource, reloadKey]);
 
   // Tự cuộn tới dòng đang phát
   useEffect(() => {
@@ -269,7 +328,8 @@ export default function SubtitleEditor({ tasks }: Props) {
       await window.vanhsub.tasks.writeSrt(activeSrtPath, serializeSrt(lines));
       setDirty(false);
       setLoading(false);
-      setStatusMessage('Đã lưu thành công!');
+      setStatusMessage(`Đã lưu thành công ${lines.length} dòng (${srtSource === 'translated' ? 'Bản dịch' : 'Bản gốc'})!`);
+      setTimeout(() => setStatusMessage(''), 4000);
     } catch (err: any) {
       setLoading(false);
       setStatusError(true);
@@ -277,11 +337,13 @@ export default function SubtitleEditor({ tasks }: Props) {
     }
   };
 
+  // Hiệu đính 1 câu (sửa lỗi chính tả, ngữ pháp, mượt văn)
   const handlePolishLine = async (index: number) => {
     if (aiBusyIndex !== null) return;
     setStatusError(false);
     setStatusMessage(`Đang gọi Gemini hiệu đính câu #${index + 1}...`);
     setAiBusyIndex(index);
+    setAiActionType('polish');
     try {
       const polished = await window.vanhsub.ai.polishLine({
         text: lines[index].text,
@@ -289,7 +351,7 @@ export default function SubtitleEditor({ tasks }: Props) {
         next: lines[index + 1]?.text,
       });
       updateLine(index, { text: polished });
-      setStatusMessage(`Đã chỉnh câu #${index + 1} bằng AI — nhớ bấm "Lưu thay đổi" để ghi xuống file.`);
+      setStatusMessage(`Đã hiệu đính câu #${index + 1} bằng Gemini — nhớ bấm "Lưu thay đổi".`);
     } catch (err: any) {
       const message: string = err?.message || String(err);
       setStatusError(true);
@@ -297,6 +359,59 @@ export default function SubtitleEditor({ tasks }: Props) {
       if (message.includes('API key')) setShowKeyInput(true);
     } finally {
       setAiBusyIndex(null);
+      setAiActionType(null);
+    }
+  };
+
+  // Dịch nhanh 1 câu sang tiếng Việt (hoặc targetLanguage)
+  const handleTranslateLine = async (index: number) => {
+    if (aiBusyIndex !== null) return;
+    setStatusError(false);
+    setStatusMessage(`Đang gọi Gemini dịch câu #${index + 1}...`);
+    setAiBusyIndex(index);
+    setAiActionType('translate');
+    try {
+      const translated = await window.vanhsub.ai.translateLine({
+        text: lines[index].text,
+        prev: lines[index - 1]?.text,
+        next: lines[index + 1]?.text,
+      });
+      updateLine(index, { text: translated });
+      setStatusMessage(`Đã dịch câu #${index + 1} sang tiếng Việt — nhớ bấm "Lưu thay đổi".`);
+    } catch (err: any) {
+      const message: string = err?.message || String(err);
+      setStatusError(true);
+      setStatusMessage(message);
+      if (message.includes('API key')) setShowKeyInput(true);
+    } finally {
+      setAiBusyIndex(null);
+      setAiActionType(null);
+    }
+  };
+
+  // Chạy dịch toàn bộ tác vụ bằng Gemini AI
+  const handleStartFullTranslate = async () => {
+    if (!selectedTaskId) return;
+    if (dirty) {
+      await handleSave();
+    }
+    setStatusError(false);
+    setStatusMessage('Đã bắt đầu dịch toàn bộ bằng Gemini...');
+    try {
+      await window.vanhsub.translate.start(selectedTaskId, 'vi');
+    } catch (err: any) {
+      setStatusError(true);
+      setStatusMessage(err?.message || String(err));
+    }
+  };
+
+  const handleCancelTranslate = async () => {
+    if (!selectedTaskId) return;
+    try {
+      await window.vanhsub.translate.cancel(selectedTaskId);
+      setStatusMessage('Đã gửi yêu cầu dừng dịch.');
+    } catch {
+      // bỏ qua
     }
   };
 
@@ -307,7 +422,7 @@ export default function SubtitleEditor({ tasks }: Props) {
       setHasApiKey(keyDraft.trim().length > 0);
       setShowKeyInput(false);
       setStatusError(false);
-      setStatusMessage('Đã lưu Gemini API key');
+      setStatusMessage('Đã lưu Gemini API key thành công');
     } catch (err: any) {
       setStatusError(true);
       setStatusMessage('Không lưu được key: ' + (err?.message || err));
@@ -326,10 +441,10 @@ export default function SubtitleEditor({ tasks }: Props) {
       {/* Thanh công cụ trên */}
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-800 bg-slate-900/80 p-4">
         <div className="flex flex-wrap items-center gap-3">
-          <label className="text-xs font-semibold text-slate-300">Chọn tác vụ cần hiệu đính:</label>
+          <label className="text-xs font-semibold text-slate-300">Tác vụ:</label>
           <select
             value={selectedTaskId || ''}
-            onChange={(e) => setSelectedTaskId(e.target.value || null)}
+            onChange={(e) => handleTaskChange(e.target.value || null)}
             className="rounded-xl border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs text-slate-200 focus:outline-none"
           >
             <option value="">-- Chọn tác vụ đã có SRT --</option>
@@ -344,18 +459,18 @@ export default function SubtitleEditor({ tasks }: Props) {
           {selectedTaskId && selectedTask?.srtPath && (
             <div className="flex items-center gap-1.5">
               <label className="text-xs font-semibold text-slate-300">Đang sửa:</label>
-              <div className="flex overflow-hidden rounded-xl border border-slate-700">
+              <div className="flex overflow-hidden rounded-xl border border-slate-700 bg-slate-950/50">
                 <button
                   type="button"
                   onClick={() => handleSourceChange('original')}
                   className={[
-                    'px-2.5 py-1.5 text-[11px] font-medium transition cursor-pointer',
+                    'px-3 py-1.5 text-[11px] font-medium transition cursor-pointer',
                     srtSource === 'original'
-                      ? 'bg-brand-cyan/20 text-brand-cyan'
+                      ? 'bg-brand-cyan/20 text-brand-cyan font-semibold'
                       : 'bg-slate-800 text-slate-300 hover:bg-slate-700',
                   ].join(' ')}
                 >
-                  Bản gốc
+                  Bản gốc (.srt)
                 </button>
                 <button
                   type="button"
@@ -364,54 +479,86 @@ export default function SubtitleEditor({ tasks }: Props) {
                   title={
                     hasTranslatedSrt
                       ? 'Sửa bản dịch (file các bước TTS/Xuất video sẽ dùng)'
-                      : 'Chưa có bản dịch — hãy dịch ở màn Dịch thuật trước'
+                      : 'Chưa có bản dịch — bấm "Dịch bằng Gemini" để tạo'
                   }
                   className={[
-                    'border-l border-slate-700 px-2.5 py-1.5 text-[11px] font-medium transition',
+                    'border-l border-slate-700 px-3 py-1.5 text-[11px] font-medium transition',
                     srtSource === 'translated'
-                      ? 'bg-brand-cyan/20 text-brand-cyan cursor-pointer'
+                      ? 'bg-brand-cyan/20 text-brand-cyan font-semibold cursor-pointer'
                       : hasTranslatedSrt
                         ? 'bg-slate-800 text-slate-300 hover:bg-slate-700 cursor-pointer'
-                        : 'bg-slate-800/50 text-slate-500 cursor-not-allowed',
+                        : 'bg-slate-800/40 text-slate-500 cursor-not-allowed',
                   ].join(' ')}
                 >
-                  Bản dịch
+                  Bản dịch {hasTranslatedSrt ? '✓' : '(chưa có)'}
                 </button>
               </div>
-              {activeSrtPath && (
-                <span
-                  className="max-w-[180px] truncate font-mono text-[10px] text-slate-500"
-                  title={activeSrtPath}
+
+              <button
+                type="button"
+                onClick={() => {
+                  if (dirty && !window.confirm('Tải lại sẽ xoá các thay đổi chưa lưu. Tiếp tục?')) return;
+                  setReloadKey((k) => k + 1);
+                }}
+                title="Tải lại file SRT từ đĩa để đồng bộ mới nhất"
+                className="rounded-xl border border-slate-700 bg-slate-800 p-1.5 text-slate-300 hover:bg-slate-700 hover:text-white transition cursor-pointer"
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin text-brand-cyan' : ''}`} />
+              </button>
+            </div>
+          )}
+
+          {/* Nút dịch toàn bộ file trực tiếp trong Editor */}
+          {selectedTaskId && (
+            <div className="flex items-center gap-1.5">
+              {isTranslating ? (
+                <button
+                  type="button"
+                  onClick={handleCancelTranslate}
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-rose-500/40 bg-rose-500/10 px-3 py-1.5 text-xs font-medium text-rose-400 hover:bg-rose-500/20 cursor-pointer"
                 >
-                  {activeSrtPath.split(/[/\\]/).pop()}
-                </span>
+                  <XCircle className="h-3.5 w-3.5" />
+                  <span>Huỷ dịch</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleStartFullTranslate}
+                  disabled={loading}
+                  title={hasTranslatedSrt ? 'Dịch lại toàn bộ phụ đề bằng Gemini' : 'Dịch toàn bộ phụ đề sang tiếng Việt'}
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-brand-indigo/40 bg-brand-indigo/10 px-3 py-1.5 text-xs font-semibold text-brand-cyan hover:bg-brand-indigo/25 cursor-pointer disabled:opacity-50 transition"
+                >
+                  <Globe2 className="h-3.5 w-3.5" />
+                  <span>{hasTranslatedSrt ? 'Dịch lại (Gemini)' : 'Dịch bằng Gemini'}</span>
+                </button>
               )}
             </div>
           )}
 
+          {/* Gemini Key status badge */}
           <button
             type="button"
             onClick={() => setShowKeyInput((v) => !v)}
-            title="Cấu hình Gemini API key (dùng cho Sửa câu bằng AI)"
+            title="Cấu hình Gemini API key & Model"
             className={[
-              'inline-flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-medium transition cursor-pointer',
+              'inline-flex items-center gap-1.5 rounded-xl border px-2.5 py-1.5 text-[11px] font-medium transition cursor-pointer',
               hasApiKey
                 ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20'
                 : 'border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700',
             ].join(' ')}
           >
-            <KeyRound className="h-3.5 w-3.5" />
-            <span>{hasApiKey ? 'Gemini: đã có key' : 'Gemini: chưa có key'}</span>
+            <KeyRound className="h-3 w-3" />
+            <span>{hasApiKey ? `Gemini: ${geminiModelName}` : 'Chưa có Gemini Key'}</span>
           </button>
 
           {showKeyInput && (
-            <div className="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-800 px-2.5 py-1.5">
+            <div className="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-800 px-2.5 py-1.5 shadow-lg">
               <input
                 type="password"
                 value={keyDraft}
                 onChange={(e) => setKeyDraft(e.target.value)}
                 placeholder="Dán Gemini API key (AIza...)"
-                className="w-64 bg-transparent text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none"
+                className="w-56 bg-transparent text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none"
               />
               <button
                 type="button"
@@ -419,13 +566,13 @@ export default function SubtitleEditor({ tasks }: Props) {
                 disabled={savingKey || !keyDraft.trim()}
                 className="btn-vanh-gradient rounded-lg px-2.5 py-1 text-[11px] font-semibold cursor-pointer disabled:opacity-50"
               >
-                {savingKey ? 'Đang lưu...' : 'Lưu key'}
+                {savingKey ? '...' : 'Lưu'}
               </button>
             </div>
           )}
 
           {statusMessage && (
-            <span className={`text-xs font-mono ${statusError ? 'text-rose-400' : 'text-brand-cyan'}`}>
+            <span className={`max-w-[280px] truncate text-xs font-mono ${statusError ? 'text-rose-400' : 'text-brand-cyan'}`} title={statusMessage}>
               {statusMessage}
             </span>
           )}
@@ -437,14 +584,37 @@ export default function SubtitleEditor({ tasks }: Props) {
               type="button"
               onClick={handleSave}
               disabled={loading}
-              className="btn-vanh-gradient inline-flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-semibold cursor-pointer disabled:opacity-50"
+              className={`inline-flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-semibold cursor-pointer disabled:opacity-50 transition ${
+                dirty
+                  ? 'btn-vanh-gradient shadow-lg shadow-brand-indigo/30 animate-pulse'
+                  : 'border border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-700'
+              }`}
             >
-              {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-              <span>Lưu thay đổi (.srt){dirty ? ' •' : ''}</span>
+              {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4 text-emerald-400" />}
+              <span>{dirty ? 'Lưu thay đổi (*)' : 'Đã lưu (.srt)'}</span>
             </button>
           )}
         </div>
       </div>
+
+      {/* Tiến trình khi task đang dịch */}
+      {selectedTask && isTranslating && (
+        <div className="rounded-2xl border border-brand-indigo/40 bg-brand-indigo/10 p-3.5">
+          <div className="mb-1.5 flex items-center justify-between text-xs">
+            <span className="flex items-center gap-2 font-medium text-brand-cyan">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              <span>{selectedTask.stageDescription || 'Đang dịch phụ đề bằng Gemini...'}</span>
+            </span>
+            <span className="font-mono font-bold text-white">{selectedTask.progress}%</span>
+          </div>
+          <div className="h-1.5 overflow-hidden rounded-full bg-slate-800">
+            <div
+              className="h-full rounded-full bg-gradient-to-r from-brand-cyan to-brand-indigo transition-all duration-300"
+              style={{ width: `${selectedTask.progress}%` }}
+            />
+          </div>
+        </div>
+      )}
 
       {/* Nội dung chính */}
       {!selectedTaskId ? (
@@ -464,9 +634,16 @@ export default function SubtitleEditor({ tasks }: Props) {
           {/* Cột trái: danh sách phụ đề */}
           <div className="flex flex-col overflow-hidden rounded-3xl border border-slate-800 bg-slate-900/60 p-4">
             <div className="mb-3 flex items-center justify-between border-b border-slate-800/80 pb-3">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-300">
-                Danh sách phụ đề ({lines.length} dòng){dirty ? ' — chưa lưu' : ''}
-              </h3>
+              <div className="flex items-center gap-2">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-300">
+                  {srtSource === 'translated' ? 'Phụ đề bản dịch' : 'Phụ đề bản gốc'} ({lines.length} dòng)
+                </h3>
+                {dirty && (
+                  <span className="rounded bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-semibold text-amber-400">
+                    Chưa lưu
+                  </span>
+                )}
+              </div>
               <button
                 type="button"
                 onClick={addLine}
@@ -485,23 +662,29 @@ export default function SubtitleEditor({ tasks }: Props) {
             ) : (
               <div className="flex-1 space-y-2.5 overflow-y-auto pr-1">
                 {lines.map((item, index) => {
-                  const isActive = index === activeIndex;
+                  const isActiveLine = index === activeIndex;
+                  const isBusyThis = aiBusyIndex === index;
                   return (
                     <div
                       key={item.id}
-                      ref={isActive ? activeRowRef : null}
+                      ref={isActiveLine ? activeRowRef : null}
                       onClick={() => seekTo(item.startMs)}
                       className={[
                         'group flex flex-col gap-2 rounded-2xl border bg-slate-900/90 p-3 text-xs transition',
-                        isActive
-                          ? 'border-brand-cyan/70 ring-1 ring-brand-cyan/40'
+                        isActiveLine
+                          ? 'border-brand-cyan/70 ring-1 ring-brand-cyan/40 shadow-sm shadow-brand-cyan/10'
                           : 'border-slate-800/80 hover:border-brand-indigo/50',
                       ].join(' ')}
                     >
                       <div className="flex items-center justify-between text-[11px] text-slate-400 font-mono">
-                        <span className="rounded-md bg-slate-800 px-2 py-0.5 font-bold text-brand-cyan">
-                          #{index + 1}
-                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className="rounded-md bg-slate-800 px-2 py-0.5 font-bold text-brand-cyan">
+                            #{index + 1}
+                          </span>
+                          <span className="text-[10px] text-slate-500">
+                            {formatMs(item.startMs)} → {formatMs(item.endMs)}
+                          </span>
+                        </div>
                         <button
                           type="button"
                           onClick={(e) => {
@@ -538,19 +721,37 @@ export default function SubtitleEditor({ tasks }: Props) {
                           placeholder="Nội dung câu phụ đề..."
                           className="flex-1 rounded-xl border border-slate-800 bg-slate-950 p-2 text-xs text-white placeholder:text-slate-600 focus:border-brand-indigo focus:outline-none"
                         />
-                        <button
-                          type="button"
-                          onClick={() => handlePolishLine(index)}
-                          disabled={aiBusyIndex !== null || !item.text.trim()}
-                          title="Sửa câu này bằng AI (Gemini) — sửa lỗi chính tả, ngữ pháp, làm mượt câu"
-                          className="mt-1 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-brand-indigo/40 bg-brand-indigo/10 text-brand-cyan transition hover:bg-brand-indigo/25 disabled:cursor-not-allowed disabled:opacity-40 cursor-pointer"
-                        >
-                          {aiBusyIndex === index ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                          ) : (
-                            <Wand2 className="h-4 w-4" />
-                          )}
-                        </button>
+                        <div className="flex flex-col gap-1">
+                          {/* Sửa câu bằng AI (Hiệu đính ngữ pháp/văn phong) */}
+                          <button
+                            type="button"
+                            onClick={() => handlePolishLine(index)}
+                            disabled={aiBusyIndex !== null || !item.text.trim()}
+                            title="Hiệu đính câu này bằng Gemini — sửa chính tả, ngữ pháp, làm mượt câu"
+                            className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-brand-indigo/40 bg-brand-indigo/10 text-brand-cyan transition hover:bg-brand-indigo/25 disabled:cursor-not-allowed disabled:opacity-40 cursor-pointer"
+                          >
+                            {isBusyThis && aiActionType === 'polish' ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <Wand2 className="h-3.5 w-3.5" />
+                            )}
+                          </button>
+
+                          {/* Dịch câu này sang tiếng Việt */}
+                          <button
+                            type="button"
+                            onClick={() => handleTranslateLine(index)}
+                            disabled={aiBusyIndex !== null || !item.text.trim()}
+                            title="Dịch câu này sang tiếng Việt bằng Gemini"
+                            className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-emerald-500/40 bg-emerald-500/10 text-emerald-400 transition hover:bg-emerald-500/25 disabled:cursor-not-allowed disabled:opacity-40 cursor-pointer"
+                          >
+                            {isBusyThis && aiActionType === 'translate' ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <Globe2 className="h-3.5 w-3.5" />
+                            )}
+                          </button>
+                        </div>
                       </div>
                     </div>
                   );
@@ -562,7 +763,7 @@ export default function SubtitleEditor({ tasks }: Props) {
           {/* Cột phải: xem trước video + timeline */}
           <div className="flex flex-col gap-3 overflow-y-auto rounded-3xl border border-slate-800 bg-slate-900/60 p-4">
             <h3 className="text-xs font-bold uppercase tracking-wider text-slate-300">
-              Xem trước & Timeline
+              Xem trước &amp; Timeline
             </h3>
 
             {mediaUrl ? (
@@ -648,7 +849,7 @@ export default function SubtitleEditor({ tasks }: Props) {
             <div className="space-y-1.5 rounded-2xl border border-slate-800/60 bg-slate-900/70 p-3 text-[11px] leading-relaxed text-slate-400">
               <p>• Bấm vào một dòng hoặc khối trên timeline để video nhảy tới câu đó.</p>
               <p>• Nút ⊕ (Crosshair) gán thời điểm bắt đầu/kết thúc bằng vị trí phát hiện tại.</p>
-              <p>• Nút đũa thần (Wand2) gọi Gemini hiệu đính từng câu, giữ ngữ cảnh câu liền trước/sau.</p>
+              <p>• Nút đũa thần (🪄) hiệu đính ngữ pháp, nút địa cầu (🌐) dịch câu sang tiếng Việt.</p>
             </div>
           </div>
         </div>

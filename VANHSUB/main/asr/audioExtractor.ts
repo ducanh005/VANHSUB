@@ -59,6 +59,11 @@ export function extractFullQualityAudio(
       return reject(new Error(`Không tìm thấy file đầu vào: ${inputPath}`));
     }
 
+    const outDir = path.dirname(outputWavPath);
+    if (!fs.existsSync(outDir)) {
+      fs.mkdirSync(outDir, { recursive: true });
+    }
+
     ffmpeg(inputPath)
       .noVideo()
       .audioFrequency(44100)
@@ -103,6 +108,11 @@ export function extract16kHzWav(
     // Nếu file đầu vào đã là WAV 16k và cùng đường dẫn
     if (inputPath === targetPath && fs.existsSync(targetPath)) {
       return resolve({ wavPath: targetPath });
+    }
+
+    const outDir = path.dirname(targetPath);
+    if (!fs.existsSync(outDir)) {
+      fs.mkdirSync(outDir, { recursive: true });
     }
 
     ffmpeg(inputPath)

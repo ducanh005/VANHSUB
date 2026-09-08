@@ -79,6 +79,7 @@ export interface VanhsubAPI {
   };
   ai: {
     polishLine: (payload: { text: string; prev?: string; next?: string }) => Promise<string>;
+    translateLine: (payload: { text: string; targetLanguage?: string; prev?: string; next?: string }) => Promise<string>;
   };
   translate: {
     start: (id: string, targetLanguage?: string) => Promise<boolean>;

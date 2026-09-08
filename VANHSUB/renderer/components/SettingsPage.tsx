@@ -13,6 +13,7 @@ import {
   RefreshCw,
   Save,
   ScanText,
+  Sparkles,
   Trash2,
   Zap,
 } from 'lucide-react';
@@ -27,9 +28,109 @@ interface ModelInfo {
   filePath: string;
 }
 
+export interface GeminiModelOption {
+  id: string;
+  name: string;
+  badge: string;
+  badgeColor: string;
+  desc: string;
+  isRecommended?: boolean;
+}
+
+export interface GeminiModelGroup {
+  group: string;
+  models: GeminiModelOption[];
+}
+
+export const GEMINI_MODEL_GROUPS: GeminiModelGroup[] = [
+  {
+    group: '⚡ Model Free khuyên dùng & Tốc độ cao',
+    models: [
+      {
+        id: 'gemini-2.5-flash',
+        name: 'Gemini 2.5 Flash',
+        badge: 'Khuyên dùng • Free',
+        badgeColor: 'bg-brand-cyan/20 text-brand-cyan border-brand-cyan/40',
+        desc: 'Model thế hệ mới nhất, tốc độ cực nhanh, dịch thuật & hiệu đính chuẩn xác. Miễn phí (15 RPM / 1M TPM).',
+        isRecommended: true,
+      },
+      {
+        id: 'gemini-2.5-flash-lite',
+        name: 'Gemini 2.5 Flash Lite',
+        badge: 'Siêu nhanh • Free',
+        badgeColor: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40',
+        desc: 'Bản siêu nhẹ & siêu tốc độ, tối ưu quota/rate limit khi dịch khối lượng lớn. Miễn phí (15 RPM).',
+      },
+      {
+        id: 'gemini-2.0-flash',
+        name: 'Gemini 2.0 Flash',
+        badge: 'Rất ổn định • Free',
+        badgeColor: 'bg-blue-500/20 text-blue-400 border-blue-500/40',
+        desc: 'Bản Flash 2.0 chuẩn, độ trễ thấp, dịch tự nhiên và ổn định cao. Miễn phí (15 RPM).',
+      },
+      {
+        id: 'gemini-2.0-flash-lite',
+        name: 'Gemini 2.0 Flash Lite',
+        badge: 'Gọn nhẹ • Free',
+        badgeColor: 'bg-teal-500/20 text-teal-400 border-teal-500/40',
+        desc: 'Phiên bản Flash 2.0 rút gọn, phản hồi tức thì, tiết kiệm tài nguyên. Miễn phí (15 RPM).',
+      },
+      {
+        id: 'gemini-1.5-flash',
+        name: 'Gemini 1.5 Flash',
+        badge: 'Kinh điển • Free',
+        badgeColor: 'bg-slate-500/20 text-slate-300 border-slate-500/40',
+        desc: 'Bản 1.5 Flash kinh điển, ổn định dài lâu, dịch phụ đề mượt mà. Miễn phí (15 RPM).',
+      },
+    ],
+  },
+  {
+    group: '💎 Model Pro — Dịch thuật & Hiệu đính chuyên sâu',
+    models: [
+      {
+        id: 'gemini-2.5-pro',
+        name: 'Gemini 2.5 Pro',
+        badge: 'Chính xác cao nhất',
+        badgeColor: 'bg-amber-500/20 text-amber-400 border-amber-500/40',
+        desc: 'Hiểu sâu ngữ cảnh phức tạp, câu văn cổ trang/chuyên ngành. Miễn phí (2 RPM).',
+      },
+      {
+        id: 'gemini-1.5-pro',
+        name: 'Gemini 1.5 Pro',
+        badge: 'Pro 1.5 • Free',
+        badgeColor: 'bg-amber-500/20 text-amber-400 border-amber-500/40',
+        desc: 'Bản 1.5 Pro mạnh mẽ, dịch chi tiết và tự nhiên. Miễn phí.',
+      },
+    ],
+  },
+  {
+    group: '🔄 Tự động cập nhật bản mới nhất (Alias)',
+    models: [
+      {
+        id: 'gemini-flash-latest',
+        name: 'gemini-flash-latest',
+        badge: 'Auto Flash',
+        badgeColor: 'bg-purple-500/20 text-purple-300 border-purple-500/40',
+        desc: 'Luôn tự động trỏ tới bản Flash mới nhất của Google.',
+      },
+      {
+        id: 'gemini-pro-latest',
+        name: 'gemini-pro-latest',
+        badge: 'Auto Pro',
+        badgeColor: 'bg-purple-500/20 text-purple-300 border-purple-500/40',
+        desc: 'Luôn tự động trỏ tới bản Pro mới nhất của Google.',
+      },
+    ],
+  },
+];
+
+export const ALL_PRESET_MODELS = GEMINI_MODEL_GROUPS.flatMap((g) => g.models);
+
 export default function SettingsPage() {
   const [apiKey, setApiKey] = useState('');
-  const [geminiModel, setGeminiModel] = useState('gemini-flash-latest');
+  const [geminiModel, setGeminiModel] = useState('gemini-2.5-flash');
+  const [showCustomModelInput, setShowCustomModelInput] = useState(false);
+  const [geminiSavedFlash, setGeminiSavedFlash] = useState(false);
   const [targetLanguage, setTargetLanguage] = useState('vi');
   const [asrModel, setAsrModel] = useState('base');
   const [exportDir, setExportDir] = useState('');
@@ -52,6 +153,7 @@ export default function SettingsPage() {
   const [modelsDir, setModelsDir] = useState<{ path: string; exists: boolean } | null>(null);
   const [loadingModels, setLoadingModels] = useState(false);
 
+  const [isSaving, setIsSaving] = useState(false);
   const [savedMessage, setSavedMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
   const [showApiKey, setShowApiKey] = useState(false);
@@ -81,6 +183,16 @@ export default function SettingsPage() {
     }
   };
 
+  const handleSelectGeminiModel = (modelId: string) => {
+    if (modelId === 'custom') {
+      setShowCustomModelInput(true);
+      return;
+    }
+    setGeminiModel(modelId);
+    setShowCustomModelInput(false);
+    void autoSaveSetting('geminiModel', modelId);
+  };
+
   useEffect(() => {
     if (typeof window === 'undefined' || !window.vanhsub?.settings) return;
 
@@ -104,7 +216,12 @@ export default function SettingsPage() {
     ])
       .then(([key, gModel, lang, aModel, expDir, batchSize, concurrency, autoTrans, ttsEndpoint, voice, spd, oLang, oFps, oRegion, glossaryVal, styleVal]) => {
         if (key) setApiKey(key);
-        if (gModel) setGeminiModel(gModel);
+        if (gModel) {
+          setGeminiModel(gModel);
+          if (!ALL_PRESET_MODELS.some((m) => m.id === gModel)) {
+            setShowCustomModelInput(true);
+          }
+        }
         if (lang) setTargetLanguage(lang);
         if (aModel) setAsrModel(aModel);
         if (expDir) setExportDir(expDir);
@@ -155,6 +272,7 @@ export default function SettingsPage() {
   };
 
   const handleSaveSettings = async () => {
+    setIsSaving(true);
     setSavedMessage('');
     setErrorMessage('');
     try {
@@ -180,6 +298,27 @@ export default function SettingsPage() {
       setTimeout(() => setSavedMessage(''), 3000);
     } catch (err: any) {
       setErrorMessage(err?.message || 'Không thể lưu cài đặt.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleSaveGeminiSettings = async () => {
+    try {
+      await Promise.all([
+        window.vanhsub.settings.set('geminiApiKey', apiKey),
+        window.vanhsub.settings.set('geminiModel', geminiModel),
+        window.vanhsub.settings.set('translateBatchSize', Number(translateBatchSize)),
+        window.vanhsub.settings.set('targetLanguage', targetLanguage),
+        window.vanhsub.settings.set('translateConcurrency', Math.min(8, Math.max(1, Math.round(Number(translateConcurrency) || 1)))),
+        window.vanhsub.settings.set('autoTranslateAfterAsr', autoTranslateAfterAsr),
+      ]);
+      setGeminiSavedFlash(true);
+      setTimeout(() => setGeminiSavedFlash(false), 2500);
+      setSavedMessage('Đã lưu cấu hình Gemini AI thành công!');
+      setTimeout(() => setSavedMessage(''), 3000);
+    } catch (err: any) {
+      setErrorMessage(err?.message || 'Không thể lưu cấu hình Gemini.');
     }
   };
 
@@ -284,7 +423,7 @@ export default function SettingsPage() {
         setTiktokStatusMsg('Đã tạo audio thử — đang phát giọng Việt nữ (BV074_streaming).');
       } else {
         setTiktokStatusOk(false);
-        setTiktokStatusMsg(res.error);
+        setTiktokStatusMsg(('error' in res && res.error) ? res.error : 'Lỗi tạo audio thử');
       }
     } catch (err: any) {
       setTiktokStatusOk(false);
@@ -331,11 +470,12 @@ export default function SettingsPage() {
         </div>
         <button
           type="button"
+          disabled={isSaving}
           onClick={handleSaveSettings}
-          className="btn-vanh-gradient inline-flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-semibold cursor-pointer shadow-lg shadow-brand-indigo/20"
+          className="btn-vanh-gradient inline-flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-semibold cursor-pointer shadow-lg shadow-brand-indigo/20 disabled:opacity-50"
         >
-          <Save className="h-4 w-4" />
-          <span>Lưu cài đặt</span>
+          {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+          <span>{isSaving ? 'Đang lưu...' : 'Lưu cài đặt'}</span>
         </button>
       </div>
 
@@ -361,12 +501,20 @@ export default function SettingsPage() {
       <div className="grid gap-6 lg:grid-cols-2">
         {/* Khối 1: Gemini API Key */}
         <div className="flex flex-col gap-4 rounded-3xl border border-slate-800 bg-slate-900/60 p-5">
-          <div className="flex items-center gap-2 border-b border-slate-800 pb-3 text-sm font-bold text-white">
-            <Key className="h-4 w-4 text-brand-cyan" />
-            <span>Gemini AI (Dịch thuật & Hiệu đính)</span>
+          <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+            <div className="flex items-center gap-2 text-sm font-bold text-white">
+              <Key className="h-4 w-4 text-brand-cyan" />
+              <span>Gemini AI (Dịch thuật & Hiệu đính)</span>
+            </div>
+            {geminiSavedFlash && (
+              <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-400">
+                <CheckCircle2 className="h-3 w-3" />
+                Đã lưu cấu hình
+              </span>
+            )}
           </div>
 
-          <div className="space-y-3">
+          <div className="space-y-4">
             <div>
               <label className="mb-1 block font-medium text-slate-200">Gemini API Key</label>
               <div className="flex gap-2">
@@ -391,7 +539,7 @@ export default function SettingsPage() {
                   href="https://aistudio.google.com/"
                   target="_blank"
                   rel="noreferrer"
-                  className="text-brand-cyan underline hover:text-white"
+                  className="text-brand-cyan underline hover:text-white font-medium"
                 >
                   aistudio.google.com
                 </a>
@@ -399,27 +547,126 @@ export default function SettingsPage() {
               </p>
             </div>
 
-            <div>
-              <label className="mb-1 block font-medium text-slate-200">Mô hình Gemini (Model)</label>
-              <input
-                type="text"
-                list="gemini-model-suggestions"
-                value={geminiModel}
-                onChange={(e) => setGeminiModel(e.target.value)}
-                placeholder="gemini-flash-latest"
-                spellCheck={false}
-                className="w-full rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 font-mono text-xs text-white focus:border-brand-cyan focus:outline-none"
-              />
-              <datalist id="gemini-model-suggestions">
-                <option value="gemini-flash-latest">Khuyên dùng — tự động bản Flash mới nhất</option>
-                <option value="gemini-3.6-flash" />
-                <option value="gemini-3.5-flash" />
-                <option value="gemini-pro-latest">Chính xác cao nhất</option>
-              </datalist>
-              <p className="mt-1 text-[11px] text-slate-400">
-                Nhập tên model bất kỳ Google đang hỗ trợ (vd gemini-2.5-flash, gemini-3.0-pro) hoặc
-                chọn từ gợi ý. Sai tên model sẽ báo lỗi khi dịch.
-              </p>
+            {/* Chọn model Gemini */}
+            <div className="space-y-2 rounded-2xl border border-slate-800 bg-slate-950/60 p-3.5">
+              <div className="flex items-center justify-between">
+                <label className="flex items-center gap-1.5 font-medium text-slate-200">
+                  <Sparkles className="h-3.5 w-3.5 text-brand-cyan" />
+                  <span>Mô hình Gemini (Model)</span>
+                </label>
+                {!showCustomModelInput && (
+                  <button
+                    type="button"
+                    onClick={() => setShowCustomModelInput(true)}
+                    className="text-[11px] text-slate-400 hover:text-brand-cyan transition cursor-pointer"
+                  >
+                    + Nhập model khác
+                  </button>
+                )}
+              </div>
+
+              {/* Quick Pick Chips */}
+              <div className="flex flex-wrap gap-1.5 pt-1">
+                {ALL_PRESET_MODELS.slice(0, 5).map((m) => {
+                  const isActive = geminiModel === m.id && !showCustomModelInput;
+                  return (
+                    <button
+                      key={m.id}
+                      type="button"
+                      onClick={() => handleSelectGeminiModel(m.id)}
+                      className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-[11px] font-medium transition cursor-pointer ${
+                        isActive
+                          ? 'border-brand-cyan bg-brand-cyan/20 text-white shadow-sm shadow-brand-cyan/20'
+                          : 'border-slate-800 bg-slate-900 text-slate-400 hover:border-slate-700 hover:text-slate-200'
+                      }`}
+                    >
+                      <span>{m.name}</span>
+                      {m.isRecommended && (
+                        <span className="rounded bg-brand-cyan/30 px-1 py-0.2 text-[9px] font-bold text-brand-cyan">
+                          Khuyên dùng
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Dropdown Selector */}
+              {!showCustomModelInput ? (
+                <div className="pt-1">
+                  <select
+                    value={geminiModel}
+                    onChange={(e) => handleSelectGeminiModel(e.target.value)}
+                    className="w-full rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-white focus:border-brand-cyan focus:outline-none"
+                  >
+                    {GEMINI_MODEL_GROUPS.map((grp) => (
+                      <optgroup key={grp.group} label={grp.group}>
+                        {grp.models.map((m) => (
+                          <option key={m.id} value={m.id}>
+                            {m.name} — {m.badge}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ))}
+                    <option value="custom">✏️ Nhập model tùy chỉnh khác...</option>
+                  </select>
+                </div>
+              ) : (
+                <div className="space-y-1.5 pt-1">
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      list="gemini-model-suggestions"
+                      value={geminiModel}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setGeminiModel(v);
+                        void autoSaveSetting('geminiModel', v);
+                      }}
+                      placeholder="gemini-2.5-flash"
+                      spellCheck={false}
+                      className="flex-1 rounded-xl border border-brand-cyan/60 bg-slate-800 px-3 py-2 font-mono text-xs text-white focus:border-brand-cyan focus:outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowCustomModelInput(false)}
+                      className="rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-slate-300 hover:bg-slate-700 cursor-pointer"
+                    >
+                      Danh sách gợi ý
+                    </button>
+                  </div>
+                  <datalist id="gemini-model-suggestions">
+                    {ALL_PRESET_MODELS.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.name} — {m.badge}
+                      </option>
+                    ))}
+                  </datalist>
+                </div>
+              )}
+
+              {/* Chi tiết model được chọn */}
+              {(() => {
+                const current = ALL_PRESET_MODELS.find((m) => m.id === geminiModel);
+                if (current) {
+                  return (
+                    <div className="mt-2 rounded-xl border border-slate-800/80 bg-slate-900/90 p-2.5 text-[11px] leading-relaxed">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-semibold text-slate-200">{current.name}</span>
+                        <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${current.badgeColor}`}>
+                          {current.badge}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-slate-400">{current.desc}</p>
+                    </div>
+                  );
+                }
+                return (
+                  <p className="mt-1 text-[11px] text-amber-400">
+                    Đang sử dụng model tùy chỉnh: <code className="font-mono">{geminiModel}</code> (Hãy đảm bảo tài khoản AI Studio của bạn có quyền truy cập model này).
+                  </p>
+                );
+              })()}
             </div>
 
             <div className="grid grid-cols-2 gap-3 pt-1">
@@ -479,6 +726,18 @@ export default function SettingsPage() {
                 />
                 <span className="text-xs text-slate-200">Tự động dịch ngay sau khi phiên âm (ASR) hoàn tất</span>
               </label>
+            </div>
+
+            {/* Nút lưu cấu hình Gemini */}
+            <div className="flex justify-end pt-2 border-t border-slate-800/80">
+              <button
+                type="button"
+                onClick={handleSaveGeminiSettings}
+                className="inline-flex items-center gap-2 rounded-xl border border-brand-cyan/40 bg-brand-cyan/10 px-3.5 py-1.5 text-xs font-semibold text-brand-cyan hover:bg-brand-cyan/20 cursor-pointer transition shadow-sm"
+              >
+                <Save className="h-3.5 w-3.5" />
+                <span>Lưu cấu hình Gemini</span>
+              </button>
             </div>
           </div>
         </div>
@@ -998,6 +1257,42 @@ export default function SettingsPage() {
               />
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* Thanh lưu cài đặt ở dưới đáy trang (Sticky Bottom Bar) */}
+      <div className="sticky bottom-0 z-20 -mx-6 -mb-6 flex flex-wrap items-center justify-between gap-3 border-t border-slate-800 bg-slate-900/95 p-4 backdrop-blur shadow-2xl">
+        <div className="flex items-center gap-2">
+          {savedMessage ? (
+            <span className="flex items-center gap-1.5 text-xs font-medium text-emerald-400">
+              <CheckCircle2 className="h-4 w-4 shrink-0" />
+              {savedMessage}
+            </span>
+          ) : errorMessage ? (
+            <span className="text-xs font-medium text-rose-400">
+              {errorMessage}
+            </span>
+          ) : autoSavedFlash ? (
+            <span className="flex items-center gap-1.5 text-xs font-medium text-emerald-400">
+              <CheckCircle2 className="h-4 w-4 shrink-0" />
+              Đã tự động lưu thay đổi vừa chọn!
+            </span>
+          ) : (
+            <span className="text-xs text-slate-400">
+              Nhấn <strong className="text-slate-200">"Lưu tất cả thay đổi"</strong> để cập nhật toàn bộ cấu hình vào hệ thống.
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            disabled={isSaving}
+            onClick={handleSaveSettings}
+            className="btn-vanh-gradient inline-flex items-center gap-2 rounded-xl px-5 py-2.5 text-xs font-semibold cursor-pointer shadow-lg shadow-brand-indigo/30 hover:opacity-95 transition disabled:opacity-50"
+          >
+            {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+            <span>{isSaving ? 'Đang lưu...' : 'Lưu tất cả thay đổi'}</span>
+          </button>
         </div>
       </div>
     </div>

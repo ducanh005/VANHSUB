@@ -555,6 +555,7 @@ export async function dubVideo(
     // Tách lời thoại gốc bằng AI: giữ nhạc nền/SFX, loại hẳn giọng người gốc
     if (options?.vocalSeparation) {
       onProgress?.(1);
+      fs.mkdirSync(separationDir, { recursive: true });
       const origWav = path.join(separationDir, 'original.wav');
       console.log('[Dubbing] Trích audio gốc (44.1kHz stereo) cho AI tách lời...');
       await extractFullQualityAudio(videoPath, origWav);

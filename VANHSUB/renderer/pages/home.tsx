@@ -143,6 +143,7 @@ export default function HomePage() {
   const [linkError, setLinkError] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [asrModel, setAsrModel] = useState('base');
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   // Popup hướng dẫn người dùng mới: hiện lần đầu mở app, mở lại được bằng nút (?)
   const [showGuide, setShowGuide] = useState(false);
   const [guideReady, setGuideReady] = useState(false);
@@ -523,10 +524,22 @@ export default function HomePage() {
               Các tab luôn mounted, chỉ ẩn bằng CSS — giữ nguyên trạng thái
               (audio đang nghe thử, panel mở, dữ liệu đã tải) khi chuyển tab */}
           <div className={activeTab === 'editor' ? 'flex min-h-0 flex-1 flex-col overflow-hidden' : 'hidden'}>
-            <SubtitleEditor tasks={tasks} />
+            <SubtitleEditor
+              tasks={tasks}
+              selectedTaskId={selectedTaskId}
+              onSelectTaskId={setSelectedTaskId}
+              onNavigateTab={setActiveTab}
+              isActive={activeTab === 'editor'}
+            />
           </div>
           <div className={activeTab === 'translate' ? 'flex min-h-0 flex-1 flex-col overflow-hidden' : 'hidden'}>
-            <TranslatePage tasks={tasks} />
+            <TranslatePage
+              tasks={tasks}
+              selectedTaskId={selectedTaskId}
+              onSelectTaskId={setSelectedTaskId}
+              onNavigateTab={setActiveTab}
+              isActive={activeTab === 'translate'}
+            />
           </div>
           <div className={activeTab === 'dubbing' ? 'flex min-h-0 flex-1 flex-col overflow-hidden' : 'hidden'}>
             <TTSPage tasks={tasks} />
