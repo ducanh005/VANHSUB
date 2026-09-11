@@ -26,6 +26,8 @@ export interface PaddleOcrLine {
   h: number;
   /** Đường dẫn crop PNG đã enhance — đầu vào cho lượt Tesseract */
   crop: string;
+  /** Phân loại text: SUBTITLE (phụ đề chính), OVERLAY (tiêu đề/banner), OTHER_TEXT (nhiễu) */
+  classification?: 'SUBTITLE' | 'OVERLAY' | 'OTHER_TEXT';
 }
 
 export interface PaddleOcrFrame {

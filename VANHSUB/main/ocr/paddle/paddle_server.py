@@ -330,11 +330,12 @@ class TextTrack:
         self.best_crop = crop
         self.last_crop = crop
         self.best_box = box
+        self.candidate_crops = [(sharpness, first_frame, crop)]
         # Kết quả recognition
         self.text = ""
         self.conf = 0.0
         self.crop_path = ""
-        self.classification = "unknown"
+        self.classification = "OTHER_TEXT"
 
     def add_detection(self, frame_idx, box, rect, sharpness, crop):
         self.frames[frame_idx] = {"box": box, "rect": rect, "sharpness": sharpness}
@@ -342,6 +343,7 @@ class TextTrack:
         self.last_frame = frame_idx
         self.last_crop = crop
         self.missed_count = 0
+        self.candidate_crops.append((sharpness, frame_idx, crop))
         if sharpness > self.best_sharpness:
             self.best_sharpness = sharpness
             self.best_frame = frame_idx
@@ -355,6 +357,41 @@ class TextTrack:
         ws = [r[2] for r in self.rects]
         hs = [r[3] for r in self.rects]
         return [float(np.mean(xs)), float(np.mean(ys)), float(np.mean(ws)), float(np.mean(hs))]
+
+
+def select_most_stable_text(candidates):
+    """
+    candidates: list of (text, conf, img)
+    Quy tắc 6: Chọn kết quả ổn định nhất dựa trên số frame xuất hiện, confidence và độ nhất quán.
+    """
+    if not candidates:
+        return "", 0.0, None
+    if len(candidates) == 1:
+        return candidates[0][0], candidates[0][1], candidates[0][2]
+
+    # Nhóm theo chuỗi chuẩn hoá
+    groups = {}
+    for text, conf, img in candidates:
+        if not text:
+            continue
+        key = text.strip().lower()
+        if key not in groups:
+            groups[key] = {"original": text, "count": 0, "total_conf": 0.0, "best_conf": 0.0, "img": img}
+        groups[key]["count"] += 1
+        groups[key]["total_conf"] += conf
+        if conf > groups[key]["best_conf"]:
+            groups[key]["best_conf"] = conf
+            groups[key]["img"] = img
+            groups[key]["original"] = text
+
+    if not groups:
+        return "", 0.0, None
+
+    # Điểm ổn định = (số lần xuất hiện * 2.0) + tổng confidence
+    best_key = max(groups.keys(), key=lambda k: (groups[k]["count"] * 2.0 + groups[k]["total_conf"], groups[k]["best_conf"]))
+    best = groups[best_key]
+    avg_conf = best["total_conf"] / max(1, best["count"])
+    return best["original"], max(avg_conf, best["best_conf"]), best["img"]
 
 
 def run_pipeline(job):
@@ -523,22 +560,29 @@ def run_pipeline(job):
             elif total_duration_frames >= 40 and (y1_ratio <= 0.30 or is_corner):
                 is_watermark = True
 
+        # Quy tắc 3: Phân loại chuẩn SUBTITLE, OVERLAY, OTHER_TEXT
         if is_watermark:
-            track.classification = "watermark"
-        elif frame_count == 1 and (w * h < 150 or h < 6):
-            track.classification = "noise"
+            track.classification = "OTHER_TEXT"
+        elif frame_count == 1 and (w * h < 180 or h < 8):
+            track.classification = "OTHER_TEXT"
+        elif y1_ratio <= 0.35:
+            # Vùng trên: Hook / Title / Caption / Banner
+            track.classification = "OVERLAY"
+        elif y1_ratio >= 0.45 and h <= 120:
+            # Vùng dưới: Phụ đề chính
+            track.classification = "SUBTITLE"
         else:
-            track.classification = "subtitle"
+            track.classification = "OVERLAY" if y1_ratio < 0.50 else "SUBTITLE"
 
         # Lọc theo chế độ người dùng chọn:
         keep = False
         if ocr_mode == "auto":
-            keep = (track.classification == "subtitle")
+            keep = (track.classification == "SUBTITLE")
         elif ocr_mode == "bottom":
             in_bottom = (offset_ratio > 0.3) or (y1_ratio >= 0.55)
-            keep = in_bottom and (track.classification != "watermark")
+            keep = in_bottom and (track.classification != "OTHER_TEXT")
         elif ocr_mode == "full":
-            keep = (track.classification != "noise")
+            keep = (track.classification in ("SUBTITLE", "OVERLAY"))
         elif ocr_mode == "custom":
             if custom_region and isinstance(custom_region, dict):
                 cx0 = float(custom_region.get("x", 0.0))
@@ -551,11 +595,11 @@ def run_pipeline(job):
                 center_y_ratio = (y0 + h / 2.0) / max(1.0, frame_h)
 
                 in_custom = (cx0 <= center_x_ratio <= cx1) and (cy0 <= center_y_ratio <= cy1)
-                keep = in_custom and (track.classification != "noise")
+                keep = in_custom and (track.classification != "OTHER_TEXT")
             else:
-                keep = (track.classification == "subtitle")
+                keep = (track.classification == "SUBTITLE")
         else:
-            keep = (track.classification == "subtitle")
+            keep = (track.classification == "SUBTITLE")
 
         if keep:
             valid_tracks.append(track)
@@ -572,49 +616,65 @@ def run_pipeline(job):
     total_valid = max(1, len(valid_tracks))
 
     for t_idx, track in enumerate(valid_tracks):
-        raw_crop = track.best_crop
-        if raw_crop is None or raw_crop.size == 0:
+        sorted_candidates = sorted(track.candidate_crops, key=lambda c: c[0], reverse=True)
+        top_candidates = sorted_candidates[:3]
+
+        crop_recognitions = []
+        for sh, f_num, raw_crop in top_candidates:
+            if raw_crop is None or raw_crop.size == 0:
+                continue
+
+            std_crop = enhance(raw_crop)
+            cand_text = ""
+            cand_conf = 0.0
+            cand_img = std_crop
+
+            try:
+                rec_result = engine(std_crop, use_det=False, use_cls=True, use_rec=True)
+                txts = getattr(rec_result, "txts", None) if rec_result is not None else None
+                scores = getattr(rec_result, "scores", None) if rec_result is not None else None
+                if txts and scores and len(txts) > 0:
+                    cand_text = str(txts[0]).strip()
+                    cand_conf = float(scores[0])
+            except Exception:
+                pass
+
+            # Quy tắc 8: Nếu confidence thấp (< 0.70) hoặc không đọc được, thử 4 biến thể
+            if cand_conf < 0.70:
+                variants = [
+                    ("normal", enhance_variant_a(raw_crop)),
+                    ("contrast", enhance_variant_b(raw_crop)),
+                    ("grayscale", enhance_variant_c(raw_crop)),
+                    ("sharpen", enhance_variant_d(raw_crop)),
+                ]
+                for var_name, var_img in variants:
+                    try:
+                        var_res = engine(var_img, use_det=False, use_cls=True, use_rec=True)
+                        v_txts = getattr(var_res, "txts", None) if var_res is not None else None
+                        v_scores = getattr(var_res, "scores", None) if var_res is not None else None
+                        if v_txts and v_scores and len(v_txts) > 0:
+                            v_text = str(v_txts[0]).strip()
+                            v_conf = float(v_scores[0])
+                            if v_text and v_conf > cand_conf:
+                                cand_text = v_text
+                                cand_conf = v_conf
+                                cand_img = var_img
+                    except Exception:
+                        continue
+
+            if cand_text:
+                crop_recognitions.append((cand_text, cand_conf, cand_img))
+
+            # Nếu crop đầu tiên đã đạt confidence rất cao (>= 0.96) thì không cần OCR thêm crop khác
+            if cand_conf >= 0.96:
+                break
+
+        if not crop_recognitions:
             continue
 
-        std_crop = enhance(raw_crop)
-        best_text = ""
-        best_conf = 0.0
-        best_crop_img = std_crop
-
-        try:
-            rec_result = engine(std_crop, use_det=False, use_cls=True, use_rec=True)
-            txts = getattr(rec_result, "txts", None) if rec_result is not None else None
-            scores = getattr(rec_result, "scores", None) if rec_result is not None else None
-            if txts and scores and len(txts) > 0:
-                best_text = str(txts[0]).strip()
-                best_conf = float(scores[0])
-        except Exception:
-            pass
-
-        # Quy tắc 8: Nếu confidence thấp (< 0.70) hoặc không đọc được, thử 4 biến thể tiền xử lý
-        if best_conf < 0.70:
-            variants = [
-                ("normal", enhance_variant_a(raw_crop)),
-                ("contrast", enhance_variant_b(raw_crop)),
-                ("grayscale", enhance_variant_c(raw_crop)),
-                ("sharpen", enhance_variant_d(raw_crop)),
-            ]
-            for var_name, var_img in variants:
-                try:
-                    var_res = engine(var_img, use_det=False, use_cls=True, use_rec=True)
-                    v_txts = getattr(var_res, "txts", None) if var_res is not None else None
-                    v_scores = getattr(var_res, "scores", None) if var_res is not None else None
-                    if v_txts and v_scores and len(v_txts) > 0:
-                        v_text = str(v_txts[0]).strip()
-                        v_conf = float(v_scores[0])
-                        if v_text and v_conf > best_conf:
-                            best_text = v_text
-                            best_conf = v_conf
-                            best_crop_img = var_img
-                except Exception:
-                    continue
-
-        if not best_text:
+        # Quy tắc 6: Bỏ phiếu chọn text ổn định nhất giữa các frame
+        best_text, best_conf, best_crop_img = select_most_stable_text(crop_recognitions)
+        if not best_text or best_crop_img is None:
             continue
 
         crop_filename = f"t{track.track_id:04d}_f{track.best_frame:06d}.png"
@@ -645,6 +705,7 @@ def run_pipeline(job):
             "trackId": track.track_id,
             "firstFrame": track.first_frame,
             "lastFrame": track.last_frame,
+            "classification": track.classification,
         }
         for f_idx in track.frames:
             if 0 <= f_idx < total_frames:
