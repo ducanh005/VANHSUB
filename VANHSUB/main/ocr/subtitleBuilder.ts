@@ -15,71 +15,342 @@ const MIN_CONFIDENCE = 40;
  * được gộp thành 1 dòng duy nhất (start = khung đầu, end = khung cuối + 1 khoảng lấy mẫu).
  * Một khung bị đọc hụt giữa dòng (nhiễu) cũng được vá nếu nội dung trước/sau trùng nhau.
  */
+interface TextDetection {
+  text: string;
+  confidence: number;
+  timeMs: number;
+  y0: number;
+  x0?: number;
+  w?: number;
+  h?: number;
+  classification?: 'SUBTITLE' | 'OVERLAY' | 'OTHER_TEXT';
+}
+
+interface ActiveTrack {
+  id: number;
+  startMs: number;
+  lastSeenMs: number;
+  y0: number;
+  x0?: number;
+  w?: number;
+  h?: number;
+  classification?: 'SUBTITLE' | 'OVERLAY' | 'OTHER_TEXT';
+  detections: TextDetection[];
+}
+
+export interface IntermediateSubtitleSegment {
+  startMs: number;
+  endMs: number;
+  text: string;
+  confidence: number;
+  frames: number;
+  stable: boolean;
+  needsReview: boolean;
+  y0?: number;
+  x0?: number;
+  w?: number;
+  h?: number;
+  classification?: 'SUBTITLE' | 'OVERLAY' | 'OTHER_TEXT';
+}
+
+/**
+ * Kiểm tra tương thích không gian (Rule 3 & Rule 16 Test 6):
+ * Tránh gộp text ở vị trí khác nhau (ví dụ: title/overlay ở trên đỉnh vs phụ đề ở đáy).
+ */
+function isSpatiallyCompatible(
+  det: { y0: number; h?: number; classification?: string },
+  track: { y0: number; h?: number; classification?: string },
+): boolean {
+  // Nếu 1 trong 2 không có tọa độ y (y0 < 0), cho phép khớp dựa trên text
+  if (det.y0 < 0 || track.y0 < 0) return true;
+
+  // Nếu phân loại khác nhau rõ ràng (SUBTITLE vs OVERLAY), không gộp
+  if (
+    det.classification &&
+    track.classification &&
+    det.classification !== track.classification &&
+    det.classification !== 'OTHER_TEXT' &&
+    track.classification !== 'OTHER_TEXT'
+  ) {
+    return false;
+  }
+
+  const maxDiff = Math.max(70, (det.h ?? 30) * 1.5, (track.h ?? 30) * 1.5);
+  return Math.abs(det.y0 - track.y0) <= maxDiff;
+}
+
+/**
+ * Chọn text đại diện ổn định nhất qua nhiều frame (Rule 6 - Stability Voting):
+ * Nhóm text theo mergeKey, tính điểm = count * 2.0 + (avgConf / 100.0).
+ * Văn bản chiếm ưu thế sẽ thắng các lỗi OCR chập chờn (1-2 frame typo).
+ */
+function selectStableText(detections: TextDetection[]): { text: string; confidence: number } {
+  if (detections.length === 0) return { text: '', confidence: 0 };
+  if (detections.length === 1) {
+    return {
+      text: normalizeText(detections[0].text),
+      confidence: Math.round(detections[0].confidence),
+    };
+  }
+
+  const groups = new Map<string, { count: number; totalConf: number; samples: string[] }>();
+  for (const d of detections) {
+    const norm = normalizeText(d.text);
+    const key = mergeKey(norm);
+    if (!key) continue;
+    const g = groups.get(key) || { count: 0, totalConf: 0, samples: [] };
+    g.count += 1;
+    g.totalConf += d.confidence;
+    g.samples.push(norm);
+    groups.set(key, g);
+  }
+
+  if (groups.size === 0) {
+    return {
+      text: normalizeText(detections[0].text),
+      confidence: Math.round(detections[0].confidence),
+    };
+  }
+
+  let bestGroupKey = '';
+  let bestScore = -1;
+  for (const [key, g] of groups.entries()) {
+    const avgConf = g.totalConf / g.count;
+    const score = g.count * 2.0 + avgConf / 100.0;
+    if (score > bestScore) {
+      bestScore = score;
+      bestGroupKey = key;
+    }
+  }
+
+  const bestGroup = groups.get(bestGroupKey)!;
+  // Chọn mẫu tốt nhất từ nhóm thắng cuộc (mẫu phổ biến nhất, nếu bằng thì lấy dài hơn)
+  const sampleCounts = new Map<string, number>();
+  for (const s of bestGroup.samples) {
+    sampleCounts.set(s, (sampleCounts.get(s) || 0) + 1);
+  }
+  let bestSample = bestGroup.samples[0];
+  let maxCount = -1;
+  for (const [s, count] of sampleCounts.entries()) {
+    if (count > maxCount || (count === maxCount && s.length > bestSample.length)) {
+      maxCount = count;
+      bestSample = s;
+    }
+  }
+
+  const avgConfidence = Math.round(
+    detections.reduce((sum, d) => sum + d.confidence, 0) / detections.length,
+  );
+  return { text: bestSample, confidence: avgConfidence };
+}
+
+/**
+ * Ghép kết quả OCR từng khung thành dòng phụ đề có timestamp (Rule 4, 5, 6, 7).
+ * Sử dụng multi-track tracking theo vị trí không gian (bbox y0/h),
+ * dung sai hụt tối đa 2 frame (mergeGapMs), và bình chọn độ ổn định text.
+ */
 export function buildSubtitleSegments(
   frames: OcrFrameResult[],
   frameIntervalMs: number,
 ): SrtLine[] {
-  const cleaned = frames.map((f) => normalizeText(f.text));
-  const usable = cleaned.map((text, i) => ({
-    text,
-    confidence: frames[i].confidence,
-  }));
+  // Cho phép hụt tối đa 2 frame (ví dụ 500ms * 2.5 = 1250ms)
+  const mergeGapMs = Math.max(frameIntervalMs * 2.5, 1200);
 
-  // Ngưỡng vá hụt: 1-2 khung nhiễu giữa dòng phụ đề thì nối continu, xa hơn thì ngắt dòng
-  const mergeGapMs = frameIntervalMs * 2 + 50;
+  const activeTracks: ActiveTrack[] = [];
+  const completedTracks: ActiveTrack[] = [];
+  let trackSeq = 0;
 
-  interface RawSegment {
-    startMs: number;
-    endMs: number;
-    text: string;
-  }
-  const rawSegments: RawSegment[] = [];
+  for (let frameIdx = 0; frameIdx < frames.length; frameIdx++) {
+    const f = frames[frameIdx];
+    const timeMs = frameIdx * frameIntervalMs;
 
-  for (let i = 0; i < usable.length; i++) {
-    const { text, confidence } = usable[i];
-    if (!isUsableText(text, confidence)) continue;
-
-    const timeMs = i * frameIntervalMs;
-    const last = rawSegments[rawSegments.length - 1];
-
-    // Khung này khớp khung trước (trong thời gian cho phép) → kéo dài dòng hiện tại.
-    // Dùng checkMergeMatch: hỗ trợ trùng khớp, sai số nhẹ ký tự (1-2 ký tự) và chữ hiện dần (karaoke)
-    const match = last ? checkMergeMatch(last.text, text) : { matched: false };
-    if (
-      last &&
-      timeMs - last.endMs <= mergeGapMs &&
-      match.matched
-    ) {
-      last.endMs = timeMs + frameIntervalMs;
-      if (match.bestText && match.bestText.length >= last.text.length) {
-        last.text = match.bestText;
+    // Lấy danh sách detection của khung này
+    let lineDets: TextDetection[] = [];
+    if (f.lines && f.lines.length > 0) {
+      for (const line of f.lines) {
+        if (!isUsableText(line.text, line.confidence)) continue;
+        lineDets.push({
+          text: line.text,
+          confidence: line.confidence,
+          timeMs,
+          y0: line.y0,
+          x0: line.x0,
+          w: line.w,
+          h: line.h,
+          classification: line.classification,
+        });
       }
-      continue;
+    } else if (f.text && isUsableText(f.text, f.confidence)) {
+      lineDets.push({
+        text: f.text,
+        confidence: f.confidence,
+        timeMs,
+        y0: -1,
+      });
     }
 
-    rawSegments.push({ startMs: timeMs, endMs: timeMs + frameIntervalMs, text });
+    // Đóng các track đã quá hạn không thấy detection mới
+    for (let i = activeTracks.length - 1; i >= 0; i--) {
+      const tr = activeTracks[i];
+      if (timeMs - tr.lastSeenMs > mergeGapMs) {
+        completedTracks.push(tr);
+        activeTracks.splice(i, 1);
+      }
+    }
+
+    // Ghép từng detection vào track phù hợp nhất
+    const assignedTrackIndices = new Set<number>();
+
+    for (const det of lineDets) {
+      let bestTrackIdx = -1;
+      let bestTrackScore = -1;
+
+      for (let tIdx = 0; tIdx < activeTracks.length; tIdx++) {
+        if (assignedTrackIndices.has(tIdx)) continue;
+        const tr = activeTracks[tIdx];
+
+        // 1. Kiểm tra thời gian
+        if (timeMs - tr.lastSeenMs > mergeGapMs) continue;
+
+        // 2. Kiểm tra không gian
+        if (!isSpatiallyCompatible(det, tr)) continue;
+
+        // 3. Kiểm tra tương đồng text (Level 1, 2, 3)
+        const lastDet = tr.detections[tr.detections.length - 1];
+        const match = checkMergeMatch(lastDet.text, det.text);
+
+        if (match.matched) {
+          let score = 100;
+          if (det.y0 >= 0 && tr.y0 >= 0) {
+            score -= Math.abs(det.y0 - tr.y0) * 0.1;
+          }
+          if (score > bestTrackScore) {
+            bestTrackScore = score;
+            bestTrackIdx = tIdx;
+          }
+        }
+      }
+
+      if (bestTrackIdx >= 0) {
+        // Cập nhật track hiện có
+        assignedTrackIndices.add(bestTrackIdx);
+        const tr = activeTracks[bestTrackIdx];
+        tr.lastSeenMs = timeMs;
+        tr.detections.push(det);
+        if (det.y0 >= 0) tr.y0 = det.y0;
+        if (det.x0 !== undefined) tr.x0 = det.x0;
+        if (det.w !== undefined) tr.w = det.w;
+        if (det.h !== undefined) tr.h = det.h;
+        if (det.classification) tr.classification = det.classification;
+      } else {
+        // Tạo track mới
+        const newTrack: ActiveTrack = {
+          id: ++trackSeq,
+          startMs: timeMs,
+          lastSeenMs: timeMs,
+          y0: det.y0,
+          x0: det.x0,
+          w: det.w,
+          h: det.h,
+          classification: det.classification,
+          detections: [det],
+        };
+        activeTracks.push(newTrack);
+        assignedTrackIndices.add(activeTracks.length - 1);
+      }
+    }
   }
 
-  return deduplicateSubtitleSegments(rawSegments, frameIntervalMs);
+  // Thu thập tất cả các track còn lại
+  const allTracks = [...completedTracks, ...activeTracks];
+
+  // Chuyển track thành các segment
+  const intermediateSegments: IntermediateSubtitleSegment[] = [];
+  for (const tr of allTracks) {
+    if (tr.detections.length === 0) continue;
+
+    const { text, confidence } = selectStableText(tr.detections);
+    if (!text) continue;
+
+    const startMs = tr.detections[0].timeMs;
+    const endMs = tr.detections[tr.detections.length - 1].timeMs + frameIntervalMs;
+    const framesCount = tr.detections.length;
+    const needsReview = confidence < 65 || framesCount === 1;
+    const stable = framesCount >= 2 && confidence >= 65;
+
+    intermediateSegments.push({
+      startMs,
+      endMs,
+      text,
+      confidence,
+      frames: framesCount,
+      stable,
+      needsReview,
+      y0: tr.y0,
+      x0: tr.x0,
+      w: tr.w,
+      h: tr.h,
+      classification: tr.classification,
+    });
+  }
+
+  return deduplicateSubtitleSegments(intermediateSegments, frameIntervalMs);
 }
 
 /**
- * Hậu xử lý loại bỏ phụ đề lặp:
- * 1. Gộp các segment kế tiếp có nội dung giống nhau hoặc tương đồng cao (gap <= 1000ms).
- * 2. Gộp các câu phụ đề tích lũy dạng karaoke còn sót lại (A là tiền tố của B).
- * 3. Lọc bỏ các dòng chớp tắt siêu ngắn (< 250ms) có nội dung quá bé (dấu chấm, 1 chữ rác).
+ * Hậu xử lý 5 tầng loại bỏ phụ đề lặp (Rule 13 & 14):
+ * Level 1: Trùng hệt chuỗi (exact match)
+ * Level 2: Trùng key chuẩn hoá (mergeKey)
+ * Level 3: Mờ thích ứng (fuzzy Levenshtein / karaoke prefix)
+ * Level 4: Tương đồng vị trí không gian (spatial)
+ * Level 5: Liên tục thời gian (temporal gap <= maxGapMs)
+ *
+ * Đồng thời bảo vệ các câu độc lập (Rule 14) và không cắt xén top overlay vs bottom subtitle.
  */
 export function deduplicateSubtitleSegments(
-  segments: Array<{ startMs: number; endMs: number; text: string }>,
+  segments: Array<{
+    startMs: number;
+    endMs: number;
+    text: string;
+    confidence?: number;
+    frames?: number;
+    stable?: boolean;
+    needsReview?: boolean;
+    y0?: number;
+    x0?: number;
+    w?: number;
+    h?: number;
+    classification?: 'SUBTITLE' | 'OVERLAY' | 'OTHER_TEXT';
+  }>,
   frameIntervalMs: number = 500,
 ): SrtLine[] {
   if (segments.length === 0) return [];
 
   const maxGapMs = Math.max(1000, frameIntervalMs * 2);
-  const result: Array<{ startMs: number; endMs: number; text: string }> = [];
 
-  for (let i = 0; i < segments.length; i++) {
-    const seg = segments[i];
+  // Sắp xếp theo startMs, sau đó theo y0
+  const sorted = [...segments].sort((a, b) => {
+    if (a.startMs !== b.startMs) return a.startMs - b.startMs;
+    return (a.y0 ?? 0) - (b.y0 ?? 0);
+  });
+
+  const result: Array<{
+    startMs: number;
+    endMs: number;
+    text: string;
+    confidence: number;
+    frames: number;
+    stable: boolean;
+    needsReview: boolean;
+    y0?: number;
+    x0?: number;
+    w?: number;
+    h?: number;
+    classification?: 'SUBTITLE' | 'OVERLAY' | 'OTHER_TEXT';
+  }> = [];
+
+  for (let i = 0; i < sorted.length; i++) {
+    const seg = sorted[i];
     const text = normalizeText(seg.text);
     if (!text) continue;
 
@@ -88,32 +359,77 @@ export function deduplicateSubtitleSegments(
       continue;
     }
 
-    const prev = result[result.length - 1];
-    if (!prev) {
-      result.push({ ...seg, text });
-      continue;
-    }
+    const conf = seg.confidence ?? 70;
+    const fCount = seg.frames ?? 1;
+    const isNeedsRev = seg.needsReview ?? (conf < 65 || fCount === 1);
+    const isStable = seg.stable ?? (fCount >= 2 && conf >= 65);
 
-    const gap = seg.startMs - prev.endMs;
-    if (gap <= maxGapMs) {
+    // Tìm segment gần nhất trước đó có cùng vùng không gian (để xem có gộp được không)
+    let merged = false;
+    for (let j = result.length - 1; j >= 0; j--) {
+      const prev = result[j];
+      const gap = seg.startMs - prev.endMs;
+
+      // Nếu khoảng cách thời gian vượt quá maxGapMs, không xét tiếp các phần tử xa hơn
+      if (gap > maxGapMs) break;
+
+      // Kiểm tra tính tương thích không gian
+      const spatialCompat = isSpatiallyCompatible(
+        { y0: seg.y0 ?? -1, h: seg.h, classification: seg.classification },
+        { y0: prev.y0 ?? -1, h: prev.h, classification: prev.classification },
+      );
+      if (!spatialCompat) continue;
+
+      // Kiểm tra text khớp (Level 1, 2, 3)
       const match = checkMergeMatch(prev.text, text);
       if (match.matched) {
-        // Gộp vào dòng trước đó
+        // Gộp vào prev
         prev.endMs = Math.max(prev.endMs, seg.endMs);
         if (match.bestText && match.bestText.length >= prev.text.length) {
           prev.text = match.bestText;
         }
-        continue;
+        prev.frames += fCount;
+        prev.confidence = Math.round((prev.confidence + conf) / 2);
+        prev.needsReview = prev.confidence < 65 || prev.frames === 1;
+        prev.stable = prev.frames >= 2 && prev.confidence >= 65;
+        merged = true;
+        break;
       }
     }
 
-    result.push({ ...seg, text });
+    if (!merged) {
+      result.push({
+        startMs: seg.startMs,
+        endMs: seg.endMs,
+        text,
+        confidence: conf,
+        frames: fCount,
+        stable: isStable,
+        needsReview: isNeedsRev,
+        y0: seg.y0,
+        x0: seg.x0,
+        w: seg.w,
+        h: seg.h,
+        classification: seg.classification,
+      });
+    }
   }
 
-  // Đảm bảo không chồng timestamp lên nhau
+  // Đảm bảo không chồng timestamp giữa các dòng nằm trong CÙNG dải không gian
   for (let i = 0; i < result.length - 1; i++) {
-    if (result[i].endMs > result[i + 1].startMs) {
-      result[i].endMs = result[i + 1].startMs;
+    const cur = result[i];
+    for (let j = i + 1; j < result.length; j++) {
+      const next = result[j];
+      if (next.startMs >= cur.endMs) break; // không còn chồng thời gian
+
+      // Chỉ cắt ngắn nếu cùng dải không gian (tránh cắt nhầm top overlay song song với bottom subtitle)
+      const sameBand = isSpatiallyCompatible(
+        { y0: cur.y0 ?? -1, h: cur.h, classification: cur.classification },
+        { y0: next.y0 ?? -1, h: next.h, classification: next.classification },
+      );
+      if (sameBand && cur.endMs > next.startMs) {
+        cur.endMs = next.startMs;
+      }
     }
   }
 
@@ -122,6 +438,10 @@ export function deduplicateSubtitleSegments(
     startMs: Math.max(0, s.startMs),
     endMs: s.endMs,
     text: s.text,
+    confidence: s.confidence,
+    frames: s.frames,
+    stable: s.stable,
+    needsReview: s.needsReview,
   }));
 }
 

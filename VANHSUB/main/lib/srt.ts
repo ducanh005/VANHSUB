@@ -5,6 +5,10 @@ export interface SrtLine {
   startMs: number;
   endMs: number;
   text: string;
+  confidence?: number;
+  frames?: number;
+  stable?: boolean;
+  needsReview?: boolean;
 }
 
 const SRT_TIME_RE = /^(\d{1,3}):(\d{1,2}):(\d{1,2})[,.](\d{1,3})$/;

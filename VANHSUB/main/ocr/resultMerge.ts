@@ -33,6 +33,10 @@ export interface MergedOcrLine {
   text: string;
   confidence: number;
   y0: number;
+  x0?: number;
+  w?: number;
+  h?: number;
+  classification?: 'SUBTITLE' | 'OVERLAY' | 'OTHER_TEXT';
   /** Text engine thứ hai đọc cùng crop ('' nếu lượt 2 tắt/đọc hụt) */
   altText?: string;
   altConfidence?: number;
@@ -66,6 +70,10 @@ function mergeLine(line: PaddleOcrLine, alt: CropOcrResult | undefined): MergedO
       text: paddleText,
       confidence: paddleConf,
       y0: line.y0,
+      x0: line.x0,
+      w: line.w,
+      h: line.h,
+      classification: line.classification,
       altText: '',
       chosen: 'paddle',
     };
@@ -97,6 +105,10 @@ function mergeLine(line: PaddleOcrLine, alt: CropOcrResult | undefined): MergedO
     text,
     confidence,
     y0: line.y0,
+    x0: line.x0,
+    w: line.w,
+    h: line.h,
+    classification: line.classification,
     altText,
     altConfidence: alt.confidence,
     similarity,
@@ -141,7 +153,15 @@ function levenshtein(a: string, b: string): number {
 /** Ép kiểu về OcrFrameResult cho subtitleBuilder (bỏ trường chẩn đoán) */
 export function mergedToFrameResults(merged: MergedOcrFrame[]): OcrFrameResult[] {
   return merged.map((f) => {
-    const lines = f.lines.map((l) => ({ text: l.text, confidence: l.confidence, y0: l.y0 }));
+    const lines = f.lines.map((l) => ({
+      text: l.text,
+      confidence: l.confidence,
+      y0: l.y0,
+      x0: l.x0,
+      w: l.w,
+      h: l.h,
+      classification: l.classification,
+    }));
     return {
       text: lines.map((l) => l.text).join(' '),
       confidence: lines.length

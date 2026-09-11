@@ -38,6 +38,10 @@ export interface OcrFrameLine {
   confidence: number;
   /** Tọa độ y đỉnh của dòng trong khung (px) — chẩn đoán vị trí phụ đề/nhiễu */
   y0: number;
+  x0?: number;
+  w?: number;
+  h?: number;
+  classification?: 'SUBTITLE' | 'OVERLAY' | 'OTHER_TEXT';
 }
 
 export interface OcrFrameResult {
