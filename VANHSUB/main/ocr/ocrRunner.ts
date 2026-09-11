@@ -7,15 +7,37 @@ import { SettingsStore } from '../store/settingsStore';
 import { CancelledError, isCancelledError } from '../lib/cancel';
 import { nextAvailablePath } from '../lib/paths';
 import { TranslateRunner } from '../translate/translateRunner';
-import { OcrPool } from './ocrEngine';
-import { extractFrames, cleanupFrames, type OcrRegion } from './frameExtractor';
+import { OcrPool, MIN_LINE_CONFIDENCE } from './ocrEngine';
+import { BOTTOM_CROP_RATIO, extractFrames, cleanupFrames, type OcrRegion } from './frameExtractor';
 import { buildSubtitleSegments, filterPersistentTopLines, segmentsToSrt } from './subtitleBuilder';
+import {
+  checkRapidOcr,
+  mapRecLangNames,
+  runPaddleOcr,
+  type PaddleOcrFrame,
+} from './paddleEngine';
+import {
+  mergeOcrResults,
+  mergedToFrameResults,
+  type CropOcrResult,
+  type MergedOcrFrame,
+} from './resultMerge';
 
 /** File audio thuần không có khung hình — OCR chỉ áp dụng cho video */
 const AUDIO_EXTENSIONS = new Set(['.mp3', '.wav', '.m4a', '.flac', '.aac', '.ogg', '.opus', '.wma']);
 
 const VIDEO_EXTENSIONS = new Set(['.mp4', '.mkv', '.avi', '.mov', '.flv', '.wmv', '.webm', '.m4v', '.ts']);
 
+/**
+ * Pipeline quét phụ đề cứng (hardsub):
+ *
+ *   Video → ffmpeg trích khung (fps + crop vùng phụ đề, giữ màu)
+ *        → PaddleOCR PP-OCRv5: detect hộp chữ → crop → upscale/denoise/deblur
+ *           → nhận diện từng crop
+ *        → Lượt OCR 2 bằng Tesseract đọc CÙNG crop đã enhance
+ *        → So sánh kết quả 2 engine + confidence (resultMerge.ts)
+ *        → Ghép khung trùng thành dòng phụ đề → .srt
+ */
 export class OcrRunner {
   private static runningTasks = new Set<string>();
   private static cancelRequested = new Set<string>();
@@ -54,9 +76,10 @@ export class OcrRunner {
       const language = SettingsStore.get('ocrLanguage') || 'vie';
       const fps = clampNumber(Number(SettingsStore.get('ocrFps')) || 2, 0.5, 5);
       const region = (SettingsStore.get('ocrRegion') || 'bottom') as OcrRegion;
+      const dualEngine = SettingsStore.get('ocrDualEngine') !== false;
       const shouldStop = () => this.cancelRequested.has(taskId);
 
-      // Giai đoạn 1: trích khung hình vùng phụ đề
+      // Giai đoạn 1: trích khung hình vùng phụ đề (giữ màu cho model PP-OCRv5)
       TaskStore.update(taskId, {
         status: 'ocr',
         progress: 2,
@@ -65,45 +88,107 @@ export class OcrRunner {
       });
       onUpdate?.();
 
-      const { framesDir: dir, framePaths, frameIntervalMs, height: videoHeight } = await extractFrames(
-        task.filePath,
-        fps,
-        region,
-        (percent) => {
-          TaskStore.update(taskId, { progress: Math.min(24, 2 + Math.round(percent * 0.22)) });
-          onUpdate?.();
-        },
-      );
+      const {
+        framesDir: dir,
+        framePaths,
+        frameIntervalMs,
+        width: videoWidth,
+        height: videoHeight,
+      } = await extractFrames(task.filePath, fps, region, (percent) => {
+        TaskStore.update(taskId, { progress: Math.min(24, 2 + Math.round(percent * 0.22)) });
+        onUpdate?.();
+      });
       framesDir = dir;
       console.log(`[OCR] Đã trích ${framePaths.length} khung hình (${fps} fps, vùng ${region})`);
 
-      // Giai đoạn 2: nhận diện chữ trên các khung bằng Tesseract
+      // Giai đoạn 2: PaddleOCR PP-OCRv5 qua sidecar Python (rapidocr)
+      const env = await checkRapidOcr();
+      if (!env.ok) throw new Error(env.detail);
+
       TaskStore.update(taskId, {
         progress: 25,
-        stageDescription: `Đang quét chữ (${language}) trên ${framePaths.length} khung...`,
+        stageDescription: `Đang nạp model PaddleOCR PP-OCRv5 (${language})...`,
       });
       onUpdate?.();
 
-      const pool = await OcrPool.create(language, path.join(app.getPath('userData'), 'tessdata'));
-      let frameResults;
-      try {
-        frameResults = await pool.recognizeFiles(
-          framePaths,
-          (done, total) => {
+      const paddleFrames: PaddleOcrFrame[] = await runPaddleOcr(
+        {
+          frames: framePaths,
+          cropsDir: path.join(dir, 'crops'),
+          outPath: path.join(dir, 'paddle_out.jsonl'),
+          recLangNames: mapRecLangNames(language),
+          detVersion: 'PPOCRV5',
+          recVersion: 'PPOCRV5',
+          modelType: 'MOBILE',
+          textScore: 0.25,
+          videoWidth,
+          videoHeight,
+          regionOffsetRatio: region === 'bottom' ? 1 - BOTTOM_CROP_RATIO : 0,
+        },
+        {
+          onReady: () => {
             TaskStore.update(taskId, {
-              progress: 25 + Math.round((done / total) * 65), // 25% -> 90%
+              stageDescription: `Đang quét chữ PaddleOCR PP-OCRv5 (${language}) trên ${framePaths.length} khung...`,
             });
             onUpdate?.();
           },
+          onProgress: (done, total) => {
+            TaskStore.update(taskId, { progress: 25 + Math.round((done / total) * 40) }); // 25% -> 65%
+            onUpdate?.();
+          },
           shouldStop,
+        },
+      );
+
+      if (shouldStop()) throw new CancelledError();
+
+      // Giai đoạn 3: lượt OCR thứ hai bằng Tesseract trên cùng crop đã enhance
+      const cropFiles: string[] = [];
+      for (const f of paddleFrames) for (const l of f.lines) cropFiles.push(l.crop);
+
+      let cropMap = new Map<string, CropOcrResult>();
+      if (dualEngine && cropFiles.length > 0) {
+        TaskStore.update(taskId, {
+          progress: 66,
+          stageDescription: `Đang đối chiếu bằng Tesseract trên ${cropFiles.length} vùng chữ...`,
+        });
+        onUpdate?.();
+
+        const pool = await OcrPool.create(
+          language,
+          path.join(app.getPath('userData'), 'tessdata'),
+          undefined,
+          'line',
         );
-      } finally {
-        await pool.terminate();
+        let cropResults: CropOcrResult[];
+        try {
+          cropResults = await pool.recognizeCrops(
+            cropFiles,
+            (done, total) => {
+              TaskStore.update(taskId, { progress: 66 + Math.round((done / total) * 19) }); // 66% -> 85%
+              onUpdate?.();
+            },
+            shouldStop,
+          );
+        } finally {
+          await pool.terminate();
+        }
+        cropMap = new Map(cropFiles.map((file, i) => [file, cropResults[i]]));
       }
 
       if (shouldStop()) throw new CancelledError();
 
-      // Giai đoạn 3: ghép khung trùng nội dung thành dòng phụ đề
+      // Giai đoạn 4: so sánh 2 engine + confidence → chốt từng dòng
+      TaskStore.update(taskId, {
+        progress: 87,
+        stageDescription: 'Đang so sánh kết quả 2 engine OCR...',
+      });
+      onUpdate?.();
+
+      const merged: MergedOcrFrame[] = mergeOcrResults(paddleFrames, cropMap, MIN_LINE_CONFIDENCE);
+      const frameResults = mergedToFrameResults(merged);
+
+      // Giai đoạn 5: ghép khung trùng nội dung thành dòng phụ đề
       TaskStore.update(taskId, {
         progress: 93,
         stageDescription: 'Đang ghép dòng phụ đề từ kết quả quét...',
@@ -121,37 +206,19 @@ export class OcrRunner {
         );
       }
 
-      // Giai đoạn 4: ghi file .srt cạnh video (không ghi đè file có sẵn)
+      // Giai đoạn 6: ghi file .srt cạnh video (không ghi đè file có sẵn)
       const videoDir = path.dirname(task.filePath);
       const base = path.basename(task.filePath, path.extname(task.filePath));
       const targetPath = nextAvailablePath(path.join(videoDir, `${base}_ocr.srt`));
       fs.writeFileSync(targetPath, srtContent, 'utf-8');
       console.log(`[OCR] Đã ghi ${segments.length} dòng phụ đề vào ${targetPath}`);
 
-      // Dump từng dòng/khung cạnh file srt — đối chiếu được OCR đọc gì ở giây
-      // nào, vị trí y nào, khung nào bị lọc (không có dòng đạt ngưỡng)
-      const dumpPath = targetPath.replace(/\.srt$/i, '.frames.txt');
-      const dumpRows: string[] = [];
-      frameResults.forEach((r, i) => {
-        const t = ((i * frameIntervalMs) / 1000).toFixed(1);
-        if (r.lines.length === 0) {
-          dumpRows.push(`${String(i).padStart(5)}  ${t.padStart(7)}s  (khung trống/bị lọc)`);
-          return;
-        }
-        r.lines.forEach((l, li) => {
-          dumpRows.push(
-            `${String(i).padStart(5)}  ${t.padStart(7)}s  ${li + 1}.${l.confidence.toFixed(0).padStart(3)}  y=${String(Math.round(l.y0)).padStart(4)}  ${l.text}`,
-          );
-        });
-      });
-      fs.writeFileSync(
-        dumpPath,
-        `# VANHSUB OCR frame dump — ${task.fileName}\n` +
-          `# idx   time      #.conf    y  text (mỗi dòng OCR 1 hàng; y = vị trí đỉnh dòng trong khung)\n` +
-          `${dumpRows.join('\n')}\n`,
-        'utf-8',
+      writeDiagnosticDump(
+        targetPath.replace(/\.srt$/i, '.frames.txt'),
+        task.fileName,
+        merged,
+        frameIntervalMs,
       );
-      console.log(`[OCR] Dump chi tiết từng khung: ${dumpPath}`);
 
       const updated = TaskStore.update(taskId, {
         status: 'done',
@@ -183,6 +250,42 @@ export class OcrRunner {
       this.cancelRequested.delete(taskId);
     }
   }
+}
+
+/**
+ * Dump từng dòng/khung cạnh file srt — đối chiếu được MỖI ENGINE đọc gì ở giây
+ * nào, độ tin cậy bao nhiêu, engine nào thắng sau khi so sánh.
+ */
+function writeDiagnosticDump(
+  dumpPath: string,
+  fileName: string,
+  merged: MergedOcrFrame[],
+  frameIntervalMs: number,
+): void {
+  const rows: string[] = [];
+  merged.forEach((f, i) => {
+    const t = ((i * frameIntervalMs) / 1000).toFixed(1);
+    if (f.lines.length === 0) {
+      rows.push(`${String(i).padStart(5)}  ${t.padStart(7)}s  (không phát hiện chữ)`);
+      return;
+    }
+    for (const l of f.lines) {
+      const alt = l.altText
+        ? ` | tess ${String(Math.round(l.altConfidence ?? 0)).padStart(3)} sim=${(l.similarity ?? 0).toFixed(2)} "${l.altText}"`
+        : '';
+      rows.push(
+        `${String(i).padStart(5)}  ${t.padStart(7)}s  ${l.chosen === 'paddle' ? 'pad' : 'tes'} ${String(l.confidence).padStart(3)}  y=${String(Math.round(l.y0)).padStart(4)}  "${l.text}"${alt}`,
+      );
+    }
+  });
+  fs.writeFileSync(
+    dumpPath,
+    `# VANHSUB OCR frame dump — ${fileName}\n` +
+      `# idx   time      eng conf    y  text (pad = PaddleOCR PP-OCRv5, tes = Tesseract thắng so sánh)\n` +
+      `${rows.join('\n')}\n`,
+    'utf-8',
+  );
+  console.log(`[OCR] Dump chi tiết từng khung: ${dumpPath}`);
 }
 
 function clampNumber(value: number, min: number, max: number): number {

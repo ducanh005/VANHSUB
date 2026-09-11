@@ -12,7 +12,7 @@ export const MIN_LINE_CONFIDENCE = 40;
  * Ví dụ video Trung: "| | ss", "UN S", "TSNS IN AN", "7" bị bỏ; "老外" giữ.
  * Vie/eng không áp dụng (bảng chữ Latin trùng với rác nên không phân biệt được).
  */
-const CJK_TOKEN_FILTER: Record<string, RegExp> = {
+export const CJK_TOKEN_FILTER: Record<string, RegExp> = {
   chi_sim: /[\u3000-\u303f\u3400-\u9fff\uf900-\ufaff]/,
   chi_tra: /[\u3000-\u303f\u3400-\u9fff\uf900-\ufaff]/,
   jpn: /[\u3000-\u303f\u3040-\u30ff\u3400-\u9fff\uf900-\ufaff]/,
@@ -24,7 +24,7 @@ const CJK_TOKEN_FILTER: Record<string, RegExp> = {
  * chứa ký tự của ngôn ngữ, ghép lại liền nhau (CJK không cần space). Trả về
  * text nguyên bản với ngôn ngữ không có filter.
  */
-function filterTokensByLanguage(text: string, tokenFilter: RegExp | null): string {
+export function filterTokensByLanguage(text: string, tokenFilter: RegExp | null): string {
   if (!tokenFilter || !text.trim()) return text;
   const kept = text
     .split(/\s+/)
@@ -47,6 +47,12 @@ export interface OcrFrameResult {
   confidence: number;
   /** Các dòng đã giữ kèm vị trí — dump chẩn đoán + lọc theo vùng về sau */
   lines: OcrFrameLine[];
+}
+
+/** Kết quả Tesseract đọc 1 crop đơn dòng (lượt OCR thứ hai) */
+export interface CropOcrResult {
+  text: string;
+  confidence: number;
 }
 
 /** 1 dòng chữ Tesseract trả về trong khung */
@@ -85,15 +91,24 @@ function extractLines(data: unknown): RecognizedLine[] {
  * (nạp lại ngôn ngữ cho từng khung sẽ chậm gấp nhiều lần). Số worker được
  * giới hạn thấp vì OCR chạy trên CPU — quá nhiều worker tranh hạt nhân
  * với Whisper/TTS đang chạy nền.
+ *
+ * Chế độ:
+ * - 'block' (PSM 6): quét cả khung/dải phụ đề nhiều dòng (pipeline cũ)
+ * - 'line'  (PSM 7): nhận diện 1 crop đúng 1 dòng chữ — lượt OCR thứ hai
+ *   chạy trên chính crop đã enhance bởi PaddleOCR sidecar
  */
+export type OcrPoolMode = 'block' | 'line';
+
 export class OcrPool {
   private workers: Worker[] = [];
   private tokenFilter: RegExp | null = null;
+  private mode: OcrPoolMode = 'block';
 
   static async create(
     language: string,
     cachePath: string,
     size?: number,
+    mode: OcrPoolMode = 'block',
   ): Promise<OcrPool> {
     const workerCount =
       size ?? Math.max(1, Math.min(3, os.cpus().length - 1));
@@ -102,12 +117,16 @@ export class OcrPool {
 
     const pool = new OcrPool();
     pool.tokenFilter = CJK_TOKEN_FILTER[language] ?? null;
+    pool.mode = mode;
     pool.workers = await Promise.all(
       Array.from({ length: workerCount }, async () => {
         const worker = await createWorker(language, 1, { cachePath, logger: () => {} });
         // PSM 6 (khối văn bản) quét được cả dải phụ đề crop lẫn toàn khung —
-        // trả về nhiều dòng kèm confidence riêng từng dòng để lọc nhiễu nền
-        await worker.setParameters({ tessedit_pageseg_mode: PSM.SINGLE_BLOCK });
+        // trả về nhiều dòng kèm confidence riêng từng dòng để lọc nhiễu nền.
+        // PSM 7 (1 dòng) cho crop đơn dòng từ lượt detect của PaddleOCR.
+        await worker.setParameters({
+          tessedit_pageseg_mode: mode === 'line' ? PSM.SINGLE_LINE : PSM.SINGLE_BLOCK,
+        });
         return worker;
       }),
     );
@@ -170,6 +189,50 @@ export class OcrPool {
             results[index] = { text: '', confidence: 0, lines: [] };
           }
         }
+
+        done++;
+        onProgress?.(done, files.length);
+      }
+    };
+
+    await Promise.all(this.workers.map((w) => runWorker(w)));
+    return results;
+  }
+
+  /**
+   * Lượt OCR thứ hai: nhận diện từng crop đơn dòng (PSM 7) — chạy trên chính
+   * crop đã enhance bởi PaddleOCR sidecar để hai engine đọc cùng dữ liệu.
+   *
+   * Trả về mảng cùng thứ tự đầu vào, mỗi phần tử là text conf cao nhất của
+   * crop (text ''/conf 0 nếu crop không đọc được dòng nào). Text đã lọc token
+   * rác nền theo ngôn ngữ (CJK) để so sánh công bằng với PaddleOCR.
+   */
+  async recognizeCrops(
+    files: string[],
+    onProgress?: (done: number, total: number) => void,
+    shouldStop?: () => boolean,
+  ): Promise<CropOcrResult[]> {
+    if (this.mode !== 'line') {
+      throw new Error('recognizeCrops yêu cầu OcrPool.create(..., mode: "line")');
+    }
+    const results: CropOcrResult[] = new Array(files.length).fill(null).map(() => ({ text: '', confidence: 0 }));
+    let nextIndex = 0;
+    let done = 0;
+
+    const runWorker = async (worker: Worker): Promise<void> => {
+      while (true) {
+        if (shouldStop?.()) throw new CancelledError();
+        const index = nextIndex++;
+        if (index >= files.length) return;
+
+        const { data } = await worker.recognize(files[index], {}, { text: true, blocks: true });
+        const lines = extractLines(data);
+        let best = { text: '', confidence: 0 };
+        for (const l of lines) {
+          const text = filterTokensByLanguage(l.text, this.tokenFilter).trim();
+          if (text && l.confidence > best.confidence) best = { text, confidence: l.confidence };
+        }
+        results[index] = best;
 
         done++;
         onProgress?.(done, files.length);
