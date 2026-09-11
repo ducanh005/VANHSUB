@@ -19,4 +19,10 @@ asarUnpack:
     - node_modules/@ffmpeg-installer/**
     - node_modules/@ffprobe-installer/**
     - node_modules/nodejs-whisper/**
+# Sidecar Python PaddleOCR (rapidocr) — spawn bằng đường dẫn thật trên đĩa
+extraResources:
+    - from: main/ocr/paddle
+      to: paddle
+      filter:
+          - paddle_server.py
 publish: null
