@@ -89,7 +89,7 @@ const STYLE_PRESETS: Array<{ name: string; style: SubStyle }> = [
   },
   {
     name: 'Nền box',
-    style: { ...DEFAULT_STYLE, borderStyle: 3, outline: 0, shadow: 0 },
+    style: { ...DEFAULT_STYLE, borderStyle: 3, outline: 3, shadow: 0, outlineColour: '#000000' },
   },
   {
     name: 'Chiếu rạp',
@@ -576,7 +576,9 @@ export default function ExportPage({ tasks }: Props) {
                         disabled={isExporting}
                         className="h-7 w-10 cursor-pointer rounded border border-slate-700 bg-slate-800"
                       />
-                      <label className="ml-2 text-[11px] font-medium text-slate-400">Viền:</label>
+                      <label className="ml-2 text-[11px] font-medium text-slate-400">
+                        {style.borderStyle === 3 ? 'Nền box:' : 'Viền:'}
+                      </label>
                       <input
                         type="color"
                         value={style.outlineColour}
@@ -611,10 +613,10 @@ export default function ExportPage({ tasks }: Props) {
                         <span className="w-8 font-mono text-brand-cyan">{style.opacity}%</span>
                       </label>
                       <label className="flex items-center gap-2 text-[11px] font-medium text-slate-400">
-                        Viền:
+                        {style.borderStyle === 3 ? 'Lề box:' : 'Viền:'}
                         <input
                           type="range"
-                          min={0}
+                          min={style.borderStyle === 3 ? 1 : 0}
                           max={8}
                           value={style.outline}
                           onChange={(e) => setStyle((s) => ({ ...s, outline: Number(e.target.value) }))}
@@ -643,9 +645,15 @@ export default function ExportPage({ tasks }: Props) {
                         <span className="text-[11px] font-medium text-slate-400">Kiểu:</span>
                         <select
                           value={style.borderStyle}
-                          onChange={(e) =>
-                            setStyle((s) => ({ ...s, borderStyle: Number(e.target.value) as SubStyle['borderStyle'] }))
-                          }
+                          onChange={(e) => {
+                            const val = Number(e.target.value) as SubStyle['borderStyle'];
+                            setStyle((s) => ({
+                              ...s,
+                              borderStyle: val,
+                              outline: val === 3 && s.outline === 0 ? 3 : s.outline,
+                              shadow: val === 3 ? 0 : s.shadow || 1,
+                            }));
+                          }}
                           disabled={isExporting}
                           className="rounded-xl border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs text-slate-200 focus:outline-none"
                         >

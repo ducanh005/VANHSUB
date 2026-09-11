@@ -235,7 +235,16 @@ export const VideoPreviewCanvas: React.FC<VideoPreviewCanvasProps> = ({
                   color: textColor,
                   fontWeight: isBold ? 800 : 500,
                   fontStyle: isItalic ? 'italic' : 'normal',
-                  textShadow: outlineShadow,
+                  ...(globalStyle.borderStyle === 3
+                    ? {
+                        backgroundColor: outlineColor || '#000000',
+                        padding: '3px 10px',
+                        borderRadius: '3px',
+                        boxShadow: '0 2px 8px rgba(0,0,0,0.5)',
+                      }
+                    : {
+                        textShadow: outlineShadow,
+                      }),
                 }}
                 className="text-center max-w-[92%] break-words"
               >

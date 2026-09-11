@@ -186,9 +186,12 @@ export function compileToAss(
   const height = options?.videoHeight || 1080;
   const g = { ...DEFAULT_GLOBAL_STYLE, ...options?.globalStyle };
 
+  const isBox = g.borderStyle === 3;
   const primaryColAss = hexToAssColor(g.primaryColour, g.opacity);
   const outlineColAss = hexToAssColor(g.outlineColour, 100);
-  const backColAss = '&H80000000&';
+  const backColAss = isBox ? hexToAssColor(g.outlineColour, 95) : '&H80000000&';
+  const effectiveOutline = isBox && g.outline === 0 ? 3 : g.outline;
+  const effectiveShadow = isBox ? 0 : g.shadow;
 
   const scriptInfo = [
     '[Script Info]',
@@ -205,7 +208,7 @@ export function compileToAss(
   const stylesHeader = [
     '[V4+ Styles]',
     'Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding',
-    `Style: Default,${g.fontName},${g.fontSize},${primaryColAss},&H000000FF&,${outlineColAss},${backColAss},${g.bold ? 1 : 0},0,0,0,100,100,0,0,${g.borderStyle},${g.outline},${g.shadow},${g.alignment},20,20,${g.marginV},1`,
+    `Style: Default,${g.fontName},${g.fontSize},${primaryColAss},&H000000FF&,${outlineColAss},${backColAss},${g.bold ? 1 : 0},0,0,0,100,100,0,0,${g.borderStyle},${effectiveOutline},${effectiveShadow},${g.alignment},20,20,${g.marginV},1`,
     '',
   ].join('\n');
 

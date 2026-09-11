@@ -85,14 +85,16 @@ function hexToAss(hex: string, opacityPct: number): string {
 
 /** Dựng giá trị force_style — các trường số/màu tự sinh nên không lo escape */
 export function buildForceStyle(style: SubtitleStyle): string {
+  const isBox = style.borderStyle === 3;
   const parts = [
     `FontName=${sanitizeFontName(style.fontName)}`,
     `FontSize=${clampNum(style.fontSize, 8, 99, 18)}`,
     `PrimaryColour=${hexToAss(style.primaryColour, style.opacity)}`,
     `OutlineColour=${hexToAss(style.outlineColour, 100)}`,
-    `BorderStyle=${style.borderStyle === 3 ? 3 : 1}`,
-    `Outline=${clampNum(style.outline, 0, 8, 2)}`,
-    `Shadow=${clampNum(style.shadow, 0, 6, 1)}`,
+    `BackColour=${isBox ? hexToAss(style.outlineColour, 95) : '&H80000000'}`,
+    `BorderStyle=${isBox ? 3 : 1}`,
+    `Outline=${isBox && style.outline === 0 ? 3 : clampNum(style.outline, 0, 8, 2)}`,
+    `Shadow=${isBox ? 0 : clampNum(style.shadow, 0, 6, 1)}`,
     `Bold=${style.bold ? 1 : 0}`,
     `Alignment=${style.alignment === 5 || style.alignment === 8 ? style.alignment : 2}`,
     `MarginV=${clampNum(style.marginV, 0, 200, 25)}`,
