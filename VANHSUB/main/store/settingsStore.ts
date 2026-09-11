@@ -28,6 +28,11 @@ export interface AppSettings {
   ocrFps: number;
   /** Vùng quét phụ đề trong khung hình: đáy khung hoặc toàn khung */
   ocrRegion: 'bottom' | 'full';
+  /**
+   * Chạy lượt OCR thứ hai bằng Tesseract trên cùng crop đã enhance để đối
+   * chiếu kết quả với PaddleOCR (chính xác hơn nhưng chậm hơn ~30-40%).
+   */
+  ocrDualEngine: boolean;
   /** Bảng thuật ngữ dịch nhất quán — mỗi dòng "gốc = bản dịch" */
   glossary: string;
   /** Hướng dẫn văn phong/xưng hô đưa vào prompt dịch (tự do) */
@@ -62,6 +67,7 @@ function getStore(): Store<AppSettings> {
         ocrLanguage: 'vie',
         ocrFps: 2,
         ocrRegion: 'bottom',
+        ocrDualEngine: true,
         glossary: '',
         translationStyleGuide: '',
         onboardingCompleted: false,

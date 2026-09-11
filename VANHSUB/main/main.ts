@@ -440,6 +440,7 @@ const SETTING_KEYS: Array<keyof AppSettings> = [
   'ocrLanguage',
   'ocrFps',
   'ocrRegion',
+  'ocrDualEngine',
   'glossary',
   'translationStyleGuide',
   'onboardingCompleted'

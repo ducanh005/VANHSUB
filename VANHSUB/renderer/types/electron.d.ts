@@ -15,6 +15,7 @@ export type SettingKey =
   | 'ocrLanguage'
   | 'ocrFps'
   | 'ocrRegion'
+  | 'ocrDualEngine'
   | 'glossary'
   | 'translationStyleGuide'
   | 'onboardingCompleted';

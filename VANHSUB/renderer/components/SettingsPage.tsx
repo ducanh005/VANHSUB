@@ -143,6 +143,7 @@ export default function SettingsPage() {
   const [ocrLanguage, setOcrLanguage] = useState('vie');
   const [ocrFps, setOcrFps] = useState(2);
   const [ocrRegion, setOcrRegion] = useState<'bottom' | 'full'>('bottom');
+  const [ocrDualEngine, setOcrDualEngine] = useState(true);
   const [glossary, setGlossary] = useState('');
   const [translationStyleGuide, setTranslationStyleGuide] = useState('');
   const [ttsConnected, setTtsConnected] = useState<boolean | null>(null);
@@ -211,10 +212,11 @@ export default function SettingsPage() {
       window.vanhsub.settings.get('ocrLanguage'),
       window.vanhsub.settings.get('ocrFps'),
       window.vanhsub.settings.get('ocrRegion'),
+      window.vanhsub.settings.get('ocrDualEngine'),
       window.vanhsub.settings.get('glossary'),
       window.vanhsub.settings.get('translationStyleGuide'),
     ])
-      .then(([key, gModel, lang, aModel, expDir, batchSize, concurrency, autoTrans, ttsEndpoint, voice, spd, oLang, oFps, oRegion, glossaryVal, styleVal]) => {
+      .then(([key, gModel, lang, aModel, expDir, batchSize, concurrency, autoTrans, ttsEndpoint, voice, spd, oLang, oFps, oRegion, oDual, glossaryVal, styleVal]) => {
         if (key) setApiKey(key);
         if (gModel) {
           setGeminiModel(gModel);
@@ -234,6 +236,7 @@ export default function SettingsPage() {
         if (oLang) setOcrLanguage(String(oLang));
         if (oFps) setOcrFps(Number(oFps) || 2);
         if (oRegion) setOcrRegion(oRegion === 'full' ? 'full' : 'bottom');
+        if (oDual !== undefined) setOcrDualEngine(oDual !== false);
         if (glossaryVal !== undefined) setGlossary(String(glossaryVal || ''));
         if (styleVal !== undefined) setTranslationStyleGuide(String(styleVal || ''));
       })
@@ -291,6 +294,7 @@ export default function SettingsPage() {
         window.vanhsub.settings.set('ocrLanguage', ocrLanguage),
         window.vanhsub.settings.set('ocrFps', Math.min(5, Math.max(0.5, Number(ocrFps) || 2))),
         window.vanhsub.settings.set('ocrRegion', ocrRegion),
+        window.vanhsub.settings.set('ocrDualEngine', ocrDualEngine),
         window.vanhsub.settings.set('glossary', glossary),
         window.vanhsub.settings.set('translationStyleGuide', translationStyleGuide),
       ]);
@@ -1143,9 +1147,12 @@ export default function SettingsPage() {
 
           <div className="space-y-4">
             <p className="text-[11px] text-slate-400">
-              Trích phụ đề đã ghẽ sẵn trong khung hình video thành file .srt. Lần quét đầu tiên
-              cần internet để tải gói ngôn ngữ (~15MB), sau đó lưu offline trong máy. Ngôn ngữ /
-              vùng / fps <strong className="text-slate-300">được lưu tự động khi đổi</strong> — áp
+              Trích phụ đề đã ghẽ sẵn trong khung hình video thành file .srt bằng model
+              PaddleOCR PP-OCRv5 (quét kèm Tesseract nếu bật đối chiếu). Cần python đã cài
+              gói <code className="rounded bg-slate-800 px-1 py-0.5 text-[10px] text-slate-300">rapidocr</code> (
+              <code className="rounded bg-slate-800 px-1 py-0.5 text-[10px] text-slate-300">pip install rapidocr onnxruntime opencv-python</code>).
+              Lần quét đầu tải model (~30MB), sau đó lưu offline trong máy. Ngôn ngữ / vùng /
+              fps <strong className="text-slate-300">được lưu tự động khi đổi</strong> — áp
               dụng cho lần quét kế tiếp, không cần bấm "Lưu cài đặt".
             </p>
 
@@ -1210,6 +1217,27 @@ export default function SettingsPage() {
                 2 khung/giây là cân bằng tốc độ — độ chính xác (quét chậm hơn nhưng đỡ sót dòng)
               </span>
             </div>
+
+            <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-slate-700 bg-slate-800/60 p-3">
+              <input
+                type="checkbox"
+                checked={ocrDualEngine}
+                onChange={(e) => {
+                  setOcrDualEngine(e.target.checked);
+                  void autoSaveSetting('ocrDualEngine', e.target.checked);
+                }}
+                className="mt-0.5 h-4 w-4 shrink-0 accent-emerald-500"
+              />
+              <span>
+                <span className="block text-xs font-medium text-slate-200">
+                  Đối chiếu 2 engine (PaddleOCR + Tesseract)
+                </span>
+                <span className="mt-0.5 block text-[10px] text-slate-400">
+                  Mỗi dòng chữ được 2 engine đọc riêng rồi so sánh — chính xác hơn rõ rệt với
+                  phụ đề mờ/nền bận, đổi lại quét chậm hơn khoảng 30-40%.
+                </span>
+              </span>
+            </label>
 
             <p className="flex items-start gap-1.5 text-[11px] text-slate-400">
               <Languages className="mt-0.5 h-3.5 w-3.5 shrink-0 text-brand-cyan" />
