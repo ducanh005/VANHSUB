@@ -16,3 +16,7 @@ renderer/tsconfig.tsbuildinfo
 # env — session TikTok / secret, không bao giờ commit (.env.example thì được)
 .env
 .env.local
+
+# python
+__pycache__/
+*.pyc
