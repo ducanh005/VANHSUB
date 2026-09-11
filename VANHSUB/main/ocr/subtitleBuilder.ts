@@ -33,40 +33,91 @@ export function buildSubtitleSegments(
     endMs: number;
     text: string;
   }
-  const segments: RawSegment[] = [];
+  const rawSegments: RawSegment[] = [];
 
   for (let i = 0; i < usable.length; i++) {
     const { text, confidence } = usable[i];
     if (!isUsableText(text, confidence)) continue;
 
     const timeMs = i * frameIntervalMs;
-    const last = segments[segments.length - 1];
+    const last = rawSegments[rawSegments.length - 1];
 
     // Khung này khớp khung trước (trong thời gian cho phép) → kéo dài dòng hiện tại.
-    // So sánh theo mergeKey + cho phép sai khác 1 ký tự với dòng đủ dài: khung
-    // cùng phụ đề nhưng OCR chênh vài ký tự nhiễu (nền, watermark) không bị
-    // tách thành nghìn dòng 0.5s. Dòng ngắn (< 10 ký tự) phải giống hệt — câu
-    // thoại CJK liền nhau thường chỉ khác nhau 1-2 ký tự, nới lỏng sẽ gộp oan.
+    // Dùng checkMergeMatch: hỗ trợ trùng khớp, sai số nhẹ ký tự (1-2 ký tự) và chữ hiện dần (karaoke)
+    const match = last ? checkMergeMatch(last.text, text) : { matched: false };
     if (
       last &&
       timeMs - last.endMs <= mergeGapMs &&
-      isSimilarMerge(last.text, text)
+      match.matched
     ) {
       last.endMs = timeMs + frameIntervalMs;
+      if (match.bestText && match.bestText.length >= last.text.length) {
+        last.text = match.bestText;
+      }
       continue;
     }
 
-    segments.push({ startMs: timeMs, endMs: timeMs + frameIntervalMs, text });
+    rawSegments.push({ startMs: timeMs, endMs: timeMs + frameIntervalMs, text });
   }
 
-  // Không cho 2 dòng chồng timestamp lên nhau (khi có khung nhiễu chen giữa)
-  for (let i = 0; i < segments.length - 1; i++) {
-    if (segments[i].endMs > segments[i + 1].startMs) {
-      segments[i].endMs = segments[i + 1].startMs;
+  return deduplicateSubtitleSegments(rawSegments, frameIntervalMs);
+}
+
+/**
+ * Hậu xử lý loại bỏ phụ đề lặp:
+ * 1. Gộp các segment kế tiếp có nội dung giống nhau hoặc tương đồng cao (gap <= 1000ms).
+ * 2. Gộp các câu phụ đề tích lũy dạng karaoke còn sót lại (A là tiền tố của B).
+ * 3. Lọc bỏ các dòng chớp tắt siêu ngắn (< 250ms) có nội dung quá bé (dấu chấm, 1 chữ rác).
+ */
+export function deduplicateSubtitleSegments(
+  segments: Array<{ startMs: number; endMs: number; text: string }>,
+  frameIntervalMs: number = 500,
+): SrtLine[] {
+  if (segments.length === 0) return [];
+
+  const maxGapMs = Math.max(1000, frameIntervalMs * 2);
+  const result: Array<{ startMs: number; endMs: number; text: string }> = [];
+
+  for (let i = 0; i < segments.length; i++) {
+    const seg = segments[i];
+    const text = normalizeText(seg.text);
+    if (!text) continue;
+
+    // Lọc nhiễu quá ngắn: thời lượng < 250ms và độ dài <= 2 ký tự (ví dụ: '.', '-', 'a')
+    if (seg.endMs - seg.startMs < 250 && text.length <= 2) {
+      continue;
+    }
+
+    const prev = result[result.length - 1];
+    if (!prev) {
+      result.push({ ...seg, text });
+      continue;
+    }
+
+    const gap = seg.startMs - prev.endMs;
+    if (gap <= maxGapMs) {
+      const match = checkMergeMatch(prev.text, text);
+      if (match.matched) {
+        // Gộp vào dòng trước đó
+        prev.endMs = Math.max(prev.endMs, seg.endMs);
+        if (match.bestText && match.bestText.length >= prev.text.length) {
+          prev.text = match.bestText;
+        }
+        continue;
+      }
+    }
+
+    result.push({ ...seg, text });
+  }
+
+  // Đảm bảo không chồng timestamp lên nhau
+  for (let i = 0; i < result.length - 1; i++) {
+    if (result[i].endMs > result[i + 1].startMs) {
+      result[i].endMs = result[i + 1].startMs;
     }
   }
 
-  return segments.map((s, index) => ({
+  return result.map((s, index) => ({
     id: `line-${index}`,
     startMs: Math.max(0, s.startMs),
     endMs: s.endMs,
@@ -146,21 +197,67 @@ function mergeKey(text: string): string {
     .toLowerCase();
 }
 
-/**
- * Hai dòng phải đủ dài (>= MIN_SIMILAR_LENGTH) mới được phép sai khác 1 ký tự.
- * Ngưỡng 10 là THẤT BẠI thực tế: "水印标志这是第一句话" vs "…第二句话" chênh
- * đúng 1 ký tự trên 10 — hai câu khác nhau bị gộp oan thành 1 dòng. Với dòng
- * ngắn thì phải giống hệt nhau sau mergeKey.
- */
-const MIN_SIMILAR_LENGTH = 24;
+export interface MergeMatch {
+  matched: boolean;
+  bestText?: string;
+}
 
-function isSimilarMerge(a: string, b: string): boolean {
-  if (a === b) return true;
+/**
+ * Kiểm tra xem hai đoạn text có nên gộp thành cùng một dòng phụ đề không:
+ * 1. Giống hệt nhau (sau khi chuẩn hoá bỏ dấu/khoảng trắng).
+ * 2. Phụ đề tích lũy dạng karaoke (chuỗi này là tiền tố bắt đầu của chuỗi kia).
+ * 3. Sai số ký tự nhỏ do OCR nhiễu (Levenshtein thích ứng theo độ dài và ngôn ngữ).
+ */
+export function checkMergeMatch(a: string, b: string): MergeMatch {
+  if (a === b) return { matched: true, bestText: a };
   const ka = mergeKey(a);
   const kb = mergeKey(b);
-  if (ka === kb) return true;
-  if (ka.length < MIN_SIMILAR_LENGTH || kb.length < MIN_SIMILAR_LENGTH) return false;
-  return levenshteinWithin(ka, kb, 1);
+  if (!ka || !kb) return { matched: false };
+
+  // Trùng khớp hoàn toàn sau chuẩn hoá
+  if (ka === kb) {
+    return { matched: true, bestText: b.length >= a.length ? b : a };
+  }
+
+  // 1. Phụ đề tích lũy (Cumulative / Karaoke text):
+  // Một chuỗi là tiền tố của chuỗi kia (tối thiểu 3 ký tự)
+  if (ka.length >= 3 && kb.length >= 3) {
+    if (kb.startsWith(ka)) {
+      return { matched: true, bestText: b };
+    }
+    if (ka.startsWith(kb)) {
+      return { matched: true, bestText: a };
+    }
+  }
+
+  // 2. Kiểm tra ngôn ngữ CJK:
+  const isCjk = /[\u3040-\u30ff\u3400-\u9fff\uf900-\ufaff]/.test(ka);
+  if (isCjk) {
+    // Với chữ Hán/Nhật: mỗi ký tự là một từ, chỉ cho phép sai khác 1 ký tự khi câu đủ dài (>= 10 ký tự)
+    if (ka.length >= 10 && kb.length >= 10 && levenshteinWithin(ka, kb, 1)) {
+      return { matched: true, bestText: b.length >= a.length ? b : a };
+    }
+    return { matched: false };
+  }
+
+  // 3. Với chữ Latin (Tiếng Việt, Anh):
+  // Sai lệch 1-2 ký tự do dấu thanh, nhầm l/1, o/0
+  const maxLen = Math.max(ka.length, kb.length);
+  const minLen = Math.min(ka.length, kb.length);
+  const lenDiff = maxLen - minLen;
+
+  if (minLen >= 4 && lenDiff <= 2) {
+    const maxDist = maxLen >= 12 ? 2 : 1;
+    if (levenshteinWithin(ka, kb, maxDist)) {
+      return { matched: true, bestText: b.length >= a.length ? b : a };
+    }
+  }
+
+  return { matched: false };
+}
+
+export function isSimilarMerge(a: string, b: string): boolean {
+  return checkMergeMatch(a, b).matched;
 }
 
 /** Levenshtein với giới hạn — vượt maxDist trả false sớm, không tính hết */
