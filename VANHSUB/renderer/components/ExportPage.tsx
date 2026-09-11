@@ -20,11 +20,14 @@ import type {
   PerLineSubtitleStyle,
   CustomMaskRegion,
   WatermarkOptions,
+  ExportFormatOptions,
   AdvancedExportOptions,
 } from '../types/electron';
 import { parseSrt, type SrtLine } from '../lib/srt';
 import { SubtitlesStyleEditor } from './export/SubtitlesStyleEditor';
 import { OverlayMaskEditor } from './export/OverlayMaskEditor';
+import { VideoPreviewCanvas } from './export/VideoPreviewCanvas';
+import { ExportFormatPanel } from './export/ExportFormatPanel';
 
 type Props = {
   tasks: Task[];
@@ -147,8 +150,18 @@ export default function ExportPage({ tasks }: Props) {
     scalePercent: 18,
   });
 
+  // Phase 4: Tùy chọn tỉ lệ & định dạng xuất video (16:9, 9:16 TikTok, FPS, Bitrate)
+  const [formatOptions, setFormatOptions] = useState<ExportFormatOptions>({
+    aspectRatio: 'original',
+    resolution: 'original',
+    fps: 0,
+    bitrateKbps: 0,
+    videoCodec: 'libx264',
+  });
+  const [currentVideoTime, setCurrentVideoTime] = useState(0);
+
   // Tab điều hướng trong Hardsub
-  const [hardsubTab, setHardsubTab] = useState<'global' | 'lines' | 'layers'>('global');
+  const [hardsubTab, setHardsubTab] = useState<'global' | 'lines' | 'layers' | 'format'>('global');
 
   const selectedTask = tasks.find((t) => t.id === selectedTaskId) || null;
   const isExporting = selectedTask?.status === 'exporting';
@@ -232,13 +245,20 @@ export default function ExportPage({ tasks }: Props) {
       const maskParam = mode === 'hardsub' && maskEnabled ? mask : null;
       const styleParam = mode === 'hardsub' ? style : null;
 
+      const hasCustomFormat =
+        (formatOptions.aspectRatio && formatOptions.aspectRatio !== 'original') ||
+        (formatOptions.fps && formatOptions.fps > 0) ||
+        (formatOptions.bitrateKbps && formatOptions.bitrateKbps > 0) ||
+        (formatOptions.resolution && formatOptions.resolution !== 'original') ||
+        formatOptions.videoCodec === 'libx265';
+
       const advancedOptions: AdvancedExportOptions | null =
         mode === 'hardsub'
           ? {
               perLineStyles: Object.keys(perLineStyles).length > 0 ? perLineStyles : undefined,
               customMask: customMaskEnabled ? customMask : null,
               watermark: watermarkEnabled && watermark.content ? watermark : null,
-              formatOptions: null,
+              formatOptions: hasCustomFormat ? formatOptions : null,
             }
           : null;
 
@@ -261,12 +281,16 @@ export default function ExportPage({ tasks }: Props) {
 
   const editorTasks = tasks.filter((t) => t.srtPath || t.translatedSrtPath || t.filePath);
   const dubSuffix = replaceAudio ? 'mono' : 'bilingual';
+  const ratioSuffix =
+    mode === 'hardsub' && formatOptions.aspectRatio && formatOptions.aspectRatio !== 'original'
+      ? `_${formatOptions.aspectRatio.replace(':', '-')}`
+      : '';
   const resultFileName =
     mode === 'dub'
       ? `${selectedTask?.fileName.replace(/\.[^.]+$/, '') || ''}_dubbed_${dubSuffix}.mp4`
       : mode === 'stems'
         ? `${selectedTask?.fileName.replace(/\.[^.]+$/, '') || ''}.nhacnen.mp3 + .giong.mp3`
-        : `${selectedTask?.fileName.replace(/\.[^.]+$/, '') || ''}.${mode}.mp4`;
+        : `${selectedTask?.fileName.replace(/\.[^.]+$/, '') || ''}.${mode}${ratioSuffix}.mp4`;
 
   // Outline preview bằng text-shadow 4 hướng (xấp xỉ viền ASS của libass)
   const outlineShadow =
@@ -363,8 +387,25 @@ export default function ExportPage({ tasks }: Props) {
           {/* Tùy chọn nâng cao chế độ Hardsub */}
           {mode === 'hardsub' && (
             <div className="flex flex-col gap-3">
+              {/* Mini CapCut Live Video Studio Preview */}
+              {selectedTask.filePath && (
+                <VideoPreviewCanvas
+                  videoPath={selectedTask.filePath}
+                  aspectRatio={formatOptions.aspectRatio || 'original'}
+                  customMaskEnabled={customMaskEnabled}
+                  customMask={customMask}
+                  watermarkEnabled={watermarkEnabled}
+                  watermark={watermark}
+                  globalStyle={style}
+                  perLineStyles={perLineStyles}
+                  srtLines={srtLines}
+                  currentTime={currentVideoTime}
+                  onTimeUpdate={setCurrentVideoTime}
+                />
+              )}
+
               {/* Tab navigation */}
-              <div className="flex border-b border-slate-800 bg-slate-900/50 p-1.5 rounded-xl gap-2">
+              <div className="flex flex-wrap border-b border-slate-800 bg-slate-900/50 p-1.5 rounded-xl gap-2">
                 <button
                   type="button"
                   onClick={() => setHardsubTab('global')}
@@ -407,6 +448,23 @@ export default function ExportPage({ tasks }: Props) {
                   <span>3. Che mờ & Watermark</span>
                   {(customMaskEnabled || watermarkEnabled || maskEnabled) && (
                     <span className="h-2 w-2 rounded-full bg-brand-cyan" />
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setHardsubTab('format')}
+                  className={`flex items-center gap-2 rounded-lg px-3.5 py-2 text-xs font-medium transition cursor-pointer ${
+                    hardsubTab === 'format'
+                      ? 'bg-brand-cyan/20 text-brand-cyan shadow-sm ring-1 ring-brand-cyan/40'
+                      : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+                  }`}
+                >
+                  <Film className="h-4 w-4" />
+                  <span>4. Tỉ lệ & Định dạng xuất</span>
+                  {formatOptions.aspectRatio && formatOptions.aspectRatio !== 'original' && (
+                    <span className="rounded-full bg-brand-cyan/30 px-1.5 py-0.5 text-[10px] text-brand-cyan">
+                      {formatOptions.aspectRatio}
+                    </span>
                   )}
                 </button>
               </div>
@@ -639,6 +697,7 @@ export default function ExportPage({ tasks }: Props) {
                     watermarkEnabled={watermarkEnabled}
                     onToggleWatermark={setWatermarkEnabled}
                     onChangeWatermark={(partial) => setWatermark((prev) => ({ ...prev, ...partial }))}
+                    currentVideoTime={currentVideoTime}
                   />
 
                   {/* Che dải phụ đề cố định (Classic Bar Mask) */}
@@ -702,6 +761,17 @@ export default function ExportPage({ tasks }: Props) {
                     )}
                   </div>
                 </div>
+              )}
+
+              {/* 4. Tỉ lệ & Định dạng xuất */}
+              {hardsubTab === 'format' && (
+                <ExportFormatPanel
+                  formatOptions={formatOptions}
+                  onChangeFormat={(partial) =>
+                    setFormatOptions((prev) => ({ ...prev, ...partial }))
+                  }
+                  videoDurationSec={60}
+                />
               )}
             </div>
           )}
