@@ -616,6 +616,98 @@ export class WorkflowExecutionEngine {
         };
       }
 
+      case 'google-imagen': {
+        const adapter = adapterRegistry.get('google-flow');
+        const prompt = inputs['prompt'] || config.prompt || 'Cinematic artwork';
+        const aspectRatio = config.aspectRatio || '16:9';
+        const imgRes = await adapter.generateImage!({ prompt, aspectRatio }, ctx);
+        return {
+          image: imgRes.imageUrl,
+          sourceUrl: imgRes.imageUrl,
+          prompt,
+        };
+      }
+
+      case 'gemini-director': {
+        const adapter = adapterRegistry.get('google-flow');
+        const idea = inputs['idea_in'] || config.idea || config.prompt || '';
+        const charInput = inputs['character'];
+        const charName = charInput?.name || charInput?.characterName;
+        const dirRes = await adapter.directPrompt!(
+          {
+            idea,
+            tone: config.directorTone,
+            lighting: config.lightingStyle,
+            characterName: charName,
+          },
+          ctx
+        );
+        return {
+          prompt_out: dirRes.prompt,
+          prompt: dirRes.prompt,
+          text: dirRes.prompt,
+          negative_prompt_out: dirRes.negativePrompt,
+          negativePrompt: dirRes.negativePrompt,
+          camera_suggestion: dirRes.camera,
+        };
+      }
+
+      case 'prompt-concat': {
+        const separator = config.separator ?? ', ';
+        const parts: string[] = [];
+        for (const key of ['text_a', 'text_b', 'text_c']) {
+          const val = inputs[key];
+          if (val) {
+            if (typeof val === 'string') {
+              parts.push(val.trim());
+            } else if (typeof val === 'object' && val.prompt) {
+              parts.push(String(val.prompt).trim());
+            } else if (typeof val === 'object' && val.text) {
+              parts.push(String(val.text).trim());
+            }
+          }
+        }
+        const joined = parts.join(separator);
+        return {
+          text_out: joined,
+          text: joined,
+          prompt: joined,
+        };
+      }
+
+      case 'conditional': {
+        const condVal = inputs['condition'];
+        let isPass = true;
+        if (condVal !== undefined) {
+          if (typeof condVal === 'boolean') {
+            isPass = condVal;
+          } else if (typeof condVal === 'object' && condVal !== null) {
+            isPass = Boolean(condVal.qc_passed ?? condVal.passed ?? (condVal.score ? condVal.score >= 80 : true));
+          }
+        }
+
+        const videoIn = inputs['input_video'] || inputs['video'] || '';
+        return {
+          passed: isPass,
+          true_branch: isPass ? videoIn : undefined,
+          false_branch: !isPass ? videoIn : undefined,
+          video: videoIn,
+        };
+      }
+
+      case 'batch': {
+        const promptIn = inputs['prompt_in'] || inputs['prompt'] || config.prompt || '';
+        const size = Number(config.batchSize || 3);
+        const list = [];
+        for (let i = 0; i < size; i++) {
+          list.push(`${promptIn} (Variation #${i + 1})`);
+        }
+        return {
+          batch_out: list,
+          seeds: Array.from({ length: size }, (_, i) => 1000 + i),
+        };
+      }
+
       default:
         // Pass-through cho các node khác
         return {

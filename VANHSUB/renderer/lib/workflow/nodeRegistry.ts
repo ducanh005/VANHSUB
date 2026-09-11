@@ -293,88 +293,84 @@ export const NODE_DEFINITIONS: Record<string, NodeDefinition> = {
     },
   },
 
-  'kling-video': {
-    type: 'kling-video',
+  'google-imagen': {
+    type: 'google-imagen',
     category: 'model',
-    label: 'Kling AI Video',
-    description: 'Sinh video AI độ chân thực cao qua dịch vụ Kling AI.',
+    label: 'Google Imagen 3 (Image AI)',
+    description: 'Sinh hình ảnh chất lượng cao bằng Google Imagen 3 qua Gemini API làm Init Frame hoặc Storyboard.',
     inputs: [
-      { id: 'prompt', label: 'Prompt', dataType: 'text' },
-      { id: 'init_frame', label: 'Init Frame', dataType: 'image' },
+      { id: 'prompt', label: 'Prompt', dataType: 'text', description: 'Mô tả hình ảnh' },
+      { id: 'character', label: 'Nhân vật (Lock)', dataType: 'character_ref', description: 'Tham chiếu nhân vật' },
+      { id: 'scene', label: 'Bối cảnh', dataType: 'scene_ref', description: 'Tham chiếu bối cảnh' },
     ],
     outputs: [
-      { id: 'video', label: 'Video', dataType: 'video' },
-      { id: 'last_frame', label: 'Last Frame', dataType: 'image' },
+      { id: 'image', label: 'Ảnh sinh ra', dataType: 'image', description: 'Ảnh hoàn thiện' },
     ],
     configSchema: {
-      mode: {
-        type: 'select',
-        label: 'Chế độ render',
-        defaultValue: 'standard',
-        options: [
-          { label: 'Standard (Nhanh, tiết kiệm)', value: 'standard' },
-          { label: 'Professional (Chất lượng cao nhất)', value: 'pro' },
-        ],
+      prompt: {
+        type: 'textarea',
+        label: 'Prompt sinh ảnh',
+        defaultValue: 'Cinematic portrait of Vietnamese secret agent in futuristic Hanoi, neon rain, volumetric lighting, photorealistic 8k',
       },
-      durationSeconds: {
-        type: 'slider',
-        label: 'Thời lượng (giây)',
-        defaultValue: 5,
-        min: 5,
-        max: 10,
-        step: 5,
+      aspectRatio: {
+        type: 'select',
+        label: 'Tỷ lệ khung hình',
+        defaultValue: '16:9',
+        options: [
+          { label: '16:9 (Landscape)', value: '16:9' },
+          { label: '9:16 (Portrait / Reels)', value: '9:16' },
+          { label: '1:1 (Square)', value: '1:1' },
+          { label: '4:3 (Classic)', value: '4:3' },
+        ],
       },
     },
     defaultData: {
-      mode: 'standard',
-      durationSeconds: 5,
+      prompt: 'Cinematic portrait of Vietnamese secret agent in futuristic Hanoi, neon rain, volumetric lighting, photorealistic 8k',
+      aspectRatio: '16:9',
     },
   },
 
-  'sd-image': {
-    type: 'sd-image',
+  'gemini-director': {
+    type: 'gemini-director',
     category: 'model',
-    label: 'SD / Flux Image Generator',
-    description: 'Tạo hình ảnh chất lượng siêu cao để làm storyboard hoặc init-frame.',
+    label: 'Gemini AI Director (Đạo diễn Kịch bản)',
+    description: 'Dùng Google Gemini để mở rộng kịch bản thô thành prompt điện ảnh chuyên nghiệp tối ưu cho Google Veo.',
     inputs: [
-      { id: 'prompt', label: 'Prompt', dataType: 'text' },
-      { id: 'character', label: 'Character Lock', dataType: 'character_ref' },
+      { id: 'idea_in', label: 'Ý tưởng / Kịch bản thô', dataType: 'text', description: 'Văn bản kịch bản sơ khai' },
+      { id: 'character', label: 'Nhân vật', dataType: 'character_ref' },
     ],
     outputs: [
-      { id: 'image', label: 'Ảnh đầu ra', dataType: 'image' },
+      { id: 'prompt_out', label: 'Prompt Điện ảnh', dataType: 'text', description: 'Prompt chi tiết cho Google Veo' },
+      { id: 'negative_prompt_out', label: 'Negative Prompt', dataType: 'text' },
+      { id: 'camera_suggestion', label: 'Gợi ý Camera', dataType: 'any' },
     ],
     configSchema: {
-      model: {
+      directorTone: {
         type: 'select',
-        label: 'Model sinh ảnh',
-        defaultValue: 'flux-schnell',
+        label: 'Phong cách Đạo diễn',
+        defaultValue: 'cinematic_epic',
         options: [
-          { label: 'FLUX.1 [schnell] (Nhanh, đẹp)', value: 'flux-schnell' },
-          { label: 'FLUX.1 [dev] (Chất lượng tối đa)', value: 'flux-dev' },
-          { label: 'Stable Diffusion XL (SDXL)', value: 'sdxl' },
+          { label: 'Điện ảnh Hoành tráng (Cinematic Epic)', value: 'cinematic_epic' },
+          { label: 'Phim Hành động Kịch tính (Action Thriller)', value: 'action_thriller' },
+          { label: 'Tương lai Kỳ ảo (Cyberpunk / Sci-Fi)', value: 'cyberpunk_scifi' },
+          { label: 'Tài liệu Chân thực (Documentary Realism)', value: 'documentary' },
         ],
       },
-      steps: {
-        type: 'slider',
-        label: 'Số bước lấy mẫu (Sampling Steps)',
-        defaultValue: 25,
-        min: 10,
-        max: 50,
-        step: 1,
-      },
-      cfgScale: {
-        type: 'slider',
-        label: 'Độ tuân thủ Prompt (CFG)',
-        defaultValue: 7.5,
-        min: 1,
-        max: 15,
-        step: 0.5,
+      lightingStyle: {
+        type: 'select',
+        label: 'Ánh sáng chủ đạo',
+        defaultValue: 'volumetric_neon',
+        options: [
+          { label: 'Neon & Khói mờ (Volumetric Neon & Fog)', value: 'volumetric_neon' },
+          { label: 'Hoàng hôn vàng (Golden Hour Sunset)', value: 'golden_hour' },
+          { label: 'U tối kịch tính (Dramatic Chiaroscuro)', value: 'dramatic_dark' },
+          { label: 'Ánh sáng tự nhiên ban ngày (Natural Daylight)', value: 'natural_daylight' },
+        ],
       },
     },
     defaultData: {
-      model: 'flux-schnell',
-      steps: 25,
-      cfgScale: 7.5,
+      directorTone: 'cinematic_epic',
+      lightingStyle: 'volumetric_neon',
     },
   },
 
@@ -990,6 +986,31 @@ export const NODE_DEFINITIONS: Record<string, NodeDefinition> = {
     },
     defaultData: {
       conditionType: 'qc_passed',
+    },
+  },
+
+  'prompt-concat': {
+    type: 'prompt-concat',
+    category: 'logic',
+    label: 'Ghép Prompt (Prompt Concat)',
+    description: 'Ghép nối các chuỗi prompt, token phong cách và nhân vật thành câu lệnh thống nhất.',
+    inputs: [
+      { id: 'text_a', label: 'Chuỗi A', dataType: 'text' },
+      { id: 'text_b', label: 'Chuỗi B', dataType: 'text' },
+      { id: 'text_c', label: 'Chuỗi C (Tùy chọn)', dataType: 'text' },
+    ],
+    outputs: [
+      { id: 'text_out', label: 'Prompt Hoàn chỉnh', dataType: 'text' },
+    ],
+    configSchema: {
+      separator: {
+        type: 'string',
+        label: 'Ký tự phân cách',
+        defaultValue: ', ',
+      },
+    },
+    defaultData: {
+      separator: ', ',
     },
   },
 };

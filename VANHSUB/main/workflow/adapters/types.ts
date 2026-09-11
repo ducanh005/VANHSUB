@@ -28,8 +28,22 @@ export interface ImageGenParams {
   cfgScale?: number;
 }
 
+export interface DirectorPromptParams {
+  idea: string;
+  tone?: string;
+  lighting?: string;
+  characterName?: string;
+}
+
+export interface DirectorPromptResult {
+  prompt: string;
+  negativePrompt: string;
+  camera: string;
+}
+
 export interface ModelAdapter {
   provider: string;
   generateVideo(params: VideoGenParams, ctx: ExecutionContext): Promise<VideoGenResult>;
   generateImage?(params: ImageGenParams, ctx: ExecutionContext): Promise<{ imageUrl: string }>;
+  directPrompt?(params: DirectorPromptParams, ctx: ExecutionContext): Promise<DirectorPromptResult>;
 }
