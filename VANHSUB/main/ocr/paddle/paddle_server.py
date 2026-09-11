@@ -47,7 +47,7 @@ except ImportError as exc:
 
 
 # ---------------------------------------------------------------------------
-# Crop + enhance vùng chữ
+# Crop + Enhance vùng chữ
 # ---------------------------------------------------------------------------
 
 def get_rotate_crop_image(img, points):
@@ -63,28 +63,26 @@ def get_rotate_crop_image(img, points):
 
 
 def enhance(crop):
-    """Nâng chất ảnh crop trước khi nhận diện.
-
-    Video hardsub thực tế: chữ nhỏ do video độ phân giải thấp, nhiễu nén,
-    chữ hơi mờ. Ba bước đều là thao tác OpenCV nhẹ (vài ms / crop) — không
-    dùng fastNlMeansDenoising vì quá chậm khi nhân với hàng nghìn crop.
-    """
+    """Nâng chất ảnh crop trước khi nhận diện (upscale, bilateral, deblur, CLAHE)."""
     h, w = crop.shape[:2]
 
     # Chữ nhỏ hơn ngưỡng vào của model rec (48px) → phóng to, tối đa 3x
     if h < 48:
         scale = min(3.0, 48.0 / max(h, 1))
-        crop = cv2.resize(crop, (max(1, int(w * scale + 0.5)), max(1, int(h * scale + 0.5))),
-                          interpolation=cv2.INTER_CUBIC)
+        crop = cv2.resize(
+            crop,
+            (max(1, int(w * scale + 0.5)), max(1, int(h * scale + 0.5))),
+            interpolation=cv2.INTER_CUBIC,
+        )
 
-    # Khử nhiễu núng nhẹ nhưng giữ cạnh chữ (bilateral nhanh hơn nhiều so với NL-means)
+    # Khử nhiễu nhưng giữ cạnh chữ
     crop = cv2.bilateralFilter(crop, 5, 40, 40)
 
-    # Deblur: unsharp mask làm nét lại biên chữ bị mờ do nén/motion
+    # Deblur: unsharp mask làm nét biên chữ bị mờ do nén/motion
     blur = cv2.GaussianBlur(crop, (0, 0), 3)
     crop = cv2.addWeighted(crop, 1.6, blur, -0.6, 0)
 
-    # Nền sáng làm chữ tương phản kém → CLAHE kênh Y (chỉ khi thật sự cần)
+    # Tăng tương phản khi nền sáng/tương phản kém
     y = cv2.cvtColor(crop, cv2.COLOR_BGR2YUV)[:, :, 0]
     if float(y.std()) < 45:
         yuv = cv2.cvtColor(crop, cv2.COLOR_BGR2YUV)
@@ -94,18 +92,106 @@ def enhance(crop):
     return crop
 
 
+def get_crop_sharpness(crop):
+    """Tính độ nét ảnh crop qua phương sai Laplacian (càng lớn càng nét)."""
+    if crop is None or crop.size == 0:
+        return 0.0
+    gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+    return float(cv2.Laplacian(gray, cv2.CV_64F).var())
+
+
 # ---------------------------------------------------------------------------
-# Engine
+# Hình học & Tracking Bounding Box
+# ---------------------------------------------------------------------------
+
+def box_to_rect(box):
+    """Từ 4 điểm polygon [[x0,y0], [x1,y1], ...] trả về [x0, y0, w, h]."""
+    xs = [p[0] for p in box]
+    ys = [p[1] for p in box]
+    min_x, max_x = min(xs), max(xs)
+    min_y, max_y = min(ys), max(ys)
+    return [min_x, min_y, max(1.0, max_x - min_x), max(1.0, max_y - min_y)]
+
+
+def box_iou(rect_a, rect_b):
+    """Tính Intersection-over-Union của 2 hình chữ nhật [x0, y0, w, h]."""
+    xa0, ya0, wa, ha = rect_a
+    xb0, yb0, wb, hb = rect_b
+    xa1, ya1 = xa0 + wa, ya0 + ha
+    xb1, yb1 = xb0 + wb, yb0 + hb
+
+    inter_x0 = max(xa0, xb0)
+    inter_y0 = max(ya0, yb0)
+    inter_x1 = min(xa1, xb1)
+    inter_y1 = min(ya1, yb1)
+
+    if inter_x1 <= inter_x0 or inter_y1 <= inter_y0:
+        return 0.0
+
+    inter_area = (inter_x1 - inter_x0) * (inter_y1 - inter_y0)
+    area_a = wa * ha
+    area_b = wb * hb
+    union_area = area_a + area_b - inter_area
+    if union_area <= 0:
+        return 0.0
+    return inter_area / union_area
+
+
+def crop_diff(crop_a, crop_b):
+    """Tính độ khác biệt pixel giữa 2 ảnh crop để phát hiện đổi câu phụ đề."""
+    if crop_a is None or crop_b is None or crop_a.size == 0 or crop_b.size == 0:
+        return 999.0
+    try:
+        ga = cv2.cvtColor(cv2.resize(crop_a, (100, 32)), cv2.COLOR_BGR2GRAY)
+        gb = cv2.cvtColor(cv2.resize(crop_b, (100, 32)), cv2.COLOR_BGR2GRAY)
+        return float(np.mean(cv2.absdiff(ga, gb)))
+    except Exception:
+        return 999.0
+
+
+def box_match_score(rect_a, rect_b, crop_a=None, crop_b=None):
+    """Tính điểm tương đồng vị trí và nội dung ảnh giữa 2 box để tracking."""
+    # Nếu có ảnh crop, kiểm tra nội dung text có đổi sang câu mới không
+    if crop_a is not None and crop_b is not None:
+        diff = crop_diff(crop_a, crop_b)
+        # Nếu pixel chữ khác biệt lớn (> 28.0) -> câu thoại mới tại cùng vị trí màn hình!
+        if diff > 28.0:
+            return 0.0
+
+    iou = box_iou(rect_a, rect_b)
+    if iou >= 0.35:
+        return iou + 1.0  # ưu tiên cao nếu IoU tốt
+
+    xa0, ya0, wa, ha = rect_a
+    xb0, yb0, wb, hb = rect_b
+    xa1, ya1 = xa0 + wa, ya0 + ha
+    xb1, yb1 = xb0 + wb, yb0 + hb
+
+    min_h = max(1.0, min(ha, hb))
+    v_overlap = max(0.0, min(ya1, yb1) - max(ya0, yb0)) / min_h
+
+    min_w = max(1.0, min(wa, wb))
+    h_overlap = max(0.0, min(xa1, xb1) - max(xa0, xb0)) / min_w
+
+    cy_a = ya0 + ha / 2.0
+    cy_b = yb0 + hb / 2.0
+    cy_dist = abs(cy_a - cy_b) / min_h
+
+    # Nếu cùng hàng dọc (v_overlap cao, cy_dist nhỏ) và có chồng lấn ngang
+    if v_overlap >= 0.55 and cy_dist <= 0.45 and h_overlap >= 0.20:
+        return v_overlap * 0.7 + h_overlap * 0.3
+
+    return 0.0
+
+
+# ---------------------------------------------------------------------------
+# Sắp xếp thứ tự đọc
 # ---------------------------------------------------------------------------
 
 def sort_reading_order(boxes):
-    """Sắp box theo thứ tự đọc: nhóm thành hàng (các box dọc chồng nhau) rồi
-    trái → phải trong từng hàng.
-
-    Cần thiết vì: (a) det model hay tách 1 dòng chữ thành nhiều box TỪNG TỪ
-    với tâm y lệch nhẹ vài px — sort thô theo min-y làm trộn thứ tự từ;
-    (b) phụ đề nhiều dòng phải đọc dòng trên trước dòng dưới.
-    """
+    """Sắp xếp các box theo thứ tự đọc: trên → dưới, trái → phải."""
+    if not boxes:
+        return []
     items = []
     for b in boxes:
         xs = [p[0] for p in b]
@@ -113,12 +199,11 @@ def sort_reading_order(boxes):
         items.append({"y0": min(ys), "y1": max(ys), "x0": min(xs), "box": b})
 
     items.sort(key=lambda it: (it["y0"], it["x0"]))
-    rows: list[list[dict]] = []
+    rows = []
     for it in items:
         placed = False
         for row in rows:
             ref = row[-1]
-            # Cùng hàng nếu vùng chữ dọc chồng nhau >= 30% chiều cao thấp hơn
             overlap = min(it["y1"], ref["y1"]) - max(it["y0"], ref["y0"])
             min_h = max(1.0, min(it["y1"] - it["y0"], ref["y1"] - ref["y0"]))
             if overlap >= 0.3 * min_h:
@@ -128,10 +213,46 @@ def sort_reading_order(boxes):
         if not placed:
             rows.append([it])
 
+    rows.sort(key=lambda r: min(it["y0"] for it in r))
     ordered = []
     for row in rows:
         row.sort(key=lambda it: it["x0"])
         ordered.extend(it["box"] for it in row)
+    return ordered
+
+
+def sort_lines_reading_order(lines):
+    """Sắp xếp các dòng/từ trong cùng một khung theo thứ tự đọc: trên → dưới, trái → phải."""
+    if not lines:
+        return []
+    items = list(lines)
+    items.sort(key=lambda it: (it.get("y0", 0), it.get("x0", 0)))
+
+    rows = []
+    for it in items:
+        y0 = it.get("y0", 0)
+        h = max(1, it.get("h", 1))
+        y1 = y0 + h
+
+        placed = False
+        for row in rows:
+            ref = row[-1]
+            ref_y0 = ref.get("y0", 0)
+            ref_y1 = ref_y0 + max(1, ref.get("h", 1))
+            overlap = min(y1, ref_y1) - max(y0, ref_y0)
+            min_h = max(1.0, min(h, ref.get("h", 1)))
+            if overlap >= 0.3 * min_h:
+                row.append(it)
+                placed = True
+                break
+        if not placed:
+            rows.append([it])
+
+    rows.sort(key=lambda r: min(it.get("y0", 0) for it in r))
+    ordered = []
+    for row in rows:
+        row.sort(key=lambda it: it.get("x0", 0))
+        ordered.extend(row)
     return ordered
 
 
@@ -150,25 +271,61 @@ def build_engine(rec_lang, det_version, rec_version, model_type, text_score):
         "Rec.ocr_version": getattr(OCRVersion, rec_version, OCRVersion.PPOCRV5),
         "Rec.lang_type": rec_lang,
         "Rec.model_type": resolve_enum(ModelType, [model_type], ModelType.MOBILE),
-        # Ngưỡng thấp hơn mặc định (0.5): hardsub trên nền bận hay bị chấm điểm
-        # thấp — để lượt so sánh 2 engine phía Node quyết định giữ/bỏ
         "Global.text_score": text_score,
     }
     return RapidOCR(params=params)
 
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--job", required=True, help="Đường dẫn file job JSON")
-    args = ap.parse_args()
+# ---------------------------------------------------------------------------
+# Pipeline Chính: Detection → Tracking → Classification → Recognition
+# ---------------------------------------------------------------------------
 
-    job = json.loads(Path(args.job).read_text(encoding="utf-8"))
+class TextTrack:
+    def __init__(self, track_id, first_frame, box, rect, sharpness, crop):
+        self.track_id = track_id
+        self.first_frame = first_frame
+        self.last_frame = first_frame
+        self.missed_count = 0
+        self.frames = {first_frame: {"box": box, "rect": rect, "sharpness": sharpness}}
+        self.rects = [rect]
+        self.best_frame = first_frame
+        self.best_sharpness = sharpness
+        self.best_crop = crop
+        self.last_crop = crop
+        self.best_box = box
+        # Kết quả recognition
+        self.text = ""
+        self.conf = 0.0
+        self.crop_path = ""
+        self.classification = "unknown"
+
+    def add_detection(self, frame_idx, box, rect, sharpness, crop):
+        self.frames[frame_idx] = {"box": box, "rect": rect, "sharpness": sharpness}
+        self.rects.append(rect)
+        self.last_frame = frame_idx
+        self.last_crop = crop
+        self.missed_count = 0
+        if sharpness > self.best_sharpness:
+            self.best_sharpness = sharpness
+            self.best_frame = frame_idx
+            self.best_crop = crop
+            self.best_box = box
+
+    @property
+    def avg_rect(self):
+        xs = [r[0] for r in self.rects]
+        ys = [r[1] for r in self.rects]
+        ws = [r[2] for r in self.rects]
+        hs = [r[3] for r in self.rects]
+        return [float(np.mean(xs)), float(np.mean(ys)), float(np.mean(ws)), float(np.mean(hs))]
+
+
+def run_pipeline(job):
     frames = job["frames"]
     out_path = Path(job["outPath"])
     crops_dir = Path(job["cropsDir"])
     crops_dir.mkdir(parents=True, exist_ok=True)
 
-    # Lang rec: nhận TÊN member enum (CH/EN/KOREAN/LATIN/THAI) từ Node
     lang_names = job.get("recLangNames", ["CH"])
     rec_lang = resolve_enum(LangRec, lang_names, LangRec.CH)
 
@@ -180,85 +337,272 @@ def main():
             job.get("modelType", "MOBILE"),
             float(job.get("textScore", 0.25)),
         )
-    except Exception as exc:  # noqa: BLE001 — báo lỗi mặc định rồi exit
+    except Exception as exc:
         emit({"type": "error", "msg": f"Không khởi tạo được RapidOCR: {exc}"})
         sys.exit(3)
+
     emit({"type": "ready"})
 
     video_w = int(job.get("videoWidth") or 0)
     video_h = int(job.get("videoHeight") or 0)
     offset_ratio = float(job.get("regionOffsetRatio") or 0.0)
+    ocr_mode = str(job.get("ocrMode") or "").lower()
+    if not ocr_mode:
+        ocr_mode = "bottom" if offset_ratio > 0.3 else "auto"
+    custom_region = job.get("customRegion")  # {"x": float, "y": float, "w": float, "h": float}
 
-    total = len(frames)
-    with out_path.open("w", encoding="utf-8") as out:
-        for i, frame_path in enumerate(frames):
-            try:
-                lines = process_frame(engine, frame_path, crops_dir, i,
-                                      video_w, video_h, offset_ratio)
-                out.write(json.dumps({"i": i, "lines": lines}, ensure_ascii=False) + "\n")
-                out.flush()
-            except Exception as exc:  # noqa: BLE001 — 1 khung lỗi không giết cả quét
-                emit({"type": "warning", "msg": f"Khung {i} ({frame_path}): {exc}"})
-                out.write(json.dumps({"i": i, "lines": []}, ensure_ascii=False) + "\n")
-                out.flush()
-            emit({"type": "progress", "done": i + 1, "total": total})
+    total_frames = len(frames)
+    active_tracks = []
+    closed_tracks = []
+    next_track_id = 1
 
-    sys.exit(0)
+    frame_w = video_w if video_w > 0 else 1280
+    frame_h = video_h if video_h > 0 else 720
 
+    # =========================================================================
+    # Giai đoạn 1 & 2: Full-screen Text Detection & Tracking qua từng khung
+    # =========================================================================
+    emit({"type": "stage", "name": "detect", "msg": "Đang phát hiện và theo dõi vị trí chữ..."})
 
-def process_frame(engine, frame_path, crops_dir, index, video_w, video_h, offset_ratio):
-    img = cv2.imread(str(frame_path))
-    if img is None:
-        raise RuntimeError(f"không đọc được ảnh: {frame_path}")
+    for i, frame_path in enumerate(frames):
+        img = cv2.imread(str(frame_path))
+        if img is None:
+            emit({"type": "warning", "msg": f"Khung {i}: không đọc được ảnh {frame_path}"})
+            continue
 
-    # Map tọa độ y từ hệ (khung đã crop vùng + scale) về hệ toạ độ video gốc
-    # để lớp lọc watermark so sánh với ngưỡng 25% chiều cao video thật
-    fh, fw = img.shape[:2]
-    scale = (fw / video_w) if video_w > 0 else 1.0
+        fh, fw = img.shape[:2]
+        frame_w, frame_h = fw, fh
+
+        # Detect hộp chữ trên khung hình
+        try:
+            det_result = engine(img, use_det=True, use_cls=False, use_rec=False)
+            raw_boxes = getattr(det_result, "boxes", None) if det_result is not None else None
+            detected_boxes = np.asarray(raw_boxes).tolist() if raw_boxes is not None and len(raw_boxes) > 0 else []
+            detected_boxes = sort_reading_order(detected_boxes)
+        except Exception as exc:
+            emit({"type": "warning", "msg": f"Lỗi detection khung {i}: {exc}"})
+            detected_boxes = []
+
+        # Chuẩn bị detections của khung này
+        frame_detections = []
+        for box in detected_boxes:
+            rect = box_to_rect(box)
+            # Lọc nhiễu quá bé (chiều cao < 6px hoặc diện tích < 50px)
+            if rect[3] < 6 or (rect[2] * rect[3]) < 50:
+                continue
+            crop = get_rotate_crop_image(img, box)
+            sharpness = get_crop_sharpness(crop)
+            frame_detections.append({
+                "box": box,
+                "rect": rect,
+                "sharpness": sharpness,
+                "crop": crop,
+            })
+
+        # Ghép nối (Tracking) với active_tracks (so sánh vị trí + độ đổi nội dung crop)
+        matched_track_ids = set()
+        matched_det_indices = set()
+
+        matches = []
+        for det_idx, det in enumerate(frame_detections):
+            for t_idx, track in enumerate(active_tracks):
+                score = box_match_score(det["rect"], track.rects[-1], det["crop"], track.last_crop)
+                if score > 0:
+                    matches.append((score, det_idx, t_idx))
+
+        # Khớp tham lam theo điểm cao nhất
+        matches.sort(key=lambda m: m[0], reverse=True)
+        for score, det_idx, t_idx in matches:
+            if det_idx in matched_det_indices or t_idx in matched_track_ids:
+                continue
+            matched_det_indices.add(det_idx)
+            matched_track_ids.add(t_idx)
+            det = frame_detections[det_idx]
+            active_tracks[t_idx].add_detection(i, det["box"], det["rect"], det["sharpness"], det["crop"])
+
+        # Các active_tracks không khớp ở khung này
+        still_active = []
+        for t_idx, track in enumerate(active_tracks):
+            if t_idx not in matched_track_ids:
+                track.missed_count += 1
+                # Nếu mất dấu quá 2 khung liên tiếp (~1s ở 2fps) -> đóng track
+                if track.missed_count > 2:
+                    closed_tracks.append(track)
+                else:
+                    still_active.append(track)
+            else:
+                still_active.append(track)
+        active_tracks = still_active
+
+        # Các detections chưa khớp -> tạo track mới
+        for det_idx, det in enumerate(frame_detections):
+            if det_idx not in matched_det_indices:
+                new_track = TextTrack(
+                    track_id=next_track_id,
+                    first_frame=i,
+                    box=det["box"],
+                    rect=det["rect"],
+                    sharpness=det["sharpness"],
+                    crop=det["crop"],
+                )
+                next_track_id += 1
+                active_tracks.append(new_track)
+
+        emit({"type": "progress", "stage": "detect", "done": i + 1, "total": total_frames})
+
+    # Đóng tất cả track còn lại
+    closed_tracks.extend(active_tracks)
+
+    # =========================================================================
+    # Giai đoạn 3: Classification & Lọc theo OCR Mode
+    # =========================================================================
+    emit({"type": "stage", "name": "classify", "msg": "Đang phân loại phụ đề và lọc logo/watermark..."})
+
+    valid_tracks = []
+    for track in closed_tracks:
+        frame_count = len(track.frames)
+        total_duration_frames = track.last_frame - track.first_frame + 1
+        presence_ratio = frame_count / max(1, total_frames)
+
+        avg_rect = track.avg_rect
+        x0, y0, w, h = avg_rect
+        y0_ratio = y0 / max(1.0, frame_h)
+        y1_ratio = (y0 + h) / max(1.0, frame_h)
+        x0_ratio = x0 / max(1.0, frame_w)
+        x1_ratio = (x0 + w) / max(1.0, frame_w)
+
+        # Phân loại:
+        # Watermark / Logo / Channel Name tĩnh:
+        # 1. Chỉ xét khi video có ít nhất 20 frames (~10s)
+        # 2. Xuất hiện cả ở 15% đầu VÀ 15% cuối video (spans_video) VÀ ở top/corner hoặc chiếm >= 50% thời lượng
+        # 3. HOẶC xuất hiện liên tục >= 40 frames (>= 20s) ở vùng top/corner
+        spans_video = (track.first_frame <= max(2, int(total_frames * 0.15))) and (track.last_frame >= min(total_frames - 3, int(total_frames * 0.85)))
+        is_corner = (x1_ratio <= 0.25 or x0_ratio >= 0.75) and (y1_ratio <= 0.25 or y0_ratio >= 0.85)
+
+        is_watermark = False
+        if total_frames >= 20:
+            if spans_video and (y1_ratio <= 0.30 or is_corner or presence_ratio >= 0.50):
+                is_watermark = True
+            elif total_duration_frames >= 40 and (y1_ratio <= 0.30 or is_corner):
+                is_watermark = True
+
+        if is_watermark:
+            track.classification = "watermark"
+        elif frame_count == 1 and (w * h < 150 or h < 6):
+            track.classification = "noise"
+        else:
+            track.classification = "subtitle"
+
+        # Lọc theo chế độ người dùng chọn:
+        keep = False
+        if ocr_mode == "auto":
+            keep = (track.classification == "subtitle")
+        elif ocr_mode == "bottom":
+            in_bottom = (offset_ratio > 0.3) or (y1_ratio >= 0.55)
+            keep = in_bottom and (track.classification != "watermark")
+        elif ocr_mode == "full":
+            keep = (track.classification != "noise")
+        elif ocr_mode == "custom":
+            if custom_region and isinstance(custom_region, dict):
+                cx0 = float(custom_region.get("x", 0.0))
+                cy0 = float(custom_region.get("y", 0.0))
+                cw = float(custom_region.get("w", 1.0))
+                ch = float(custom_region.get("h", 1.0))
+                cx1, cy1 = cx0 + cw, cy0 + ch
+
+                center_x_ratio = (x0 + w / 2.0) / max(1.0, frame_w)
+                center_y_ratio = (y0 + h / 2.0) / max(1.0, frame_h)
+
+                in_custom = (cx0 <= center_x_ratio <= cx1) and (cy0 <= center_y_ratio <= cy1)
+                keep = in_custom and (track.classification != "noise")
+            else:
+                keep = (track.classification == "subtitle")
+        else:
+            keep = (track.classification == "subtitle")
+
+        if keep:
+            valid_tracks.append(track)
+
+    # =========================================================================
+    # Giai đoạn 4: Recognition (OCR) cho các Subtitle Tracklet được giữ lại
+    # =========================================================================
+    emit({"type": "stage", "name": "recognize", "msg": f"Đang nhận diện chữ trên {len(valid_tracks)} đoạn phụ đề..."})
+
+    scale = (frame_w / video_w) if video_w > 0 else 1.0
     offset_px = offset_ratio * video_h if video_h > 0 else 0.0
 
-    result = engine(img, use_det=True, use_cls=False, use_rec=False)
-    boxes = getattr(result, "boxes", None) if result is not None else None
-    if boxes is None or len(boxes) == 0:
-        return []
+    recognized_tracks = []
+    total_valid = max(1, len(valid_tracks))
 
-    # Thứ tự đọc: nhóm theo hàng dọc rồi trái → phải (xem sort_reading_order)
-    boxes = sort_reading_order(np.asarray(boxes).tolist())
-
-    lines = []
-    for li, box in enumerate(boxes):
-        crop = get_rotate_crop_image(img, box)
-        if crop is None:
+    for t_idx, track in enumerate(valid_tracks):
+        crop = track.best_crop
+        if crop is None or crop.size == 0:
             continue
+
         crop = enhance(crop)
-
-        crop_path = crops_dir / f"f{index:06d}_l{li:02d}.png"
+        crop_filename = f"t{track.track_id:04d}_f{track.best_frame:06d}.png"
+        crop_path = crops_dir / crop_filename
         cv2.imwrite(str(crop_path), crop)
+        track.crop_path = str(crop_path)
 
-        rec = engine(crop, use_det=False, use_cls=True, use_rec=True)
-        txts = getattr(rec, "txts", None) if rec is not None else None
+        rec_result = engine(crop, use_det=False, use_cls=True, use_rec=True)
+        txts = getattr(rec_result, "txts", None) if rec_result is not None else None
         if not txts:
             continue
         text = str(txts[0]).strip()
         if not text:
             continue
-        scores = getattr(rec, "scores", None)
+        scores = getattr(rec_result, "scores", None)
         conf = float(scores[0]) if scores else 0.0
 
-        ys = [p[1] for p in box]
-        xs = [p[0] for p in box]
-        lines.append({
-            "text": text,
-            "conf": round(conf, 4),
-            # y0/x0 theo toạ độ video gốc (0 = đỉnh khung)
-            "y0": int(round(min(ys) / scale + offset_px)),
-            "x0": int(round(min(xs) / scale)),
-            "w": int(round((max(xs) - min(xs)) / scale)),
-            "h": int(round((max(ys) - min(ys)) / scale)),
-            "crop": str(crop_path),
-        })
-    return lines
+        track.text = text
+        track.conf = round(conf, 4)
+        recognized_tracks.append(track)
+
+        emit({"type": "progress", "stage": "recognize", "done": t_idx + 1, "total": total_valid})
+
+    # =========================================================================
+    # Giai đoạn 5: Format Output JSONL theo khung hình
+    # =========================================================================
+    frame_lines = [[] for _ in range(total_frames)]
+
+    for track in recognized_tracks:
+        avg_x, avg_y, avg_w, avg_h = track.avg_rect
+        line_data = {
+            "text": track.text,
+            "conf": track.conf,
+            "y0": int(round(avg_y / scale + offset_px)),
+            "x0": int(round(avg_x / scale)),
+            "w": int(round(avg_w / scale)),
+            "h": int(round(avg_h / scale)),
+            "crop": track.crop_path,
+            "trackId": track.track_id,
+            "firstFrame": track.first_frame,
+            "lastFrame": track.last_frame,
+        }
+        for f_idx in track.frames:
+            if 0 <= f_idx < total_frames:
+                frame_lines[f_idx].append(line_data)
+
+    with out_path.open("w", encoding="utf-8") as out:
+        for i in range(total_frames):
+            lines = sort_lines_reading_order(frame_lines[i])
+            out.write(json.dumps({"i": i, "lines": lines}, ensure_ascii=False) + "\n")
+            out.flush()
+
+    emit({"type": "done", "totalTracks": len(recognized_tracks), "totalFrames": total_frames})
+    sys.exit(0)
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--job", required=True, help="Đường dẫn file job JSON")
+    args = ap.parse_args()
+
+    job = json.loads(Path(args.job).read_text(encoding="utf-8"))
+    run_pipeline(job)
 
 
 if __name__ == "__main__":
     main()
+
