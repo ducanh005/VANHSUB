@@ -19,7 +19,7 @@ import {
 } from 'lucide-react';
 import ASRModelSelector from './ASRModelSelector';
 import { VOICE_OPTIONS, SPEED_OPTIONS } from '../lib/ttsOptions';
-import type { SettingKey } from '../types/electron';
+import type { SettingKey, OcrMode } from '../types/electron';
 
 interface ModelInfo {
   name: string;
@@ -142,7 +142,7 @@ export default function SettingsPage() {
   const [ttsSpeed, setTtsSpeed] = useState(1.0);
   const [ocrLanguage, setOcrLanguage] = useState('vie');
   const [ocrFps, setOcrFps] = useState(2);
-  const [ocrRegion, setOcrRegion] = useState<'bottom' | 'full'>('bottom');
+  const [ocrMode, setOcrMode] = useState<OcrMode>('auto');
   const [ocrDualEngine, setOcrDualEngine] = useState(true);
   const [glossary, setGlossary] = useState('');
   const [translationStyleGuide, setTranslationStyleGuide] = useState('');
@@ -211,12 +211,12 @@ export default function SettingsPage() {
       window.vanhsub.settings.get('ttsSpeed'),
       window.vanhsub.settings.get('ocrLanguage'),
       window.vanhsub.settings.get('ocrFps'),
-      window.vanhsub.settings.get('ocrRegion'),
+      window.vanhsub.settings.get('ocrMode'),
       window.vanhsub.settings.get('ocrDualEngine'),
       window.vanhsub.settings.get('glossary'),
       window.vanhsub.settings.get('translationStyleGuide'),
     ])
-      .then(([key, gModel, lang, aModel, expDir, batchSize, concurrency, autoTrans, ttsEndpoint, voice, spd, oLang, oFps, oRegion, oDual, glossaryVal, styleVal]) => {
+      .then(([key, gModel, lang, aModel, expDir, batchSize, concurrency, autoTrans, ttsEndpoint, voice, spd, oLang, oFps, oMode, oDual, glossaryVal, styleVal]) => {
         if (key) setApiKey(key);
         if (gModel) {
           setGeminiModel(gModel);
@@ -235,7 +235,9 @@ export default function SettingsPage() {
         if (spd) setTtsSpeed(Number(spd) || 1.0);
         if (oLang) setOcrLanguage(String(oLang));
         if (oFps) setOcrFps(Number(oFps) || 2);
-        if (oRegion) setOcrRegion(oRegion === 'full' ? 'full' : 'bottom');
+        if (oMode && ['auto', 'bottom', 'full', 'custom'].includes(String(oMode))) {
+          setOcrMode(oMode as OcrMode);
+        }
         if (oDual !== undefined) setOcrDualEngine(oDual !== false);
         if (glossaryVal !== undefined) setGlossary(String(glossaryVal || ''));
         if (styleVal !== undefined) setTranslationStyleGuide(String(styleVal || ''));
@@ -293,7 +295,8 @@ export default function SettingsPage() {
         window.vanhsub.settings.set('ttsSpeed', Number(ttsSpeed) || 1.0),
         window.vanhsub.settings.set('ocrLanguage', ocrLanguage),
         window.vanhsub.settings.set('ocrFps', Math.min(5, Math.max(0.5, Number(ocrFps) || 2))),
-        window.vanhsub.settings.set('ocrRegion', ocrRegion),
+        window.vanhsub.settings.set('ocrMode', ocrMode),
+        window.vanhsub.settings.set('ocrRegion', ocrMode === 'bottom' ? 'bottom' : 'full'),
         window.vanhsub.settings.set('ocrDualEngine', ocrDualEngine),
         window.vanhsub.settings.set('glossary', glossary),
         window.vanhsub.settings.set('translationStyleGuide', translationStyleGuide),
@@ -1171,51 +1174,103 @@ export default function SettingsPage() {
                   <option value="vie">Tiếng Việt</option>
                   <option value="eng">English</option>
                   <option value="vie+eng">Việt + Anh (song ngữ)</option>
-                  <option value="jpn">Japanese</option>
-                  <option value="kor">Korean</option>
                   <option value="chi_sim">Chinese (Giản thể)</option>
                   <option value="chi_tra">Chinese (Phồn thể)</option>
+                  <option value="jpn">Japanese</option>
+                  <option value="kor">Korean</option>
                   <option value="tha">Thai</option>
                 </select>
               </div>
 
               <div>
-                <label className="mb-1 block font-medium text-slate-200">Vùng quét phụ đề</label>
-                <select
-                  value={ocrRegion}
+                <label className="mb-1 block font-medium text-slate-200">Số khung quét mỗi giây</label>
+                <input
+                  type="number"
+                  min={0.5}
+                  max={5}
+                  step={0.5}
+                  value={ocrFps}
                   onChange={(e) => {
-                    const v = e.target.value === 'full' ? 'full' : 'bottom';
-                    setOcrRegion(v);
-                    void autoSaveSetting('ocrRegion', v);
+                    const v = Number(e.target.value);
+                    setOcrFps(v);
+                    // Chỉ tự lưu giá trị hợp lệ — gõ dở thì đợi giá trị đạt khoảng cho phép
+                    if (v >= 0.5 && v <= 5) void autoSaveSetting('ocrFps', v);
                   }}
-                  className="w-full rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-white focus:outline-none"
-                >
-                  <option value="bottom">Đáy khung hình (Khuyên dùng)</option>
-                  <option value="full">Toàn khung hình</option>
-                </select>
-                <span className="text-[10px] text-slate-400">Đổi sang "Toàn khung" nếu phụ đề nằm giữa màn hình</span>
+                  className="w-full rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 font-mono text-xs text-white focus:outline-none"
+                />
+                <span className="text-[10px] text-slate-400">
+                  2 khung/giây là cân bằng tốc độ — độ chính xác (quét chậm hơn nhưng đỡ sót dòng)
+                </span>
               </div>
             </div>
 
+            {/* Chế độ OCR Mode */}
             <div>
-              <label className="mb-1 block font-medium text-slate-200">Số khung quét mỗi giây</label>
-              <input
-                type="number"
-                min={0.5}
-                max={5}
-                step={0.5}
-                value={ocrFps}
-                onChange={(e) => {
-                  const v = Number(e.target.value);
-                  setOcrFps(v);
-                  // Chỉ tự lưu giá trị hợp lệ — gõ dở thì đợi giá trị đạt khoảng cho phép
-                  if (v >= 0.5 && v <= 5) void autoSaveSetting('ocrFps', v);
-                }}
-                className="w-full rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 font-mono text-xs text-white focus:outline-none"
-              />
-              <span className="text-[10px] text-slate-400">
-                2 khung/giây là cân bằng tốc độ — độ chính xác (quét chậm hơn nhưng đỡ sót dòng)
-              </span>
+              <label className="mb-2 block font-medium text-slate-200">
+                Chế độ quét (OCR Mode)
+              </label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                {[
+                  {
+                    id: 'auto',
+                    title: 'Auto',
+                    desc: 'Tự tìm subtitle trên toàn màn hình (AI tracking & loại bỏ watermark)',
+                    badge: 'Khuyên dùng',
+                    badgeColor: 'border-brand-cyan/40 bg-brand-cyan/15 text-brand-cyan',
+                  },
+                  {
+                    id: 'bottom',
+                    title: 'Bottom',
+                    desc: 'Chỉ tìm vùng dưới (~35% dải đáy màn hình)',
+                  },
+                  {
+                    id: 'full',
+                    title: 'Full Screen',
+                    desc: 'Nhận diện tất cả text trên toàn khung hình',
+                  },
+                  {
+                    id: 'custom',
+                    title: 'Custom',
+                    desc: 'Người dùng kéo vùng cần OCR (chọn khi bấm Quét OCR ở tab Phụ đề & ASR)',
+                    badge: 'Kéo vùng',
+                    badgeColor: 'border-purple-500/40 bg-purple-500/15 text-purple-300',
+                  },
+                ].map((item) => {
+                  const isSelected = ocrMode === item.id;
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => {
+                        const m = item.id as OcrMode;
+                        setOcrMode(m);
+                        void autoSaveSetting('ocrMode', m);
+                        void autoSaveSetting('ocrRegion', m === 'bottom' ? 'bottom' : 'full');
+                      }}
+                      className={`relative flex items-start gap-2.5 rounded-xl border p-3 text-left transition cursor-pointer ${
+                        isSelected
+                          ? 'border-brand-cyan bg-brand-cyan/10 shadow-sm shadow-brand-cyan/20'
+                          : 'border-slate-800 bg-slate-900/80 hover:border-slate-700'
+                      }`}
+                    >
+                      <div className="mt-0.5 flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full border border-slate-600 bg-slate-800">
+                        {isSelected && <div className="h-1.5 w-1.5 rounded-full bg-brand-cyan" />}
+                      </div>
+                      <div className="flex-1">
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-semibold text-white text-xs">{item.title}</span>
+                          {item.badge && (
+                            <span className={`rounded-full border px-1.5 py-0.2 text-[9px] font-bold ${item.badgeColor}`}>
+                              {item.badge}
+                            </span>
+                          )}
+                        </div>
+                        <p className="mt-1 text-[10.5px] leading-relaxed text-slate-400">{item.desc}</p>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
 
             <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-slate-700 bg-slate-800/60 p-3">

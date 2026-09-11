@@ -11,8 +11,10 @@ import {
   Square,
 } from 'lucide-react';
 import type { Task, TaskStatus } from '../types/task';
+import type { OcrStartOptions } from '../types/electron';
 import { parseSrt } from '../lib/srt';
 import ASRModelSelector from './ASRModelSelector';
+import OcrConfigModal from './OcrConfigModal';
 
 /**
  * Workspace dành riêng cho giai đoạn Phụ đề & ASR:
@@ -48,6 +50,7 @@ export default function ASRWorkspace({ tasks }: { tasks: Task[] }) {
   const [starting, setStarting] = useState(false);
   const [message, setMessage] = useState('');
   const [isError, setIsError] = useState(false);
+  const [isOcrModalOpen, setIsOcrModalOpen] = useState(false);
 
   const selectedTask = tasks.find((t) => t.id === selectedTaskId) || null;
   const isTranscribing = selectedTask?.status === 'transcribing';
@@ -121,8 +124,9 @@ export default function ASRWorkspace({ tasks }: { tasks: Task[] }) {
     }
   };
 
-  // Quét phụ đề cứng (hardsub) trong video bằng OCR → tạo file .srt cho tác vụ
-  const handleStartOcr = async () => {    if (!selectedTask || isBusy || isAudio) return;
+  // Mở modal cấu hình OCR cho video
+  const handleStartOcr = () => {
+    if (!selectedTask || isBusy || isAudio) return;
     if (
       hasSrt &&
       !window.confirm(
@@ -131,11 +135,18 @@ export default function ASRWorkspace({ tasks }: { tasks: Task[] }) {
     ) {
       return;
     }
+    setIsOcrModalOpen(true);
+  };
+
+  // Thực thi OCR với cấu hình do người dùng lựa chọn từ modal
+  const handleExecuteOcr = async (options: OcrStartOptions) => {
+    if (!selectedTask) return;
     setMessage('');
     setIsError(false);
     try {
-      await window.vanhsub.ocr.start(selectedTask.id);
-      setMessage('Đã bắt đầu quét OCR — theo dõi tiến trình ở Trang chủ.');
+      await window.vanhsub.ocr.start(selectedTask.id, options);
+      const modeLabel = options.mode ? options.mode.toUpperCase() : 'AUTO';
+      setMessage(`Đã bắt đầu quét OCR (chế độ ${modeLabel}) — theo dõi tiến trình ở Trang chủ.`);
     } catch (err: any) {
       setIsError(true);
       setMessage(err?.message || String(err));
@@ -403,6 +414,14 @@ export default function ASRWorkspace({ tasks }: { tasks: Task[] }) {
           )}
         </div>
       </div>
+
+      {/* Modal Cấu hình OCR đa chế độ */}
+      <OcrConfigModal
+        isOpen={isOcrModalOpen}
+        onClose={() => setIsOcrModalOpen(false)}
+        task={selectedTask}
+        onStartOcr={handleExecuteOcr}
+      />
     </div>
   );
 }
