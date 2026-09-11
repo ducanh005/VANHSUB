@@ -5,6 +5,7 @@ import { app } from 'electron';
 import type { WorkflowNodeEvent, ExecutionContext, ResolvedInputs, NodeExecutionOutput } from './types';
 import { AdapterRegistry } from './adapters/AdapterRegistry';
 import { QcEngine } from './qcEngine';
+import { VideoProcessor } from './videoProcessor';
 import { TaskStore } from '../store/taskStore';
 import { SettingsStore } from '../store/settingsStore';
 
@@ -467,14 +468,93 @@ export class WorkflowExecutionEngine {
         };
       }
 
+      case 'trim': {
+        const videoInput = inputs['video_in'] || inputs['video'];
+        if (!videoInput || !fs.existsSync(videoInput)) {
+          throw new Error('Không tìm thấy video đầu vào để cắt gọt (trim)!');
+        }
+        const startTime = Number(config.startTime ?? 0);
+        const endTime = Number(config.endTime ?? 5);
+        const outPath = path.join(ctx.tempDir, `trim_${ctx.nodeId}_${Date.now()}.mp4`);
+        await VideoProcessor.trimVideo(videoInput, outPath, startTime, endTime, ctx);
+        const dur = await VideoProcessor.getVideoDuration(outPath);
+        return {
+          video: outPath,
+          video_out: outPath,
+          duration: dur,
+        };
+      }
+
       case 'concat': {
         const videoA = inputs['video_a'];
         const videoB = inputs['video_b'];
-        if (!videoA || !videoB) {
-          return { video_out: videoA || videoB };
+        const list = [];
+        if (videoA && fs.existsSync(videoA)) list.push(videoA);
+        if (videoB && fs.existsSync(videoB)) list.push(videoB);
+        if (list.length === 0) {
+          throw new Error('Không có video hợp lệ nào được đưa vào node concat!');
         }
-        // Trả về video thứ hai hoặc kết quả ghép
-        return { video_out: videoB, video_a: videoA, video_b: videoB };
+        const outPath = path.join(ctx.tempDir, `concat_${ctx.nodeId}_${Date.now()}.mp4`);
+        await VideoProcessor.concatVideos(list, outPath, ctx);
+        const dur = await VideoProcessor.getVideoDuration(outPath);
+        return {
+          video: outPath,
+          video_out: outPath,
+          duration: dur,
+        };
+      }
+
+      case 'transition': {
+        const videoA = inputs['video_a'];
+        const videoB = inputs['video_b'];
+        if (!videoA || !videoB) {
+          return { video_out: videoA || videoB, video: videoA || videoB };
+        }
+        const outPath = path.join(ctx.tempDir, `transition_${ctx.nodeId}_${Date.now()}.mp4`);
+        await VideoProcessor.applyTransition(
+          videoA,
+          videoB,
+          outPath,
+          {
+            effect: config.effect || 'cross_dissolve',
+            duration: Number(config.duration || 0.5),
+          },
+          ctx
+        );
+        const dur = await VideoProcessor.getVideoDuration(outPath);
+        return {
+          video: outPath,
+          video_out: outPath,
+          duration: dur,
+          effect: config.effect || 'cross_dissolve',
+        };
+      }
+
+      case 'color-match': {
+        const videoTarget = inputs['video_target'] || inputs['video'];
+        if (!videoTarget || !fs.existsSync(videoTarget)) {
+          throw new Error('Không tìm thấy video cần chỉnh màu cho node color-match!');
+        }
+        const refImage = inputs['reference_image'] || inputs['image'] || '';
+        const outPath = path.join(ctx.tempDir, `colormatch_${ctx.nodeId}_${Date.now()}.mp4`);
+        await VideoProcessor.colorMatchVideo(videoTarget, refImage, outPath, Number(config.intensity || 0.75), ctx);
+        return {
+          video: outPath,
+          video_out: outPath,
+        };
+      }
+
+      case 'upscale': {
+        const videoInput = inputs['video_in'] || inputs['video'];
+        if (!videoInput || !fs.existsSync(videoInput)) {
+          throw new Error('Không tìm thấy video đầu vào để upscale!');
+        }
+        const outPath = path.join(ctx.tempDir, `upscale_${ctx.nodeId}_${Date.now()}.mp4`);
+        await VideoProcessor.upscaleVideo(videoInput, config.scaleFactor || '2x', outPath, ctx);
+        return {
+          video: outPath,
+          video_out: outPath,
+        };
       }
 
       case 'character-lock': {

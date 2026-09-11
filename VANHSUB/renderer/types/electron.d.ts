@@ -252,6 +252,8 @@ export interface VanhsubAPI {
       status: 'pass' | 'warn' | 'fail';
       details: string;
     }>;
+    concatClips: (clipPaths: string[], outPath?: string) => Promise<string>;
+    getVideoDuration: (videoPath: string) => Promise<number>;
     onNodeEvent: (callback: (event: any) => void) => () => void;
   };
   bible: {

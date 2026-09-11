@@ -1,8 +1,11 @@
+import path from 'path';
+import os from 'os';
 import { ipcMain } from 'electron';
 import { WorkflowExecutionEngine, type WorkflowGraphData } from './executionEngine';
 import type { WorkflowNodeEvent } from './types';
 import { BibleStore, type CharacterProfile, type SceneProfile } from '../store/bibleStore';
 import { QcEngine, type QcConfig } from './qcEngine';
+import { VideoProcessor } from './videoProcessor';
 
 const engine = new WorkflowExecutionEngine();
 
@@ -34,6 +37,16 @@ export function registerWorkflowIpc(): void {
       return QcEngine.evaluate(frameAPath, frameBPath, config);
     }
   );
+
+  // Timeline Video Processing
+  ipcMain.handle('workflow:concatClips', async (_event, clipPaths: string[], outPath?: string) => {
+    const dest = outPath || path.join(os.tmpdir(), `master_timeline_${Date.now()}.mp4`);
+    return VideoProcessor.concatVideos(clipPaths, dest);
+  });
+
+  ipcMain.handle('workflow:getVideoDuration', async (_event, videoPath: string) => {
+    return VideoProcessor.getVideoDuration(videoPath);
+  });
 
   // Character Bible
   ipcMain.handle('bible:getCharacters', async () => {

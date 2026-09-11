@@ -39,6 +39,7 @@ import NodeLibrary from './NodeLibrary';
 import Inspector from './Inspector';
 import CharacterBibleModal from './CharacterBibleModal';
 import SceneBibleModal from './SceneBibleModal';
+import MasterTimeline from './MasterTimeline';
 import { WORKFLOW_PRESETS } from '../../lib/workflow/presets';
 import { NODE_DEFINITIONS } from '../../lib/workflow/nodeRegistry';
 
@@ -66,6 +67,7 @@ function FlowCanvasInner() {
   const exportGraphJson = useWorkflowStore((s) => s.exportGraphJson);
   const importGraphJson = useWorkflowStore((s) => s.importGraphJson);
   const updateNodeRuntime = useWorkflowStore((s) => s.updateNodeRuntime);
+  const runtimeMap = useWorkflowStore((s) => s.runtimeMap);
 
   const [showLibrary, setShowLibrary] = useState(true);
   const [showInspector, setShowInspector] = useState(true);
@@ -74,6 +76,7 @@ function FlowCanvasInner() {
   const [activePresetId, setActivePresetId] = useState(WORKFLOW_PRESETS[0].id);
   const [showCharacterBible, setShowCharacterBible] = useState(false);
   const [showSceneBible, setShowSceneBible] = useState(false);
+  const [showTimeline, setShowTimeline] = useState(true);
 
   // Lắng nghe sự kiện thực thi node từ Electron backend realtime
   useEffect(() => {
@@ -287,6 +290,19 @@ function FlowCanvasInner() {
             <Building className="w-3.5 h-3.5 text-indigo-400" />
             <span className="hidden lg:inline">Scene Bible</span>
           </button>
+
+          <button
+            onClick={() => setShowTimeline(!showTimeline)}
+            title="Bật/Tắt Master Timeline (Thanh Dựng Phim)"
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-semibold transition-colors ${
+              showTimeline
+                ? 'bg-amber-950/50 border-amber-700/60 text-amber-300'
+                : 'bg-slate-900/60 border-slate-800 text-slate-400 hover:text-white'
+            }`}
+          >
+            <Film className="w-3.5 h-3.5 text-amber-400" />
+            <span className="hidden lg:inline">Timeline</span>
+          </button>
         </div>
 
         {/* Center: Estimated Render Cost (Mục 8 đặc tả) */}
@@ -494,6 +510,15 @@ function FlowCanvasInner() {
             })}
           </div>
         </div>
+      )}
+
+      {/* Master Timeline & Dựng Phim (Phase 4) */}
+      {showTimeline && (
+        <MasterTimeline
+          nodes={nodes}
+          nodeRuntime={runtimeMap}
+          onSelectNode={(nodeId) => setSelectedNodeId(nodeId)}
+        />
       )}
 
       {/* Character Bible & Scene Bible Modals */}

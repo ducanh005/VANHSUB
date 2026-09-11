@@ -124,6 +124,10 @@ const vanhsub = {
     cancel: (workflowId: string) => ipcRenderer.invoke('workflow:cancel', workflowId),
     compareFrames: (frameA: string, frameB: string, config?: any) =>
       ipcRenderer.invoke('workflow:compareFrames', frameA, frameB, config),
+    concatClips: (clipPaths: string[], outPath?: string) =>
+      ipcRenderer.invoke('workflow:concatClips', clipPaths, outPath),
+    getVideoDuration: (videoPath: string) =>
+      ipcRenderer.invoke('workflow:getVideoDuration', videoPath),
     onNodeEvent: (callback: (event: any) => void) => {
       const sub = (_event: any, data: any) => callback(data);
       ipcRenderer.on('workflow:node-event', sub);
