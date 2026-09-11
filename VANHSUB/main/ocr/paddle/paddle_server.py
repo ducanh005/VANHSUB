@@ -62,8 +62,45 @@ def get_rotate_crop_image(img, points):
     return cv2.warpPerspective(img, m, (w, h))
 
 
+def enhance_variant_a(crop):
+    """Variant A (Normal): Upscale + bilateral filter khử nhiễu nhẹ giữ cạnh chữ."""
+    h, w = crop.shape[:2]
+    if h < 48:
+        scale = min(3.0, 48.0 / max(h, 1))
+        crop = cv2.resize(
+            crop,
+            (max(1, int(w * scale + 0.5)), max(1, int(h * scale + 0.5))),
+            interpolation=cv2.INTER_CUBIC,
+        )
+    return cv2.bilateralFilter(crop, 5, 30, 30)
+
+
+def enhance_variant_b(crop):
+    """Variant B (Contrast): CLAHE cân bằng độ tương phản cục bộ mạnh trên kênh Luminance."""
+    base = enhance_variant_a(crop)
+    yuv = cv2.cvtColor(base, cv2.COLOR_BGR2YUV)
+    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(4, 4))
+    yuv[:, :, 0] = clahe.apply(yuv[:, :, 0])
+    return cv2.cvtColor(yuv, cv2.COLOR_YUV2BGR)
+
+
+def enhance_variant_c(crop):
+    """Variant C (Grayscale & Normalize): Tách chữ trắng trên nền phức tạp."""
+    base = enhance_variant_a(crop)
+    gray = cv2.cvtColor(base, cv2.COLOR_BGR2GRAY)
+    norm = cv2.normalize(gray, None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX)
+    return cv2.cvtColor(norm, cv2.COLOR_GRAY2BGR)
+
+
+def enhance_variant_d(crop):
+    """Variant D (Sharpen): Unsharp mask làm nét biên chữ bị mờ nhòe."""
+    base = enhance_variant_a(crop)
+    blur = cv2.GaussianBlur(base, (0, 0), 2.5)
+    return cv2.addWeighted(base, 1.8, blur, -0.8, 0)
+
+
 def enhance(crop):
-    """Nâng chất ảnh crop trước khi nhận diện (upscale, bilateral, deblur, CLAHE)."""
+    """Nâng chất ảnh crop tiêu chuẩn (upscale, bilateral, deblur, CLAHE)."""
     h, w = crop.shape[:2]
 
     # Chữ nhỏ hơn ngưỡng vào của model rec (48px) → phóng to, tối đa 3x
@@ -535,28 +572,57 @@ def run_pipeline(job):
     total_valid = max(1, len(valid_tracks))
 
     for t_idx, track in enumerate(valid_tracks):
-        crop = track.best_crop
-        if crop is None or crop.size == 0:
+        raw_crop = track.best_crop
+        if raw_crop is None or raw_crop.size == 0:
             continue
 
-        crop = enhance(crop)
+        std_crop = enhance(raw_crop)
+        best_text = ""
+        best_conf = 0.0
+        best_crop_img = std_crop
+
+        try:
+            rec_result = engine(std_crop, use_det=False, use_cls=True, use_rec=True)
+            txts = getattr(rec_result, "txts", None) if rec_result is not None else None
+            scores = getattr(rec_result, "scores", None) if rec_result is not None else None
+            if txts and scores and len(txts) > 0:
+                best_text = str(txts[0]).strip()
+                best_conf = float(scores[0])
+        except Exception:
+            pass
+
+        # Quy tắc 8: Nếu confidence thấp (< 0.70) hoặc không đọc được, thử 4 biến thể tiền xử lý
+        if best_conf < 0.70:
+            variants = [
+                ("normal", enhance_variant_a(raw_crop)),
+                ("contrast", enhance_variant_b(raw_crop)),
+                ("grayscale", enhance_variant_c(raw_crop)),
+                ("sharpen", enhance_variant_d(raw_crop)),
+            ]
+            for var_name, var_img in variants:
+                try:
+                    var_res = engine(var_img, use_det=False, use_cls=True, use_rec=True)
+                    v_txts = getattr(var_res, "txts", None) if var_res is not None else None
+                    v_scores = getattr(var_res, "scores", None) if var_res is not None else None
+                    if v_txts and v_scores and len(v_txts) > 0:
+                        v_text = str(v_txts[0]).strip()
+                        v_conf = float(v_scores[0])
+                        if v_text and v_conf > best_conf:
+                            best_text = v_text
+                            best_conf = v_conf
+                            best_crop_img = var_img
+                except Exception:
+                    continue
+
+        if not best_text:
+            continue
+
         crop_filename = f"t{track.track_id:04d}_f{track.best_frame:06d}.png"
         crop_path = crops_dir / crop_filename
-        cv2.imwrite(str(crop_path), crop)
+        cv2.imwrite(str(crop_path), best_crop_img)
         track.crop_path = str(crop_path)
-
-        rec_result = engine(crop, use_det=False, use_cls=True, use_rec=True)
-        txts = getattr(rec_result, "txts", None) if rec_result is not None else None
-        if not txts:
-            continue
-        text = str(txts[0]).strip()
-        if not text:
-            continue
-        scores = getattr(rec_result, "scores", None)
-        conf = float(scores[0]) if scores else 0.0
-
-        track.text = text
-        track.conf = round(conf, 4)
+        track.text = best_text
+        track.conf = round(best_conf, 4)
         recognized_tracks.append(track)
 
         emit({"type": "progress", "stage": "recognize", "done": t_idx + 1, "total": total_valid})
