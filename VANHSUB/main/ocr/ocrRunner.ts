@@ -113,6 +113,7 @@ export class OcrRunner {
       });
       onUpdate?.();
 
+      let lastExtractLogPercent = -1;
       const {
         framesDir: dir,
         framePaths,
@@ -121,11 +122,18 @@ export class OcrRunner {
         height: videoHeight,
         offsetRatio,
       } = await extractFrames(task.filePath, fps, mode, customRegion, (percent) => {
-        TaskStore.update(taskId, { progress: Math.min(24, 2 + Math.round(percent * 0.22)) });
+        TaskStore.update(taskId, {
+          progress: Math.min(24, 2 + Math.round(percent * 0.22)),
+          stageDescription: `Đang trích khung hình: ${percent}%...`,
+        });
         onUpdate?.();
+        if (percent >= lastExtractLogPercent + 15 || percent === 100) {
+          console.log(`[OCR] Trích xuất khung hình video: ${percent}%...`);
+          lastExtractLogPercent = percent;
+        }
       });
       framesDir = dir;
-      console.log(`[OCR] Đã trích ${framePaths.length} khung hình (${fps} fps, mode ${mode})`);
+      console.log(`[OCR] Đã trích xuất hoàn tất ${framePaths.length} khung hình (${fps} fps, chế độ ${mode.toUpperCase()})`);
 
       // Giai đoạn 2: Full-screen Text Detection & Tracking qua PaddleOCR PP-OCRv5
       const env = await checkRapidOcr();
@@ -136,6 +144,10 @@ export class OcrRunner {
         stageDescription: `Đang nạp model PaddleOCR PP-OCRv5 (${language})...`,
       });
       onUpdate?.();
+      console.log(`[OCR] Đang khởi chạy sidecar PaddleOCR PP-OCRv5 (ngôn ngữ: ${language})...`);
+
+      let lastPaddleLog = 0;
+      let lastPaddleStage: string | undefined = '';
 
       const paddleFrames: PaddleOcrFrame[] = await runPaddleOcr(
         {
@@ -159,22 +171,45 @@ export class OcrRunner {
               stageDescription: `Đang phát hiện & theo dõi chữ trên ${framePaths.length} khung (${mode})...`,
             });
             onUpdate?.();
+            console.log(`[OCR] Sidecar sẵn sàng — bắt đầu quét & tracking trên ${framePaths.length} khung hình...`);
           },
           onStage: (_stage, message) => {
             TaskStore.update(taskId, { stageDescription: message });
             onUpdate?.();
+            console.log(`[OCR] [Giai đoạn] ${message}`);
           },
           onProgress: (done, total, stage) => {
+            const pct = Math.round((done / total) * 100);
+            let progress = 25;
+            let stageDescription = '';
+
             if (stage === 'detect') {
               // 25% -> 48%
-              TaskStore.update(taskId, { progress: 25 + Math.round((done / total) * 23) });
+              progress = 25 + Math.round((done / total) * 23);
+              stageDescription = `Đang quét & theo dõi chữ: khung ${done}/${total} (${pct}%)...`;
             } else if (stage === 'recognize') {
               // 49% -> 65%
-              TaskStore.update(taskId, { progress: 49 + Math.round((done / total) * 16) });
+              progress = 49 + Math.round((done / total) * 16);
+              stageDescription = `Đang nhận diện chữ (PaddleOCR): ${done}/${total} đoạn (${pct}%)...`;
             } else {
-              TaskStore.update(taskId, { progress: 25 + Math.round((done / total) * 40) });
+              progress = 25 + Math.round((done / total) * 40);
+              stageDescription = `Đang xử lý OCR: ${done}/${total} (${pct}%)...`;
             }
+
+            TaskStore.update(taskId, { progress, stageDescription });
             onUpdate?.();
+
+            // Log ra console định kỳ mỗi ~10% để người dùng theo dõi trong terminal
+            const step = Math.max(10, Math.floor(total / 10));
+            if (stage !== lastPaddleStage || done - lastPaddleLog >= step || done === total) {
+              if (stage === 'detect') {
+                console.log(`[OCR] [Khung ${done}/${total}] Quét vị trí & theo dõi chữ (${pct}%)...`);
+              } else if (stage === 'recognize') {
+                console.log(`[OCR] [Đoạn ${done}/${total}] Nhận diện ký tự PP-OCRv5 (${pct}%)...`);
+              }
+              lastPaddleLog = done;
+              lastPaddleStage = stage;
+            }
           },
           shouldStop,
         },
@@ -193,6 +228,7 @@ export class OcrRunner {
           stageDescription: `Đang đối chiếu bằng Tesseract trên ${cropFiles.length} vùng chữ...`,
         });
         onUpdate?.();
+        console.log(`[OCR] Khởi động đối chiếu song song Tesseract trên ${cropFiles.length} crop...`);
 
         const pool = await OcrPool.create(
           language,
@@ -201,12 +237,23 @@ export class OcrRunner {
           'line',
         );
         let cropResults: CropOcrResult[];
+        let lastTessLog = 0;
         try {
           cropResults = await pool.recognizeCrops(
             cropFiles,
             (done, total) => {
-              TaskStore.update(taskId, { progress: 66 + Math.round((done / total) * 19) }); // 66% -> 85%
+              const pct = Math.round((done / total) * 100);
+              TaskStore.update(taskId, {
+                progress: 66 + Math.round((done / total) * 19), // 66% -> 85%
+                stageDescription: `Đối chiếu Tesseract: ${done}/${total} vùng chữ (${pct}%)...`,
+              });
               onUpdate?.();
+
+              const step = Math.max(10, Math.floor(total / 10));
+              if (done - lastTessLog >= step || done === total) {
+                console.log(`[OCR] [Crop ${done}/${total}] Đối chiếu mô hình Tesseract (${pct}%)...`);
+                lastTessLog = done;
+              }
             },
             shouldStop,
           );
@@ -224,14 +271,16 @@ export class OcrRunner {
         stageDescription: 'Đang so sánh kết quả 2 engine OCR...',
       });
       onUpdate?.();
+      console.log('[OCR] Đang so sánh và dung hợp kết quả giữa 2 engine...');
 
       const merged: MergedOcrFrame[] = mergeOcrResults(paddleFrames, cropMap, MIN_LINE_CONFIDENCE);
       const frameResults = mergedToFrameResults(merged);
 
       // Giai đoạn 5: ghép khung trùng nội dung thành dòng phụ đề
+      console.log('[OCR] Đang tổng hợp tracking, bình chọn văn bản ổn định và khử trùng lặp 5 tầng...');
       TaskStore.update(taskId, {
         progress: 93,
-        stageDescription: 'Đang ghép dòng phụ đề từ kết quả quét...',
+        stageDescription: 'Đang tổng hợp phụ đề & khử trùng lặp 5 tầng...',
       });
       onUpdate?.();
 

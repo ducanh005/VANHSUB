@@ -57,6 +57,7 @@ export class TaskRunner {
       });
       onUpdate?.();
 
+      let lastAsrLog = -1;
       const result = await transcribe(wavPath, {
         modelName: task.asrModel || SettingsStore.get('asrModel') || 'base',
         onProgress: (percent) => {
@@ -68,9 +69,15 @@ export class TaskRunner {
                 : 'Đang hoàn tất file phụ đề...',
           });
           onUpdate?.();
+
+          if (percent >= lastAsrLog + 15 || percent === 100) {
+            console.log(`[ASR] [Tiến trình] Phiên âm Whisper: ${percent}%...`);
+            lastAsrLog = percent;
+          }
         },
         shouldStop: () => this.cancelledTasks.has(taskId),
       });
+      console.log(`[ASR] Phiên âm hoàn tất! Đã lưu file phụ đề: ${result.srtPath}`);
 
       // Giai đoạn 3: Hoàn thành tạo phụ đề .srt
       TaskStore.update(taskId, {
