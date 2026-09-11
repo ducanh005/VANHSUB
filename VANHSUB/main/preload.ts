@@ -35,6 +35,8 @@ const vanhsub = {
       ipcRenderer.invoke('ai:polishLine', payload),
     translateLine: (payload: { text: string; targetLanguage?: string; prev?: string; next?: string }) =>
       ipcRenderer.invoke('ai:translateLine', payload),
+    cleanSubtitles: (items: Array<{ startMs: number; endMs: number; text: string }>) =>
+      ipcRenderer.invoke('ai:cleanSubtitles', items),
   },
   translate: {
     start: (id: string, targetLanguage?: string) =>

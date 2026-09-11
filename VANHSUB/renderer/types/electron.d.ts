@@ -100,6 +100,7 @@ export interface VanhsubAPI {
   ai: {
     polishLine: (payload: { text: string; prev?: string; next?: string }) => Promise<string>;
     translateLine: (payload: { text: string; targetLanguage?: string; prev?: string; next?: string }) => Promise<string>;
+    cleanSubtitles: (items: Array<{ startMs: number; endMs: number; text: string }>) => Promise<Array<{ startMs: number; endMs: number; text: string }>>;
   };
   translate: {
     start: (id: string, targetLanguage?: string) => Promise<boolean>;

@@ -8,7 +8,7 @@ import si from 'systeminformation'
 import { createWindow } from './helpers/create-window'
 import { TaskStore, type CreateTaskInput, type Task } from './store/taskStore'
 import { SettingsStore, type AppSettings } from './store/settingsStore'
-import { polishSubtitleLine, translateSubtitleLine } from './ai/geminiClient'
+import { polishSubtitleLine, translateSubtitleLine, cleanAndDeduplicateSubtitles } from './ai/geminiClient'
 import { TaskRunner } from './asr/taskRunner'
 import { TranslateRunner } from './translate/translateRunner'
 import { ExportRunner } from './render/exportRunner'
@@ -475,6 +475,11 @@ ipcMain.handle(
     return translateSubtitleLine(payload)
   }
 )
+
+// Dọn dẹp & lọc trùng lặp phụ đề OCR bằng Gemini AI
+ipcMain.handle('ai:cleanSubtitles', async (_event, items: any[]) => {
+  return cleanAndDeduplicateSubtitles(items)
+})
 
 // Quét phụ đề cứng (hardsub) trong video bằng OCR — kết quả là file .srt
 // như phiên âm, nên sau đó dịch / tạo lồng tiếng / ghép video chạy bình thường
