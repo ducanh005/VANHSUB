@@ -1,6 +1,24 @@
 import Store from 'electron-store';
 import { safeStorage } from 'electron';
 
+/**
+ * Chiến lược tìm phụ đề khi quét OCR:
+ * - auto:    quét TOÀN khung, tự phân loại band nào là phụ đề (bỏ watermark,
+ *            logo, chữ trên cảnh) — không phụ thuộc vị trí phụ đề
+ * - bottom:  chỉ quét dải 30% đáy khung (nhanh nhất)
+ * - full:    quét toàn khung, giữ TẤT CẢ text tìm được
+ * - custom:  quét vùng người dùng kéo chọn (ocrCustomRegion)
+ */
+export type OcrMode = 'auto' | 'bottom' | 'full' | 'custom';
+
+/** Vùng quét custom — toạ độ theo tỷ lệ 0-1 của khung hình (x,y = đỉnh trái) */
+export interface OcrCustomRegion {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
 export interface AppSettings {
   /** Lưu dưới dạng đã mã hoá (prefix 'enc:v1:' + base64) hoặc plaintext fallback */
   geminiApiKey: string;
@@ -26,8 +44,12 @@ export interface AppSettings {
   ocrLanguage: string;
   /** Số khung hình quét mỗi giây khi OCR (0.5 - 5) */
   ocrFps: number;
-  /** Vùng quét phụ đề trong khung hình: đáy khung hoặc toàn khung */
-  ocrRegion: 'bottom' | 'full';
+  /** Chiến lược tìm phụ đề khi quét OCR (xem OcrMode) */
+  ocrMode: OcrMode;
+  /** Vùng quét khi ocrMode = custom (tỷ lệ 0-1); null = chưa chọn */
+  ocrCustomRegion: OcrCustomRegion | null;
+  /** Tương thích ngược với ocrRegion cũ */
+  ocrRegion?: string;
   /**
    * Chạy lượt OCR thứ hai bằng Tesseract trên cùng crop đã enhance để đối
    * chiếu kết quả với PaddleOCR (chính xác hơn nhưng chậm hơn ~30-40%).
@@ -66,7 +88,8 @@ function getStore(): Store<AppSettings> {
         ttsSpeed: 1.0,
         ocrLanguage: 'vie',
         ocrFps: 2,
-        ocrRegion: 'bottom',
+        ocrMode: 'auto',
+        ocrCustomRegion: null,
         ocrDualEngine: true,
         glossary: '',
         translationStyleGuide: '',

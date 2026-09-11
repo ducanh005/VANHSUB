@@ -49,7 +49,7 @@ const vanhsub = {
   },
   ocr: {
     // Quét phụ đề cứng trong video bằng OCR → tạo file .srt cho tác vụ
-    start: (id: string) => ipcRenderer.invoke('ocr:start', id),
+    start: (id: string, options?: any) => ipcRenderer.invoke('ocr:start', id, options),
     cancel: (id: string) => ipcRenderer.invoke('ocr:cancel', id),
   },
   tts: {

@@ -15,10 +15,29 @@ export type SettingKey =
   | 'ocrLanguage'
   | 'ocrFps'
   | 'ocrRegion'
+  | 'ocrMode'
+  | 'ocrCustomRegion'
   | 'ocrDualEngine'
   | 'glossary'
   | 'translationStyleGuide'
   | 'onboardingCompleted';
+
+export type OcrMode = 'auto' | 'bottom' | 'full' | 'custom';
+
+export interface OcrCustomRegion {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+export interface OcrStartOptions {
+  mode?: OcrMode;
+  customRegion?: OcrCustomRegion | null;
+  language?: string;
+  fps?: number;
+  dualEngine?: boolean;
+}
 
 /** Giọng đọc clone từ file audio mẫu (đồng bộ với VoiceSample trong main/store) */
 export interface VoiceSampleInfo {
@@ -142,7 +161,7 @@ export interface VanhsubAPI {
     separateStems: (id: string) => Promise<boolean>;
   };
   ocr: {
-    start: (id: string) => Promise<boolean>;
+    start: (id: string, options?: OcrStartOptions) => Promise<boolean>;
     cancel: (id: string) => Promise<boolean>;
   };
   models: {

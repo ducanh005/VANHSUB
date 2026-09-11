@@ -8,7 +8,12 @@ import { CancelledError, isCancelledError } from '../lib/cancel';
 import { nextAvailablePath } from '../lib/paths';
 import { TranslateRunner } from '../translate/translateRunner';
 import { OcrPool, MIN_LINE_CONFIDENCE } from './ocrEngine';
-import { BOTTOM_CROP_RATIO, extractFrames, cleanupFrames, type OcrRegion } from './frameExtractor';
+import {
+  extractFrames,
+  cleanupFrames,
+  type OcrMode,
+  type OcrCustomRegion,
+} from './frameExtractor';
 import { buildSubtitleSegments, filterPersistentTopLines, segmentsToSrt } from './subtitleBuilder';
 import {
   checkRapidOcr,
@@ -28,15 +33,25 @@ const AUDIO_EXTENSIONS = new Set(['.mp3', '.wav', '.m4a', '.flac', '.aac', '.ogg
 
 const VIDEO_EXTENSIONS = new Set(['.mp4', '.mkv', '.avi', '.mov', '.flv', '.wmv', '.webm', '.m4v', '.ts']);
 
+export interface OcrRunOptions {
+  mode?: OcrMode;
+  customRegion?: OcrCustomRegion | null;
+  language?: string;
+  fps?: number;
+  dualEngine?: boolean;
+}
+
 /**
  * Pipeline quét phụ đề cứng (hardsub):
  *
- *   Video → ffmpeg trích khung (fps + crop vùng phụ đề, giữ màu)
- *        → PaddleOCR PP-OCRv5: detect hộp chữ → crop → upscale/denoise/deblur
- *           → nhận diện từng crop
- *        → Lượt OCR 2 bằng Tesseract đọc CÙNG crop đã enhance
+ *   Video → ffmpeg trích khung (fps + chế độ auto / bottom / full / custom)
+ *        → Full-screen text detection (PP-OCRv5 DBNet)
+ *        → Tracking (IoU & spatial distance across frames)
+ *        → Classification (lọc watermark / logo tĩnh, chọn subtitle theo mode)
+ *        → OCR Recognition (khung nét nhất + RapidOCR PP-OCRv5)
+ *        → Lượt OCR 2 bằng Tesseract (nếu dualEngine)
  *        → So sánh kết quả 2 engine + confidence (resultMerge.ts)
- *        → Ghép khung trùng thành dòng phụ đề → .srt
+ *        → Ghép khung trùng nội dung thành dòng phụ đề (Temporal Merging) → .srt
  */
 export class OcrRunner {
   private static runningTasks = new Set<string>();
@@ -53,7 +68,11 @@ export class OcrRunner {
     return true;
   }
 
-  static async runOcr(taskId: string, onUpdate?: () => void): Promise<Task | undefined> {
+  static async runOcr(
+    taskId: string,
+    options?: OcrRunOptions,
+    onUpdate?: () => void,
+  ): Promise<Task | undefined> {
     const task = TaskStore.getById(taskId);
     if (!task) throw new Error(`Không tìm thấy tác vụ ID: ${taskId}`);
 
@@ -73,18 +92,19 @@ export class OcrRunner {
     let framesDir: string | undefined;
 
     try {
-      const language = SettingsStore.get('ocrLanguage') || 'vie';
-      const fps = clampNumber(Number(SettingsStore.get('ocrFps')) || 2, 0.5, 5);
-      const region = (SettingsStore.get('ocrRegion') || 'bottom') as OcrRegion;
-      const dualEngine = SettingsStore.get('ocrDualEngine') !== false;
+      const language = options?.language || SettingsStore.get('ocrLanguage') || 'vie';
+      const fps = clampNumber(Number(options?.fps ?? SettingsStore.get('ocrFps')) || 2, 0.5, 5);
+      const mode = (options?.mode || SettingsStore.get('ocrMode') || 'auto') as OcrMode;
+      const customRegion = options?.customRegion ?? SettingsStore.get('ocrCustomRegion') ?? null;
+      const dualEngine = options?.dualEngine ?? (SettingsStore.get('ocrDualEngine') !== false);
       const shouldStop = () => this.cancelRequested.has(taskId);
 
-      // Giai đoạn 1: trích khung hình vùng phụ đề (giữ màu cho model PP-OCRv5)
+      // Giai đoạn 1: trích khung hình
       TaskStore.update(taskId, {
         status: 'ocr',
         progress: 2,
         errorMessage: undefined,
-        stageDescription: 'Đang trích khung hình vùng phụ đề...',
+        stageDescription: `Đang trích khung hình (chế độ ${mode.toUpperCase()})...`,
       });
       onUpdate?.();
 
@@ -94,14 +114,15 @@ export class OcrRunner {
         frameIntervalMs,
         width: videoWidth,
         height: videoHeight,
-      } = await extractFrames(task.filePath, fps, region, (percent) => {
+        offsetRatio,
+      } = await extractFrames(task.filePath, fps, mode, customRegion, (percent) => {
         TaskStore.update(taskId, { progress: Math.min(24, 2 + Math.round(percent * 0.22)) });
         onUpdate?.();
       });
       framesDir = dir;
-      console.log(`[OCR] Đã trích ${framePaths.length} khung hình (${fps} fps, vùng ${region})`);
+      console.log(`[OCR] Đã trích ${framePaths.length} khung hình (${fps} fps, mode ${mode})`);
 
-      // Giai đoạn 2: PaddleOCR PP-OCRv5 qua sidecar Python (rapidocr)
+      // Giai đoạn 2: Full-screen Text Detection & Tracking qua PaddleOCR PP-OCRv5
       const env = await checkRapidOcr();
       if (!env.ok) throw new Error(env.detail);
 
@@ -123,17 +144,31 @@ export class OcrRunner {
           textScore: 0.25,
           videoWidth,
           videoHeight,
-          regionOffsetRatio: region === 'bottom' ? 1 - BOTTOM_CROP_RATIO : 0,
+          regionOffsetRatio: offsetRatio,
+          ocrMode: mode,
+          customRegion: customRegion ?? null,
         },
         {
           onReady: () => {
             TaskStore.update(taskId, {
-              stageDescription: `Đang quét chữ PaddleOCR PP-OCRv5 (${language}) trên ${framePaths.length} khung...`,
+              stageDescription: `Đang phát hiện & theo dõi chữ trên ${framePaths.length} khung (${mode})...`,
             });
             onUpdate?.();
           },
-          onProgress: (done, total) => {
-            TaskStore.update(taskId, { progress: 25 + Math.round((done / total) * 40) }); // 25% -> 65%
+          onStage: (_stage, message) => {
+            TaskStore.update(taskId, { stageDescription: message });
+            onUpdate?.();
+          },
+          onProgress: (done, total, stage) => {
+            if (stage === 'detect') {
+              // 25% -> 48%
+              TaskStore.update(taskId, { progress: 25 + Math.round((done / total) * 23) });
+            } else if (stage === 'recognize') {
+              // 49% -> 65%
+              TaskStore.update(taskId, { progress: 49 + Math.round((done / total) * 16) });
+            } else {
+              TaskStore.update(taskId, { progress: 25 + Math.round((done / total) * 40) });
+            }
             onUpdate?.();
           },
           shouldStop,
@@ -196,8 +231,11 @@ export class OcrRunner {
       onUpdate?.();
 
       // Bỏ lớp phủ tĩnh ở 1/4 trên khung (watermark/logo in cố định suốt video)
-      // trước khi ghép dòng phụ đề — dump ở trên vẫn giữ nguyên để đối chiếu
-      const cleanedResults = filterPersistentTopLines(frameResults, frameIntervalMs, videoHeight);
+      // nếu không phải chế độ full (chế độ full giữ toàn bộ text trên màn hình)
+      const cleanedResults =
+        mode === 'full'
+          ? frameResults
+          : filterPersistentTopLines(frameResults, frameIntervalMs, videoHeight);
       const segments = buildSubtitleSegments(cleanedResults, frameIntervalMs);
       const srtContent = segmentsToSrt(segments);
       if (!srtContent) {

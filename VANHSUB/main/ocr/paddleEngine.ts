@@ -44,8 +44,12 @@ export interface PaddleOcrJob {
   textScore: number;
   videoWidth: number;
   videoHeight: number;
-  /** Tỷ lệ offset vùng crop đáy trong khung gốc (0.7 nếu bottom, 0 nếu full) */
+  /** Tỷ lệ offset vùng crop đáy trong khung gốc */
   regionOffsetRatio: number;
+  /** Chế độ quét OCR: auto, bottom, full, custom */
+  ocrMode?: string;
+  /** Toạ độ vùng custom (0-1) khi ocrMode = custom */
+  customRegion?: { x: number; y: number; w: number; h: number } | null;
 }
 
 export interface RapidOcrCheck {
@@ -128,7 +132,8 @@ export function runPaddleOcr(
   job: PaddleOcrJob,
   opts?: {
     onReady?: () => void;
-    onProgress?: (done: number, total: number) => void;
+    onStage?: (stage: string, message: string) => void;
+    onProgress?: (done: number, total: number, stage?: string) => void;
     shouldStop?: () => boolean;
   },
 ): Promise<PaddleOcrFrame[]> {
@@ -167,7 +172,8 @@ export function runPaddleOcr(
           continue;
         }
         if (msg.type === 'ready') opts?.onReady?.();
-        else if (msg.type === 'progress') opts?.onProgress?.(msg.done, msg.total);
+        else if (msg.type === 'stage') opts?.onStage?.(msg.name, msg.msg);
+        else if (msg.type === 'progress') opts?.onProgress?.(msg.done, msg.total, msg.stage);
         else if (msg.type === 'warning') console.warn(`[PaddleOCR] ${msg.msg}`);
         else if (msg.type === 'error') {
           killed = true;

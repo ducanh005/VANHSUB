@@ -15,11 +15,12 @@ if (rawFfmpegPath) {
   ffmpeg.setFfmpegPath(rawFfmpegPath.replace('app.asar', 'app.asar.unpacked'));
 }
 
-/** Vùng quét phụ đề trong khung hình: đáy khung (mặc định) hoặc toàn khung */
-export type OcrRegion = 'bottom' | 'full';
+import type { OcrCustomRegion, OcrMode } from '../store/settingsStore';
 
-/** Phần trăm chiều cao khung hình dành cho vùng phụ đề ở đáy */
-export const BOTTOM_CROP_RATIO = 0.3;
+export type { OcrMode, OcrCustomRegion };
+
+/** Chiều cao vùng đáy dành cho chế độ 'bottom' */
+export const BOTTOM_CROP_RATIO = 0.35;
 
 export interface FrameExtractResult {
   /** Thư mục chứa các khung hình PNG đã trích */
@@ -31,6 +32,8 @@ export interface FrameExtractResult {
   /** Kích thước video GỐC (px) — sidecar map toạ độ y từ khung crop/scale về đây */
   width: number;
   height: number;
+  /** Tỷ lệ offset dải cắt từ đỉnh khung hình (0 nếu toàn khung, 0.65 nếu bottom) */
+  offsetRatio: number;
 }
 
 /** Đọc kích thước video bằng ffprobe đi kèm app — lỗi trả 0 (caller bỏ qua lọc theo y) */
@@ -61,17 +64,17 @@ async function getVideoSize(inputPath: string): Promise<{ width: number; height:
 /**
  * Trích xuất khung hình từ video phục vụ OCR phụ đề cứng.
  *
- * Tối ưu cho OCR:
- * - Lấy mẫu thưa theo fps (mặc định 2 khung/giây) thay vì quét từng khung
- * - Crop vùng phụ đề (đáy khung) để bỏ nền video → nhanh hơn và nhiễu ít hơn
- * - Giữ ảnh MÀU (rgb24) — model detect/rec PP-OCRv5 học trên ảnh màu, chữ
- *   phụ đề màu (vàng/trắng viền đen) tách nền tốt hơn trên 3 kênh
- * - Phóng to video hẹp lên 1280px để chữ đạt độ cao đủ lớn cho model
+ * Hỗ trợ 4 chế độ:
+ * - auto: Toàn khung hình (Full-screen) để model tự phát hiện & phân loại phụ đề
+ * - bottom: Cắt 35% dải đáy màn hình
+ * - full: Toàn khung hình (nhận diện mọi text)
+ * - custom: Toàn khung hình và truyền bounding box cho thuật toán lọc
  */
 export function extractFrames(
   inputPath: string,
   fps: number,
-  region: OcrRegion,
+  mode: OcrMode = 'auto',
+  customRegion?: OcrCustomRegion | null,
   onProgress?: (percent: number) => void,
 ): Promise<FrameExtractResult> {
   return new Promise((resolve, reject) => {
@@ -86,11 +89,15 @@ export function extractFrames(
     fs.mkdirSync(framesDir, { recursive: true });
     const videoSize = getVideoSize(inputPath);
 
-    // Thứ tự filter: lấy mẫu thưa trước rồi mới crop → xử lý ít khung hơn
+    // Thứ tự filter: lấy mẫu thưa trước rồi mới crop
     const filters: string[] = [`fps=${fps}`];
-    if (region === 'bottom') {
-      filters.push(`crop=iw:ih*${BOTTOM_CROP_RATIO}:0:ih*(1-${BOTTOM_CROP_RATIO})`);
+    let offsetRatio = 0;
+
+    if (mode === 'bottom') {
+      offsetRatio = 1 - BOTTOM_CROP_RATIO;
+      filters.push(`crop=iw:ih*${BOTTOM_CROP_RATIO}:0:ih*${offsetRatio}`);
     }
+
     // Chỉ phóng to khi khung hẹp hơn 1280px; -2 giữ bội số chẵn cho codec PNG
     filters.push("scale=w='if(lt(iw,1280),1280,iw)':h=-2");
     filters.push('format=rgb24');
@@ -115,7 +122,6 @@ export function extractFrames(
             new Error('Không trích được khung hình nào — file có thể không phải video hoặc đã hỏng.'),
           );
         }
-        // getVideoSize tự bắt lỗi và trả 0 — không bao giờ reject
         void videoSize.then(({ width, height }) => {
           resolve({
             framesDir,
@@ -123,6 +129,7 @@ export function extractFrames(
             frameIntervalMs: Math.round(1000 / fps),
             width,
             height,
+            offsetRatio,
           });
         });
       })

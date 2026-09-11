@@ -439,6 +439,8 @@ const SETTING_KEYS: Array<keyof AppSettings> = [
   'ttsSpeed',
   'ocrLanguage',
   'ocrFps',
+  'ocrMode',
+  'ocrCustomRegion',
   'ocrRegion',
   'ocrDualEngine',
   'glossary',
@@ -476,8 +478,8 @@ ipcMain.handle(
 
 // Quét phụ đề cứng (hardsub) trong video bằng OCR — kết quả là file .srt
 // như phiên âm, nên sau đó dịch / tạo lồng tiếng / ghép video chạy bình thường
-ipcMain.handle('ocr:start', async (_event, id: string) => {
-  OcrRunner.runOcr(id, () => {
+ipcMain.handle('ocr:start', async (_event, id: string, options?: any) => {
+  OcrRunner.runOcr(id, options, () => {
     broadcastTasksUpdate()
   })
   return true
