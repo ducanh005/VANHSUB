@@ -149,10 +149,110 @@ function selectStableText(detections: TextDetection[]): { text: string; confiden
  * Sử dụng multi-track tracking theo vị trí không gian (bbox y0/h),
  * dung sai hụt tối đa 2 frame (mergeGapMs), và bình chọn độ ổn định text.
  */
-export function buildSubtitleSegments(
+export interface SubtitleBuilderStats {
+  framesScanned: number;
+  textDetections: number;
+  trackedGroups: number;
+  duplicatesMerged: number;
+  finalEvents: number;
+  highConfidence: number;
+  needsReview: number;
+}
+
+/**
+ * Gộp các từ/box nằm trên cùng một hàng ngang trong một khung thành một dòng phụ đề hoàn chỉnh.
+ * Hỗ trợ các engine OCR phát hiện bounding box theo từng từ riêng lẻ.
+ */
+function groupFrameLinesIntoRows(lines: Array<{
+  text: string;
+  confidence: number;
+  y0: number;
+  x0?: number;
+  w?: number;
+  h?: number;
+  classification?: 'SUBTITLE' | 'OVERLAY' | 'OTHER_TEXT';
+}>): Array<{
+  text: string;
+  confidence: number;
+  y0: number;
+  x0?: number;
+  w?: number;
+  h?: number;
+  classification?: 'SUBTITLE' | 'OVERLAY' | 'OTHER_TEXT';
+}> {
+  if (lines.length <= 1) return lines;
+
+  // Sắp xếp theo y0 rồi theo x0
+  const sorted = [...lines].sort((a, b) => {
+    if (Math.abs(a.y0 - b.y0) > 15) return a.y0 - b.y0;
+    return (a.x0 ?? 0) - (b.x0 ?? 0);
+  });
+
+  const rows: Array<typeof lines> = [];
+  for (const item of sorted) {
+    const y0 = item.y0;
+    const h = item.h ?? 30;
+    const y1 = y0 + h;
+
+    let placed = false;
+    for (const row of rows) {
+      const ref = row[row.length - 1];
+      const refY0 = ref.y0;
+      const refH = ref.h ?? 30;
+      const refY1 = refY0 + refH;
+
+      const overlap = Math.min(y1, refY1) - Math.max(y0, refY0);
+      const minH = Math.max(1, Math.min(h, refH));
+      // Cùng một hàng nếu chênh lệch y0 <= 18 hoặc chồng lấn chiều cao >= 40%
+      if (overlap >= 0.4 * minH || Math.abs(y0 - refY0) <= 18) {
+        row.push(item);
+        placed = true;
+        break;
+      }
+    }
+    if (!placed) {
+      rows.push([item]);
+    }
+  }
+
+  return rows.map((row) => {
+    row.sort((a, b) => (a.x0 ?? 0) - (b.x0 ?? 0));
+    const text = row.map((l) => l.text).join(' ').trim();
+    const confidence = Math.round(row.reduce((s, l) => s + l.confidence, 0) / row.length);
+    const y0 = Math.min(...row.map((l) => l.y0));
+    const x0 = Math.min(...row.map((l) => l.x0 ?? 0));
+    const maxRight = Math.max(...row.map((l) => (l.x0 ?? 0) + (l.w ?? 0)));
+    const maxBottom = Math.max(...row.map((l) => l.y0 + (l.h ?? 30)));
+    const w = maxRight - x0;
+    const h = maxBottom - y0;
+    const classification = row[0].classification;
+
+    return {
+      text,
+      confidence,
+      y0,
+      x0,
+      w,
+      h,
+      classification,
+    };
+  });
+}
+
+/**
+ * Ghép kết quả OCR từng khung thành dòng phụ đề có timestamp kèm thống kê số liệu (Rule 17, 18).
+ */
+export function buildSubtitleSegmentsWithStats(
   frames: OcrFrameResult[],
   frameIntervalMs: number,
-): SrtLine[] {
+): { segments: SrtLine[]; stats: SubtitleBuilderStats } {
+  let totalDetections = 0;
+  for (const f of frames) {
+    const rawLines = f.lines && f.lines.length > 0 ? f.lines : (f.text ? [{ text: f.text, confidence: f.confidence, y0: -1 }] : []);
+    const grouped = groupFrameLinesIntoRows(rawLines);
+    totalDetections += grouped.filter((l) => isUsableText(l.text, l.confidence)).length;
+  }
+
   // Cho phép hụt tối đa 2 frame (ví dụ 500ms * 2.5 = 1250ms)
   const mergeGapMs = Math.max(frameIntervalMs * 2.5, 1200);
 
@@ -164,28 +264,25 @@ export function buildSubtitleSegments(
     const f = frames[frameIdx];
     const timeMs = frameIdx * frameIntervalMs;
 
-    // Lấy danh sách detection của khung này
+    // Lấy danh sách detection của khung này (đã gộp theo hàng ngang)
+    let rawLines = f.lines && f.lines.length > 0 ? f.lines : [];
+    if (rawLines.length === 0 && f.text && isUsableText(f.text, f.confidence)) {
+      rawLines = [{ text: f.text, confidence: f.confidence, y0: -1 }];
+    }
+
+    const groupedLines = groupFrameLinesIntoRows(rawLines);
     let lineDets: TextDetection[] = [];
-    if (f.lines && f.lines.length > 0) {
-      for (const line of f.lines) {
-        if (!isUsableText(line.text, line.confidence)) continue;
-        lineDets.push({
-          text: line.text,
-          confidence: line.confidence,
-          timeMs,
-          y0: line.y0,
-          x0: line.x0,
-          w: line.w,
-          h: line.h,
-          classification: line.classification,
-        });
-      }
-    } else if (f.text && isUsableText(f.text, f.confidence)) {
+    for (const line of groupedLines) {
+      if (!isUsableText(line.text, line.confidence)) continue;
       lineDets.push({
-        text: f.text,
-        confidence: f.confidence,
+        text: line.text,
+        confidence: line.confidence,
         timeMs,
-        y0: -1,
+        y0: line.y0,
+        x0: line.x0,
+        w: line.w,
+        h: line.h,
+        classification: line.classification,
       });
     }
 
@@ -294,7 +391,34 @@ export function buildSubtitleSegments(
     });
   }
 
-  return deduplicateSubtitleSegments(intermediateSegments, frameIntervalMs);
+  const segments = deduplicateSubtitleSegments(intermediateSegments, frameIntervalMs);
+  const highConfidence = segments.filter((s) => !s.needsReview).length;
+  const needsReview = segments.filter((s) => s.needsReview).length;
+  const duplicatesMerged = Math.max(0, totalDetections - segments.length);
+
+  return {
+    segments,
+    stats: {
+      framesScanned: frames.length,
+      textDetections: totalDetections,
+      trackedGroups: allTracks.length,
+      duplicatesMerged,
+      finalEvents: segments.length,
+      highConfidence,
+      needsReview,
+    },
+  };
+}
+
+/**
+ * Ghép kết quả OCR từng khung thành dòng phụ đề có timestamp (Rule 4, 5, 6, 7).
+ * Wrapper tương thích ngược cho buildSubtitleSegmentsWithStats.
+ */
+export function buildSubtitleSegments(
+  frames: OcrFrameResult[],
+  frameIntervalMs: number,
+): SrtLine[] {
+  return buildSubtitleSegmentsWithStats(frames, frameIntervalMs).segments;
 }
 
 /**
@@ -427,7 +551,7 @@ export function deduplicateSubtitleSegments(
         { y0: cur.y0 ?? -1, h: cur.h, classification: cur.classification },
         { y0: next.y0 ?? -1, h: next.h, classification: next.classification },
       );
-      if (sameBand && cur.endMs > next.startMs) {
+      if (sameBand && next.startMs > cur.startMs && cur.endMs > next.startMs) {
         cur.endMs = next.startMs;
       }
     }

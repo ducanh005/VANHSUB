@@ -687,6 +687,36 @@ export default function SubtitleEditor({
         </div>
       )}
 
+      {/* Thống kê chi tiết OCR theo Rule 17 */}
+      {selectedTask?.ocrStats && (
+        <div className="flex flex-wrap items-center gap-4 rounded-2xl border border-brand-indigo/30 bg-slate-900/90 px-4 py-2.5 text-xs text-slate-300 shadow-sm">
+          <div className="flex items-center gap-1.5 font-semibold text-brand-cyan">
+            <Sparkles className="h-4 w-4" />
+            <span>Thống kê OCR:</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="text-slate-400">OCR detected:</span>
+            <span className="font-mono font-bold text-white">{selectedTask.ocrStats.finalEvents}</span>
+            <span className="text-slate-400">subtitle events</span>
+          </div>
+          <span className="text-slate-600">•</span>
+          <div className="flex items-center gap-1.5">
+            <span className="text-slate-400">High confidence:</span>
+            <span className="font-mono font-bold text-emerald-400">{selectedTask.ocrStats.highConfidence}</span>
+          </div>
+          <span className="text-slate-600">•</span>
+          <div className="flex items-center gap-1.5">
+            <span className="text-slate-400">Needs review:</span>
+            <span className="font-mono font-bold text-amber-400">{selectedTask.ocrStats.needsReview}</span>
+          </div>
+          <span className="text-slate-600">•</span>
+          <div className="flex items-center gap-1.5">
+            <span className="text-slate-400">Duplicates removed:</span>
+            <span className="font-mono font-bold text-purple-300">{selectedTask.ocrStats.duplicatesRemoved}</span>
+          </div>
+        </div>
+      )}
+
       {/* Nội dung chính */}
       {!selectedTaskId ? (
         <div className="flex flex-1 flex-col items-center justify-center rounded-3xl border border-dashed border-slate-800 bg-slate-900/40 p-12 text-center text-slate-500 text-xs">
@@ -755,6 +785,12 @@ export default function SubtitleEditor({
                           <span className="text-[10px] text-slate-500">
                             {formatMs(item.startMs)} → {formatMs(item.endMs)}
                           </span>
+                          {item.needsReview && (
+                            <span className="inline-flex items-center gap-1 rounded bg-amber-500/20 px-1.5 py-0.5 text-[9px] font-semibold text-amber-400 border border-amber-500/30">
+                              <AlertCircle className="h-2.5 w-2.5" />
+                              Cần duyệt
+                            </span>
+                          )}
                         </div>
                         <button
                           type="button"

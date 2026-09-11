@@ -1,4 +1,4 @@
-﻿export type TaskStatus = 'queued' | 'transcribing' | 'ocr' | 'translating' | 'exporting' | 'dubbing' | 'done' | 'error' | 'cancelled';
+export type TaskStatus = 'queued' | 'transcribing' | 'ocr' | 'translating' | 'exporting' | 'dubbing' | 'done' | 'error' | 'cancelled';
 
 export type WorkflowType = 'full-dubbing' | 'bilingual-sub' | 'fast-transcribe' | 'custom';
 
@@ -30,6 +30,17 @@ export interface Task {
   ttsVoiceOverrides?: Record<string, string>;
   /** Các câu TTS tràn thời lượng khung của nó (cập nhật sau mỗi lần dubbing) */
   ttsOverruns?: { index: number; tempo: number; truncated: boolean }[];
+  /** Thống kê OCR (frames, detections, duplicates merged, confidence scoring) */
+  ocrStats?: {
+    framesScanned: number;
+    detections: number;
+    trackedGroups: number;
+    duplicatesRemoved: number;
+    finalEvents: number;
+    highConfidence: number;
+    needsReview: number;
+    aiCorrected?: number;
+  };
   createdAt: string;
   updatedAt: string;
 }

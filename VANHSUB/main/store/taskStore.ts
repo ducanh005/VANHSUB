@@ -1,4 +1,4 @@
-﻿import Store from 'electron-store';
+import Store from 'electron-store';
 import { v4 as uuidv4 } from 'uuid';
 
 export type TaskStatus =
@@ -41,6 +41,17 @@ export interface Task {
   ttsVoiceOverrides?: Record<string, string>;
   /** Các câu TTS tràn thời lượng khung của nó (cập nhật sau mỗi lần dubbing) */
   ttsOverruns?: { index: number; tempo: number; truncated: boolean }[];
+  /** Thống kê OCR (frames, detections, duplicates merged, confidence scoring) */
+  ocrStats?: {
+    framesScanned: number;
+    detections: number;
+    trackedGroups: number;
+    duplicatesRemoved: number;
+    finalEvents: number;
+    highConfidence: number;
+    needsReview: number;
+    aiCorrected?: number;
+  };
   createdAt: string;
   updatedAt: string;
 }

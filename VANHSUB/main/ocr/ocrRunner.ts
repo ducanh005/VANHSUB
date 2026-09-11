@@ -14,7 +14,12 @@ import {
   type OcrMode,
   type OcrCustomRegion,
 } from './frameExtractor';
-import { buildSubtitleSegments, filterPersistentTopLines, segmentsToSrt } from './subtitleBuilder';
+import {
+  buildSubtitleSegments,
+  buildSubtitleSegmentsWithStats,
+  filterPersistentTopLines,
+  segmentsToSrt,
+} from './subtitleBuilder';
 import {
   checkRapidOcr,
   mapRecLangNames,
@@ -236,7 +241,13 @@ export class OcrRunner {
         mode === 'full'
           ? frameResults
           : filterPersistentTopLines(frameResults, frameIntervalMs, videoHeight);
-      const segments = buildSubtitleSegments(cleanedResults, frameIntervalMs);
+      const { segments, stats } = buildSubtitleSegmentsWithStats(cleanedResults, frameIntervalMs);
+
+      // In báo cáo debug chi tiết theo Rule 18
+      console.log(
+        `[OCR Pipeline Report] OCR frames scanned: ${stats.framesScanned} | Text detections: ${stats.textDetections} | Tracked subtitle groups: ${stats.trackedGroups} | Duplicates merged: ${stats.duplicatesMerged} | Final subtitle events: ${stats.finalEvents} | High confidence: ${stats.highConfidence} | Needs review: ${stats.needsReview} | AI corrected: 0`,
+      );
+
       const srtContent = segmentsToSrt(segments);
       if (!srtContent) {
         throw new Error(
@@ -263,6 +274,15 @@ export class OcrRunner {
         progress: 100,
         srtPath: targetPath,
         stageDescription: `Đã quét OCR được ${segments.length} dòng phụ đề`,
+        ocrStats: {
+          framesScanned: stats.framesScanned,
+          detections: stats.textDetections,
+          trackedGroups: stats.trackedGroups,
+          duplicatesRemoved: stats.duplicatesMerged,
+          finalEvents: stats.finalEvents,
+          highConfidence: stats.highConfidence,
+          needsReview: stats.needsReview,
+        },
       });
       onUpdate?.();
 

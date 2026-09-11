@@ -8,6 +8,7 @@ import {
   Play,
   RefreshCw,
   ScanText,
+  Sparkles,
   Square,
 } from 'lucide-react';
 import type { Task, TaskStatus } from '../types/task';
@@ -396,6 +397,18 @@ export default function ASRWorkspace({ tasks }: { tasks: Task[] }) {
                     {hasSrt && <span className="font-mono text-[11px] text-slate-500">({lineCount} dòng)</span>}
                   </span>
                 </div>
+                {selectedTask?.ocrStats && (
+                  <div className="flex flex-wrap items-center gap-2 border-b border-slate-800/80 bg-slate-950/60 px-4 py-1.5 text-[11px] text-slate-300">
+                    <Sparkles className="h-3.5 w-3.5 text-brand-cyan" />
+                    <span>OCR detected: <strong className="text-white">{selectedTask.ocrStats.finalEvents}</strong> events</span>
+                    <span className="text-slate-600">•</span>
+                    <span>High conf: <strong className="text-emerald-400">{selectedTask.ocrStats.highConfidence}</strong></span>
+                    <span className="text-slate-600">•</span>
+                    <span>Review: <strong className="text-amber-400">{selectedTask.ocrStats.needsReview}</strong></span>
+                    <span className="text-slate-600">•</span>
+                    <span>Deduped: <strong className="text-purple-300">{selectedTask.ocrStats.duplicatesRemoved}</strong></span>
+                  </div>
+                )}
                 <div className="min-h-0 flex-1 overflow-y-auto p-3 font-mono text-[11px] leading-relaxed">
                   {!hasSrt ? (
                     <p className="py-8 text-center text-slate-500">
