@@ -242,6 +242,11 @@ export interface VanhsubAPI {
   logs: {
     onLog: (callback: (entry: { level: string; text: string; ts: number }) => void) => () => void;
   };
+  workflow: {
+    run: (graph: any) => Promise<{ success: boolean; outputs: Record<string, any>; error?: string }>;
+    cancel: (workflowId: string) => Promise<boolean>;
+    onNodeEvent: (callback: (event: any) => void) => () => void;
+  };
 }
 
 declare global {

@@ -1,3 +1,5 @@
+import os from 'os';
+import path from 'path';
 import Store from 'electron-store';
 import { safeStorage } from 'electron';
 
@@ -69,11 +71,24 @@ let _store: Store<AppSettings> | null = null;
 
 function getStore(): Store<AppSettings> {
   if (!_store) {
+    let cwd: string | undefined = process.env.VANHSUB_SETTINGS_DIR;
+    if (!cwd) {
+      try {
+        const electron = require('electron');
+        const electronApp = electron.app;
+        if (!electronApp?.name && !electronApp?.getPath) {
+          cwd = path.join(os.tmpdir(), 'vanhsub-settings');
+        }
+      } catch {
+        cwd = path.join(os.tmpdir(), 'vanhsub-settings');
+      }
+    }
+
     _store = new Store<AppSettings>({
       name: 'vanhsub-settings',
       // Cho phép script test (tsx ngoài Electron) trỏ đúng vào thư mục settings
       // của app — khi có cwd, electron-store không cần tự dò projectName nữa.
-      ...(process.env.VANHSUB_SETTINGS_DIR ? { cwd: process.env.VANHSUB_SETTINGS_DIR } : {}),
+      ...(cwd ? { cwd } : {}),
       defaults: {
         geminiApiKey: '',
         geminiModel: 'gemini-flash-latest',

@@ -1,3 +1,5 @@
+import os from 'os';
+import path from 'path';
 import Store from 'electron-store';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -71,8 +73,22 @@ let _store: Store<StoreSchema> | null = null;
 
 function getStore(): Store<StoreSchema> {
   if (!_store) {
+    let cwd: string | undefined = process.env.VANHSUB_TASKS_DIR;
+    if (!cwd) {
+      try {
+        const electron = require('electron');
+        const electronApp = electron.app;
+        if (!electronApp?.name && !electronApp?.getPath) {
+          cwd = path.join(os.tmpdir(), 'vanhsub-tasks');
+        }
+      } catch {
+        cwd = path.join(os.tmpdir(), 'vanhsub-tasks');
+      }
+    }
+
     _store = new Store<StoreSchema>({
       name: 'vanhsub-tasks',
+      ...(cwd ? { cwd } : {}),
       defaults: {
         tasks: [],
       },

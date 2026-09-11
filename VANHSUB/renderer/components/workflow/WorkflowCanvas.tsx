@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   ReactFlow,
   ReactFlowProvider,
@@ -49,6 +49,7 @@ function FlowCanvasInner() {
 
   const nodes = useWorkflowStore((s) => s.nodes);
   const edges = useWorkflowStore((s) => s.edges);
+  const graphId = useWorkflowStore((s) => s.graphId);
   const graphName = useWorkflowStore((s) => s.graphName);
   const setGraphName = useWorkflowStore((s) => s.setGraphName);
   const onNodesChange = useWorkflowStore((s) => s.onNodesChange);
@@ -67,6 +68,28 @@ function FlowCanvasInner() {
   const [isRunning, setIsRunning] = useState(false);
   const [showQueueDrawer, setShowQueueDrawer] = useState(false);
   const [activePresetId, setActivePresetId] = useState(WORKFLOW_PRESETS[0].id);
+
+  // Lắng nghe sự kiện thực thi node từ Electron backend realtime
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.vanhsub?.workflow?.onNodeEvent) {
+      const unsubscribe = window.vanhsub.workflow.onNodeEvent((event) => {
+        updateNodeRuntime(event.nodeId, {
+          status: event.status,
+          progress: event.progress,
+          thumbnailUrl: event.thumbnailUrl,
+          outputUrl: event.outputUrl,
+          outputData: event.outputData,
+          error: event.error,
+          durationMs: event.durationMs,
+        });
+
+        if (event.outputData?.taskId) {
+          toast.success('Đã đưa video vào Sub Mode thành công!');
+        }
+      });
+      return unsubscribe;
+    }
+  }, [updateNodeRuntime]);
 
   // Tính toán ước tính chi phí render sơ bộ (Mục 8 đặc tả)
   const estimatedStats = useMemo(() => {
@@ -140,7 +163,7 @@ function FlowCanvasInner() {
     e.target.value = '';
   };
 
-  // Chạy mô phỏng Workflow (Demo trực quan Phase 1 cho Execution Engine)
+  // Chạy đồ thị DAG qua backend Execution Engine (Phase 2)
   const handleRunWorkflow = async () => {
     if (nodes.length === 0) {
       toast.error('Canvas đang trống! Hãy kéo node vào trước khi chạy.');
@@ -148,34 +171,52 @@ function FlowCanvasInner() {
     }
 
     setIsRunning(true);
-    toast.info('Bắt đầu khởi chạy đồ thị DAG (Mô phỏng Phase 1)...');
+    toast.info('Bắt đầu khởi chạy đồ thị DAG...');
 
     // Reset status của toàn bộ nodes sang queued
     for (const node of nodes) {
       updateNodeRuntime(node.id, { status: 'queued', progress: 0 });
     }
 
-    // Mô phỏng chạy tuần tự theo thứ tự DAG
-    for (let i = 0; i < nodes.length; i++) {
-      const node = nodes[i];
-      updateNodeRuntime(node.id, { status: 'running', progress: 30 });
+    if (typeof window !== 'undefined' && window.vanhsub?.workflow?.run) {
+      try {
+        const res = await window.vanhsub.workflow.run({
+          id: graphId,
+          name: graphName,
+          nodes,
+          edges,
+        });
 
-      await new Promise((r) => setTimeout(r, 600));
-      updateNodeRuntime(node.id, { status: 'running', progress: 80 });
-
-      await new Promise((r) => setTimeout(r, 600));
-      updateNodeRuntime(node.id, {
-        status: 'success',
-        progress: 100,
-        thumbnailUrl:
-          node.data.category === 'model' || node.data.category === 'output'
-            ? 'https://images.unsplash.com/photo-1578632767115-351597cf2477?auto=format&fit=crop&w=600&q=80'
-            : undefined,
-      });
+        if (res.success) {
+          toast.success('Đã hoàn thành toàn bộ các node trong Workflow!');
+        } else {
+          toast.error(res.error || 'Có lỗi xảy ra trong quá trình thực thi!');
+        }
+      } catch (err: any) {
+        toast.error(`Lỗi thực thi: ${err?.message || err}`);
+      } finally {
+        setIsRunning(false);
+      }
+    } else {
+      // Fallback mô phỏng nếu không có backend Electron
+      for (let i = 0; i < nodes.length; i++) {
+        const node = nodes[i];
+        updateNodeRuntime(node.id, { status: 'running', progress: 30 });
+        await new Promise((r) => setTimeout(r, 600));
+        updateNodeRuntime(node.id, { status: 'running', progress: 80 });
+        await new Promise((r) => setTimeout(r, 600));
+        updateNodeRuntime(node.id, {
+          status: 'success',
+          progress: 100,
+          thumbnailUrl:
+            node.data.category === 'model' || node.data.category === 'output'
+              ? 'https://images.unsplash.com/photo-1578632767115-351597cf2477?auto=format&fit=crop&w=600&q=80'
+              : undefined,
+        });
+      }
+      setIsRunning(false);
+      toast.success('Đã hoàn thành toàn bộ các node trong Workflow!');
     }
-
-    setIsRunning(false);
-    toast.success('Đã hoàn thành toàn bộ các node trong Workflow!');
   };
 
   return (

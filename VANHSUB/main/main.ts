@@ -24,6 +24,7 @@ import { extractAudioFromUrl } from './helpers/voiceFromUrl'
 import { installRendererLogger } from './helpers/logger'
 import { getSharedTikTokProvider } from './tts-providers/tiktok/sessionStores'
 import { TikTokTTSError } from './tts-providers/tiktok/types'
+import { registerWorkflowIpc } from './workflow/ipc'
 
 const isProd = process.env.NODE_ENV === 'production'
 
@@ -208,6 +209,11 @@ function broadcastTasksUpdate() {
 app.on('window-all-closed', () => {
   app.quit()
 })
+
+// =========================================================================
+// WORKFLOW MODE IPC HANDLERS
+// =========================================================================
+registerWorkflowIpc()
 
 // =========================================================================
 // TASK MANAGEMENT IPC HANDLERS

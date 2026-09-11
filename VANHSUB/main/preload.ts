@@ -119,6 +119,17 @@ const vanhsub = {
       return () => ipcRenderer.removeListener('app:log', handler);
     },
   },
+  workflow: {
+    run: (graph: any) => ipcRenderer.invoke('workflow:run', graph),
+    cancel: (workflowId: string) => ipcRenderer.invoke('workflow:cancel', workflowId),
+    onNodeEvent: (callback: (event: any) => void) => {
+      const sub = (_event: any, data: any) => callback(data);
+      ipcRenderer.on('workflow:node-event', sub);
+      return () => {
+        ipcRenderer.removeListener('workflow:node-event', sub);
+      };
+    },
+  },
 }
 
 const handler = {
