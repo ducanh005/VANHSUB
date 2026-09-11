@@ -466,8 +466,10 @@ export default function SettingsPage() {
   };
 
   return (
-    <div className="flex flex-1 flex-col gap-6 overflow-y-auto p-6 text-xs text-slate-300">
-      {/* Header */}
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden text-xs text-slate-300">
+      {/* Vùng cuộn nội dung cấu hình */}
+      <div className="flex-1 overflow-y-auto p-6 space-y-6">
+        {/* Header */}
       <div className="flex items-center justify-between rounded-2xl border border-slate-800 bg-slate-900/80 p-4">
         <div>
           <h2 className="text-sm font-bold text-white">Cấu hình Hệ thống & Dịch vụ AI</h2>
@@ -1342,9 +1344,10 @@ export default function SettingsPage() {
           </div>
         </div>
       </div>
+    </div>
 
-      {/* Thanh lưu cài đặt ở dưới đáy trang (Sticky Bottom Bar) */}
-      <div className="sticky bottom-0 z-20 -mx-6 -mb-6 flex flex-wrap items-center justify-between gap-3 border-t border-slate-800 bg-slate-900/95 p-4 backdrop-blur shadow-2xl">
+      {/* Thanh lưu cài đặt cố định ở đáy trang — liền mạch, không bị hở */}
+      <div className="shrink-0 flex flex-wrap items-center justify-between gap-3 border-t border-slate-800 bg-slate-900/95 px-6 py-3.5 backdrop-blur shadow-2xl">
         <div className="flex items-center gap-2">
           {savedMessage ? (
             <span className="flex items-center gap-1.5 text-xs font-medium text-emerald-400">
