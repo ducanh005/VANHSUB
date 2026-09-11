@@ -40,6 +40,7 @@ import Inspector from './Inspector';
 import CharacterBibleModal from './CharacterBibleModal';
 import SceneBibleModal from './SceneBibleModal';
 import MasterTimeline from './MasterTimeline';
+import StoryboardDirectorStudio from './StoryboardDirectorStudio';
 import { WORKFLOW_PRESETS } from '../../lib/workflow/presets';
 import { NODE_DEFINITIONS } from '../../lib/workflow/nodeRegistry';
 
@@ -77,6 +78,7 @@ function FlowCanvasInner() {
   const [showCharacterBible, setShowCharacterBible] = useState(false);
   const [showSceneBible, setShowSceneBible] = useState(false);
   const [showTimeline, setShowTimeline] = useState(true);
+  const [showStudio, setShowStudio] = useState(false);
 
   // Lắng nghe sự kiện thực thi node từ Electron backend realtime
   useEffect(() => {
@@ -303,6 +305,15 @@ function FlowCanvasInner() {
             <Film className="w-3.5 h-3.5 text-amber-400" />
             <span className="hidden lg:inline">Timeline</span>
           </button>
+
+          <button
+            onClick={() => setShowStudio(true)}
+            title="Mở Storyboard Director Studio (Giao diện Đạo diễn 3 bước chuẩn)"
+            className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-gradient-to-r from-rose-600 to-indigo-600 hover:from-rose-500 hover:to-indigo-500 text-xs font-bold text-white shadow-md shadow-rose-950/40 transition-all"
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            <span className="hidden lg:inline">Storyboard Studio</span>
+          </button>
         </div>
 
         {/* Center: Estimated Render Cost (Mục 8 đặc tả) */}
@@ -518,6 +529,32 @@ function FlowCanvasInner() {
           nodes={nodes}
           nodeRuntime={runtimeMap}
           onSelectNode={(nodeId) => setSelectedNodeId(nodeId)}
+        />
+      )}
+
+      {/* Storyboard Director Studio (Phase 6 Simple Mode) */}
+      {showStudio && (
+        <StoryboardDirectorStudio
+          onCloseStudio={() => setShowStudio(false)}
+          onSendToSubMode={(videoPath, taskName) => {
+            if (typeof window !== 'undefined' && window.vanhsub?.tasks?.create) {
+              window.vanhsub.tasks.create({
+                fileName: taskName || 'Master Video từ Storyboard',
+                filePath: videoPath,
+                workflow: 'full-dubbing',
+              }).then(() => {
+                toast.success('Đã đưa video vào Sub Mode thành công!');
+                setShowStudio(false);
+              });
+            } else {
+              toast.success('Đã chọn video cho Sub Mode: ' + videoPath);
+              setShowStudio(false);
+            }
+          }}
+          onSyncToCanvasGraph={() => {
+            toast.success('Đã đồng bộ Storyboard sang Node Canvas!');
+            setShowStudio(false);
+          }}
         />
       )}
 
