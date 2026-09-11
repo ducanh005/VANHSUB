@@ -1,7 +1,30 @@
-import React, { useState } from 'react';
-import { AudioLines, CheckCircle2, Film, FolderOpen, Layers, Loader2, Mic, Play } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import {
+  AudioLines,
+  CheckCircle2,
+  Film,
+  FolderOpen,
+  Layers,
+  Loader2,
+  Mic,
+  Play,
+  Palette,
+  ShieldAlert,
+  Sparkles,
+  Sliders,
+} from 'lucide-react';
 import type { Task } from '../types/task';
-import type { SubMaskRegion, SubStyle } from '../types/electron';
+import type {
+  SubMaskRegion,
+  SubStyle,
+  PerLineSubtitleStyle,
+  CustomMaskRegion,
+  WatermarkOptions,
+  AdvancedExportOptions,
+} from '../types/electron';
+import { parseSrt, type SrtLine } from '../lib/srt';
+import { SubtitlesStyleEditor } from './export/SubtitlesStyleEditor';
+import { OverlayMaskEditor } from './export/OverlayMaskEditor';
 
 type Props = {
   tasks: Task[];
@@ -98,10 +121,92 @@ export default function ExportPage({ tasks }: Props) {
   const [style, setStyle] = useState<SubStyle>(DEFAULT_STYLE);
   const [separatingStems, setSeparatingStems] = useState(false);
 
+  // Phase 3: Per-line styles & Subtitle Lines
+  const [srtLines, setSrtLines] = useState<SrtLine[]>([]);
+  const [selectedLineIdx, setSelectedLineIdx] = useState<number | null>(null);
+  const [perLineStyles, setPerLineStyles] = useState<Record<number, PerLineSubtitleStyle>>({});
+
+  // Phase 3: Custom Mask Region (Bounding Box)
+  const [customMaskEnabled, setCustomMaskEnabled] = useState(false);
+  const [customMask, setCustomMask] = useState<CustomMaskRegion>({
+    xPercent: 10,
+    yPercent: 75,
+    widthPercent: 80,
+    heightPercent: 20,
+    mode: 'blur',
+    intensity: 40,
+  });
+
+  // Phase 3: Watermark / Logo Layer
+  const [watermarkEnabled, setWatermarkEnabled] = useState(false);
+  const [watermark, setWatermark] = useState<WatermarkOptions>({
+    type: 'text',
+    content: '',
+    position: 'top_right',
+    opacity: 0.8,
+    scalePercent: 18,
+  });
+
+  // Tab điều hướng trong Hardsub
+  const [hardsubTab, setHardsubTab] = useState<'global' | 'lines' | 'layers'>('global');
+
   const selectedTask = tasks.find((t) => t.id === selectedTaskId) || null;
   const isExporting = selectedTask?.status === 'exporting';
   const outputPath = selectedTask?.outputPath;
   const hasTtsAudio = !!selectedTask?.ttsAudioDir;
+
+  // Tải danh sách phụ đề mỗi khi chọn task
+  useEffect(() => {
+    if (!selectedTask) {
+      setSrtLines([]);
+      setPerLineStyles({});
+      setSelectedLineIdx(null);
+      return;
+    }
+    const srtPath = selectedTask.translatedSrtPath || selectedTask.srtPath;
+    if (!srtPath || !window.vanhsub?.tasks?.readSrt) {
+      setSrtLines([]);
+      return;
+    }
+    let canceled = false;
+    window.vanhsub.tasks
+      .readSrt(srtPath)
+      .then((content) => {
+        if (!canceled && content) {
+          setSrtLines(parseSrt(content));
+        }
+      })
+      .catch(() => {
+        if (!canceled) setSrtLines([]);
+      });
+    return () => {
+      canceled = true;
+    };
+  }, [selectedTaskId, selectedTask?.translatedSrtPath, selectedTask?.srtPath]);
+
+  const handleUpdateLineStyle = (lineIndex: number, lineStyle: PerLineSubtitleStyle | null) => {
+    setPerLineStyles((prev) => {
+      const next = { ...prev };
+      if (!lineStyle) {
+        delete next[lineIndex];
+      } else {
+        next[lineIndex] = lineStyle;
+      }
+      return next;
+    });
+  };
+
+  const handleBatchApplyStyles = (batchStyle: PerLineSubtitleStyle) => {
+    const next: Record<number, PerLineSubtitleStyle> = {};
+    srtLines.forEach((_, idx) => {
+      next[idx] = { ...batchStyle };
+    });
+    setPerLineStyles(next);
+  };
+
+  const handleClearAllStyles = () => {
+    setPerLineStyles({});
+  };
 
   const handleExport = async () => {
     if (!selectedTaskId) return;
@@ -126,7 +231,18 @@ export default function ExportPage({ tasks }: Props) {
       }
       const maskParam = mode === 'hardsub' && maskEnabled ? mask : null;
       const styleParam = mode === 'hardsub' ? style : null;
-      await window.vanhsub.export.start(selectedTaskId, mode, maskParam, styleParam);
+
+      const advancedOptions: AdvancedExportOptions | null =
+        mode === 'hardsub'
+          ? {
+              perLineStyles: Object.keys(perLineStyles).length > 0 ? perLineStyles : undefined,
+              customMask: customMaskEnabled ? customMask : null,
+              watermark: watermarkEnabled && watermark.content ? watermark : null,
+              formatOptions: null,
+            }
+          : null;
+
+      await window.vanhsub.export.start(selectedTaskId, mode, maskParam, styleParam, advancedOptions);
       setMessage(`Đã bắt đầu xuất video (${mode === 'hardsub' ? 'Hardsub' : 'Softsub'})...`);
     } catch (err: any) {
       setIsError(true);
@@ -244,278 +360,349 @@ export default function ExportPage({ tasks }: Props) {
             })}
           </div>
 
-          {/* Tùy chọn che vùng phụ đề cũ (chỉ dùng cho Hardsub) */}
+          {/* Tùy chọn nâng cao chế độ Hardsub */}
           {mode === 'hardsub' && (
-            <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4">
-              <label className="flex items-center gap-2 text-xs font-semibold text-slate-200 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={maskEnabled}
-                  onChange={(e) => setMaskEnabled(e.target.checked)}
-                  disabled={isExporting}
-                  className="h-4 w-4 rounded border-slate-700 bg-slate-800 text-brand-cyan focus:ring-0"
-                />
-                <span>Che vùng phụ đề cũ trong video (phụ đề nước ngoài in sẵn)</span>
-              </label>
+            <div className="flex flex-col gap-3">
+              {/* Tab navigation */}
+              <div className="flex border-b border-slate-800 bg-slate-900/50 p-1.5 rounded-xl gap-2">
+                <button
+                  type="button"
+                  onClick={() => setHardsubTab('global')}
+                  className={`flex items-center gap-2 rounded-lg px-3.5 py-2 text-xs font-medium transition cursor-pointer ${
+                    hardsubTab === 'global'
+                      ? 'bg-brand-cyan/20 text-brand-cyan shadow-sm ring-1 ring-brand-cyan/40'
+                      : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+                  }`}
+                >
+                  <Sliders className="h-4 w-4" />
+                  <span>1. Style phụ đề chung</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setHardsubTab('lines')}
+                  className={`flex items-center gap-2 rounded-lg px-3.5 py-2 text-xs font-medium transition cursor-pointer ${
+                    hardsubTab === 'lines'
+                      ? 'bg-brand-cyan/20 text-brand-cyan shadow-sm ring-1 ring-brand-cyan/40'
+                      : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+                  }`}
+                >
+                  <Palette className="h-4 w-4" />
+                  <span>2. Style từng câu thoại</span>
+                  {Object.keys(perLineStyles).length > 0 && (
+                    <span className="rounded-full bg-brand-cyan/30 px-1.5 py-0.5 text-[10px] text-brand-cyan">
+                      {Object.keys(perLineStyles).length}
+                    </span>
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setHardsubTab('layers')}
+                  className={`flex items-center gap-2 rounded-lg px-3.5 py-2 text-xs font-medium transition cursor-pointer ${
+                    hardsubTab === 'layers'
+                      ? 'bg-brand-cyan/20 text-brand-cyan shadow-sm ring-1 ring-brand-cyan/40'
+                      : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+                  }`}
+                >
+                  <ShieldAlert className="h-4 w-4" />
+                  <span>3. Che mờ & Watermark</span>
+                  {(customMaskEnabled || watermarkEnabled || maskEnabled) && (
+                    <span className="h-2 w-2 rounded-full bg-brand-cyan" />
+                  )}
+                </button>
+              </div>
 
-              {maskEnabled && (
-                <div className="mt-3 flex flex-wrap items-center gap-4 border-t border-slate-800/80 pt-3">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-slate-400">Vị trí:</span>
-                    <select
-                      value={mask.position}
-                      onChange={(e) =>
-                        setMask((m) => ({ ...m, position: e.target.value as 'bottom' | 'top' }))
+              {/* 1. Style phụ đề chung */}
+              {hardsubTab === 'global' && (
+                <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4">
+                  <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-xs font-semibold text-slate-200">Style phụ đề toàn bài</span>
+                    <div className="flex flex-wrap gap-1.5">
+                      {STYLE_PRESETS.map((p) => (
+                        <button
+                          key={p.name}
+                          type="button"
+                          onClick={() => setStyle(p.style)}
+                          disabled={isExporting}
+                          className="rounded-lg border border-slate-700 bg-slate-800 px-2.5 py-1 text-[11px] font-medium text-slate-300 hover:bg-slate-700 hover:text-white transition cursor-pointer disabled:opacity-50"
+                        >
+                          {p.name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Xem trước xấp xỉ */}
+                  <div className="relative mb-4 h-24 overflow-hidden rounded-xl border border-slate-700 bg-gradient-to-br from-slate-700 via-slate-600 to-slate-800">
+                    <div
+                      className="absolute inset-x-0 flex justify-center px-4"
+                      style={
+                        style.alignment === 8
+                          ? { top: 8 }
+                          : style.alignment === 5
+                            ? { top: '50%', transform: 'translateY(-50%)' }
+                            : { bottom: Math.max(6, style.marginV / 2) }
                       }
-                      disabled={isExporting}
-                      className="rounded-xl border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs text-slate-200 focus:outline-none"
                     >
-                      <option value="bottom">Đáy khung hình</option>
-                      <option value="top">Đầu khung hình</option>
-                    </select>
+                      <span
+                        style={{
+                          fontFamily: `"${style.fontName}", Arial, sans-serif`,
+                          fontSize: style.fontSize * 1.5,
+                          lineHeight: 1.25,
+                          color: style.primaryColour,
+                          fontWeight: style.bold ? 800 : 500,
+                          opacity: style.opacity / 100,
+                          ...(style.borderStyle === 3
+                            ? { background: style.outlineColour, padding: '2px 10px' }
+                            : { textShadow: `${outlineShadow}${dropShadow}` }),
+                        }}
+                      >
+                        Phụ đề mẫu — Xin chào VANHSUB
+                      </span>
+                    </div>
                   </div>
 
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-slate-400">Độ cao dải che:</span>
-                    <input
-                      type="range"
-                      min={5}
-                      max={50}
-                      step={1}
-                      value={mask.heightPercent}
-                      onChange={(e) => setMask((m) => ({ ...m, heightPercent: Number(e.target.value) }))}
-                      disabled={isExporting}
-                      className="w-36 accent-cyan-400"
-                    />
-                    <span className="w-10 font-mono text-xs text-brand-cyan">{mask.heightPercent}%</span>
-                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                    <div>
+                      <label className="mb-1 block text-[11px] font-medium text-slate-400">Font</label>
+                      <select
+                        value={style.fontName}
+                        onChange={(e) => setStyle((s) => ({ ...s, fontName: e.target.value }))}
+                        disabled={isExporting}
+                        className="w-full rounded-xl border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs text-slate-200 focus:outline-none"
+                      >
+                        {FONT_OPTIONS.map((f) => (
+                          <option key={f} value={f}>
+                            {f}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
 
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-slate-400">Kiểu che:</span>
-                    <select
-                      value={mask.mode}
-                      onChange={(e) => setMask((m) => ({ ...m, mode: e.target.value as 'solid' | 'blur' }))}
-                      disabled={isExporting}
-                      className="rounded-xl border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs text-slate-200 focus:outline-none"
-                    >
-                      <option value="blur">Làm mờ (giữ mờ khung hình)</option>
-                      <option value="solid">Tô đen hoàn toàn</option>
-                    </select>
-                  </div>
+                    <div>
+                      <label className="mb-1 block text-[11px] font-medium text-slate-400">
+                        Cỡ chữ: <span className="font-mono text-brand-cyan">{style.fontSize}</span>
+                      </label>
+                      <input
+                        type="range"
+                        min={12}
+                        max={60}
+                        value={style.fontSize}
+                        onChange={(e) => setStyle((s) => ({ ...s, fontSize: Number(e.target.value) }))}
+                        disabled={isExporting}
+                        className="w-full accent-cyan-400"
+                      />
+                    </div>
 
-                  <p className="w-full text-[11px] leading-relaxed text-slate-500">
-                    Vùng che được áp trước khi ghi phụ đề mới, nhờ đó sub tiếng Việt không đè chồng lên
-                    chữ cũ. Nếu chưa đúng vị trí, thử tăng/giảm độ cao dải che.
-                  </p>
+                    <div>
+                      <label className="mb-1 block text-[11px] font-medium text-slate-400">Vị trí</label>
+                      <select
+                        value={style.alignment}
+                        onChange={(e) =>
+                          setStyle((s) => ({ ...s, alignment: Number(e.target.value) as SubStyle['alignment'] }))
+                        }
+                        disabled={isExporting}
+                        className="w-full rounded-xl border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs text-slate-200 focus:outline-none"
+                      >
+                        <option value={2}>Đáy khung hình</option>
+                        <option value={5}>Giữa khung hình</option>
+                        <option value={8}>Đỉnh khung hình</option>
+                      </select>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <label className="text-[11px] font-medium text-slate-400">Chữ:</label>
+                      <input
+                        type="color"
+                        value={style.primaryColour}
+                        onChange={(e) => setStyle((s) => ({ ...s, primaryColour: e.target.value }))}
+                        disabled={isExporting}
+                        className="h-7 w-10 cursor-pointer rounded border border-slate-700 bg-slate-800"
+                      />
+                      <label className="ml-2 text-[11px] font-medium text-slate-400">Viền:</label>
+                      <input
+                        type="color"
+                        value={style.outlineColour}
+                        onChange={(e) => setStyle((s) => ({ ...s, outlineColour: e.target.value }))}
+                        disabled={isExporting}
+                        className="h-7 w-10 cursor-pointer rounded border border-slate-700 bg-slate-800"
+                      />
+                      <label className="ml-2 flex items-center gap-1.5 text-[11px] text-slate-300 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={style.bold}
+                          onChange={(e) => setStyle((s) => ({ ...s, bold: e.target.checked }))}
+                          disabled={isExporting}
+                          className="h-3.5 w-3.5 border-slate-700 bg-slate-800 text-brand-cyan focus:ring-0"
+                        />
+                        Đậm
+                      </label>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-3">
+                      <label className="flex items-center gap-2 text-[11px] font-medium text-slate-400">
+                        Độ mờ:
+                        <input
+                          type="range"
+                          min={40}
+                          max={100}
+                          value={style.opacity}
+                          onChange={(e) => setStyle((s) => ({ ...s, opacity: Number(e.target.value) }))}
+                          disabled={isExporting}
+                          className="w-24 accent-cyan-400"
+                        />
+                        <span className="w-8 font-mono text-brand-cyan">{style.opacity}%</span>
+                      </label>
+                      <label className="flex items-center gap-2 text-[11px] font-medium text-slate-400">
+                        Viền:
+                        <input
+                          type="range"
+                          min={0}
+                          max={8}
+                          value={style.outline}
+                          onChange={(e) => setStyle((s) => ({ ...s, outline: Number(e.target.value) }))}
+                          disabled={isExporting}
+                          className="w-20 accent-cyan-400"
+                        />
+                        <span className="w-4 font-mono text-brand-cyan">{style.outline}</span>
+                      </label>
+                      <label className="flex items-center gap-2 text-[11px] font-medium text-slate-400">
+                        Bóng:
+                        <input
+                          type="range"
+                          min={0}
+                          max={6}
+                          value={style.shadow}
+                          onChange={(e) => setStyle((s) => ({ ...s, shadow: Number(e.target.value) }))}
+                          disabled={isExporting}
+                          className="w-20 accent-cyan-400"
+                        />
+                        <span className="w-4 font-mono text-brand-cyan">{style.shadow}</span>
+                      </label>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-3">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[11px] font-medium text-slate-400">Kiểu:</span>
+                        <select
+                          value={style.borderStyle}
+                          onChange={(e) =>
+                            setStyle((s) => ({ ...s, borderStyle: Number(e.target.value) as SubStyle['borderStyle'] }))
+                          }
+                          disabled={isExporting}
+                          className="rounded-xl border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs text-slate-200 focus:outline-none"
+                        >
+                          <option value={1}>Viền + bóng</option>
+                          <option value={3}>Nền box đặc</option>
+                        </select>
+                      </div>
+                      <label className="flex items-center gap-2 text-[11px] font-medium text-slate-400">
+                        Cách mép:
+                        <input
+                          type="range"
+                          min={0}
+                          max={120}
+                          value={style.marginV}
+                          onChange={(e) => setStyle((s) => ({ ...s, marginV: Number(e.target.value) }))}
+                          disabled={isExporting}
+                          className="w-24 accent-cyan-400"
+                        />
+                        <span className="w-8 font-mono text-brand-cyan">{style.marginV}</span>
+                      </label>
+                    </div>
+                  </div>
                 </div>
               )}
-            </div>
-          )}
 
-          {/* Tùy chỉnh style phụ đề (chỉ dùng cho Hardsub) */}
-          {mode === 'hardsub' && (
-            <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4">
-              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                <span className="text-xs font-semibold text-slate-200">Style phụ đề ghi cứng</span>
-                <div className="flex flex-wrap gap-1.5">
-                  {STYLE_PRESETS.map((p) => (
-                    <button
-                      key={p.name}
-                      type="button"
-                      onClick={() => setStyle(p.style)}
-                      disabled={isExporting}
-                      className="rounded-lg border border-slate-700 bg-slate-800 px-2.5 py-1 text-[11px] font-medium text-slate-300 hover:bg-slate-700 hover:text-white transition cursor-pointer disabled:opacity-50"
-                    >
-                      {p.name}
-                    </button>
-                  ))}
-                </div>
-              </div>
+              {/* 2. Tùy biến Style từng câu thoại */}
+              {hardsubTab === 'lines' && (
+                <SubtitlesStyleEditor
+                  lines={srtLines}
+                  perLineStyles={perLineStyles}
+                  onUpdateLineStyle={handleUpdateLineStyle}
+                  onBatchApplyStyles={handleBatchApplyStyles}
+                  onClearAllStyles={handleClearAllStyles}
+                  selectedIndex={selectedLineIdx}
+                  onSelectLine={setSelectedLineIdx}
+                />
+              )}
 
-              {/* Xem trước xấp xỉ */}
-              <div className="relative mb-4 h-24 overflow-hidden rounded-xl border border-slate-700 bg-gradient-to-br from-slate-700 via-slate-600 to-slate-800">
-                <div
-                  className="absolute inset-x-0 flex justify-center px-4"
-                  style={
-                    style.alignment === 8
-                      ? { top: 8 }
-                      : style.alignment === 5
-                        ? { top: '50%', transform: 'translateY(-50%)' }
-                        : { bottom: Math.max(6, style.marginV / 2) }
-                  }
-                >
-                  <span
-                    style={{
-                      fontFamily: `"${style.fontName}", Arial, sans-serif`,
-                      fontSize: style.fontSize * 1.5,
-                      lineHeight: 1.25,
-                      color: style.primaryColour,
-                      fontWeight: style.bold ? 800 : 500,
-                      opacity: style.opacity / 100,
-                      ...(style.borderStyle === 3
-                        ? { background: style.outlineColour, padding: '2px 10px' }
-                        : { textShadow: `${outlineShadow}${dropShadow}` }),
-                    }}
-                  >
-                    Phụ đề mẫu — Xin chào VANHSUB
-                  </span>
-                </div>
-              </div>
-
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                <div>
-                  <label className="mb-1 block text-[11px] font-medium text-slate-400">Font</label>
-                  <select
-                    value={style.fontName}
-                    onChange={(e) => setStyle((s) => ({ ...s, fontName: e.target.value }))}
-                    disabled={isExporting}
-                    className="w-full rounded-xl border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs text-slate-200 focus:outline-none"
-                  >
-                    {FONT_OPTIONS.map((f) => (
-                      <option key={f} value={f}>
-                        {f}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="mb-1 block text-[11px] font-medium text-slate-400">
-                    Cỡ chữ: <span className="font-mono text-brand-cyan">{style.fontSize}</span>
-                  </label>
-                  <input
-                    type="range"
-                    min={12}
-                    max={60}
-                    value={style.fontSize}
-                    onChange={(e) => setStyle((s) => ({ ...s, fontSize: Number(e.target.value) }))}
-                    disabled={isExporting}
-                    className="w-full accent-cyan-400"
+              {/* 3. Che mờ & Watermark */}
+              {hardsubTab === 'layers' && (
+                <div className="flex flex-col gap-4">
+                  {/* Che mờ tự do & Watermark */}
+                  <OverlayMaskEditor
+                    customMask={customMask}
+                    customMaskEnabled={customMaskEnabled}
+                    onToggleMask={setCustomMaskEnabled}
+                    onChangeMask={(partial) => setCustomMask((prev) => ({ ...prev, ...partial }))}
+                    watermark={watermark}
+                    watermarkEnabled={watermarkEnabled}
+                    onToggleWatermark={setWatermarkEnabled}
+                    onChangeWatermark={(partial) => setWatermark((prev) => ({ ...prev, ...partial }))}
                   />
-                </div>
 
-                <div>
-                  <label className="mb-1 block text-[11px] font-medium text-slate-400">Vị trí</label>
-                  <select
-                    value={style.alignment}
-                    onChange={(e) =>
-                      setStyle((s) => ({ ...s, alignment: Number(e.target.value) as SubStyle['alignment'] }))
-                    }
-                    disabled={isExporting}
-                    className="w-full rounded-xl border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs text-slate-200 focus:outline-none"
-                  >
-                    <option value={2}>Đáy khung hình</option>
-                    <option value={5}>Giữa khung hình</option>
-                    <option value={8}>Đỉnh khung hình</option>
-                  </select>
-                </div>
+                  {/* Che dải phụ đề cố định (Classic Bar Mask) */}
+                  <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4">
+                    <label className="flex items-center gap-2 text-xs font-semibold text-slate-200 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={maskEnabled}
+                        onChange={(e) => setMaskEnabled(e.target.checked)}
+                        disabled={isExporting}
+                        className="h-4 w-4 rounded border-slate-700 bg-slate-800 text-brand-cyan focus:ring-0"
+                      />
+                      <span>Dải che phụ đề cũ kiểu đơn giản (ngang toàn màn hình ở đáy / đỉnh)</span>
+                    </label>
 
-                <div className="flex items-center gap-2">
-                  <label className="text-[11px] font-medium text-slate-400">Chữ:</label>
-                  <input
-                    type="color"
-                    value={style.primaryColour}
-                    onChange={(e) => setStyle((s) => ({ ...s, primaryColour: e.target.value }))}
-                    disabled={isExporting}
-                    className="h-7 w-10 cursor-pointer rounded border border-slate-700 bg-slate-800"
-                  />
-                  <label className="ml-2 text-[11px] font-medium text-slate-400">Viền:</label>
-                  <input
-                    type="color"
-                    value={style.outlineColour}
-                    onChange={(e) => setStyle((s) => ({ ...s, outlineColour: e.target.value }))}
-                    disabled={isExporting}
-                    className="h-7 w-10 cursor-pointer rounded border border-slate-700 bg-slate-800"
-                  />
-                  <label className="ml-2 flex items-center gap-1.5 text-[11px] text-slate-300 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={style.bold}
-                      onChange={(e) => setStyle((s) => ({ ...s, bold: e.target.checked }))}
-                      disabled={isExporting}
-                      className="h-3.5 w-3.5 border-slate-700 bg-slate-800 text-brand-cyan focus:ring-0"
-                    />
-                    Đậm
-                  </label>
-                </div>
+                    {maskEnabled && (
+                      <div className="mt-3 flex flex-wrap items-center gap-4 border-t border-slate-800/80 pt-3">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-slate-400">Vị trí:</span>
+                          <select
+                            value={mask.position}
+                            onChange={(e) =>
+                              setMask((m) => ({ ...m, position: e.target.value as 'bottom' | 'top' }))
+                            }
+                            disabled={isExporting}
+                            className="rounded-xl border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs text-slate-200 focus:outline-none"
+                          >
+                            <option value="bottom">Đáy khung hình</option>
+                            <option value="top">Đầu khung hình</option>
+                          </select>
+                        </div>
 
-                <div className="flex flex-wrap items-center gap-3">
-                  <label className="flex items-center gap-2 text-[11px] font-medium text-slate-400">
-                    Độ mờ:
-                    <input
-                      type="range"
-                      min={40}
-                      max={100}
-                      value={style.opacity}
-                      onChange={(e) => setStyle((s) => ({ ...s, opacity: Number(e.target.value) }))}
-                      disabled={isExporting}
-                      className="w-24 accent-cyan-400"
-                    />
-                    <span className="w-8 font-mono text-brand-cyan">{style.opacity}%</span>
-                  </label>
-                  <label className="flex items-center gap-2 text-[11px] font-medium text-slate-400">
-                    Viền:
-                    <input
-                      type="range"
-                      min={0}
-                      max={8}
-                      value={style.outline}
-                      onChange={(e) => setStyle((s) => ({ ...s, outline: Number(e.target.value) }))}
-                      disabled={isExporting}
-                      className="w-20 accent-cyan-400"
-                    />
-                    <span className="w-4 font-mono text-brand-cyan">{style.outline}</span>
-                  </label>
-                  <label className="flex items-center gap-2 text-[11px] font-medium text-slate-400">
-                    Bóng:
-                    <input
-                      type="range"
-                      min={0}
-                      max={6}
-                      value={style.shadow}
-                      onChange={(e) => setStyle((s) => ({ ...s, shadow: Number(e.target.value) }))}
-                      disabled={isExporting}
-                      className="w-20 accent-cyan-400"
-                    />
-                    <span className="w-4 font-mono text-brand-cyan">{style.shadow}</span>
-                  </label>
-                </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-slate-400">Độ cao dải che:</span>
+                          <input
+                            type="range"
+                            min={5}
+                            max={50}
+                            step={1}
+                            value={mask.heightPercent}
+                            onChange={(e) => setMask((m) => ({ ...m, heightPercent: Number(e.target.value) }))}
+                            disabled={isExporting}
+                            className="w-36 accent-cyan-400"
+                          />
+                          <span className="w-10 font-mono text-xs text-brand-cyan">{mask.heightPercent}%</span>
+                        </div>
 
-                <div className="flex flex-wrap items-center gap-3">
-                  <div className="flex items-center gap-2">
-                    <span className="text-[11px] font-medium text-slate-400">Kiểu:</span>
-                    <select
-                      value={style.borderStyle}
-                      onChange={(e) =>
-                        setStyle((s) => ({ ...s, borderStyle: Number(e.target.value) as SubStyle['borderStyle'] }))
-                      }
-                      disabled={isExporting}
-                      className="rounded-xl border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs text-slate-200 focus:outline-none"
-                    >
-                      <option value={1}>Viền + bóng</option>
-                      <option value={3}>Nền box đặc</option>
-                    </select>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-slate-400">Kiểu che:</span>
+                          <select
+                            value={mask.mode}
+                            onChange={(e) => setMask((m) => ({ ...m, mode: e.target.value as 'solid' | 'blur' }))}
+                            disabled={isExporting}
+                            className="rounded-xl border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs text-slate-200 focus:outline-none"
+                          >
+                            <option value="blur">Làm mờ (giữ mờ khung hình)</option>
+                            <option value="solid">Tô đen hoàn toàn</option>
+                          </select>
+                        </div>
+                      </div>
+                    )}
                   </div>
-                  <label className="flex items-center gap-2 text-[11px] font-medium text-slate-400">
-                    Cách mép:
-                    <input
-                      type="range"
-                      min={0}
-                      max={120}
-                      value={style.marginV}
-                      onChange={(e) => setStyle((s) => ({ ...s, marginV: Number(e.target.value) }))}
-                      disabled={isExporting}
-                      className="w-24 accent-cyan-400"
-                    />
-                    <span className="w-8 font-mono text-brand-cyan">{style.marginV}</span>
-                  </label>
                 </div>
-              </div>
-
-              <p className="mt-3 text-[11px] leading-relaxed text-slate-500">
-                Style áp dụng cho chế độ Hardsub (phụ đề ghi cứng). Xem trước phía trên là xấp xỉ —
-                kết quả thực tế phụ thuộc font có trên máy và độ phân giải video.
-              </p>
+              )}
             </div>
           )}
 

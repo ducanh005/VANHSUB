@@ -88,42 +88,39 @@ export interface PerLineSubtitleStyle {
 }
 
 export interface CustomMaskRegion {
-  x: number;
-  y: number;
-  w: number;
-  h: number;
+  xPercent: number;
+  yPercent: number;
+  widthPercent: number;
+  heightPercent: number;
   mode: 'solid' | 'blur' | 'pixelate';
-  color?: string;
-  blurIntensity?: number;
-  startTime?: number;
-  endTime?: number;
+  intensity?: number;
+  startSec?: number;
+  endSec?: number;
 }
 
 export interface WatermarkOptions {
   type: 'text' | 'image';
-  text?: string;
-  imagePath?: string;
-  position: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | 'center';
-  margin?: number;
+  content: string;
   opacity?: number;
-  scale?: number;
-  fontSize?: number;
-  fontColorHex?: string;
-  fontName?: string;
+  scalePercent?: number;
+  position: 'top_left' | 'top_right' | 'bottom_left' | 'bottom_right' | 'center' | 'custom';
+  customPos?: { xPercent: number; yPercent: number };
 }
 
 export interface ExportFormatOptions {
   aspectRatio?: 'original' | '16:9' | '9:16' | '1:1';
-  fps?: 24 | 30 | 60;
+  resolution?: 'original' | '1080p' | '720p' | '480p';
+  fps?: number;
   bitrateKbps?: number;
-  format?: 'mp4' | 'mov';
+  videoCodec?: 'libx264' | 'libx265';
+  preset?: 'ultrafast' | 'veryfast' | 'fast' | 'medium';
 }
 
 export interface AdvancedExportOptions {
-  lineStyles?: Record<number, PerLineSubtitleStyle>;
-  customMasks?: CustomMaskRegion[];
-  watermark?: WatermarkOptions;
-  formatOptions?: ExportFormatOptions;
+  perLineStyles?: Record<number, PerLineSubtitleStyle>;
+  customMask?: CustomMaskRegion | null;
+  watermark?: WatermarkOptions | null;
+  formatOptions?: ExportFormatOptions | null;
 }
 
 export interface VanhsubAPI {
