@@ -5,8 +5,10 @@ import {
   Crosshair,
   FileVideo,
   Globe2,
+  GripVertical,
   KeyRound,
   Languages,
+  ListPlus,
   Loader2,
   MessageSquareText,
   Plus,
@@ -145,6 +147,12 @@ export default function SubtitleEditor({
   const [statusMessage, setStatusMessage] = useState('');
   const [statusError, setStatusError] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
+
+  // Kéo thả sắp xếp vị trí câu phụ đề
+  const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+  const [dragOverPosition, setDragOverPosition] = useState<'above' | 'below'>('below');
+  const [newlyAddedId, setNewlyAddedId] = useState<string | null>(null);
 
   // Dịch thuật & Đối chiếu song ngữ
   const [targetLanguage, setTargetLanguage] = useState('vi');
@@ -334,13 +342,119 @@ export default function SubtitleEditor({
   };
 
   const addLine = () => {
+    const newId = makeLineId();
     const last = lines[lines.length - 1];
     const startMs = last ? last.endMs : 0;
     setLines((prev) => [
       ...prev,
-      { id: makeLineId(), startMs, endMs: startMs + 3000, text: '' },
+      { id: newId, startMs, endMs: startMs + 3000, text: '' },
     ]);
+    setNewlyAddedId(newId);
     setDirty(true);
+    setStatusMessage('Đã thêm dòng mới ở cuối danh sách. Bạn có thể giữ icon ⠿ để kéo dòng đến vị trí mong muốn.');
+    setTimeout(() => {
+      const el = document.getElementById(`srt-line-${newId}`);
+      el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 50);
+  };
+
+  const insertLineAfter = (index: number) => {
+    const newId = makeLineId();
+    const current = lines[index];
+    const next = lines[index + 1];
+    const startMs = current ? current.endMs : 0;
+    const endMs = next && next.startMs > startMs ? Math.min(startMs + 3000, next.startMs) : startMs + 3000;
+    const newLine: SrtLine = { id: newId, startMs, endMs, text: '' };
+    setLines((prev) => {
+      const copy = [...prev];
+      copy.splice(index + 1, 0, newLine);
+      return copy;
+    });
+    setNewlyAddedId(newId);
+    setDirty(true);
+    setStatusMessage(`Đã chèn dòng mới sau câu #${index + 1}.`);
+    setTimeout(() => {
+      const el = document.getElementById(`srt-line-${newId}`);
+      el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 50);
+  };
+
+  const handleDragStart = (e: React.DragEvent, index: number) => {
+    setDraggedIndex(index);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', String(index));
+  };
+
+  const handleDragOver = (e: React.DragEvent, index: number) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (draggedIndex === null) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const midY = rect.top + rect.height / 2;
+    const position = e.clientY < midY ? 'above' : 'below';
+    if (dragOverIndex !== index || dragOverPosition !== position) {
+      setDragOverIndex(index);
+      setDragOverPosition(position);
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent, targetIndex: number) => {
+    e.preventDefault();
+    if (draggedIndex === null) return;
+    if (draggedIndex === targetIndex) {
+      setDraggedIndex(null);
+      setDragOverIndex(null);
+      return;
+    }
+
+    let insertAt = dragOverPosition === 'above' ? targetIndex : targetIndex + 1;
+    if (draggedIndex < insertAt) {
+      insertAt -= 1;
+    }
+    if (insertAt === draggedIndex) {
+      setDraggedIndex(null);
+      setDragOverIndex(null);
+      return;
+    }
+
+    const next = [...lines];
+    const [moved] = next.splice(draggedIndex, 1);
+    next.splice(insertAt, 0, moved);
+
+    // Tự động điều chỉnh startMs và endMs để khớp logic timeline xung quanh
+    const prevLine = insertAt > 0 ? next[insertAt - 1] : null;
+    const nextLine = insertAt < next.length - 1 ? next[insertAt + 1] : null;
+    const originalDuration = Math.max(1000, (moved.endMs || 0) - (moved.startMs || 0));
+
+    if (prevLine && nextLine) {
+      if (nextLine.startMs > prevLine.endMs) {
+        moved.startMs = prevLine.endMs;
+        moved.endMs = Math.min(prevLine.endMs + originalDuration, nextLine.startMs);
+        if (moved.endMs <= moved.startMs) {
+          moved.endMs = moved.startMs + Math.max(500, Math.floor((nextLine.startMs - prevLine.endMs) / 2));
+        }
+      } else {
+        moved.startMs = prevLine.endMs;
+        moved.endMs = moved.startMs + originalDuration;
+      }
+    } else if (prevLine && !nextLine) {
+      moved.startMs = prevLine.endMs;
+      moved.endMs = moved.startMs + originalDuration;
+    } else if (!prevLine && nextLine) {
+      moved.endMs = nextLine.startMs;
+      moved.startMs = Math.max(0, nextLine.startMs - originalDuration);
+    }
+
+    setLines(next);
+    setDirty(true);
+    setStatusMessage(`Đã chuyển câu #${draggedIndex + 1} đến vị trí #${insertAt + 1} và cân chỉnh timeline.`);
+    setDraggedIndex(null);
+    setDragOverIndex(null);
+  };
+
+  const handleDragEnd = () => {
+    setDraggedIndex(null);
+    setDragOverIndex(null);
   };
 
   const setLineTimeFromVideo = (index: number, field: 'startMs' | 'endMs') => {
@@ -866,26 +980,56 @@ export default function SubtitleEditor({
                 {lines.map((item, index) => {
                   const isActiveLine = index === activeIndex;
                   const isBusyThis = aiBusyIndex === index;
+                  const isDragging = draggedIndex === index;
+                  const isDragOver = dragOverIndex === index && draggedIndex !== index;
+                  const isNewlyAdded = item.id === newlyAddedId;
+
                   return (
                     <div
                       key={item.id}
+                      id={`srt-line-${item.id}`}
                       ref={isActiveLine ? activeRowRef : null}
                       onClick={() => seekTo(item.startMs)}
+                      onDragOver={(e) => handleDragOver(e, index)}
+                      onDrop={(e) => handleDrop(e, index)}
                       className={[
-                        'group flex flex-col gap-2 rounded-2xl border bg-slate-900/90 p-3 text-xs transition',
+                        'group relative flex flex-col gap-2 rounded-2xl border bg-slate-900/90 p-3 text-xs transition duration-150',
+                        isDragging ? 'opacity-40 scale-[0.98]' : '',
+                        isDragOver && dragOverPosition === 'above'
+                          ? 'border-t-2 !border-t-brand-cyan shadow-sm shadow-brand-cyan/20'
+                          : '',
+                        isDragOver && dragOverPosition === 'below'
+                          ? 'border-b-2 !border-b-brand-cyan shadow-sm shadow-brand-cyan/20'
+                          : '',
                         isActiveLine
                           ? 'border-brand-cyan/70 ring-1 ring-brand-cyan/40 shadow-sm shadow-brand-cyan/10'
+                          : isNewlyAdded
+                          ? 'border-emerald-500/60 ring-1 ring-emerald-500/30'
                           : 'border-slate-800/80 hover:border-brand-indigo/50',
-                      ].join(' ')}
+                      ].filter(Boolean).join(' ')}
                     >
                       <div className="flex items-center justify-between text-[11px] text-slate-400 font-mono">
                         <div className="flex items-center gap-2">
+                          <div
+                            draggable
+                            onDragStart={(e) => handleDragStart(e, index)}
+                            onDragEnd={handleDragEnd}
+                            className="cursor-grab active:cursor-grabbing p-1 -ml-1 text-slate-500 hover:text-brand-cyan transition rounded hover:bg-slate-800/80 flex items-center justify-center"
+                            title="Nhấn giữ và kéo để di chuyển câu phụ đề này đến vị trí mong muốn"
+                          >
+                            <GripVertical className="h-3.5 w-3.5" />
+                          </div>
                           <span className="rounded-md bg-slate-800 px-2 py-0.5 font-bold text-brand-cyan">
                             #{index + 1}
                           </span>
                           <span className="text-[10px] text-slate-500">
                             {formatMs(item.startMs)} → {formatMs(item.endMs)}
                           </span>
+                          {isNewlyAdded && (
+                            <span className="inline-flex items-center gap-1 rounded bg-emerald-500/20 px-1.5 py-0.5 text-[9px] font-semibold text-emerald-400 border border-emerald-500/30">
+                              Mới thêm • Kéo ⠿ để dời
+                            </span>
+                          )}
                           {item.needsReview && (
                             <span className="inline-flex items-center gap-1 rounded bg-amber-500/20 px-1.5 py-0.5 text-[9px] font-semibold text-amber-400 border border-amber-500/30">
                               <AlertCircle className="h-2.5 w-2.5" />
@@ -893,17 +1037,30 @@ export default function SubtitleEditor({
                             </span>
                           )}
                         </div>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            deleteLine(index);
-                          }}
-                          className="opacity-0 transition group-hover:opacity-100 text-rose-400 hover:text-rose-300 cursor-pointer"
-                          title="Xoá dòng"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              insertLineAfter(index);
+                            }}
+                            className="opacity-0 transition group-hover:opacity-100 text-slate-400 hover:text-brand-cyan cursor-pointer p-1 rounded hover:bg-slate-800"
+                            title="Chèn thêm 1 dòng ngay phía dưới dòng này"
+                          >
+                            <ListPlus className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              deleteLine(index);
+                            }}
+                            className="opacity-0 transition group-hover:opacity-100 text-rose-400 hover:text-rose-300 cursor-pointer p-1 rounded hover:bg-slate-800"
+                            title="Xoá dòng"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
                       </div>
 
                       <div onClick={(e) => e.stopPropagation()} className="flex flex-col gap-1.5">
