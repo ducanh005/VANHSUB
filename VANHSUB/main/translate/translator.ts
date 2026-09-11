@@ -160,7 +160,17 @@ export async function translateSrtFile(
   const translateBatch = async (b: number): Promise<SrtLine[]> => {
     const batchLines = lines.slice(b * batchSize, (b + 1) * batchSize);
 
-    // Dòng nào đã có trong cache (text gốc trùng khớp) thì dùng lại, không gọi API
+    // Dòng nào đã có trong cache (text gốc trùng khớp) hoặc trùng text với dòng đã dịch thì dùng lại
+    for (const l of batchLines) {
+      if (cachedTarget.has(l.id)) continue;
+      for (const [_, entry] of Object.entries(checkpointData)) {
+        if (entry.source === l.text && entry.target) {
+          cachedTarget.set(l.id, entry.target);
+          break;
+        }
+      }
+    }
+
     const itemsToTranslate: BatchItem[] = batchLines
       .filter((l) => !cachedTarget.has(l.id))
       .map((l) => ({ i: l.id, text: l.text }));
@@ -245,6 +255,16 @@ export async function translateSrtFile(
     for (const item of batchResult) {
       if (item && item.i && typeof item.text === 'string') {
         resultMap.set(item.i, item.text);
+      }
+    }
+
+    // Nếu một dòng trong batch có cùng text nguồn với dòng vừa được dịch, đồng bộ bản dịch
+    for (const line of batchLines) {
+      if (!resultMap.has(line.id) && !cachedTarget.has(line.id)) {
+        const match = batchLines.find((other) => other.text === line.text && resultMap.has(other.id));
+        if (match) {
+          resultMap.set(line.id, resultMap.get(match.id)!);
+        }
       }
     }
 

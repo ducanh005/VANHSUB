@@ -153,6 +153,7 @@ export default function SubtitleEditor({
   const [keyDraft, setKeyDraft] = useState('');
   const [showKeyInput, setShowKeyInput] = useState(false);
   const [savingKey, setSavingKey] = useState(false);
+  const [isCleaningSubtitles, setIsCleaningSubtitles] = useState(false);
 
   // Nguồn SRT đang hiệu đính
   const [srtSource, setSrtSource] = useState<'original' | 'translated'>('original');
@@ -389,6 +390,58 @@ export default function SubtitleEditor({
     }
   };
 
+  // Dọn dẹp, gộp câu lặp và sửa lỗi chính tả bằng Gemini AI
+  const handleAiCleanSubtitles = async () => {
+    if (lines.length === 0 || isCleaningSubtitles || loading) return;
+    if (!hasApiKey) {
+      setShowKeyInput(true);
+      setStatusError(true);
+      setStatusMessage('Cần có Gemini API Key để AI dọn dẹp phụ đề — vui lòng nhập key.');
+      return;
+    }
+
+    const originalCount = lines.length;
+    setIsCleaningSubtitles(true);
+    setStatusError(false);
+    setStatusMessage(`Đang gọi Gemini AI rà soát & gộp câu trùng lặp cho ${originalCount} dòng...`);
+
+    try {
+      const itemsToClean = lines.map((l) => ({
+        startMs: l.startMs,
+        endMs: l.endMs,
+        text: l.text,
+      }));
+
+      const cleaned = await window.vanhsub.ai.cleanSubtitles(itemsToClean);
+      if (cleaned && cleaned.length > 0) {
+        const newLines: SrtLine[] = cleaned.map((c) => ({
+          id: makeLineId(),
+          startMs: c.startMs,
+          endMs: c.endMs,
+          text: c.text,
+        }));
+
+        setLines(newLines);
+        setDirty(true);
+        const savedCount = originalCount - newLines.length;
+        const msg =
+          savedCount > 0
+            ? `AI đã gộp gọn: từ ${originalCount} dòng còn ${newLines.length} dòng (đã lọc ${savedCount} câu lặp/nhiễu). Nhớ bấm "Lưu thay đổi"!`
+            : `AI đã chuẩn hoá chính tả & câu chữ cho ${newLines.length} dòng. Nhớ bấm "Lưu thay đổi"!`;
+        setStatusMessage(msg);
+      } else {
+        setStatusMessage('AI không tìm thấy thay đổi cần gộp.');
+      }
+    } catch (err: any) {
+      const message: string = err?.message || String(err);
+      setStatusError(true);
+      setStatusMessage('Lỗi khi AI dọn dẹp phụ đề: ' + message);
+      if (message.includes('API key')) setShowKeyInput(true);
+    } finally {
+      setIsCleaningSubtitles(false);
+    }
+  };
+
   // Chạy dịch toàn bộ tác vụ bằng Gemini AI
   const handleStartFullTranslate = async () => {
     if (!selectedTaskId) return;
@@ -533,6 +586,24 @@ export default function SubtitleEditor({
                 </button>
               )}
             </div>
+          )}
+
+          {/* Nút AI Dọn Dẹp & Lọc Trùng Phụ Đề */}
+          {lines.length > 0 && (
+            <button
+              type="button"
+              onClick={handleAiCleanSubtitles}
+              disabled={loading || isCleaningSubtitles || isTranslating}
+              title="Dùng Gemini AI quét và gộp các câu phụ đề lặp lại do OCR, ghép câu ngắt vụn và sửa lỗi chính tả"
+              className="inline-flex items-center gap-1.5 rounded-xl border border-purple-500/40 bg-purple-500/10 px-3 py-1.5 text-xs font-semibold text-purple-300 hover:bg-purple-500/25 cursor-pointer disabled:opacity-50 transition"
+            >
+              {isCleaningSubtitles ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin text-purple-400" />
+              ) : (
+                <Wand2 className="h-3.5 w-3.5 text-purple-400" />
+              )}
+              <span>{isCleaningSubtitles ? 'Đang dọn dẹp...' : 'AI Gọn Phụ Đề'}</span>
+            </button>
           )}
 
           {/* Gemini Key status badge */}
