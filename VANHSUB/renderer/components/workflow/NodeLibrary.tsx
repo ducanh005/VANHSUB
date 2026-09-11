@@ -12,6 +12,7 @@ import {
   ChevronDown,
   ChevronRight,
   GripVertical,
+  X,
 } from 'lucide-react';
 import { NODE_DEFINITIONS, getNodesByCategory } from '../../lib/workflow/nodeRegistry';
 import { CATEGORY_STYLES } from '../../lib/workflow/portColors';
@@ -28,7 +29,11 @@ const CATEGORY_ICONS: Record<NodeCategory, React.ComponentType<{ className?: str
   logic: Layers,
 };
 
-export default function NodeLibrary() {
+export interface NodeLibraryProps {
+  onClose?: () => void;
+}
+
+export default function NodeLibrary({ onClose }: NodeLibraryProps = {}) {
   const [searchTerm, setSearchTerm] = useState('');
   const [collapsedCategories, setCollapsedCategories] = useState<Record<string, boolean>>({});
   const addNode = useWorkflowStore((s) => s.addNode);
@@ -77,9 +82,20 @@ export default function NodeLibrary() {
             <div className="w-2.5 h-2.5 rounded-full bg-indigo-500 animate-pulse" />
             <h2 className="text-sm font-bold text-white tracking-wide">Thư viện Node</h2>
           </div>
-          <span className="text-[10px] font-mono text-slate-400 bg-slate-800/80 px-2 py-0.5 rounded">
-            {Object.keys(NODE_DEFINITIONS).length} nodes
-          </span>
+          <div className="flex items-center gap-1.5">
+            <span className="text-[10px] font-mono text-slate-400 bg-slate-800/80 px-2 py-0.5 rounded">
+              {Object.keys(NODE_DEFINITIONS).length} nodes
+            </span>
+            {onClose && (
+              <button
+                onClick={onClose}
+                className="p-1 rounded text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+                title="Đóng Thư viện Node"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
         </div>
 
         <div className="relative">

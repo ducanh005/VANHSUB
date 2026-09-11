@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import ImageInpaintModal from './ImageInpaintModal';
+import ApiKeyConfigModal from './ApiKeyConfigModal';
 
 export interface StoryboardShot {
   id: string;
@@ -101,6 +102,17 @@ export default function StoryboardDirectorStudio({
   const [isAnimatingAll, setIsAnimatingAll] = useState(false);
   const [masterSequenceUrl, setMasterSequenceUrl] = useState<string | null>(null);
   const [previewVideoUrl, setPreviewVideoUrl] = useState<string | null>(null);
+  const [showApiKeyModal, setShowApiKeyModal] = useState(false);
+  const [hasGeminiKey, setHasGeminiKey] = useState(false);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.vanhsub?.settings) {
+      window.vanhsub.settings
+        .get('geminiApiKey')
+        .then((k) => setHasGeminiKey(Boolean(typeof k === 'string' && k.trim())))
+        .catch(() => setHasGeminiKey(false));
+    }
+  }, []);
 
   // Load Character & Scene Bible
   useEffect(() => {
@@ -297,6 +309,23 @@ export default function StoryboardDirectorStudio({
 
         {/* Right Actions */}
         <div className="flex items-center gap-2">
+          {/* Veo 3.1 Key Button */}
+          <button
+            onClick={() => setShowApiKeyModal(true)}
+            title="Cấu hình Google Gemini API Key cho Veo 3.1 & Imagen 3"
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-semibold transition-all cursor-pointer ${
+              hasGeminiKey
+                ? 'bg-emerald-950/40 hover:bg-emerald-900/60 border-emerald-700/60 text-emerald-300'
+                : 'bg-amber-950/40 hover:bg-amber-900/60 border-amber-700/60 text-amber-300'
+            }`}
+          >
+            <span className={`w-2 h-2 rounded-full ${hasGeminiKey ? 'bg-emerald-400' : 'bg-amber-400 animate-pulse'}`} />
+            <span>Veo 3.1:</span>
+            <span className="font-bold">
+              {hasGeminiKey ? 'Google Flow' : 'Mô phỏng (Key)'}
+            </span>
+          </button>
+
           {onSyncToCanvasGraph && (
             <button
               onClick={() => onSyncToCanvasGraph(shots, selectedCharacterId, selectedSceneId)}
@@ -645,6 +674,13 @@ export default function StoryboardDirectorStudio({
           }}
         />
       )}
+
+      {/* Google Veo 3.1 & Gemini API Key Modal */}
+      <ApiKeyConfigModal
+        isOpen={showApiKeyModal}
+        onClose={() => setShowApiKeyModal(false)}
+        onKeyUpdated={(k) => setHasGeminiKey(k)}
+      />
     </div>
   );
 }

@@ -15,13 +15,18 @@ import {
   Users,
   Building,
   ShieldCheck,
+  X,
 } from 'lucide-react';
 import { useWorkflowStore } from '../../lib/store/workflowStore';
 import { NODE_DEFINITIONS } from '../../lib/workflow/nodeRegistry';
 import { CATEGORY_STYLES } from '../../lib/workflow/portColors';
 import type { ConfigFieldSchema, NodeCategory } from '../../types/workflow';
 
-export default function Inspector() {
+export interface InspectorProps {
+  onClose?: () => void;
+}
+
+export default function Inspector({ onClose }: InspectorProps = {}) {
   const selectedNodeId = useWorkflowStore((s) => s.selectedNodeId);
   const nodes = useWorkflowStore((s) => s.nodes);
   const updateNodeConfig = useWorkflowStore((s) => s.updateNodeConfig);
@@ -47,7 +52,16 @@ export default function Inspector() {
 
   if (!selectedNode) {
     return (
-      <aside className="w-80 h-full bg-[#0d131f]/95 border-l border-slate-800/80 flex flex-col p-6 items-center justify-center text-center text-slate-500 select-none">
+      <aside className="w-80 h-full bg-[#0d131f]/95 border-l border-slate-800/80 flex flex-col p-6 items-center justify-center text-center text-slate-500 select-none relative">
+        {onClose && (
+          <button
+            onClick={onClose}
+            className="absolute top-3 right-3 p-1.5 rounded-lg text-slate-500 hover:text-slate-300 hover:bg-slate-800 transition-colors"
+            title="Thu gọn Bảng Điều khiển"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        )}
         <div className="w-12 h-12 rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-600 mb-3 shadow-inner">
           <Sliders className="w-6 h-6" />
         </div>
@@ -108,11 +122,14 @@ export default function Inspector() {
               <Trash2 className="w-4 h-4" />
             </button>
             <button
-              onClick={() => setSelectedNodeId(null)}
-              title="Đóng bảng"
+              onClick={() => {
+                setSelectedNodeId(null);
+                if (onClose) onClose();
+              }}
+              title="Đóng Bảng Điều khiển (Ẩn panel)"
               className="p-1 text-slate-500 hover:text-slate-300 hover:bg-slate-800 rounded transition-colors"
             >
-              ✕
+              <X className="w-4 h-4" />
             </button>
           </div>
         </div>

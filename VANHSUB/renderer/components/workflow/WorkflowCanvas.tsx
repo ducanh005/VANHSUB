@@ -20,6 +20,7 @@ import {
   Layers,
   Sliders,
   Maximize2,
+  Minimize2,
   FolderOpen,
   Film,
   Coins,
@@ -28,8 +29,11 @@ import {
   Clock,
   ChevronUp,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Users,
   Building,
+  Key,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -41,6 +45,7 @@ import CharacterBibleModal from './CharacterBibleModal';
 import SceneBibleModal from './SceneBibleModal';
 import MasterTimeline from './MasterTimeline';
 import StoryboardDirectorStudio from './StoryboardDirectorStudio';
+import ApiKeyConfigModal from './ApiKeyConfigModal';
 import { WORKFLOW_PRESETS } from '../../lib/workflow/presets';
 import { NODE_DEFINITIONS } from '../../lib/workflow/nodeRegistry';
 
@@ -50,9 +55,19 @@ const nodeTypes: NodeTypes = {
 
 export interface WorkflowCanvasProps {
   onNavigateTab?: (tab: string) => void;
+  isZenMode?: boolean;
+  onToggleZenMode?: (zen: boolean) => void;
+  isSidebarCollapsed?: boolean;
+  onToggleSidebar?: () => void;
 }
 
-function FlowCanvasInner({ onNavigateTab }: WorkflowCanvasProps) {
+function FlowCanvasInner({
+  onNavigateTab,
+  isZenMode = false,
+  onToggleZenMode,
+  isSidebarCollapsed,
+  onToggleSidebar,
+}: WorkflowCanvasProps) {
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { screenToFlowPosition } = useReactFlow();
@@ -83,6 +98,32 @@ function FlowCanvasInner({ onNavigateTab }: WorkflowCanvasProps) {
   const [showSceneBible, setShowSceneBible] = useState(false);
   const [showTimeline, setShowTimeline] = useState(true);
   const [showStudio, setShowStudio] = useState(false);
+  const [showApiKeyModal, setShowApiKeyModal] = useState(false);
+  const [hasGeminiKey, setHasGeminiKey] = useState(false);
+
+  // Kiểm tra key hiện tại
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.vanhsub?.settings) {
+      window.vanhsub.settings
+        .get('geminiApiKey')
+        .then((k) => setHasGeminiKey(Boolean(typeof k === 'string' && k.trim())))
+        .catch(() => setHasGeminiKey(false));
+    }
+  }, []);
+
+  // Thoát Zen Mode bằng phím Escape
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isZenMode) {
+        if (onToggleZenMode) onToggleZenMode(false);
+        setShowLibrary(true);
+        setShowInspector(true);
+        setShowTimeline(true);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isZenMode, onToggleZenMode]);
 
   // Lắng nghe sự kiện thực thi node từ Electron backend realtime
   useEffect(() => {
@@ -368,11 +409,28 @@ function FlowCanvasInner({ onNavigateTab }: WorkflowCanvasProps) {
 
           <div className="h-5 w-[1px] bg-slate-800" />
 
+          {/* Veo 3.1 API Key status / config */}
+          <button
+            onClick={() => setShowApiKeyModal(true)}
+            title="Cấu hình Google Gemini API Key cho Veo 3.1 & Imagen 3"
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-semibold transition-all cursor-pointer ${
+              hasGeminiKey
+                ? 'bg-emerald-950/40 hover:bg-emerald-900/60 border-emerald-700/60 text-emerald-300'
+                : 'bg-amber-950/40 hover:bg-amber-900/60 border-amber-700/60 text-amber-300'
+            }`}
+          >
+            <span className={`w-2 h-2 rounded-full ${hasGeminiKey ? 'bg-emerald-400' : 'bg-amber-400 animate-pulse'}`} />
+            <span className="hidden sm:inline">Veo 3.1:</span>
+            <span className="font-bold">
+              {hasGeminiKey ? 'Google Flow' : 'Mô phỏng (Key)'}
+            </span>
+          </button>
+
           {/* Toggle Sidebars */}
           <button
             onClick={() => setShowLibrary((prev) => !prev)}
             title="Ẩn/Hiện Thư viện Node"
-            className={`px-2 py-1.5 rounded-lg border text-xs font-medium transition-colors ${
+            className={`px-2 py-1 rounded-lg border text-xs font-medium transition-colors cursor-pointer ${
               showLibrary
                 ? 'bg-indigo-950/70 border-indigo-700/60 text-indigo-300'
                 : 'bg-slate-900 border-slate-800 text-slate-400'
@@ -384,13 +442,40 @@ function FlowCanvasInner({ onNavigateTab }: WorkflowCanvasProps) {
           <button
             onClick={() => setShowInspector((prev) => !prev)}
             title="Ẩn/Hiện Bảng Điều khiển"
-            className={`px-2 py-1.5 rounded-lg border text-xs font-medium transition-colors ${
+            className={`px-2 py-1 rounded-lg border text-xs font-medium transition-colors cursor-pointer ${
               showInspector
                 ? 'bg-indigo-950/70 border-indigo-700/60 text-indigo-300'
                 : 'bg-slate-900 border-slate-800 text-slate-400'
             }`}
           >
             Thuộc tính
+          </button>
+
+          {/* Zen Focus Mode Button */}
+          <button
+            onClick={() => {
+              const nextZen = !isZenMode;
+              if (onToggleZenMode) onToggleZenMode(nextZen);
+              if (nextZen) {
+                setShowLibrary(false);
+                setShowInspector(false);
+                setShowTimeline(false);
+                setShowQueueDrawer(false);
+                toast.info('Đã bật Focus Canvas (Bấm Esc hoặc nút góc phải để thoát)');
+              } else {
+                setShowLibrary(true);
+                setShowInspector(true);
+                setShowTimeline(true);
+              }
+            }}
+            title={isZenMode ? 'Thoát Toàn Màn Hình Canvas (Esc)' : 'Toàn màn hình Canvas (Zen Mode)'}
+            className={`p-1.5 rounded-lg border text-xs font-medium transition-colors cursor-pointer ${
+              isZenMode
+                ? 'bg-indigo-600 border-indigo-500 text-white'
+                : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
+            }`}
+          >
+            {isZenMode ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
           </button>
 
           {/* Primary Run / Cancel Button */}
@@ -428,11 +513,51 @@ function FlowCanvasInner({ onNavigateTab }: WorkflowCanvasProps) {
 
       {/* Main Work Area: Library | Canvas | Inspector */}
       <div className="flex-1 flex overflow-hidden relative">
-        {/* Left Sidebar: Node Library */}
-        {showLibrary && <NodeLibrary />}
+        {/* Left Sidebar: Node Library with Edge Toggle Handle */}
+        {showLibrary ? (
+          <div className="relative flex shrink-0 h-full">
+            <NodeLibrary onClose={() => setShowLibrary(false)} />
+            <button
+              onClick={() => setShowLibrary(false)}
+              className="absolute -right-3 top-1/2 -translate-y-1/2 z-20 w-6 h-12 bg-slate-900 border border-slate-700 hover:border-indigo-500 rounded-r-lg flex items-center justify-center text-slate-400 hover:text-white shadow-xl transition-colors cursor-pointer"
+              title="Thu gọn Thư viện Node (Ẩn panel)"
+            >
+              <ChevronLeft className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={() => setShowLibrary(true)}
+            className="absolute left-0 top-1/2 -translate-y-1/2 z-20 px-1.5 py-3 bg-slate-900/90 hover:bg-indigo-950 border border-l-0 border-slate-700 hover:border-indigo-500 rounded-r-xl flex items-center gap-1 text-slate-300 hover:text-white shadow-2xl backdrop-blur-md text-xs font-semibold transition-all group cursor-pointer"
+            title="Mở rộng Thư viện Node"
+          >
+            <ChevronRight className="w-3.5 h-3.5 text-indigo-400 group-hover:translate-x-0.5 transition-transform" />
+            <span className="[writing-mode:vertical-lr] tracking-widest text-[10px] py-1 text-slate-400 group-hover:text-slate-200">
+              THƯ VIỆN
+            </span>
+          </button>
+        )}
 
         {/* Central Graph Canvas */}
         <div ref={reactFlowWrapper} className="flex-1 h-full relative">
+          {/* Zen Mode Exit Floating Button */}
+          {isZenMode && (
+            <div className="absolute top-4 right-4 z-30 flex items-center gap-2">
+              <button
+                onClick={() => {
+                  if (onToggleZenMode) onToggleZenMode(false);
+                  setShowLibrary(true);
+                  setShowInspector(true);
+                  setShowTimeline(true);
+                }}
+                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-2xl backdrop-blur-md transition-all border border-indigo-400/40 cursor-pointer"
+              >
+                <Minimize2 className="w-3.5 h-3.5" />
+                <span>Thoát Toàn màn hình (Esc)</span>
+              </button>
+            </div>
+          )}
+
           <ReactFlow
             nodes={nodes}
             edges={edges}
@@ -479,7 +604,7 @@ function FlowCanvasInner({ onNavigateTab }: WorkflowCanvasProps) {
             <span className="text-slate-600">•</span>
             <button
               onClick={() => setShowQueueDrawer((p) => !p)}
-              className="text-indigo-400 hover:text-indigo-300 font-medium flex items-center gap-1"
+              className="text-indigo-400 hover:text-indigo-300 font-medium flex items-center gap-1 cursor-pointer"
             >
               <span>Hàng đợi Render</span>
               {showQueueDrawer ? <ChevronDown className="w-3 h-3" /> : <ChevronUp className="w-3 h-3" />}
@@ -487,8 +612,30 @@ function FlowCanvasInner({ onNavigateTab }: WorkflowCanvasProps) {
           </div>
         </div>
 
-        {/* Right Sidebar: Inspector */}
-        {showInspector && <Inspector />}
+        {/* Right Sidebar: Inspector with Edge Toggle Handle */}
+        {showInspector ? (
+          <div className="relative flex shrink-0 h-full">
+            <button
+              onClick={() => setShowInspector(false)}
+              className="absolute -left-3 top-1/2 -translate-y-1/2 z-20 w-6 h-12 bg-slate-900 border border-slate-700 hover:border-indigo-500 rounded-l-lg flex items-center justify-center text-slate-400 hover:text-white shadow-xl transition-colors cursor-pointer"
+              title="Thu gọn Bảng Điều khiển (Ẩn panel)"
+            >
+              <ChevronRight className="w-3.5 h-3.5" />
+            </button>
+            <Inspector onClose={() => setShowInspector(false)} />
+          </div>
+        ) : (
+          <button
+            onClick={() => setShowInspector(true)}
+            className="absolute right-0 top-1/2 -translate-y-1/2 z-20 px-1.5 py-3 bg-slate-900/90 hover:bg-indigo-950 border border-r-0 border-slate-700 hover:border-indigo-500 rounded-l-xl flex items-center gap-1 text-slate-300 hover:text-white shadow-2xl backdrop-blur-md text-xs font-semibold transition-all group cursor-pointer"
+            title="Mở rộng Bảng Điều khiển (Thuộc tính)"
+          >
+            <span className="[writing-mode:vertical-lr] tracking-widest text-[10px] py-1 text-slate-400 group-hover:text-slate-200">
+              THUỘC TÍNH
+            </span>
+            <ChevronLeft className="w-3.5 h-3.5 text-indigo-400 group-hover:-translate-x-0.5 transition-transform" />
+          </button>
+        )}
       </div>
 
       {/* Bottom Queue Panel (Mục 4.1 đặc tả: Job Queue status) */}
@@ -601,14 +748,33 @@ function FlowCanvasInner({ onNavigateTab }: WorkflowCanvasProps) {
         isOpen={showSceneBible}
         onClose={() => setShowSceneBible(false)}
       />
+
+      {/* Google Veo 3.1 & Gemini API Key Modal */}
+      <ApiKeyConfigModal
+        isOpen={showApiKeyModal}
+        onClose={() => setShowApiKeyModal(false)}
+        onKeyUpdated={(hasKey) => setHasGeminiKey(hasKey)}
+      />
     </div>
   );
 }
 
-export default function WorkflowCanvas({ onNavigateTab }: WorkflowCanvasProps) {
+export default function WorkflowCanvas({
+  onNavigateTab,
+  isZenMode,
+  onToggleZenMode,
+  isSidebarCollapsed,
+  onToggleSidebar,
+}: WorkflowCanvasProps) {
   return (
     <ReactFlowProvider>
-      <FlowCanvasInner onNavigateTab={onNavigateTab} />
+      <FlowCanvasInner
+        onNavigateTab={onNavigateTab}
+        isZenMode={isZenMode}
+        onToggleZenMode={onToggleZenMode}
+        isSidebarCollapsed={isSidebarCollapsed}
+        onToggleSidebar={onToggleSidebar}
+      />
     </ReactFlowProvider>
   );
 }

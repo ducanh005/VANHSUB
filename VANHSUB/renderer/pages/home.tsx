@@ -25,6 +25,8 @@ import {
   UploadCloud,
   Zap,
   Workflow,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import type { Task, WorkflowType } from '../types/task';
@@ -88,6 +90,8 @@ export default function HomePage() {
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [asrModel, setAsrModel] = useState('base');
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [isZenMode, setIsZenMode] = useState(false);
   // Popup hướng dẫn người dùng mới: hiện lần đầu mở app, mở lại được bằng nút (?)
   const [showGuide, setShowGuide] = useState(false);
   const [guideReady, setGuideReady] = useState(false);
@@ -244,6 +248,13 @@ export default function HomePage() {
         handleShortcutAction('settings');
         return;
       }
+
+      // Ctrl + B: Thu gọn / Mở rộng Sidebar điều hướng
+      if (key === 'b' || code === 'KeyB') {
+        e.preventDefault();
+        setIsSidebarCollapsed((prev) => !prev);
+        return;
+      }
     };
 
     window.addEventListener('keydown', handleKeyDown);
@@ -397,24 +408,49 @@ export default function HomePage() {
         {/* =========================================================================
             SIDEBAR ĐIỀU HƯỚNG
             ========================================================================= */}
-        <aside className="flex w-[240px] flex-col justify-between border-r border-slate-800/80 bg-[#0B1120] px-4 py-5">
+        <aside
+          className={`flex flex-col justify-between border-r border-slate-800/80 bg-[#0B1120] transition-all duration-300 ease-in-out select-none ${
+            isZenMode && activeTab === 'workflow'
+              ? 'w-0 border-r-0 p-0 overflow-hidden opacity-0 pointer-events-none'
+              : isSidebarCollapsed
+              ? 'w-[68px] px-2 py-4'
+              : 'w-[240px] px-4 py-5'
+          }`}
+        >
           <div>
-            {/* Logo */}
-            <div className="mb-6 flex items-center gap-3 px-2">
-              <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-brand-cyan via-brand-indigo to-brand-rose p-0.5 shadow-lg shadow-brand-indigo/30">
-                <div className="flex h-full w-full items-center justify-center rounded-[14px] bg-[#0B1120]">
-                  <Sparkles className="h-5 w-5 text-brand-cyan" />
+            {/* Logo & Collapse Toggle */}
+            <div className={`mb-6 flex items-center ${isSidebarCollapsed ? 'flex-col gap-3 justify-center' : 'justify-between px-1'}`}>
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-brand-cyan via-brand-indigo to-brand-rose p-0.5 shadow-lg shadow-brand-indigo/30">
+                  <div className="flex h-full w-full items-center justify-center rounded-[14px] bg-[#0B1120]">
+                    <Sparkles className="h-5 w-5 text-brand-cyan" />
+                  </div>
                 </div>
+                {!isSidebarCollapsed && (
+                  <div className="min-w-0">
+                    <div className="text-base font-bold tracking-tight text-white flex items-center gap-1.5 truncate">
+                      VANHSUB
+                      <span className="rounded-full bg-brand-indigo/20 px-1.5 py-0.5 text-[9px] font-semibold text-brand-cyan border border-brand-cyan/30">
+                        AI PRO
+                      </span>
+                    </div>
+                    <div className="text-[11px] text-slate-400 truncate">Studio Phụ đề & Voice</div>
+                  </div>
+                )}
               </div>
-              <div>
-                <div className="text-base font-bold tracking-tight text-white flex items-center gap-1.5">
-                  VANHSUB
-                  <span className="rounded-full bg-brand-indigo/20 px-1.5 py-0.5 text-[9px] font-semibold text-brand-cyan border border-brand-cyan/30">
-                    AI PRO
-                  </span>
-                </div>
-                <div className="text-[11px] text-slate-400">Studio Phụ đề & Voice</div>
-              </div>
+
+              <button
+                type="button"
+                onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/60 transition-colors cursor-pointer"
+                title={isSidebarCollapsed ? 'Mở rộng thanh điều hướng (Ctrl + B)' : 'Thu gọn thanh điều hướng (Ctrl + B)'}
+              >
+                {isSidebarCollapsed ? (
+                  <PanelLeftOpen className="h-4 w-4" />
+                ) : (
+                  <PanelLeftClose className="h-4 w-4" />
+                )}
+              </button>
             </div>
 
             {/* Menu chính */}
@@ -426,26 +462,34 @@ export default function HomePage() {
                     key={id}
                     type="button"
                     onClick={() => setActiveTab(id)}
+                    title={isSidebarCollapsed ? label : undefined}
                     className={[
-                      'group flex w-full items-center justify-between rounded-xl px-3.5 py-2.5 text-left text-sm font-medium transition-all duration-200',
+                      'group flex w-full items-center rounded-xl transition-all duration-200 relative cursor-pointer',
+                      isSidebarCollapsed
+                        ? 'justify-center p-2.5'
+                        : 'justify-between px-3.5 py-2.5 text-left text-sm font-medium',
                       active
                         ? 'bg-gradient-to-r from-brand-indigo/25 to-brand-cyan/15 text-white border border-brand-indigo/40 shadow-sm'
                         : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200',
                     ].join(' ')}
                   >
-                    <div className="flex items-center gap-3">
+                    <div className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-3'}`}>
                       <Icon
                         className={[
-                          'h-4 w-4 transition-colors',
+                          'h-4 w-4 transition-colors shrink-0',
                           active ? 'text-brand-cyan' : 'text-slate-400 group-hover:text-slate-200',
                         ].join(' ')}
                       />
-                      <span>{label}</span>
+                      {!isSidebarCollapsed && <span>{label}</span>}
                     </div>
                     {badge && (
-                      <span className="rounded-full bg-brand-rose/20 px-1.5 py-0.5 text-[10px] font-semibold text-brand-rose">
-                        {badge}
-                      </span>
+                      isSidebarCollapsed ? (
+                        <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-brand-rose animate-pulse" />
+                      ) : (
+                        <span className="rounded-full bg-brand-rose/20 px-1.5 py-0.5 text-[10px] font-semibold text-brand-rose">
+                          {badge}
+                        </span>
+                      )
                     )}
                   </button>
                 );
@@ -454,32 +498,42 @@ export default function HomePage() {
           </div>
 
           {/* Widget Trạng thái AI Engine ở góc dưới */}
-          <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-3.5 backdrop-blur-sm">
-            <div className="mb-2.5 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Cpu className="h-3.5 w-3.5 text-brand-cyan" />
-                <span className="text-xs font-semibold text-slate-200">AI Core Engine</span>
-              </div>
-              <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-400">
-                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                Hoạt động
-              </span>
+          {isSidebarCollapsed ? (
+            <div
+              className="flex flex-col items-center justify-center p-2.5 rounded-xl border border-slate-800 bg-slate-900/60 text-slate-400 hover:text-brand-cyan transition-colors cursor-pointer"
+              title={`AI Core Engine: Hoạt động\nASR: Whisper ${asrModel}\nTranslate: Gemini Flash\nTTS: VietTTS Local`}
+            >
+              <Cpu className="h-4 w-4 text-brand-cyan" />
+              <span className="mt-1 h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
             </div>
-            <div className="space-y-1.5 text-[11px] text-slate-400">
-              <div className="flex items-center justify-between">
-                <span>ASR Model</span>
-                <span className="font-mono text-slate-300">Whisper {asrModel}</span>
+          ) : (
+            <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-3.5 backdrop-blur-sm">
+              <div className="mb-2.5 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Cpu className="h-3.5 w-3.5 text-brand-cyan" />
+                  <span className="text-xs font-semibold text-slate-200">AI Core Engine</span>
+                </div>
+                <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-400">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  Hoạt động
+                </span>
               </div>
-              <div className="flex items-center justify-between">
-                <span>Translate</span>
-                <span className="font-mono text-brand-cyan">Gemini Flash API</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span>TTS Voice</span>
-                <span className="font-mono text-slate-300">VietTTS Local</span>
+              <div className="space-y-1.5 text-[11px] text-slate-400">
+                <div className="flex items-center justify-between">
+                  <span>ASR Model</span>
+                  <span className="font-mono text-slate-300">Whisper {asrModel}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span>Translate</span>
+                  <span className="font-mono text-brand-cyan">Gemini Flash API</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span>TTS Voice</span>
+                  <span className="font-mono text-slate-300">VietTTS Local</span>
+                </div>
               </div>
             </div>
-          </div>
+          )}
         </aside>
 
         {/* =========================================================================
@@ -536,7 +590,13 @@ export default function HomePage() {
               Các tab luôn mounted, chỉ ẩn bằng CSS — giữ nguyên trạng thái
               (audio đang nghe thử, panel mở, dữ liệu đã tải) khi chuyển tab */}
           <div className={activeTab === 'workflow' ? 'flex min-h-0 flex-1 flex-col overflow-hidden' : 'hidden'}>
-            <WorkflowCanvas onNavigateTab={setActiveTab} />
+            <WorkflowCanvas
+              onNavigateTab={setActiveTab}
+              isZenMode={isZenMode}
+              onToggleZenMode={setIsZenMode}
+              isSidebarCollapsed={isSidebarCollapsed}
+              onToggleSidebar={() => setIsSidebarCollapsed((p) => !p)}
+            />
           </div>
           <div className={activeTab === 'editor' ? 'flex min-h-0 flex-1 flex-col overflow-hidden' : 'hidden'}>
             <SubtitleEditor
