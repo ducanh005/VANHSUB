@@ -31,6 +31,7 @@
     "@radix-ui/react-tabs": "^1.1.21",
     "@radix-ui/react-tooltip": "^1.2.16",
     "@tailwindcss/postcss": "^4.3.3",
+    "@xyflow/react": "^12.11.6",
     "axios": "^1.19.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -64,7 +65,8 @@
     "tesseract.js": "^6.0.1",
     "uuid": "^14.0.2",
     "vaul": "^1.1.2",
-    "zod": "^3.25.76"
+    "zod": "^3.25.76",
+    "zustand": "^5.0.15"
   },
   "devDependencies": {
     "@types/fluent-ffmpeg": "^2.1.28",

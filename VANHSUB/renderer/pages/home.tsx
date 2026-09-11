@@ -24,7 +24,9 @@ import {
   Trash2,
   UploadCloud,
   Zap,
+  Workflow,
 } from 'lucide-react';
+import dynamic from 'next/dynamic';
 import type { Task, WorkflowType } from '../types/task';
 import { t, formatTimeAgo as formatTimeAgoHelper } from '../lib/i18n';
 import SubtitleEditor from '../components/SubtitleEditor';
@@ -35,6 +37,11 @@ import SettingsPage from '../components/SettingsPage';
 import TerminalPanel from '../components/TerminalPanel';
 import OnboardingModal from '../components/OnboardingModal';
 
+const WorkflowCanvas = dynamic(
+  () => import('../components/workflow/WorkflowCanvas'),
+  { ssr: false }
+);
+
 type NavItem = {
   id: string;
   label: string;
@@ -44,6 +51,7 @@ type NavItem = {
 
 const getNavItems = (): NavItem[] => [
   { id: 'home', label: t('sidebar.home'), icon: Film },
+  { id: 'workflow', label: 'Workflow AI', icon: Workflow, badge: 'MỚI' },
   { id: 'subtitles', label: t('sidebar.subtitles'), icon: Subtitles },
   { id: 'editor', label: t('sidebar.editor'), icon: MessageSquareText },
   { id: 'dubbing', label: t('sidebar.dubbing'), icon: Mic },
@@ -478,53 +486,58 @@ export default function HomePage() {
             MAIN CONTENT AREA
             ========================================================================= */}
         <main className="flex flex-1 flex-col overflow-hidden bg-[#080D1A]">
-          {/* Header */}
-          <header className="flex h-16 items-center justify-between border-b border-slate-800/80 bg-[#0B1120]/80 px-6 backdrop-blur-md">
-            <div className="flex flex-1 items-center gap-4">
-              <h2 className="text-lg font-semibold text-white tracking-tight">Studio Trang chủ</h2>
+          {/* Header (Ẩn khi ở Workflow Mode để Canvas chiếm trọn không gian màn hình) */}
+          {activeTab !== 'workflow' && (
+            <header className="flex h-16 items-center justify-between border-b border-slate-800/80 bg-[#0B1120]/80 px-6 backdrop-blur-md">
+              <div className="flex flex-1 items-center gap-4">
+                <h2 className="text-lg font-semibold text-white tracking-tight">Studio Trang chủ</h2>
 
-              {/* Universal Search bar */}
-              <div className="flex flex-1 items-center justify-center px-4">
-                <div className="flex w-full max-w-lg items-center gap-2.5 rounded-xl border border-slate-800 bg-slate-900/80 px-3.5 py-2 text-slate-400 transition focus-within:border-brand-indigo/60 focus-within:ring-1 focus-within:ring-brand-indigo/60">
-                  <Search className="h-4 w-4 text-slate-400" />
-                  <input
-                    ref={searchInputRef}
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Tìm kiếm tác vụ, phụ đề, tên video..."
-                    className="w-full bg-transparent text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none"
-                  />
-                  <kbd className="rounded-md border border-slate-700 bg-slate-800 px-1.5 py-0.5 text-[10px] font-mono text-slate-400">
-                    Ctrl K
-                  </kbd>
+                {/* Universal Search bar */}
+                <div className="flex flex-1 items-center justify-center px-4">
+                  <div className="flex w-full max-w-lg items-center gap-2.5 rounded-xl border border-slate-800 bg-slate-900/80 px-3.5 py-2 text-slate-400 transition focus-within:border-brand-indigo/60 focus-within:ring-1 focus-within:ring-brand-indigo/60">
+                    <Search className="h-4 w-4 text-slate-400" />
+                    <input
+                      ref={searchInputRef}
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      placeholder="Tìm kiếm tác vụ, phụ đề, tên video..."
+                      className="w-full bg-transparent text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none"
+                    />
+                    <kbd className="rounded-md border border-slate-700 bg-slate-800 px-1.5 py-0.5 text-[10px] font-mono text-slate-400">
+                      Ctrl K
+                    </kbd>
+                  </div>
                 </div>
               </div>
-            </div>
 
-            {/* Header Right Actions */}
-            <div className="flex items-center gap-3">
-              <button
-                type="button"
-                onClick={() => setShowGuide(true)}
-                title="Hướng dẫn sử dụng — quy trình 5 bước cho người mới"
-                className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-800 bg-slate-900/80 text-slate-400 transition hover:border-brand-cyan/50 hover:text-brand-cyan cursor-pointer"
-              >
-                <CircleHelp className="h-4 w-4" />
-              </button>
-              <button
-                type="button"
-                onClick={() => handleSelectFiles('fast-transcribe')}
-                className="btn-vanh-gradient inline-flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-semibold cursor-pointer"
-              >
-                <Plus className="h-4 w-4" />
-                <span>Thêm tác vụ mới</span>
-              </button>
-            </div>
-          </header>
+              {/* Header Right Actions */}
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowGuide(true)}
+                  title="Hướng dẫn sử dụng — quy trình 5 bước cho người mới"
+                  className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-800 bg-slate-900/80 text-slate-400 transition hover:border-brand-cyan/50 hover:text-brand-cyan cursor-pointer"
+                >
+                  <CircleHelp className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSelectFiles('fast-transcribe')}
+                  className="btn-vanh-gradient inline-flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-semibold cursor-pointer"
+                >
+                  <Plus className="h-4 w-4" />
+                  <span>Thêm tác vụ mới</span>
+                </button>
+              </div>
+            </header>
+          )}
 
           {/* Body Dashboard (2 Columns)
               Các tab luôn mounted, chỉ ẩn bằng CSS — giữ nguyên trạng thái
               (audio đang nghe thử, panel mở, dữ liệu đã tải) khi chuyển tab */}
+          <div className={activeTab === 'workflow' ? 'flex min-h-0 flex-1 flex-col overflow-hidden' : 'hidden'}>
+            <WorkflowCanvas />
+          </div>
           <div className={activeTab === 'editor' ? 'flex min-h-0 flex-1 flex-col overflow-hidden' : 'hidden'}>
             <SubtitleEditor
               tasks={tasks}
