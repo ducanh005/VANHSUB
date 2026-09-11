@@ -48,7 +48,11 @@ const nodeTypes: NodeTypes = {
   genericNode: GenericCategoryNode,
 };
 
-function FlowCanvasInner() {
+export interface WorkflowCanvasProps {
+  onNavigateTab?: (tab: string) => void;
+}
+
+function FlowCanvasInner({ onNavigateTab }: WorkflowCanvasProps) {
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { screenToFlowPosition } = useReactFlow();
@@ -389,24 +393,36 @@ function FlowCanvasInner() {
             Thuộc tính
           </button>
 
-          {/* Primary Run Button */}
-          <button
-            onClick={handleRunWorkflow}
-            disabled={isRunning}
-            className="flex items-center gap-2 px-4 py-1.5 rounded-lg bg-gradient-to-r from-amber-500 via-rose-500 to-indigo-600 hover:from-amber-400 hover:to-indigo-500 text-white text-xs font-bold shadow-[0_0_15px_rgba(244,63,94,0.3)] transition-all active:scale-95 disabled:opacity-50"
-          >
-            {isRunning ? (
-              <>
+          {/* Primary Run / Cancel Button */}
+          {isRunning ? (
+            <div className="flex items-center gap-1.5">
+              <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 border border-amber-500/40 text-amber-300 text-xs font-semibold">
                 <Clock className="w-3.5 h-3.5 animate-spin" />
                 <span>Đang render...</span>
-              </>
-            ) : (
-              <>
-                <Play className="w-3.5 h-3.5 fill-current" />
-                <span>Chạy Workflow</span>
-              </>
-            )}
-          </button>
+              </span>
+              <button
+                onClick={async () => {
+                  if (typeof window !== 'undefined' && window.vanhsub?.workflow?.cancel) {
+                    await window.vanhsub.workflow.cancel(graphId);
+                    toast.info('Đã gửi yêu cầu hủy render workflow');
+                  }
+                  setIsRunning(false);
+                }}
+                className="px-2.5 py-1.5 rounded-lg bg-rose-950/70 hover:bg-rose-900 border border-rose-800 text-rose-300 text-xs font-bold transition-colors"
+                title="Hủy quá trình render hiện tại"
+              >
+                Hủy
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={handleRunWorkflow}
+              className="flex items-center gap-2 px-4 py-1.5 rounded-lg bg-gradient-to-r from-amber-500 via-rose-500 to-indigo-600 hover:from-amber-400 hover:to-indigo-500 text-white text-xs font-bold shadow-[0_0_15px_rgba(244,63,94,0.3)] transition-all active:scale-95"
+            >
+              <Play className="w-3.5 h-3.5 fill-current" />
+              <span>Chạy Workflow</span>
+            </button>
+          )}
         </div>
       </header>
 
@@ -432,6 +448,7 @@ function FlowCanvasInner() {
             minZoom={0.2}
             maxZoom={2.5}
             defaultViewport={{ x: 0, y: 0, zoom: 0.85 }}
+            deleteKeyCode={['Backspace', 'Delete']}
             className="bg-[#090d16]"
           >
             <Background color="#334155" gap={20} size={1.2} />
@@ -529,6 +546,21 @@ function FlowCanvasInner() {
           nodes={nodes}
           nodeRuntime={runtimeMap}
           onSelectNode={(nodeId) => setSelectedNodeId(nodeId)}
+          onSendToSubMode={(videoPath, taskName) => {
+            if (typeof window !== 'undefined' && window.vanhsub?.tasks?.create) {
+              window.vanhsub.tasks.create({
+                fileName: taskName || 'Master Sequence từ Workflow',
+                filePath: videoPath,
+                workflow: 'full-dubbing',
+              }).then(() => {
+                toast.success('Đã đưa video vào Sub Mode thành công!');
+                if (onNavigateTab) onNavigateTab('home');
+              });
+            } else {
+              toast.success('Đã chọn video cho Sub Mode: ' + videoPath);
+              if (onNavigateTab) onNavigateTab('home');
+            }
+          }}
         />
       )}
 
@@ -545,10 +577,12 @@ function FlowCanvasInner() {
               }).then(() => {
                 toast.success('Đã đưa video vào Sub Mode thành công!');
                 setShowStudio(false);
+                if (onNavigateTab) onNavigateTab('home');
               });
             } else {
               toast.success('Đã chọn video cho Sub Mode: ' + videoPath);
               setShowStudio(false);
+              if (onNavigateTab) onNavigateTab('home');
             }
           }}
           onSyncToCanvasGraph={() => {
@@ -571,10 +605,10 @@ function FlowCanvasInner() {
   );
 }
 
-export default function WorkflowCanvas() {
+export default function WorkflowCanvas({ onNavigateTab }: WorkflowCanvasProps) {
   return (
     <ReactFlowProvider>
-      <FlowCanvasInner />
+      <FlowCanvasInner onNavigateTab={onNavigateTab} />
     </ReactFlowProvider>
   );
 }

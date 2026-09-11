@@ -536,7 +536,7 @@ export default function HomePage() {
               Các tab luôn mounted, chỉ ẩn bằng CSS — giữ nguyên trạng thái
               (audio đang nghe thử, panel mở, dữ liệu đã tải) khi chuyển tab */}
           <div className={activeTab === 'workflow' ? 'flex min-h-0 flex-1 flex-col overflow-hidden' : 'hidden'}>
-            <WorkflowCanvas />
+            <WorkflowCanvas onNavigateTab={setActiveTab} />
           </div>
           <div className={activeTab === 'editor' ? 'flex min-h-0 flex-1 flex-col overflow-hidden' : 'hidden'}>
             <SubtitleEditor
