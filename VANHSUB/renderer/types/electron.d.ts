@@ -73,6 +73,59 @@ export interface SubMaskRegion {
   mode: 'solid' | 'blur';
 }
 
+export interface PerLineSubtitleStyle {
+  textColorHex?: string;
+  outlineColorHex?: string;
+  outlineWidth?: number;
+  shadowDepth?: number;
+  fontSize?: number;
+  fontName?: string;
+  bold?: boolean;
+  italic?: boolean;
+  alignment?: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
+  marginV?: number;
+  posPercent?: { x: number; y: number };
+}
+
+export interface CustomMaskRegion {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  mode: 'solid' | 'blur' | 'pixelate';
+  color?: string;
+  blurIntensity?: number;
+  startTime?: number;
+  endTime?: number;
+}
+
+export interface WatermarkOptions {
+  type: 'text' | 'image';
+  text?: string;
+  imagePath?: string;
+  position: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | 'center';
+  margin?: number;
+  opacity?: number;
+  scale?: number;
+  fontSize?: number;
+  fontColorHex?: string;
+  fontName?: string;
+}
+
+export interface ExportFormatOptions {
+  aspectRatio?: 'original' | '16:9' | '9:16' | '1:1';
+  fps?: 24 | 30 | 60;
+  bitrateKbps?: number;
+  format?: 'mp4' | 'mov';
+}
+
+export interface AdvancedExportOptions {
+  lineStyles?: Record<number, PerLineSubtitleStyle>;
+  customMasks?: CustomMaskRegion[];
+  watermark?: WatermarkOptions;
+  formatOptions?: ExportFormatOptions;
+}
+
 export interface VanhsubAPI {
   tasks: {
     getAll: () => Promise<Task[]>;
@@ -157,7 +210,8 @@ export interface VanhsubAPI {
       id: string,
       mode: 'hardsub' | 'softsub',
       mask?: SubMaskRegion | null,
-      style?: SubStyle | null
+      style?: SubStyle | null,
+      advancedOptions?: AdvancedExportOptions | null
     ) => Promise<boolean>;
     separateStems: (id: string) => Promise<boolean>;
   };
@@ -181,6 +235,7 @@ export interface VanhsubAPI {
   dialog: {
     openMediaFile: () => Promise<string[] | null>;
     openSrtFile: () => Promise<string | null>;
+    openImageFile: () => Promise<string | null>;
     showInFolder: (filePath: string) => Promise<void>;
     chooseDirectory: () => Promise<string | null>;
   };

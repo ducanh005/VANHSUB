@@ -44,8 +44,8 @@ const vanhsub = {
     cancel: (id: string) => ipcRenderer.invoke('translate:cancel', id),
   },
   export: {
-    start: (id: string, mode: 'hardsub' | 'softsub', mask?: unknown, style?: unknown) =>
-      ipcRenderer.invoke('export:start', id, mode, mask ?? null, style ?? null),
+    start: (id: string, mode: 'hardsub' | 'softsub', mask?: unknown, style?: unknown, advancedOptions?: unknown) =>
+      ipcRenderer.invoke('export:start', id, mode, mask ?? null, style ?? null, advancedOptions ?? null),
     // Tách nhạc nền / giọng ra 2 file mp3 bằng Demucs AI
     separateStems: (id: string) => ipcRenderer.invoke('export:separateStems', id),
   },
@@ -102,6 +102,7 @@ const vanhsub = {
   dialog: {
     openMediaFile: () => ipcRenderer.invoke('dialog:openMediaFile'),
     openSrtFile: () => ipcRenderer.invoke('dialog:openSrtFile'),
+    openImageFile: () => ipcRenderer.invoke('dialog:openImageFile'),
     showInFolder: (filePath: string) => ipcRenderer.invoke('dialog:showInFolder', filePath),
     chooseDirectory: () => ipcRenderer.invoke('dialog:chooseDirectory'),
   },

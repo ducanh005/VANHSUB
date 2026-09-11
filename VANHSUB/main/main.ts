@@ -12,6 +12,7 @@ import { polishSubtitleLine, translateSubtitleLine, cleanAndDeduplicateSubtitles
 import { TaskRunner } from './asr/taskRunner'
 import { TranslateRunner } from './translate/translateRunner'
 import { ExportRunner } from './render/exportRunner'
+import type { AdvancedExportOptions } from './render/exportRunner'
 import type { MaskRegion, SubtitleStyle } from './render/videoRenderer'
 import { StemExportRunner } from './audio/stemExportRunner'
 import { TTSRunner } from './render/ttsRunner'
@@ -516,11 +517,19 @@ ipcMain.handle(
     id: string,
     mode: 'hardsub' | 'softsub',
     mask?: MaskRegion | null,
-    style?: SubtitleStyle | null
+    style?: SubtitleStyle | null,
+    advancedOptions?: AdvancedExportOptions | null
   ) => {
-    ExportRunner.runExport(id, mode, mask, () => {
-      broadcastTasksUpdate()
-    }, style ?? null)
+    ExportRunner.runExport(
+      id,
+      mode,
+      mask,
+      () => {
+        broadcastTasksUpdate()
+      },
+      style ?? null,
+      advancedOptions ?? null
+    )
     return true
   }
 )
@@ -845,6 +854,21 @@ ipcMain.handle('dialog:openSrtFile', async () => {
     properties: ['openFile'],
     filters: [
       { name: 'Phụ đề SubRip', extensions: ['srt'] },
+      { name: 'Tất cả file', extensions: ['*'] },
+    ],
+  })
+  if (result.canceled || result.filePaths.length === 0) return null
+  return result.filePaths[0]
+})
+
+// Chọn file ảnh (logo, watermark)
+ipcMain.handle('dialog:openImageFile', async () => {
+  if (!mainWindow) return null
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: 'Chọn ảnh Watermark / Logo',
+    properties: ['openFile'],
+    filters: [
+      { name: 'Hình ảnh', extensions: ['png', 'jpg', 'jpeg', 'webp', 'bmp'] },
       { name: 'Tất cả file', extensions: ['*'] },
     ],
   })

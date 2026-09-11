@@ -1,9 +1,27 @@
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
+import { parseSrt } from '../lib/srt';
 import { TaskStore, type Task } from '../store/taskStore';
 import { SettingsStore } from '../store/settingsStore';
 import { nextAvailablePath } from '../lib/paths';
-import { burnHardsub, muxSoftsub, type MaskRegion, type SubtitleStyle } from './videoRenderer';
+import { compileToAss, type SubtitleEntryStyle, type GlobalAssStyle } from './assCompiler';
+import {
+  burnHardsub,
+  muxSoftsub,
+  type MaskRegion,
+  type CustomMaskRegion,
+  type WatermarkOptions,
+  type ExportFormatOptions,
+  type SubtitleStyle,
+} from './videoRenderer';
+
+export interface AdvancedExportOptions {
+  customMask?: CustomMaskRegion | null;
+  watermark?: WatermarkOptions | null;
+  formatOptions?: ExportFormatOptions | null;
+  perLineStyles?: Record<number, SubtitleEntryStyle>;
+}
 
 export class ExportRunner {
   private static runningExports = new Set<string>();
@@ -17,13 +35,14 @@ export class ExportRunner {
     mode: 'hardsub' | 'softsub',
     mask?: MaskRegion | null,
     onUpdate?: () => void,
-    style?: SubtitleStyle | null
+    style?: SubtitleStyle | null,
+    advancedOptions?: AdvancedExportOptions | null
   ): Promise<Task | undefined> {
     const task = TaskStore.getById(taskId);
     if (!task) throw new Error(`Không tìm thấy tác vụ ID: ${taskId}`);
 
-    const srtPath = task.translatedSrtPath || task.srtPath;
-    if (!srtPath) {
+    const rawSrtPath = task.translatedSrtPath || task.srtPath;
+    if (!rawSrtPath) {
       throw new Error('Tác vụ chưa có file phụ đề để xuất video.');
     }
 
@@ -47,6 +66,9 @@ export class ExportRunner {
     // Không ghi đè bản xuất trước đó — thêm _1, _2… nếu file đã tồn tại
     const outputPath = nextAvailablePath(path.join(targetDir, outputName));
 
+    let finalSubPath = rawSrtPath;
+    let tempAssFile: string | null = null;
+
     try {
       TaskStore.update(taskId, {
         status: 'exporting',
@@ -56,11 +78,51 @@ export class ExportRunner {
       onUpdate?.();
 
       if (mode === 'hardsub') {
+        // Nếu có perLineStyles hoặc style nâng cao: biên dịch ra file .ass trước khi burn
+        if (advancedOptions?.perLineStyles && Object.keys(advancedOptions.perLineStyles).length > 0) {
+          const srtContent = fs.readFileSync(rawSrtPath, 'utf-8');
+          const parsedLines = parseSrt(srtContent);
+          const items = parsedLines.map((line, idx) => ({
+            startMs: line.startMs,
+            endMs: line.endMs,
+            text: line.text,
+            style: advancedOptions.perLineStyles?.[idx] || null,
+          }));
+
+          const globalAss: Partial<GlobalAssStyle> = style
+            ? {
+                fontName: style.fontName,
+                fontSize: style.fontSize,
+                primaryColour: style.primaryColour,
+                outlineColour: style.outlineColour,
+                opacity: style.opacity,
+                outline: style.outline,
+                shadow: style.shadow,
+                bold: style.bold,
+                borderStyle: style.borderStyle,
+                alignment: style.alignment as any,
+                marginV: style.marginV,
+              }
+            : {};
+
+          const assContent = compileToAss(items, {
+            globalStyle: globalAss,
+            title: videoBase,
+          });
+
+          tempAssFile = path.join(os.tmpdir(), `vanhsub_ass_${Date.now()}_compiled.ass`);
+          fs.writeFileSync(tempAssFile, assContent, 'utf-8');
+          finalSubPath = tempAssFile;
+        }
+
         await burnHardsub({
           videoPath,
-          srtPath,
+          srtPath: finalSubPath,
           outputPath,
           mask: mask || null,
+          customMask: advancedOptions?.customMask || null,
+          watermark: advancedOptions?.watermark || null,
+          formatOptions: advancedOptions?.formatOptions || null,
           style: style || null,
           onProgress: (percent) => {
             TaskStore.update(taskId, {
@@ -80,7 +142,7 @@ export class ExportRunner {
 
         await muxSoftsub({
           videoPath,
-          srtPath,
+          srtPath: rawSrtPath,
           outputPath,
         });
 
@@ -110,6 +172,11 @@ export class ExportRunner {
       onUpdate?.();
       return updated;
     } finally {
+      if (tempAssFile && fs.existsSync(tempAssFile)) {
+        try {
+          fs.unlinkSync(tempAssFile);
+        } catch {}
+      }
       this.runningExports.delete(taskId);
     }
   }
