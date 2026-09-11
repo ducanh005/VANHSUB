@@ -1,7 +1,6 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Head from 'next/head';
 import {
-  ArrowRight,
   CheckCircle2,
   CircleHelp,
   Cpu,
@@ -9,7 +8,6 @@ import {
   FileVideo,
   Film,
   FolderOpen,
-  Globe2,
   Keyboard,
   Layers,
   Link2,
@@ -25,15 +23,12 @@ import {
   Subtitles,
   Trash2,
   UploadCloud,
-  Volume2,
-  Wand2,
   Zap,
 } from 'lucide-react';
 import type { Task, WorkflowType } from '../types/task';
 import { t, formatTimeAgo as formatTimeAgoHelper } from '../lib/i18n';
 import SubtitleEditor from '../components/SubtitleEditor';
 import ASRWorkspace from '../components/ASRWorkspace';
-import TranslatePage from '../components/TranslatePage';
 import TTSPage from '../components/TTSPage';
 import ExportPage from '../components/ExportPage';
 import SettingsPage from '../components/SettingsPage';
@@ -51,82 +46,22 @@ const getNavItems = (): NavItem[] => [
   { id: 'home', label: t('sidebar.home'), icon: Film },
   { id: 'subtitles', label: t('sidebar.subtitles'), icon: Subtitles },
   { id: 'editor', label: t('sidebar.editor'), icon: MessageSquareText },
-  { id: 'translate', label: t('sidebar.translate'), icon: Globe2 },
   { id: 'dubbing', label: t('sidebar.dubbing'), icon: Mic },
   { id: 'export', label: t('sidebar.export'), icon: Layers },
   { id: 'settings', label: t('sidebar.settings'), icon: Settings },
 ];
 
-const getWorkflows = (): Array<{
-  id: WorkflowType;
-  title: string;
-  description: string;
-  tag: string;
-  icon: React.ComponentType<{ className?: string }>;
-  gradient: string;
-  borderGlow: string;
-  models: string[];
-}> => [
-  {
-    id: 'full-dubbing' as WorkflowType,
-    title: t('home.fullDubbing'),
-    description: t('home.fullDubbingDesc'),
-    tag: 'Quy trình đầy đủ',
-    icon: Sparkles,
-    gradient: 'from-brand-cyan/15 via-brand-indigo/15 to-brand-rose/15',
-    borderGlow: 'hover:border-brand-indigo/50',
-    models: ['Whisper ASR', 'Gemini 2.0', 'VietTTS'],
-  },
-  {
-    id: 'bilingual-sub' as WorkflowType,
-    title: t('home.bilingualSub'),
-    description: t('home.bilingualSubDesc'),
-    tag: 'Phổ biến nhất',
-    icon: Wand2,
-    gradient: 'from-brand-cyan/20 to-brand-indigo/10',
-    borderGlow: 'hover:border-brand-cyan/50',
-    models: ['Whisper ASR', 'Gemini AI'],
-  },
-  {
-    id: 'fast-transcribe' as WorkflowType,
-    title: t('home.fastTranscribe'),
-    description: t('home.fastTranscribeDesc'),
-    tag: 'Tốc độ cao',
-    icon: Zap,
-    gradient: 'from-emerald-500/15 to-brand-cyan/10',
-    borderGlow: 'hover:border-emerald-500/50',
-    models: ['Whisper Base'],
-  },
-];
+type ShortcutItem = {
+  id: string;
+  label: string;
+  shortcut: string;
+};
 
-const getTools = () => [
-  {
-    label: t('sidebar.editor'),
-    icon: MessageSquareText,
-    detail: 'Xem trước video và chỉnh sửa timeline từng câu',
-  },
-  {
-    label: t('sidebar.translate'),
-    icon: Globe2,
-    detail: 'Dịch đa ngôn ngữ giữ nguyên context và thuật ngữ',
-  },
-  {
-    label: t('sidebar.dubbing'),
-    icon: Volume2,
-    detail: 'Tạo giọng đọc tiếng Việt truyền cảm, chuẩn ngữ điệu',
-  },
-  {
-    label: 'Gắn phụ đề cứng (Burn Sub)',
-    icon: Layers,
-    detail: 'Render phụ đề ASS/SRT trực tiếp vào khung hình video',
-  },
-];
-
-const getShortcuts = () => [
-  { label: 'Tìm kiếm nhanh', shortcut: 'Ctrl + K' },
-  { label: 'Tạo phụ đề mới', shortcut: 'Ctrl + N' },
-  { label: 'Mở trang hiệu đính', shortcut: 'Ctrl + E' },
-  { label: t('sidebar.settings'), shortcut: 'Ctrl + ,' },
+const SHORTCUTS: ShortcutItem[] = [
+  { id: 'search', label: 'Tìm kiếm nhanh', shortcut: 'Ctrl + K' },
+  { id: 'new', label: 'Tạo phụ đề mới', shortcut: 'Ctrl + N' },
+  { id: 'editor', label: 'Mở trang hiệu đính', shortcut: 'Ctrl + E' },
+  { id: 'settings', label: t('sidebar.settings'), shortcut: 'Ctrl + ,' },
 ];
 
 // Dùng i18n helper thay vì function riêng
@@ -142,6 +77,7 @@ export default function HomePage() {
   const [linkMessage, setLinkMessage] = useState('');
   const [linkError, setLinkError] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const [asrModel, setAsrModel] = useState('base');
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   // Popup hướng dẫn người dùng mới: hiện lần đầu mở app, mở lại được bằng nút (?)
@@ -218,7 +154,7 @@ export default function HomePage() {
     }
   }, [loadTasks]);
 
-  const handleSelectFiles = async (workflow: WorkflowType = 'fast-transcribe') => {
+  const handleSelectFiles = useCallback(async (workflow: WorkflowType = 'fast-transcribe') => {
     if (typeof window === 'undefined' || !window.vanhsub?.dialog) return;
 
     try {
@@ -239,7 +175,72 @@ export default function HomePage() {
     } catch (err) {
       console.error('Lỗi khi chọn file:', err);
     }
-  };
+  }, []);
+
+  const handleShortcutAction = useCallback(
+    (id: string) => {
+      switch (id) {
+        case 'search':
+          setActiveTab('home');
+          setTimeout(() => {
+            searchInputRef.current?.focus();
+            searchInputRef.current?.select();
+          }, 50);
+          break;
+        case 'new':
+          handleSelectFiles('fast-transcribe');
+          break;
+        case 'editor':
+          setActiveTab('editor');
+          break;
+        case 'settings':
+          setActiveTab('settings');
+          break;
+      }
+    },
+    [handleSelectFiles]
+  );
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const isCtrlOrMeta = e.ctrlKey || e.metaKey;
+      if (!isCtrlOrMeta) return;
+
+      const key = e.key?.toLowerCase();
+      const code = e.code;
+
+      // Ctrl + K: Tìm kiếm nhanh
+      if (key === 'k' || code === 'KeyK') {
+        e.preventDefault();
+        handleShortcutAction('search');
+        return;
+      }
+
+      // Ctrl + N: Tạo tác vụ mới
+      if (key === 'n' || code === 'KeyN') {
+        e.preventDefault();
+        handleShortcutAction('new');
+        return;
+      }
+
+      // Ctrl + E: Mở trang hiệu đính
+      if (key === 'e' || code === 'KeyE') {
+        e.preventDefault();
+        handleShortcutAction('editor');
+        return;
+      }
+
+      // Ctrl + ,: Mở cài đặt
+      if (key === ',' || code === 'Comma') {
+        e.preventDefault();
+        handleShortcutAction('settings');
+        return;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleShortcutAction]);
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
@@ -487,6 +488,7 @@ export default function HomePage() {
                 <div className="flex w-full max-w-lg items-center gap-2.5 rounded-xl border border-slate-800 bg-slate-900/80 px-3.5 py-2 text-slate-400 transition focus-within:border-brand-indigo/60 focus-within:ring-1 focus-within:ring-brand-indigo/60">
                   <Search className="h-4 w-4 text-slate-400" />
                   <input
+                    ref={searchInputRef}
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     placeholder="Tìm kiếm tác vụ, phụ đề, tên video..."
@@ -532,15 +534,6 @@ export default function HomePage() {
               isActive={activeTab === 'editor'}
             />
           </div>
-          <div className={activeTab === 'translate' ? 'flex min-h-0 flex-1 flex-col overflow-hidden' : 'hidden'}>
-            <TranslatePage
-              tasks={tasks}
-              selectedTaskId={selectedTaskId}
-              onSelectTaskId={setSelectedTaskId}
-              onNavigateTab={setActiveTab}
-              isActive={activeTab === 'translate'}
-            />
-          </div>
           <div className={activeTab === 'dubbing' ? 'flex min-h-0 flex-1 flex-col overflow-hidden' : 'hidden'}>
             <TTSPage tasks={tasks} />
           </div>
@@ -567,7 +560,7 @@ export default function HomePage() {
                 : 'hidden'
             }
           >
-            {/* Cột Trái: Workflows & Recent Tasks */}
+            {/* Cột Trái: Drag & Drop & Recent Tasks */}
             <section className="flex flex-col gap-5 overflow-y-auto pr-1">
               {/* Lời chào Hero */}
               <div className="flex items-end justify-between rounded-3xl border border-slate-800/80 bg-gradient-to-r from-slate-900/80 via-[#0F172A]/90 to-slate-900/80 p-5 backdrop-blur-sm">
@@ -591,62 +584,6 @@ export default function HomePage() {
                     <strong className="font-bold">{completedCount}</strong> Đã hoàn thành
                   </span>
                 </div>
-              </div>
-
-              {/* 3 Workflow Bento Cards */}
-              <div className="grid gap-3.5 lg:grid-cols-3">
-                {getWorkflows().map((wf) => {
-                  const Icon = wf.icon;
-                  return (
-                    <div
-                      key={wf.id}
-                      onClick={() => handleSelectFiles(wf.id)}
-                      className={[
-                        'group relative flex flex-col justify-between overflow-hidden rounded-2xl border border-slate-800 bg-slate-900/70 p-4 transition-all duration-300 card-glass-hover cursor-pointer',
-                        wf.borderGlow,
-                      ].join(' ')}
-                    >
-                      <div
-                        className={`absolute -right-6 -top-6 h-28 w-28 rounded-full bg-gradient-to-br ${wf.gradient} blur-2xl transition-all group-hover:scale-125`}
-                      />
-                      <div>
-                        <div className="flex items-center justify-between">
-                          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-slate-800 to-slate-900 text-brand-cyan border border-slate-700 shadow-md">
-                            <Icon className="h-5 w-5" />
-                          </div>
-                          <span className="rounded-full border border-slate-700/80 bg-slate-800/80 px-2.5 py-0.5 text-[10px] font-medium text-slate-300">
-                            {wf.tag}
-                          </span>
-                        </div>
-                        <h3 className="mt-4 text-sm font-semibold text-white group-hover:text-brand-cyan transition-colors">
-                          {wf.title}
-                        </h3>
-                        <p className="mt-1.5 text-xs leading-relaxed text-slate-400">
-                          {wf.description}
-                        </p>
-                      </div>
-
-                      <div className="mt-4 flex items-center justify-between border-t border-slate-800/80 pt-3">
-                        <div className="flex gap-1">
-                          {wf.models.map((m) => (
-                            <span
-                              key={m}
-                              className="rounded bg-slate-800/80 px-1.5 py-0.5 text-[9px] font-mono text-slate-400"
-                            >
-                              {m}
-                            </span>
-                          ))}
-                        </div>
-                        <button
-                          type="button"
-                          className="flex h-7 w-7 items-center justify-center rounded-lg bg-slate-800 text-slate-300 transition group-hover:bg-brand-indigo group-hover:text-white"
-                        >
-                          <ArrowRight className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
               </div>
 
               {/* Drag & Drop Zone */}
@@ -909,48 +846,31 @@ export default function HomePage() {
                 </div>
               </div>
 
-              {/* Toolbox */}
-              <div className="rounded-3xl border border-slate-800 bg-slate-900/60 p-4">
-                <h3 className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-400">
-                  Hộp công cụ
-                </h3>
-                <div className="space-y-1.5">
-                  {getTools().map(({ label, icon: Icon, detail }) => (
-                    <button
-                      key={label}
-                      type="button"
-                      onClick={() => handleSelectFiles('fast-transcribe')}
-                      className="group flex w-full items-center gap-3 rounded-2xl p-2.5 text-left transition hover:bg-slate-800/80 cursor-pointer"
-                    >
-                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-slate-800 text-brand-cyan group-hover:bg-brand-indigo group-hover:text-white transition">
-                        <Icon className="h-4 w-4" />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate text-xs font-medium text-slate-200 group-hover:text-white">
-                          {label}
-                        </div>
-                        <div className="truncate text-[11px] text-slate-400">{detail}</div>
-                      </div>
-                      <ArrowRight className="h-3.5 w-3.5 text-slate-500 group-hover:text-brand-cyan transition" />
-                    </button>
-                  ))}
-                </div>
-              </div>
-
               {/* Quick Shortcuts */}
               <div className="rounded-3xl border border-slate-800 bg-slate-900/60 p-4">
-                <div className="mb-3 flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-400">
-                  <Keyboard className="h-3.5 w-3.5 text-brand-indigo" />
-                  <span>Phím tắt tiện ích</span>
+                <div className="mb-3 flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-400">
+                    <Keyboard className="h-3.5 w-3.5 text-brand-indigo" />
+                    <span>Phím tắt tiện ích</span>
+                  </div>
+                  <span className="text-[10px] text-slate-500">Bấm hoặc gõ phím</span>
                 </div>
-                <div className="space-y-2 text-xs">
-                  {getShortcuts().map(({ label, shortcut }) => (
-                    <div key={label} className="flex items-center justify-between text-slate-300">
-                      <span className="text-[11px]">{label}</span>
-                      <kbd className="rounded-md border border-slate-700 bg-slate-950 px-2 py-0.5 text-[10px] font-mono text-slate-400">
+                <div className="space-y-1.5 text-xs">
+                  {SHORTCUTS.map(({ id, label, shortcut }) => (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() => handleShortcutAction(id)}
+                      className="group flex w-full items-center justify-between rounded-xl px-2.5 py-2 text-left text-slate-300 transition hover:bg-slate-800/80 hover:text-white cursor-pointer"
+                      title={`Bấm để kích hoạt (${shortcut})`}
+                    >
+                      <span className="text-[11px] transition-colors group-hover:text-brand-cyan">
+                        {label}
+                      </span>
+                      <kbd className="rounded-md border border-slate-700 bg-slate-950 px-2 py-0.5 text-[10px] font-mono text-slate-400 transition group-hover:border-brand-indigo/50 group-hover:text-slate-200">
                         {shortcut}
                       </kbd>
-                    </div>
+                    </button>
                   ))}
                 </div>
               </div>

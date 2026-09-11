@@ -116,6 +116,14 @@ function TimeRow({
   );
 }
 
+const TARGET_LANGUAGES = [
+  { code: 'vi', label: 'Tiếng Việt' },
+  { code: 'en', label: 'English' },
+  { code: 'ja', label: '日本語 (Nhật)' },
+  { code: 'ko', label: '한국어 (Hàn)' },
+  { code: 'zh', label: '中文 (Trung)' },
+];
+
 export default function SubtitleEditor({
   tasks,
   selectedTaskId: controlledTaskId,
@@ -138,8 +146,14 @@ export default function SubtitleEditor({
   const [statusError, setStatusError] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
 
+  // Dịch thuật & Đối chiếu song ngữ
+  const [targetLanguage, setTargetLanguage] = useState('vi');
+  const [showBilingual, setShowBilingual] = useState(true);
+  const [originalLines, setOriginalLines] = useState<SrtLine[]>([]);
+
   // Trình xem trước video
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const currentTimeMsRef = useRef(0);
   const [currentTimeMs, setCurrentTimeMs] = useState(0);
   const [durationMs, setDurationMs] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -162,6 +176,7 @@ export default function SubtitleEditor({
   const selectedTask = tasks.find((t) => t.id === selectedTaskId) || null;
   const isTranslating = selectedTask?.status === 'translating';
   const hasTranslatedSrt = !!selectedTask?.translatedSrtPath;
+  const hasOriginalSrt = !!selectedTask?.srtPath;
 
   const mediaUrl = useMemo(() => {
     if (!selectedTask?.filePath) return '';
@@ -237,7 +252,36 @@ export default function SubtitleEditor({
         if (modelVal) setGeminiModelName(String(modelVal));
       })
       .catch(() => setHasApiKey(false));
+
+    window.vanhsub.settings
+      .get('targetLanguage')
+      .then((v: string) => {
+        if (v) setTargetLanguage(v);
+      })
+      .catch(() => {});
   }, []);
+
+  // Tải file gốc để đối chiếu khi ở chế độ bản dịch
+  useEffect(() => {
+    if (!selectedTask?.srtPath) {
+      setOriginalLines([]);
+      return;
+    }
+    let cancelled = false;
+    window.vanhsub.tasks
+      .readSrt(selectedTask.srtPath)
+      .then((content) => {
+        if (cancelled) return;
+        setOriginalLines(parseSrt(content));
+      })
+      .catch(() => {
+        if (!cancelled) setOriginalLines([]);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedTask?.srtPath, reloadKey]);
 
   // Tải SRT khi đổi tác vụ, đổi nguồn hoặc khi reloadKey tăng
   useEffect(() => {
@@ -327,6 +371,9 @@ export default function SubtitleEditor({
       setStatusError(false);
       setStatusMessage('Đang lưu file SRT...');
       await window.vanhsub.tasks.writeSrt(activeSrtPath, serializeSrt(lines));
+      if (srtSource === 'original') {
+        setOriginalLines(lines);
+      }
       setDirty(false);
       setLoading(false);
       setStatusMessage(`Đã lưu thành công ${lines.length} dòng (${srtSource === 'translated' ? 'Bản dịch' : 'Bản gốc'})!`);
@@ -364,21 +411,23 @@ export default function SubtitleEditor({
     }
   };
 
-  // Dịch nhanh 1 câu sang tiếng Việt (hoặc targetLanguage)
+  // Dịch nhanh 1 câu theo targetLanguage
   const handleTranslateLine = async (index: number) => {
     if (aiBusyIndex !== null) return;
+    const targetLabel = TARGET_LANGUAGES.find((l) => l.code === targetLanguage)?.label || targetLanguage;
     setStatusError(false);
-    setStatusMessage(`Đang gọi Gemini dịch câu #${index + 1}...`);
+    setStatusMessage(`Đang gọi Gemini dịch câu #${index + 1} sang ${targetLabel}...`);
     setAiBusyIndex(index);
     setAiActionType('translate');
     try {
       const translated = await window.vanhsub.ai.translateLine({
         text: lines[index].text,
+        targetLanguage,
         prev: lines[index - 1]?.text,
         next: lines[index + 1]?.text,
       });
       updateLine(index, { text: translated });
-      setStatusMessage(`Đã dịch câu #${index + 1} sang tiếng Việt — nhớ bấm "Lưu thay đổi".`);
+      setStatusMessage(`Đã dịch câu #${index + 1} sang ${targetLabel} — nhớ bấm "Lưu thay đổi".`);
     } catch (err: any) {
       const message: string = err?.message || String(err);
       setStatusError(true);
@@ -449,9 +498,10 @@ export default function SubtitleEditor({
       await handleSave();
     }
     setStatusError(false);
-    setStatusMessage('Đã bắt đầu dịch toàn bộ bằng Gemini...');
+    const targetLabel = TARGET_LANGUAGES.find((l) => l.code === targetLanguage)?.label || targetLanguage;
+    setStatusMessage(`Đã gửi yêu cầu dịch toàn bộ sang ${targetLabel} bằng Gemini...`);
     try {
-      await window.vanhsub.translate.start(selectedTaskId, 'vi');
+      await window.vanhsub.translate.start(selectedTaskId, targetLanguage);
     } catch (err: any) {
       setStatusError(true);
       setStatusMessage(err?.message || String(err));
@@ -564,6 +614,28 @@ export default function SubtitleEditor({
           {/* Nút dịch toàn bộ file trực tiếp trong Editor */}
           {selectedTaskId && (
             <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-1 rounded-xl border border-slate-700 bg-slate-800 px-2 py-1">
+                <span className="text-[10px] font-semibold text-slate-400">Sang:</span>
+                <select
+                  value={targetLanguage}
+                  onChange={(e) => {
+                    const newLang = e.target.value;
+                    setTargetLanguage(newLang);
+                    if (window.vanhsub?.settings) {
+                      window.vanhsub.settings.set('targetLanguage', newLang).catch(() => {});
+                    }
+                  }}
+                  disabled={isTranslating}
+                  className="bg-transparent text-xs text-slate-200 focus:outline-none cursor-pointer disabled:opacity-50"
+                >
+                  {TARGET_LANGUAGES.map((l) => (
+                    <option key={l.code} value={l.code} className="bg-slate-800 text-white">
+                      {l.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
               {isTranslating ? (
                 <button
                   type="button"
@@ -571,14 +643,14 @@ export default function SubtitleEditor({
                   className="inline-flex items-center gap-1.5 rounded-xl border border-rose-500/40 bg-rose-500/10 px-3 py-1.5 text-xs font-medium text-rose-400 hover:bg-rose-500/20 cursor-pointer"
                 >
                   <XCircle className="h-3.5 w-3.5" />
-                  <span>Huỷ dịch</span>
+                  <span>Huỷ dịch {selectedTask?.progress ? `(${selectedTask.progress}%)` : ''}</span>
                 </button>
               ) : (
                 <button
                   type="button"
                   onClick={handleStartFullTranslate}
                   disabled={loading}
-                  title={hasTranslatedSrt ? 'Dịch lại toàn bộ phụ đề bằng Gemini' : 'Dịch toàn bộ phụ đề sang tiếng Việt'}
+                  title={hasTranslatedSrt ? 'Dịch lại toàn bộ phụ đề bằng Gemini' : 'Dịch toàn bộ phụ đề sang ngôn ngữ đã chọn'}
                   className="inline-flex items-center gap-1.5 rounded-xl border border-brand-indigo/40 bg-brand-indigo/10 px-3 py-1.5 text-xs font-semibold text-brand-cyan hover:bg-brand-indigo/25 cursor-pointer disabled:opacity-50 transition"
                 >
                   <Globe2 className="h-3.5 w-3.5" />
@@ -586,6 +658,35 @@ export default function SubtitleEditor({
                 </button>
               )}
             </div>
+          )}
+
+          {/* Nút bật/tắt đối chiếu song ngữ khi sửa bản dịch */}
+          {selectedTaskId && srtSource === 'translated' && hasOriginalSrt && (
+            <button
+              type="button"
+              onClick={() => setShowBilingual((v) => !v)}
+              title="Bật/tắt khung hiển thị câu gốc để đối chiếu khi sửa bản dịch"
+              className={[
+                'inline-flex items-center gap-1.5 rounded-xl border px-2.5 py-1.5 text-[11px] font-medium transition cursor-pointer',
+                showBilingual
+                  ? 'border-brand-cyan/40 bg-brand-cyan/10 text-brand-cyan'
+                  : 'border-slate-700 bg-slate-800 text-slate-400 hover:text-slate-200',
+              ].join(' ')}
+            >
+              <Languages className="h-3.5 w-3.5" />
+              <span>{showBilingual ? 'Đang đối chiếu gốc' : 'Bật đối chiếu gốc'}</span>
+            </button>
+          )}
+
+          {/* Cảnh báo lệch số dòng giữa bản dịch và bản gốc */}
+          {selectedTaskId && srtSource === 'translated' && originalLines.length > 0 && lines.length !== originalLines.length && (
+            <span
+              title={`Số dòng bản dịch (${lines.length} dòng) khác với bản gốc (${originalLines.length} dòng) do có thêm/xoá câu.`}
+              className="inline-flex items-center gap-1 rounded-full border border-amber-500/40 bg-amber-500/10 px-2.5 py-1 text-[10px] font-medium text-amber-300"
+            >
+              <AlertCircle className="h-3 w-3 text-amber-400" />
+              Lệch dòng ({lines.length}/{originalLines.length})
+            </span>
           )}
 
           {/* Nút AI Dọn Dẹp & Lọc Trùng Phụ Đề */}
@@ -820,12 +921,30 @@ export default function SubtitleEditor({
                         />
                       </div>
 
+                      {/* Hiển thị câu gốc để đối chiếu khi đang sửa bản dịch */}
+                      {srtSource === 'translated' && showBilingual && (
+                        <div
+                          onClick={(e) => e.stopPropagation()}
+                          className="rounded-xl border border-slate-800 bg-slate-950/70 p-2.5 text-xs"
+                        >
+                          <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-brand-cyan flex items-center gap-1.5">
+                            <span className="h-1.5 w-1.5 rounded-full bg-brand-cyan" />
+                            <span>Bản gốc đối chiếu:</span>
+                          </div>
+                          <p className="font-normal text-slate-300 leading-relaxed whitespace-pre-line">
+                            {originalLines[index]?.text ||
+                              originalLines.find((o) => Math.abs(o.startMs - item.startMs) < 1000)?.text ||
+                              '—'}
+                          </p>
+                        </div>
+                      )}
+
                       <div onClick={(e) => e.stopPropagation()} className="flex items-start gap-2">
                         <textarea
                           rows={2}
                           value={item.text}
                           onChange={(e) => updateLine(index, { text: e.target.value })}
-                          placeholder="Nội dung câu phụ đề..."
+                          placeholder={srtSource === 'translated' ? 'Nội dung bản dịch...' : 'Nội dung câu phụ đề...'}
                           className="flex-1 rounded-xl border border-slate-800 bg-slate-950 p-2 text-xs text-white placeholder:text-slate-600 focus:border-brand-indigo focus:outline-none"
                         />
                         <div className="flex flex-col gap-1">
@@ -844,12 +963,12 @@ export default function SubtitleEditor({
                             )}
                           </button>
 
-                          {/* Dịch câu này sang tiếng Việt */}
+                          {/* Dịch câu này theo ngôn ngữ đích */}
                           <button
                             type="button"
                             onClick={() => handleTranslateLine(index)}
                             disabled={aiBusyIndex !== null || !item.text.trim()}
-                            title="Dịch câu này sang tiếng Việt bằng Gemini"
+                            title={`Dịch câu này sang ${TARGET_LANGUAGES.find((l) => l.code === targetLanguage)?.label || targetLanguage} bằng Gemini`}
                             className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-emerald-500/40 bg-emerald-500/10 text-emerald-400 transition hover:bg-emerald-500/25 disabled:cursor-not-allowed disabled:opacity-40 cursor-pointer"
                           >
                             {isBusyThis && aiActionType === 'translate' ? (

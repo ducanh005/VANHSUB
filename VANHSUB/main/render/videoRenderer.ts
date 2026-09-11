@@ -113,12 +113,51 @@ export interface MaskRegion {
   mode: 'solid' | 'blur';
 }
 
+/** Vùng che mờ tự do (Bounding box mask) theo tọa độ % và khung thời gian */
+export interface CustomMaskRegion {
+  xPercent: number;        // 0..100
+  yPercent: number;        // 0..100
+  widthPercent: number;    // 0..100
+  heightPercent: number;   // 0..100
+  mode: 'blur' | 'pixelate' | 'solid';
+  intensity?: number;      // 1..100 (mặc định 40)
+  colorHex?: string;       // "#000000"
+  startSec?: number;       // Giây bắt đầu (0 = từ đầu)
+  endSec?: number;         // Giây kết thúc (0 = hết video)
+}
+
+/** Cấu hình Watermark (Logo hoặc văn bản bản quyền) */
+export interface WatermarkOptions {
+  type: 'text' | 'image';
+  content: string;         // Chữ hoặc đường dẫn ảnh PNG
+  opacity?: number;        // 0..1 (mặc định 0.8)
+  scalePercent?: number;   // Kích thước tương đối 5..50%
+  position: 'top_left' | 'top_right' | 'bottom_left' | 'bottom_right' | 'center' | 'custom';
+  customPos?: { xPercent: number; yPercent: number };
+}
+
+/** Tùy chọn định dạng & tỉ lệ xuất video */
+export interface ExportFormatOptions {
+  aspectRatio?: 'original' | '16:9' | '9:16' | '1:1';
+  resolution?: 'original' | '1080p' | '720p' | '480p';
+  fps?: number;            // 24 | 30 | 60
+  bitrateKbps?: number;    // ví dụ 6000
+  videoCodec?: 'libx264' | 'libx265';
+  preset?: 'ultrafast' | 'veryfast' | 'fast' | 'medium';
+}
+
 export interface RenderOptions {
   videoPath: string;
   srtPath: string;
   outputPath: string;
-  /** Che vùng phụ đề cũ trước khi ghi phụ đề mới (mặc định: không che) */
+  /** Che vùng phụ đề cũ kiểu dải ngang cố định */
   mask?: MaskRegion | null;
+  /** Che vùng tự do với tọa độ X, Y, W, H và thời gian */
+  customMask?: CustomMaskRegion | null;
+  /** Watermark thương hiệu */
+  watermark?: WatermarkOptions | null;
+  /** Tùy chọn tỉ lệ (16:9, 9:16 TikTok) & độ phân giải */
+  formatOptions?: ExportFormatOptions | null;
   /** Style phụ đề tùy chỉnh (force_style ASS) — bỏ qua nếu không truyền */
   style?: SubtitleStyle | null;
   onProgress?: (percent: number) => void;
@@ -140,15 +179,66 @@ function buildMaskFilter(mask: MaskRegion): string {
 
   if (mask.mode === 'blur') {
     // Tách dải phụ đề ra làm mờ rồi chồng lại đúng vị trí.
-    // Lưu ý: filter overlay KHÔNG có biến `ih` — biểu thức y phải dùng `main_h`.
     const overlayY = mask.position === 'top' ? '0' : `main_h-main_h*${height}/100`;
     return (
-      `[0:v]split=2[base][bandsrc];` +
+      `split=2[base][bandsrc];` +
       `[bandsrc]crop=iw:${bandH}:0:${bandY},boxblur=16:2[band];` +
       `[base][band]overlay=0:${overlayY}`
     );
   }
   return `drawbox=x=0:y=${bandY}:w=iw:h=${bandH}:color=black@1:t=fill`;
+}
+
+/**
+ * Dựng filter cho vùng che mờ tự do (Custom Bounding Box Mask)
+ */
+function buildCustomMaskFilter(mask: CustomMaskRegion, inLabel: string, outLabel: string): string {
+  const xExpr = `main_w*${Math.max(0, Math.min(100, mask.xPercent))}/100`;
+  const yExpr = `main_h*${Math.max(0, Math.min(100, mask.yPercent))}/100`;
+  const wExpr = `iw*${Math.max(1, Math.min(100, mask.widthPercent))}/100`;
+  const hExpr = `ih*${Math.max(1, Math.min(100, mask.heightPercent))}/100`;
+  const hasTime = (mask.startSec !== undefined && mask.startSec > 0) || (mask.endSec !== undefined && mask.endSec > 0);
+  const timeExpr = hasTime
+    ? `:enable='between(t,${mask.startSec || 0},${mask.endSec && mask.endSec > 0 ? mask.endSec : 999999})'`
+    : '';
+
+  if (mask.mode === 'blur') {
+    const blurRadius = Math.max(4, Math.min(60, Math.round((mask.intensity || 40) * 0.5)));
+    return (
+      `[${inLabel}]split=2[cm_base][cm_src];` +
+      `[cm_src]crop=${wExpr}:${hExpr}:${xExpr}:${yExpr},boxblur=${blurRadius}:2[cm_blur];` +
+      `[cm_base][cm_blur]overlay=${xExpr}:${yExpr}${timeExpr}[${outLabel}]`
+    );
+  }
+  if (mask.mode === 'pixelate') {
+    const scaleDown = Math.max(4, Math.min(30, Math.round((mask.intensity || 40) * 0.25)));
+    return (
+      `[${inLabel}]split=2[cm_base][cm_src];` +
+      `[cm_src]crop=${wExpr}:${hExpr}:${xExpr}:${yExpr},scale=iw/${scaleDown}:ih/${scaleDown},scale=iw*${scaleDown}:ih*${scaleDown}:flags=neighbor[cm_pix];` +
+      `[cm_base][cm_pix]overlay=${xExpr}:${yExpr}${timeExpr}[${outLabel}]`
+    );
+  }
+  // Solid color / black box
+  const color = mask.colorHex ? mask.colorHex.replace('#', '') : 'black';
+  const drawboxTime = hasTime ? `:enable='between(t,${mask.startSec || 0},${mask.endSec && mask.endSec > 0 ? mask.endSec : 999999})'` : '';
+  return `[${inLabel}]drawbox=x=${xExpr}:y=${yExpr}:w=${wExpr}:h=${hExpr}:color=${color}@1:t=fill${drawboxTime}[${outLabel}]`;
+}
+
+/**
+ * Dựng filter chuyển đổi tỉ lệ khung hình (16:9, 9:16 TikTok, 1:1)
+ */
+function buildAspectRatioFilter(aspectRatio: string | undefined, inLabel: string, outLabel: string): string {
+  if (aspectRatio === '9:16') {
+    // Khung dọc 1080x1920 (TikTok/Shorts/Reels) — đệm viền đen
+    return `[${inLabel}]scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:black[${outLabel}]`;
+  }
+  if (aspectRatio === '16:9') {
+    return `[${inLabel}]scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2:black[${outLabel}]`;
+  }
+  if (aspectRatio === '1:1') {
+    return `[${inLabel}]scale=1080:1080:force_original_aspect_ratio=decrease,pad=1080:1080:(ow-iw)/2:(oh-ih)/2:black[${outLabel}]`;
+  }
+  return `[${inLabel}]null[${outLabel}]`;
 }
 
 /**
@@ -187,10 +277,10 @@ function timemarkToSeconds(timemark: string): number {
 }
 
 /**
- * Ghi cứng phụ đề (Hardsub) vào video.
+ * Ghi cứng phụ đề (Hardsub) vào video với chuỗi filter đa tầng Mini CapCut.
  */
 export async function burnHardsub(options: RenderOptions): Promise<void> {
-  const { videoPath, srtPath, outputPath, onProgress } = options;
+  const { videoPath, srtPath, outputPath, onProgress, customMask, mask, watermark, formatOptions } = options;
 
   if (!fs.existsSync(videoPath)) {
     throw new Error(`Video gốc không tồn tại: ${videoPath}`);
@@ -199,9 +289,10 @@ export async function burnHardsub(options: RenderOptions): Promise<void> {
     throw new Error(`File phụ đề không tồn tại: ${srtPath}`);
   }
 
-  // Để an toàn tuyệt đối với tiếng Việt/Unicode và ký tự lạ trong đường dẫn trên Windows:
-  // Copy SRT ra một file tạm có tên ASCII thuần trong thư mục temp của OS.
-  const tempSrtPath = path.join(os.tmpdir(), `vanhsub_temp_${Date.now()}_render.srt`);
+  // Phân biệt đuôi file .ass hay .srt
+  const isAss = path.extname(srtPath).toLowerCase() === '.ass';
+  const ext = isAss ? '.ass' : '.srt';
+  const tempSrtPath = path.join(os.tmpdir(), `vanhsub_temp_${Date.now()}_render${ext}`);
   fs.copyFileSync(srtPath, tempSrtPath);
 
   const escapedSubPath = escapeFfmpegSubtitlesPath(tempSrtPath);
@@ -218,31 +309,100 @@ export async function burnHardsub(options: RenderOptions): Promise<void> {
       }
     };
 
-    const maskFilter = options.mask ? buildMaskFilter(options.mask) : null;
-    const styleSuffix = options.style
+    const command = ffmpeg(videoPath);
+    const filterChains: string[] = [];
+    let currentVLabel = '0:v';
+
+    // 1. Tỉ lệ khung hình (Aspect Ratio / Scaling)
+    if (formatOptions?.aspectRatio && formatOptions.aspectRatio !== 'original') {
+      const nextLabel = 'v_aspect';
+      filterChains.push(buildAspectRatioFilter(formatOptions.aspectRatio, currentVLabel, nextLabel));
+      currentVLabel = nextLabel;
+    }
+
+    // 2. Vùng che mờ (Custom Mask hoặc Mask dải cố định)
+    if (customMask) {
+      const nextLabel = 'v_mask';
+      filterChains.push(buildCustomMaskFilter(customMask, currentVLabel, nextLabel));
+      currentVLabel = nextLabel;
+    } else if (mask) {
+      const nextLabel = 'v_mask';
+      const height = clampMaskHeight(mask.heightPercent);
+      const bandH = `ih*${height}/100`;
+      const bandY = mask.position === 'top' ? '0' : `ih-${bandH}`;
+      if (mask.mode === 'blur') {
+        const overlayY = mask.position === 'top' ? '0' : `main_h-main_h*${height}/100`;
+        filterChains.push(
+          `[${currentVLabel}]split=2[m_base][m_band];` +
+          `[m_band]crop=iw:${bandH}:0:${bandY},boxblur=16:2[m_blur];` +
+          `[m_base][m_blur]overlay=0:${overlayY}[${nextLabel}]`
+        );
+      } else {
+        filterChains.push(`[${currentVLabel}]drawbox=x=0:y=${bandY}:w=iw:h=${bandH}:color=black@1:t=fill[${nextLabel}]`);
+      }
+      currentVLabel = nextLabel;
+    }
+
+    // 3. Phụ đề (Subtitles / ASS)
+    const styleSuffix = !isAss && options.style
       ? `:force_style='${buildForceStyle(options.style)}'`
       : '';
+    const subNextLabel = 'v_sub';
+    filterChains.push(`[${currentVLabel}]subtitles=filename='${escapedSubPath}'${styleSuffix}[${subNextLabel}]`);
+    currentVLabel = subNextLabel;
 
-    const command = ffmpeg(videoPath);
-    if (maskFilter) {
-      // Có che phụ đề cũ: dựng chain filter_complex — che TRƯỚC rồi mới ghi phụ đề mới
-      command.outputOptions([
-        '-filter_complex',
-        `${maskFilter},subtitles=filename='${escapedSubPath}'${styleSuffix}[vout]`,
-        '-map', '[vout]',
-        '-map', '0:a:0?',
-      ]);
-    } else {
-      command.videoFilters(`subtitles=filename='${escapedSubPath}'${styleSuffix}`);
+    // 4. Watermark (Hình ảnh hoặc Chữ)
+    if (watermark) {
+      if (watermark.type === 'image' && watermark.content && fs.existsSync(watermark.content)) {
+        command.input(watermark.content); // Input 1: watermark image
+        const wmScale = Math.max(5, Math.min(50, watermark.scalePercent || 15)) / 100;
+        const wmOpacity = Math.max(0.1, Math.min(1.0, watermark.opacity ?? 0.8));
+
+        let wmPos = 'W-w-25:H-h-25'; // mặc định: bottom_right
+        if (watermark.position === 'top_left') wmPos = '25:25';
+        else if (watermark.position === 'top_right') wmPos = 'W-w-25:25';
+        else if (watermark.position === 'bottom_left') wmPos = '25:H-h-25';
+        else if (watermark.position === 'center') wmPos = '(W-w)/2:(H-h)/2';
+        else if (watermark.position === 'custom' && watermark.customPos) {
+          wmPos = `W*${watermark.customPos.xPercent / 100}:H*${watermark.customPos.yPercent / 100}`;
+        }
+
+        const nextLabel = 'v_wm';
+        filterChains.push(
+          `[1:v]scale=main_w*${wmScale}:-1,format=rgba,colorchannelmixer=aa=${wmOpacity}[wm_prep];` +
+          `[${currentVLabel}][wm_prep]overlay=${wmPos}[${nextLabel}]`
+        );
+        currentVLabel = nextLabel;
+      }
+    }
+
+    // Đổi label cuối cùng thành vout
+    const lastChainIndex = filterChains.length - 1;
+    const lastChain = filterChains[lastChainIndex];
+    filterChains[lastChainIndex] = lastChain.replace(new RegExp(`\\[${currentVLabel}\\]$`), '[vout]');
+
+    command.outputOptions([
+      '-filter_complex', filterChains.join(';'),
+      '-map', '[vout]',
+      '-map', '0:a:0?',
+    ]);
+
+    const vCodec = formatOptions?.videoCodec || 'libx264';
+    const preset = formatOptions?.preset || 'veryfast';
+    command.videoCodec(vCodec).outputOptions([
+      '-crf 23',
+      `-preset ${preset}`,
+      '-pix_fmt yuv420p',
+    ]);
+
+    if (formatOptions?.fps) {
+      command.outputOptions([`-r ${formatOptions.fps}`]);
+    }
+    if (formatOptions?.bitrateKbps && formatOptions.bitrateKbps > 0) {
+      command.outputOptions([`-b:v ${formatOptions.bitrateKbps}k`]);
     }
 
     command
-      .videoCodec('libx264')
-      .outputOptions([
-        '-crf 23',
-        '-preset veryfast',
-        '-pix_fmt yuv420p'
-      ])
       .audioCodec('aac')
       .output(outputPath)
       .on('start', (cmd) => {
