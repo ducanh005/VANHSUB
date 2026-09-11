@@ -122,6 +122,8 @@ const vanhsub = {
   workflow: {
     run: (graph: any) => ipcRenderer.invoke('workflow:run', graph),
     cancel: (workflowId: string) => ipcRenderer.invoke('workflow:cancel', workflowId),
+    compareFrames: (frameA: string, frameB: string, config?: any) =>
+      ipcRenderer.invoke('workflow:compareFrames', frameA, frameB, config),
     onNodeEvent: (callback: (event: any) => void) => {
       const sub = (_event: any, data: any) => callback(data);
       ipcRenderer.on('workflow:node-event', sub);
@@ -129,6 +131,14 @@ const vanhsub = {
         ipcRenderer.removeListener('workflow:node-event', sub);
       };
     },
+  },
+  bible: {
+    getCharacters: () => ipcRenderer.invoke('bible:getCharacters'),
+    saveCharacter: (profile: any) => ipcRenderer.invoke('bible:saveCharacter', profile),
+    deleteCharacter: (id: string) => ipcRenderer.invoke('bible:deleteCharacter', id),
+    getScenes: () => ipcRenderer.invoke('bible:getScenes'),
+    saveScene: (profile: any) => ipcRenderer.invoke('bible:saveScene', profile),
+    deleteScene: (id: string) => ipcRenderer.invoke('bible:deleteScene', id),
   },
 }
 

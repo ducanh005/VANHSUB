@@ -28,6 +28,8 @@ import {
   Clock,
   ChevronUp,
   ChevronDown,
+  Users,
+  Building,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -35,6 +37,8 @@ import { useWorkflowStore } from '../../lib/store/workflowStore';
 import { GenericCategoryNode } from './nodes/GenericCategoryNode';
 import NodeLibrary from './NodeLibrary';
 import Inspector from './Inspector';
+import CharacterBibleModal from './CharacterBibleModal';
+import SceneBibleModal from './SceneBibleModal';
 import { WORKFLOW_PRESETS } from '../../lib/workflow/presets';
 import { NODE_DEFINITIONS } from '../../lib/workflow/nodeRegistry';
 
@@ -68,6 +72,8 @@ function FlowCanvasInner() {
   const [isRunning, setIsRunning] = useState(false);
   const [showQueueDrawer, setShowQueueDrawer] = useState(false);
   const [activePresetId, setActivePresetId] = useState(WORKFLOW_PRESETS[0].id);
+  const [showCharacterBible, setShowCharacterBible] = useState(false);
+  const [showSceneBible, setShowSceneBible] = useState(false);
 
   // Lắng nghe sự kiện thực thi node từ Electron backend realtime
   useEffect(() => {
@@ -260,6 +266,27 @@ function FlowCanvasInner() {
               ))}
             </select>
           </div>
+
+          <div className="h-5 w-[1px] bg-slate-800 hidden sm:block" />
+
+          {/* Consistency Bibles (Character & Scene) */}
+          <button
+            onClick={() => setShowCharacterBible(true)}
+            title="Mở Character Bible (Hồ sơ Nhân vật)"
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-rose-950/40 hover:bg-rose-900/60 border border-rose-800/50 text-xs font-semibold text-rose-300 hover:text-white transition-colors"
+          >
+            <Users className="w-3.5 h-3.5 text-rose-400" />
+            <span className="hidden lg:inline">Character Bible</span>
+          </button>
+
+          <button
+            onClick={() => setShowSceneBible(true)}
+            title="Mở Scene Bible (Bối cảnh Không gian)"
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-950/40 hover:bg-indigo-900/60 border border-indigo-800/50 text-xs font-semibold text-indigo-300 hover:text-white transition-colors"
+          >
+            <Building className="w-3.5 h-3.5 text-indigo-400" />
+            <span className="hidden lg:inline">Scene Bible</span>
+          </button>
         </div>
 
         {/* Center: Estimated Render Cost (Mục 8 đặc tả) */}
@@ -468,6 +495,16 @@ function FlowCanvasInner() {
           </div>
         </div>
       )}
+
+      {/* Character Bible & Scene Bible Modals */}
+      <CharacterBibleModal
+        isOpen={showCharacterBible}
+        onClose={() => setShowCharacterBible(false)}
+      />
+      <SceneBibleModal
+        isOpen={showSceneBible}
+        onClose={() => setShowSceneBible(false)}
+      />
     </div>
   );
 }

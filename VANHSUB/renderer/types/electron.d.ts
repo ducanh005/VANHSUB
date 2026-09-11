@@ -245,7 +245,22 @@ export interface VanhsubAPI {
   workflow: {
     run: (graph: any) => Promise<{ success: boolean; outputs: Record<string, any>; error?: string }>;
     cancel: (workflowId: string) => Promise<boolean>;
+    compareFrames: (frameA: string, frameB: string, config?: any) => Promise<{
+      passed: boolean;
+      score: number;
+      colorDelta: number;
+      status: 'pass' | 'warn' | 'fail';
+      details: string;
+    }>;
     onNodeEvent: (callback: (event: any) => void) => () => void;
+  };
+  bible: {
+    getCharacters: () => Promise<any[]>;
+    saveCharacter: (profile: any) => Promise<any>;
+    deleteCharacter: (id: string) => Promise<boolean>;
+    getScenes: () => Promise<any[]>;
+    saveScene: (profile: any) => Promise<any>;
+    deleteScene: (id: string) => Promise<boolean>;
   };
 }
 

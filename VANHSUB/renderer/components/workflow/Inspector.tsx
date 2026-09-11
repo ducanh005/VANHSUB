@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Sliders,
   Sparkles,
@@ -12,6 +12,9 @@ import {
   Tag,
   Hash,
   Play,
+  Users,
+  Building,
+  ShieldCheck,
 } from 'lucide-react';
 import { useWorkflowStore } from '../../lib/store/workflowStore';
 import { NODE_DEFINITIONS } from '../../lib/workflow/nodeRegistry';
@@ -24,6 +27,21 @@ export default function Inspector() {
   const updateNodeConfig = useWorkflowStore((s) => s.updateNodeConfig);
   const removeNode = useWorkflowStore((s) => s.removeNode);
   const setSelectedNodeId = useWorkflowStore((s) => s.setSelectedNodeId);
+
+  const [bibleCharacters, setBibleCharacters] = useState<any[]>([]);
+  const [bibleScenes, setBibleScenes] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.vanhsub?.bible) {
+      window.vanhsub.bible.getCharacters().then((chars) => {
+        if (chars) setBibleCharacters(chars);
+      }).catch(() => {});
+
+      window.vanhsub.bible.getScenes().then((sc) => {
+        if (sc) setBibleScenes(sc);
+      }).catch(() => {});
+    }
+  }, []);
 
   const selectedNode = nodes.find((n) => n.id === selectedNodeId);
 
@@ -47,9 +65,30 @@ export default function Inspector() {
   const configSchema = def?.configSchema || {};
   const configValues = selectedNode.data.config || {};
   const runtime = selectedNode.data.runtime;
+  const outputData = runtime?.outputData;
 
   const handleFieldChange = (fieldKey: string, value: any) => {
     updateNodeConfig(selectedNode.id, fieldKey, value);
+  };
+
+  const handleSelectCharacterFromBible = (charId: string) => {
+    const char = bibleCharacters.find((c) => c.id === charId);
+    if (!char) return;
+    updateNodeConfig(selectedNode.id, 'characterName', char.name);
+    if (char.referenceImages?.[0]) {
+      updateNodeConfig(selectedNode.id, 'referenceImageUrl', char.referenceImages[0]);
+    }
+    if (char.gender) updateNodeConfig(selectedNode.id, 'gender', char.gender);
+    if (char.ageGroup) updateNodeConfig(selectedNode.id, 'ageGroup', char.ageGroup);
+  };
+
+  const handleSelectSceneFromBible = (sceneId: string) => {
+    const scene = bibleScenes.find((s) => s.id === sceneId);
+    if (!scene) return;
+    updateNodeConfig(selectedNode.id, 'sceneName', scene.name);
+    if (scene.environment) updateNodeConfig(selectedNode.id, 'environment', scene.environment);
+    if (scene.lightingMood) updateNodeConfig(selectedNode.id, 'lightingMood', scene.lightingMood);
+    if (scene.colorPalette) updateNodeConfig(selectedNode.id, 'colorPalette', scene.colorPalette);
   };
 
   return (
@@ -98,8 +137,61 @@ export default function Inspector() {
         </div>
       </div>
 
+      {/* QC Check Report Card (Nếu là node qc-check) */}
+      {selectedNode.data.nodeType === 'qc-check' && outputData?.similarityScore !== undefined && (
+        <div className="m-3 p-3.5 rounded-xl border bg-slate-900/90 border-slate-800 space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-white flex items-center gap-1.5">
+              <ShieldCheck className="w-4 h-4 text-rose-400" />
+              <span>Báo Cáo Kiểm Định QC</span>
+            </span>
+            <span
+              className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider ${
+                outputData.status === 'pass'
+                  ? 'bg-emerald-950 text-emerald-300 border border-emerald-800'
+                  : outputData.status === 'warn'
+                  ? 'bg-amber-950 text-amber-300 border border-amber-800'
+                  : 'bg-rose-950 text-rose-300 border border-rose-800'
+              }`}
+            >
+              {outputData.status === 'pass' ? 'ĐẠT (PASS)' : outputData.status === 'warn' ? 'CẢNH BÁO' : 'TRƯỢT (FAIL)'}
+            </span>
+          </div>
+
+          <div className="space-y-1.5 pt-1">
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-slate-400">Điểm tương đồng:</span>
+              <span className="font-mono font-bold text-emerald-400">
+                {outputData.similarityScore}%
+              </span>
+            </div>
+            <div className="w-full h-1.5 rounded-full bg-slate-800 overflow-hidden">
+              <div
+                className="h-full bg-emerald-500 rounded-full transition-all"
+                style={{ width: `${Math.min(100, outputData.similarityScore)}%` }}
+              />
+            </div>
+
+            {outputData.colorDelta !== undefined && (
+              <div className="flex items-center justify-between text-xs pt-1">
+                <span className="text-slate-400">Độ lệch màu:</span>
+                <span className="font-mono font-bold text-slate-300">
+                  {outputData.colorDelta}%
+                </span>
+              </div>
+            )}
+          </div>
+
+          {outputData.details && (
+            <p className="text-[11px] text-slate-300 bg-slate-950 p-2 rounded border border-slate-800 leading-relaxed font-sans">
+              {outputData.details}
+            </p>
+          )}
+        </div>
+      )}
+
       {/* Runtime Status Card if active */}
-      {runtime && runtime.status !== 'idle' && (
+      {runtime && runtime.status !== 'idle' && selectedNode.data.nodeType !== 'qc-check' && (
         <div className="m-3 p-3 rounded-lg border bg-slate-900/90 space-y-1.5 text-xs">
           <div className="flex items-center justify-between">
             <span className="font-medium text-slate-400">Trạng thái render:</span>
@@ -129,6 +221,54 @@ export default function Inspector() {
 
       {/* Dynamic Form Content */}
       <div className="flex-1 overflow-y-auto p-4 space-y-5 custom-scrollbar">
+        {/* Quick select from Character Bible */}
+        {(selectedNode.data.nodeType === 'character-ref' || selectedNode.data.nodeType === 'character-lock') && (
+          <div className="p-3 rounded-xl bg-rose-950/30 border border-rose-800/40 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-rose-300 flex items-center gap-1.5">
+                <Users className="w-3.5 h-3.5 text-rose-400" />
+                <span>Chọn từ Character Bible:</span>
+              </span>
+            </div>
+            <select
+              onChange={(e) => handleSelectCharacterFromBible(e.target.value)}
+              defaultValue=""
+              className="w-full text-xs rounded-lg bg-slate-950 border border-slate-800 px-2.5 py-1.5 text-slate-200 focus:outline-none focus:border-rose-500 cursor-pointer"
+            >
+              <option value="" disabled>-- Chọn hồ sơ nhân vật có sẵn --</option>
+              {bibleCharacters.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name} ({c.gender === 'male' ? 'Nam' : 'Nữ'}, {c.ageGroup})
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        {/* Quick select from Scene Bible */}
+        {(selectedNode.data.nodeType === 'scene-ref' || selectedNode.data.nodeType === 'scene-continuity') && (
+          <div className="p-3 rounded-xl bg-indigo-950/30 border border-indigo-800/40 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-indigo-300 flex items-center gap-1.5">
+                <Building className="w-3.5 h-3.5 text-indigo-400" />
+                <span>Chọn từ Scene Bible:</span>
+              </span>
+            </div>
+            <select
+              onChange={(e) => handleSelectSceneFromBible(e.target.value)}
+              defaultValue=""
+              className="w-full text-xs rounded-lg bg-slate-950 border border-slate-800 px-2.5 py-1.5 text-slate-200 focus:outline-none focus:border-indigo-500 cursor-pointer"
+            >
+              <option value="" disabled>-- Chọn bối cảnh có sẵn --</option>
+              {bibleScenes.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name} ({s.environment})
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
         {Object.keys(configSchema).length === 0 ? (
           <div className="text-center py-8 text-slate-500 text-xs">
             Node này không có tham số cấu hình bổ sung.

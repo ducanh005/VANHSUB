@@ -4,6 +4,7 @@ import os from 'os';
 import { app } from 'electron';
 import type { WorkflowNodeEvent, ExecutionContext, ResolvedInputs, NodeExecutionOutput } from './types';
 import { AdapterRegistry } from './adapters/AdapterRegistry';
+import { QcEngine } from './qcEngine';
 import { TaskStore } from '../store/taskStore';
 import { SettingsStore } from '../store/settingsStore';
 
@@ -353,7 +354,51 @@ export class WorkflowExecutionEngine {
       case 'google-flow-video':
       case 'kling-video': {
         const adapter = adapterRegistry.get('google-flow');
-        const prompt = inputs['prompt'] || config.prompt || '';
+        let prompt = '';
+        if (typeof inputs['prompt'] === 'string') {
+          prompt = inputs['prompt'];
+        } else if (inputs['prompt'] && typeof inputs['prompt'] === 'object') {
+          prompt = inputs['prompt'].prompt || inputs['prompt'].text || '';
+        }
+        if (!prompt) {
+          prompt = config.prompt || '';
+        }
+
+        // Tự động append Character lock vào prompt nếu có
+        const charInput = inputs['character'] || (inputs['prompt'] && inputs['prompt'].character_locked ? inputs['prompt'] : null);
+        if (charInput) {
+          const charObj = charInput.character_locked || charInput.character || charInput;
+          const charName = charObj.characterName || charObj.name || '';
+          const charDesc = charObj.description || '';
+          if (charName || charDesc) {
+            prompt = `${prompt} [Consistent Character: ${charName}${charDesc ? ' - ' + charDesc : ''}]`.trim();
+          }
+        }
+
+        // Tự động append Style lock nếu có
+        if (inputs['style']) {
+          const styleVal = inputs['style'].style_out || inputs['style'];
+          prompt = `${prompt} ${styleVal}`.trim();
+        }
+
+        // Tự động append Scene continuity nếu có
+        if (inputs['scene']) {
+          const sceneVal = inputs['scene'].scene_out || inputs['scene'];
+          const sceneName = sceneVal.sceneName || sceneVal.name || '';
+          const mood = sceneVal.lightingMood || sceneVal.mood || '';
+          if (sceneName || mood) {
+            prompt = `${prompt} [Scene: ${sceneName}${mood ? ' - ' + mood : ''}]`.trim();
+          }
+        }
+
+        // Tự động append Camera motion nếu có
+        if (inputs['camera']) {
+          const motion = inputs['camera'].motion || inputs['camera'].motionType;
+          if (motion) {
+            prompt = `${prompt} [Camera: ${motion}]`.trim();
+          }
+        }
+
         const initFrameUrl = inputs['init_frame'] || config.initFrameUrl;
         const durationSeconds = Number(config.durationSeconds || 5);
         const aspectRatio = config.aspectRatio || '16:9';
@@ -432,13 +477,62 @@ export class WorkflowExecutionEngine {
         return { video_out: videoB, video_a: videoA, video_b: videoB };
       }
 
+      case 'character-lock': {
+        const charIn = inputs['character_in'] || config;
+        const faceWeight = config.faceWeight ?? 0.9;
+        const costumeLock = config.costumeLock ?? true;
+        return {
+          character_locked: {
+            ...charIn,
+            faceWeight,
+            costumeLock,
+            isLocked: true,
+          },
+          character: charIn,
+        };
+      }
+
+      case 'style-lock': {
+        const palette = config.colorPalette || 'teal_orange';
+        const lens = config.lensType || 'anamorphic_35mm';
+        const styleToken = `[Style: ${palette}, Lens: ${lens}, Cinematic 8k Color Grade]`;
+        return {
+          style_out: styleToken,
+          colorPalette: palette,
+          lensType: lens,
+        };
+      }
+
+      case 'scene-continuity': {
+        const sceneIn = inputs['scene_in'] || config;
+        return {
+          scene_out: {
+            ...sceneIn,
+            timeOfDay: config.timeOfDay || 'sunset',
+          },
+        };
+      }
+
       case 'qc-check': {
         const shotA = inputs['shot_a'];
         const shotB = inputs['shot_b'];
-        const pass = Boolean(shotA && shotB);
+
+        const qcRes = await QcEngine.evaluate(shotA, shotB, {
+          faceSimilarityThreshold: Number(config.faceSimilarityThreshold || 85),
+          colorTolerance: Number(config.colorTolerance || 15),
+          autoReject: Boolean(config.autoReject),
+        });
+
+        if (config.autoReject && !qcRes.passed) {
+          throw new Error(`QC Kiểm định không đạt: ${qcRes.details}`);
+        }
+
         return {
-          qc_passed: pass,
-          similarityScore: 92.5,
+          qc_passed: qcRes.passed,
+          similarityScore: qcRes.score,
+          colorDelta: qcRes.colorDelta,
+          status: qcRes.status,
+          details: qcRes.details,
         };
       }
 

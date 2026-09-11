@@ -179,6 +179,8 @@ export class GoogleFlowAdapter implements ModelAdapter {
       const width = isPortrait ? 720 : 1280;
       const height = isPortrait ? 1280 : 720;
 
+      const promptClean = (typeof params.prompt === 'string' ? params.prompt : JSON.stringify(params.prompt || '')).replace(/['\\:]/g, ' ').slice(0, 45);
+
       // Sinh clip màu gradient cinematic chuyển động mượt mà
       ffmpeg()
         .input(`color=c=0x0E1A1B:s=${width}x${height}:d=${duration}`)
@@ -188,7 +190,7 @@ export class GoogleFlowAdapter implements ModelAdapter {
         .complexFilter([
           `[0:v][1:v]blend=all_expr='A*(1-T/${duration})+B*(T/${duration})'[bg]`,
           `[bg]drawtext=text='VANHSUB Workflow AI - Veo Shot':fontcolor=white:fontsize=28:x=(w-text_w)/2:y=h/2-40:shadowcolor=black:shadowx=2:shadowy=2[v1]`,
-          `[v1]drawtext=text='${params.prompt.replace(/'/g, '').slice(0, 45)}...':fontcolor=0xC9A227:fontsize=20:x=(w-text_w)/2:y=h/2+10[outv]`,
+          `[v1]drawtext=text='${promptClean}...':fontcolor=0xC9A227:fontsize=20:x=(w-text_w)/2:y=h/2+10[outv]`,
         ])
         .outputOptions([
           '-map [outv]',
