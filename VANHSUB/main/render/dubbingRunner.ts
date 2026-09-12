@@ -1,6 +1,7 @@
 import path from 'path';
 import { TaskStore, type Task } from '../store/taskStore';
 import { nextAvailablePath } from '../lib/paths';
+import { getOrCreateProjectDir } from '../utils/projectFolder';
 import { dubVideo, type SyncMode } from './dubbingEngine';
 
 export interface DubbingOptions {
@@ -52,11 +53,11 @@ export class DubbingRunner {
       });
       onUpdate?.();
 
-      // Xác định đường dẫn output — thêm _1, _2… nếu đã có bản dubbed trước đó
-      const videoDir = path.dirname(task.filePath);
+      // Xác định đường dẫn output trong thư mục dự án — thêm _1, _2… nếu đã có bản dubbed trước đó
+      const projectDir = getOrCreateProjectDir(task);
       const videoName = path.parse(task.fileName).name;
       const outputPath = nextAvailablePath(
-        path.join(videoDir, `${videoName}_dubbed_${replaceAudio ? 'mono' : 'bilingual'}.mp4`)
+        path.join(projectDir, `${videoName}_dubbed_${replaceAudio ? 'mono' : 'bilingual'}.mp4`)
       );
 
       // Chạy full dubbing pipeline
@@ -85,6 +86,7 @@ export class DubbingRunner {
         status: 'done',
         progress: 100,
         outputPath: finalPath,
+        projectDir,
         // Ghi đè báo cáo câu tràn của lần dubbing này (rỗng = không có câu nào tràn)
         ttsOverruns: overruns,
         stageDescription:

@@ -79,13 +79,43 @@ const DEFAULT_STYLE: SubStyle = {
   borderStyle: 1,
   alignment: 2,
   marginV: 25,
+  marginH: 20,
+  isVertical: false,
 };
+
+const POSITION_PRESETS: Array<{
+  name: string;
+  alignment: SubStyle['alignment'];
+  marginV: number;
+  marginH: number;
+  isVertical: boolean;
+}> = [
+  { name: '⬇️ Đáy chuẩn', alignment: 2, marginV: 25, marginH: 20, isVertical: false },
+  { name: '⬅️ Nhạc dọc mép trái', alignment: 4, marginV: 25, marginH: 35, isVertical: true },
+  { name: '➡️ Nhạc dọc mép phải', alignment: 6, marginV: 25, marginH: 35, isVertical: true },
+  { name: '⬆️ Đỉnh giữa', alignment: 8, marginV: 30, marginH: 20, isVertical: false },
+  { name: '⏺ Chính giữa tâm', alignment: 5, marginV: 25, marginH: 20, isVertical: false },
+];
 
 const STYLE_PRESETS: Array<{ name: string; style: SubStyle }> = [
   { name: 'Chuẩn', style: DEFAULT_STYLE },
   {
     name: 'TikTok nổi',
     style: { ...DEFAULT_STYLE, fontName: 'Arial', fontSize: 30, primaryColour: '#FFE135', outline: 3, shadow: 0, bold: true, marginV: 30 },
+  },
+  {
+    name: 'Nhạc Douyin (Dọc)',
+    style: {
+      ...DEFAULT_STYLE,
+      fontName: 'Arial',
+      fontSize: 20,
+      primaryColour: '#FFE135',
+      outline: 2,
+      alignment: 4,
+      marginH: 35,
+      marginV: 25,
+      isVertical: true,
+    },
   },
   {
     name: 'Nền box',
@@ -129,16 +159,80 @@ export default function ExportPage({ tasks }: Props) {
   const [selectedLineIdx, setSelectedLineIdx] = useState<number | null>(null);
   const [perLineStyles, setPerLineStyles] = useState<Record<number, PerLineSubtitleStyle>>({});
 
-  // Phase 3: Custom Mask Region (Bounding Box)
+  // Phase 3: Custom Mask Regions (Multi-mask Bounding Boxes)
   const [customMaskEnabled, setCustomMaskEnabled] = useState(false);
-  const [customMask, setCustomMask] = useState<CustomMaskRegion>({
-    xPercent: 10,
-    yPercent: 75,
-    widthPercent: 80,
-    heightPercent: 20,
-    mode: 'blur',
-    intensity: 40,
-  });
+  const [customMasks, setCustomMasks] = useState<CustomMaskRegion[]>([
+    {
+      id: 'mask_1',
+      name: 'Vùng che #1',
+      xPercent: 10,
+      yPercent: 75,
+      widthPercent: 80,
+      heightPercent: 20,
+      mode: 'blur',
+      intensity: 40,
+      enabled: true,
+    },
+  ]);
+  const [activeMaskIndex, setActiveMaskIndex] = useState(0);
+
+  const handleAddMask = () => {
+    const nextIdx = customMasks.length + 1;
+    const newMask: CustomMaskRegion = {
+      id: `mask_${Date.now()}`,
+      name: `Vùng che #${nextIdx}`,
+      xPercent: 10,
+      yPercent: 10,
+      widthPercent: 75,
+      heightPercent: 18,
+      mode: 'gaussian',
+      intensity: 40,
+      enabled: true,
+    };
+    setCustomMasks((prev) => [...prev, newMask]);
+    setActiveMaskIndex(customMasks.length);
+  };
+
+  const handleDuplicateMask = (index: number) => {
+    const source = customMasks[index] || customMasks[0];
+    if (!source) return;
+    const newMask: CustomMaskRegion = {
+      ...source,
+      id: `mask_${Date.now()}`,
+      name: `${source.name || 'Vùng che'} (Bản sao)`,
+      xPercent: Math.min(85, source.xPercent + 3),
+      yPercent: Math.min(85, source.yPercent + 3),
+      enabled: true,
+    };
+    setCustomMasks((prev) => [...prev, newMask]);
+    setActiveMaskIndex(customMasks.length);
+  };
+
+  const handleRemoveMask = (index: number) => {
+    if (customMasks.length <= 1) return;
+    setCustomMasks((prev) => prev.filter((_, i) => i !== index));
+    setActiveMaskIndex((prev) => Math.max(0, Math.min(prev, customMasks.length - 2)));
+  };
+
+  const handleToggleMaskItem = (index: number, enabled: boolean) => {
+    setCustomMasks((prev) =>
+      prev.map((m, i) => (i === index ? { ...m, enabled } : m))
+    );
+  };
+
+  const handleChangeMask = (partial: Partial<CustomMaskRegion>, index?: number) => {
+    const targetIdx = index !== undefined ? index : activeMaskIndex;
+    setCustomMasks((prev) =>
+      prev.map((m, i) => {
+        if (i !== targetIdx) return m;
+        const updated = { ...m, ...partial };
+        if (partial.mode === 'solid' && (m.mode !== 'solid' || updated.intensity === undefined || updated.intensity <= 40)) {
+          updated.intensity = 100;
+        }
+        return updated;
+      })
+    );
+  };
 
   // Phase 3: Watermark / Logo Layer
   const [watermarkEnabled, setWatermarkEnabled] = useState(false);
@@ -160,6 +254,11 @@ export default function ExportPage({ tasks }: Props) {
   });
   const [currentVideoTime, setCurrentVideoTime] = useState(0);
 
+  // Bố cục Song ngữ / Lời nhạc kép
+  const [dualSubtitlesEnabled, setDualSubtitlesEnabled] = useState(false);
+  const [dualLayoutPreset, setDualLayoutPreset] = useState<'douyin_music_left' | 'top_bottom_bilingual' | 'custom'>('douyin_music_left');
+  const [secondarySrtLines, setSecondarySrtLines] = useState<SrtLine[]>([]);
+
   // Tab điều hướng trong Hardsub
   const [hardsubTab, setHardsubTab] = useState<'global' | 'lines' | 'layers' | 'format'>('global');
 
@@ -167,23 +266,26 @@ export default function ExportPage({ tasks }: Props) {
   const isExporting = selectedTask?.status === 'exporting';
   const outputPath = selectedTask?.outputPath;
   const hasTtsAudio = !!selectedTask?.ttsAudioDir;
+  const hasBothSrt = !!(selectedTask?.srtPath && selectedTask?.translatedSrtPath);
 
   // Tải danh sách phụ đề mỗi khi chọn task
   useEffect(() => {
     if (!selectedTask) {
       setSrtLines([]);
+      setSecondarySrtLines([]);
       setPerLineStyles({});
       setSelectedLineIdx(null);
       return;
     }
-    const srtPath = selectedTask.translatedSrtPath || selectedTask.srtPath;
-    if (!srtPath || !window.vanhsub?.tasks?.readSrt) {
+    const mainSrtPath = selectedTask.translatedSrtPath || selectedTask.srtPath;
+    if (!mainSrtPath || !window.vanhsub?.tasks?.readSrt) {
       setSrtLines([]);
+      setSecondarySrtLines([]);
       return;
     }
     let canceled = false;
     window.vanhsub.tasks
-      .readSrt(srtPath)
+      .readSrt(mainSrtPath)
       .then((content) => {
         if (!canceled && content) {
           setSrtLines(parseSrt(content));
@@ -192,6 +294,26 @@ export default function ExportPage({ tasks }: Props) {
       .catch(() => {
         if (!canceled) setSrtLines([]);
       });
+
+    const secSrtPath = selectedTask.translatedSrtPath && selectedTask.srtPath
+      ? (mainSrtPath === selectedTask.translatedSrtPath ? selectedTask.srtPath : selectedTask.translatedSrtPath)
+      : null;
+
+    if (secSrtPath && window.vanhsub?.tasks?.readSrt) {
+      window.vanhsub.tasks
+        .readSrt(secSrtPath)
+        .then((content) => {
+          if (!canceled && content) {
+            setSecondarySrtLines(parseSrt(content));
+          }
+        })
+        .catch(() => {
+          if (!canceled) setSecondarySrtLines([]);
+        });
+    } else {
+      setSecondarySrtLines([]);
+    }
+
     return () => {
       canceled = true;
     };
@@ -219,6 +341,18 @@ export default function ExportPage({ tasks }: Props) {
 
   const handleClearAllStyles = () => {
     setPerLineStyles({});
+  };
+
+  const handleUpdateSubtitlePosition = (pos: {
+    alignment?: SubStyle['alignment'];
+    marginV?: number;
+    marginH?: number;
+    posPercent?: { x: number; y: number };
+  }) => {
+    setStyle((s) => ({
+      ...s,
+      ...pos,
+    }));
   };
 
   const handleExport = async () => {
@@ -256,9 +390,16 @@ export default function ExportPage({ tasks }: Props) {
         mode === 'hardsub'
           ? {
               perLineStyles: Object.keys(perLineStyles).length > 0 ? perLineStyles : undefined,
-              customMask: customMaskEnabled ? customMask : null,
+              customMask: customMaskEnabled && customMasks.length > 0 ? customMasks[0] : null,
+              customMasks: customMaskEnabled ? customMasks.filter((m) => m.enabled !== false) : [],
               watermark: watermarkEnabled && watermark.content ? watermark : null,
               formatOptions: hasCustomFormat ? formatOptions : null,
+              dualSubtitles: dualSubtitlesEnabled && hasBothSrt
+                ? {
+                    enabled: true,
+                    layoutPreset: dualLayoutPreset,
+                  }
+                : null,
             }
           : null;
 
@@ -274,8 +415,13 @@ export default function ExportPage({ tasks }: Props) {
   };
 
   const handleShowOutput = () => {
-    if (outputPath && window.vanhsub?.dialog) {
-      window.vanhsub.dialog.showInFolder(outputPath);
+    const target = selectedTask?.projectDir || outputPath;
+    if (target && window.vanhsub?.dialog) {
+      if (window.vanhsub.dialog.openFolder) {
+        window.vanhsub.dialog.openFolder(target);
+      } else {
+        window.vanhsub.dialog.showInFolder(target);
+      }
     }
   };
 
@@ -393,7 +539,12 @@ export default function ExportPage({ tasks }: Props) {
                   videoPath={selectedTask.filePath}
                   aspectRatio={formatOptions.aspectRatio || 'original'}
                   customMaskEnabled={customMaskEnabled}
-                  customMask={customMask}
+                  customMasks={customMasks}
+                  classicMask={mask}
+                  classicMaskEnabled={maskEnabled}
+                  activeMaskIndex={activeMaskIndex}
+                  onSelectMask={setActiveMaskIndex}
+                  onUpdateMask={(idx, partial) => handleChangeMask(partial, idx)}
                   watermarkEnabled={watermarkEnabled}
                   watermark={watermark}
                   globalStyle={style}
@@ -401,6 +552,9 @@ export default function ExportPage({ tasks }: Props) {
                   srtLines={srtLines}
                   currentTime={currentVideoTime}
                   onTimeUpdate={setCurrentVideoTime}
+                  secondarySrtLines={secondarySrtLines}
+                  dualSubtitlesEnabled={dualSubtitlesEnabled && hasBothSrt}
+                  onUpdateSubtitlePosition={handleUpdateSubtitlePosition}
                 />
               )}
 
@@ -416,7 +570,7 @@ export default function ExportPage({ tasks }: Props) {
                   }`}
                 >
                   <Sliders className="h-4 w-4" />
-                  <span>1. Style phụ đề chung</span>
+                  <span>1. Style & Vị trí phụ đề</span>
                 </button>
                 <button
                   type="button"
@@ -469,19 +623,55 @@ export default function ExportPage({ tasks }: Props) {
                 </button>
               </div>
 
-              {/* 1. Style phụ đề chung */}
+              {/* 1. Style phụ đề chung & Bố cục vị trí */}
               {hardsubTab === 'global' && (
-                <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4">
-                  <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                    <span className="text-xs font-semibold text-slate-200">Style phụ đề toàn bài</span>
-                    <div className="flex flex-wrap gap-1.5">
-                      {STYLE_PRESETS.map((p) => (
+                <div className="flex flex-col gap-4 rounded-2xl border border-slate-800 bg-slate-900/70 p-4">
+                  {/* Preset Vị trí & Bố cục */}
+                  <div className="flex flex-col gap-2 rounded-xl border border-slate-800/90 bg-slate-950/60 p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-200">
+                        <Sparkles className="h-3.5 w-3.5 text-amber-400" />
+                        <span>Mẫu vị trí nhanh (1-Click Presets):</span>
+                      </div>
+                      {style.posPercent && (
+                        <div className="flex items-center gap-2">
+                          <span className="rounded bg-brand-cyan/10 px-2 py-0.5 text-[10px] font-mono text-brand-cyan border border-brand-cyan/30">
+                            📍 Đang dùng tọa độ tự do Canvas (X: {style.posPercent.x}%, Y: {style.posPercent.y}%)
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setStyle((s) => ({ ...s, posPercent: undefined }))}
+                            className="text-[10px] text-rose-300 hover:underline cursor-pointer"
+                            title="Xóa tọa độ kéo thả, quay lại căn lề chuẩn"
+                          >
+                            ↺ Đặt lại vị trí
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      {POSITION_PRESETS.map((p) => (
                         <button
                           key={p.name}
                           type="button"
-                          onClick={() => setStyle(p.style)}
+                          onClick={() =>
+                            setStyle((s) => ({
+                              ...s,
+                              alignment: p.alignment,
+                              marginV: p.marginV,
+                              marginH: p.marginH,
+                              isVertical: p.isVertical,
+                              posPercent: undefined,
+                            }))
+                          }
                           disabled={isExporting}
-                          className="rounded-lg border border-slate-700 bg-slate-800 px-2.5 py-1 text-[11px] font-medium text-slate-300 hover:bg-slate-700 hover:text-white transition cursor-pointer disabled:opacity-50"
+                          className={`rounded-xl border px-3 py-1.5 text-xs font-medium transition cursor-pointer disabled:opacity-50 ${
+                            !style.posPercent &&
+                            style.alignment === p.alignment &&
+                            style.isVertical === p.isVertical
+                              ? 'border-brand-cyan/60 bg-brand-cyan/15 text-brand-cyan font-semibold shadow-sm'
+                              : 'border-slate-800 bg-slate-900/90 text-slate-300 hover:bg-slate-800 hover:text-white'
+                          }`}
                         >
                           {p.name}
                         </button>
@@ -489,39 +679,206 @@ export default function ExportPage({ tasks }: Props) {
                     </div>
                   </div>
 
-                  {/* Xem trước xấp xỉ */}
-                  <div className="relative mb-4 h-24 overflow-hidden rounded-xl border border-slate-700 bg-gradient-to-br from-slate-700 via-slate-600 to-slate-800">
-                    <div
-                      className="absolute inset-x-0 flex justify-center px-4"
-                      style={
-                        style.alignment === 8
-                          ? { top: 8 }
-                          : style.alignment === 5
-                            ? { top: '50%', transform: 'translateY(-50%)' }
-                            : { bottom: Math.max(6, style.marginV / 2) }
-                      }
-                    >
-                      <span
-                        style={{
-                          fontFamily: `"${style.fontName}", Arial, sans-serif`,
-                          fontSize: style.fontSize * 1.5,
-                          lineHeight: 1.25,
-                          color: style.primaryColour,
-                          fontWeight: style.bold ? 800 : 500,
-                          opacity: style.opacity / 100,
-                          ...(style.borderStyle === 3
-                            ? { background: style.outlineColour, padding: '2px 10px' }
-                            : { textShadow: `${outlineShadow}${dropShadow}` }),
-                        }}
-                      >
-                        Phụ đề mẫu — Xin chào VANHSUB
-                      </span>
+                  {/* Lưới 9 Vị trí & Căn lề */}
+                  <div className="grid gap-4 lg:grid-cols-12 rounded-xl border border-slate-800 bg-slate-950/40 p-3.5">
+                    {/* Lưới 3x3 căn lề Numpad */}
+                    <div className="flex flex-col gap-2 lg:col-span-5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-semibold text-slate-300">
+                          Bộ chọn vị trí 9 điểm:
+                        </span>
+                        <span className="font-mono text-brand-cyan text-[11px]">
+                          {style.alignment === 7 ? 'Đỉnh trái' :
+                           style.alignment === 8 ? 'Đỉnh giữa' :
+                           style.alignment === 9 ? 'Đỉnh phải' :
+                           style.alignment === 4 ? 'Giữa trái (Cạnh trái)' :
+                           style.alignment === 5 ? 'Chính giữa tâm' :
+                           style.alignment === 6 ? 'Giữa phải (Cạnh phải)' :
+                           style.alignment === 1 ? 'Đáy trái' :
+                           style.alignment === 3 ? 'Đáy phải' : 'Đáy giữa'}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-3">
+                        <div className="grid grid-cols-3 gap-1 rounded-xl border border-slate-700 bg-slate-900 p-2 shrink-0">
+                          {[
+                            { id: 7, label: '↖', title: 'Đỉnh - Trái' },
+                            { id: 8, label: '⬆', title: 'Đỉnh - Giữa' },
+                            { id: 9, label: '↗', title: 'Đỉnh - Phải' },
+                            { id: 4, label: '⬅', title: 'Giữa - Trái (Nhạc mép trái)' },
+                            { id: 5, label: '⏺', title: 'Chính giữa tâm' },
+                            { id: 6, label: '➡', title: 'Giữa - Phải (Nhạc mép phải)' },
+                            { id: 1, label: '↙', title: 'Đáy - Trái' },
+                            { id: 2, label: '⬇', title: 'Đáy - Giữa (Mặc định)' },
+                            { id: 3, label: '↘', title: 'Đáy - Phải' },
+                          ].map((btn) => {
+                            const isCurrent = !style.posPercent && (style.alignment || 2) === btn.id;
+                            return (
+                              <button
+                                key={btn.id}
+                                type="button"
+                                onClick={() =>
+                                  setStyle((s) => ({
+                                    ...s,
+                                    alignment: btn.id as any,
+                                    posPercent: undefined,
+                                  }))
+                                }
+                                className={`flex h-8 w-8 items-center justify-center rounded-lg text-sm font-mono transition cursor-pointer ${
+                                  isCurrent
+                                    ? 'bg-brand-cyan text-black font-bold shadow-md shadow-brand-cyan/40'
+                                    : 'bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-white'
+                                }`}
+                                title={btn.title}
+                              >
+                                {btn.label}
+                              </button>
+                            );
+                          })}
+                        </div>
+
+                        {/* Nút bật xếp dọc */}
+                        <div className="flex flex-col gap-2 flex-1">
+                          <button
+                            type="button"
+                            onClick={() => setStyle((s) => ({ ...s, isVertical: !s.isVertical }))}
+                            className={`flex flex-col items-start gap-1 rounded-xl border p-2.5 transition cursor-pointer text-left ${
+                              style.isVertical
+                                ? 'border-purple-500/60 bg-purple-500/15 text-purple-200 ring-1 ring-purple-500/40'
+                                : 'border-slate-800 bg-slate-900 text-slate-400 hover:border-slate-700 hover:text-slate-200'
+                            }`}
+                          >
+                            <span className="text-xs font-semibold flex items-center gap-1.5 text-purple-300">
+                              <span>🔤 Chữ xếp dọc</span>
+                              <span className="rounded bg-purple-500/30 px-1 py-0.2 text-[9px] font-mono">
+                                {style.isVertical ? 'BẬT' : 'TẮT'}
+                              </span>
+                            </span>
+                            <span className="text-[10px] leading-tight text-slate-400">
+                              Ngắt ký tự rơi thẳng đứng dọc mép video (chuẩn Douyin / TikTok Lyric).
+                            </span>
+                          </button>
+                          <span className="text-[10px] text-slate-500 italic">
+                            💡 Gợi ý: Bạn cũng có thể click trực tiếp vào phụ đề trên khung xem trước phía trên để kéo rê vị trí tự do.
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Điều khiển Khoảng cách lề */}
+                    <div className="flex flex-col justify-center gap-3 lg:col-span-7 border-l border-slate-800/80 pl-4">
+                      <div>
+                        <div className="flex justify-between text-xs text-slate-300 mb-1">
+                          <span className="font-medium">Khoảng cách mép dọc (Margin V):</span>
+                          <span className="font-mono text-brand-cyan">{style.marginV ?? 25}px</span>
+                        </div>
+                        <input
+                          type="range"
+                          min={0}
+                          max={120}
+                          value={style.marginV ?? 25}
+                          onChange={(e) => setStyle((s) => ({ ...s, marginV: Number(e.target.value) }))}
+                          disabled={isExporting}
+                          className="w-full accent-cyan-400"
+                        />
+                        <span className="text-[10px] text-slate-500">
+                          Khoảng cách từ mép dưới (hoặc mép trên) vào trong màn hình.
+                        </span>
+                      </div>
+
+                      <div>
+                        <div className="flex justify-between text-xs text-slate-300 mb-1">
+                          <span className="font-medium">Khoảng cách mép ngang (Margin H):</span>
+                          <span className="font-mono text-brand-cyan">{style.marginH ?? 20}px</span>
+                        </div>
+                        <input
+                          type="range"
+                          min={0}
+                          max={150}
+                          value={style.marginH ?? 20}
+                          onChange={(e) => setStyle((s) => ({ ...s, marginH: Number(e.target.value) }))}
+                          disabled={isExporting}
+                          className="w-full accent-cyan-400"
+                        />
+                        <span className="text-[10px] text-slate-500">
+                          Khoảng cách từ mép trái (hoặc mép phải) vào trong màn hình.
+                        </span>
+                      </div>
                     </div>
                   </div>
 
-                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {/* Cấu hình Bố cục Song ngữ (Dual Subtitles / Lời bài hát kép) */}
+                  {hasBothSrt && (
+                    <div className="rounded-xl border border-indigo-500/30 bg-indigo-950/20 p-3.5 flex flex-col gap-2.5">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <span className="flex h-2 w-2 rounded-full bg-indigo-400 animate-pulse" />
+                          <span className="text-xs font-bold text-indigo-200">
+                            Bố cục Song ngữ / Lời nhạc kép (Dual Tracks)
+                          </span>
+                        </div>
+                        <label className="flex items-center gap-2 text-xs text-indigo-300 font-semibold cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={dualSubtitlesEnabled}
+                            onChange={(e) => setDualSubtitlesEnabled(e.target.checked)}
+                            className="h-4 w-4 rounded border-indigo-500/50 bg-slate-900 text-brand-cyan focus:ring-0 cursor-pointer"
+                          />
+                          <span>Bật hiển thị đồng thời cả 2 bản phụ đề</span>
+                        </label>
+                      </div>
+
+                      {dualSubtitlesEnabled && (
+                        <div className="flex flex-col gap-2 pt-2 border-t border-indigo-500/20 text-xs">
+                          <span className="text-[11px] text-slate-300">
+                            Chọn kiểu kết hợp 2 vị trí:
+                          </span>
+                          <div className="grid gap-2 sm:grid-cols-2">
+                            <button
+                              type="button"
+                              onClick={() => setDualLayoutPreset('douyin_music_left')}
+                              className={`flex flex-col gap-1 rounded-xl border p-3 text-left transition cursor-pointer ${
+                                dualLayoutPreset === 'douyin_music_left'
+                                  ? 'border-brand-cyan/80 bg-brand-cyan/15 ring-1 ring-brand-cyan/50 text-white'
+                                  : 'border-slate-800 bg-slate-900/80 text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                              }`}
+                            >
+                              <span className="font-semibold text-brand-cyan flex items-center gap-1.5">
+                                <span>🎵 Douyin Music Layout (Khuyên dùng)</span>
+                              </span>
+                              <span className="text-[11px] text-slate-300 leading-relaxed">
+                                • <strong>Lời bài hát gốc</strong>: Xếp dọc chạy dài ở mép bên trái màn hình.
+                                <br />• <strong>Lời dịch tiếng Việt</strong>: Hiển thị ngang ở dưới đáy.
+                              </span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => setDualLayoutPreset('top_bottom_bilingual')}
+                              className={`flex flex-col gap-1 rounded-xl border p-3 text-left transition cursor-pointer ${
+                                dualLayoutPreset === 'top_bottom_bilingual'
+                                  ? 'border-brand-cyan/80 bg-brand-cyan/15 ring-1 ring-brand-cyan/50 text-white'
+                                  : 'border-slate-800 bg-slate-900/80 text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                              }`}
+                            >
+                              <span className="font-semibold text-slate-200 flex items-center gap-1.5">
+                                <span>🎬 Song ngữ Trên - Dưới (Chiếu rạp)</span>
+                              </span>
+                              <span className="text-[11px] text-slate-300 leading-relaxed">
+                                • <strong>Lời gốc</strong>: Hiển thị ngang ở đỉnh màn hình.
+                                <br />• <strong>Lời dịch</strong>: Hiển thị ngang ở đáy màn hình.
+                              </span>
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Kiểu chữ, Màu sắc & Cỡ chữ */}
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 pt-2 border-t border-slate-800/80">
                     <div>
-                      <label className="mb-1 block text-[11px] font-medium text-slate-400">Font</label>
+                      <label className="mb-1 block text-[11px] font-medium text-slate-400">Font chữ</label>
                       <select
                         value={style.fontName}
                         onChange={(e) => setStyle((s) => ({ ...s, fontName: e.target.value }))}
@@ -538,7 +895,7 @@ export default function ExportPage({ tasks }: Props) {
 
                     <div>
                       <label className="mb-1 block text-[11px] font-medium text-slate-400">
-                        Cỡ chữ: <span className="font-mono text-brand-cyan">{style.fontSize}</span>
+                        Cỡ chữ: <span className="font-mono text-brand-cyan">{style.fontSize}px</span>
                       </label>
                       <input
                         type="range"
@@ -551,24 +908,8 @@ export default function ExportPage({ tasks }: Props) {
                       />
                     </div>
 
-                    <div>
-                      <label className="mb-1 block text-[11px] font-medium text-slate-400">Vị trí</label>
-                      <select
-                        value={style.alignment}
-                        onChange={(e) =>
-                          setStyle((s) => ({ ...s, alignment: Number(e.target.value) as SubStyle['alignment'] }))
-                        }
-                        disabled={isExporting}
-                        className="w-full rounded-xl border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs text-slate-200 focus:outline-none"
-                      >
-                        <option value={2}>Đáy khung hình</option>
-                        <option value={5}>Giữa khung hình</option>
-                        <option value={8}>Đỉnh khung hình</option>
-                      </select>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      <label className="text-[11px] font-medium text-slate-400">Chữ:</label>
+                    <div className="flex items-center gap-2 pt-4">
+                      <label className="text-[11px] font-medium text-slate-400">Màu chữ:</label>
                       <input
                         type="color"
                         value={style.primaryColour}
@@ -600,7 +941,7 @@ export default function ExportPage({ tasks }: Props) {
 
                     <div className="flex flex-wrap items-center gap-3">
                       <label className="flex items-center gap-2 text-[11px] font-medium text-slate-400">
-                        Độ mờ:
+                        Độ mờ chữ:
                         <input
                           type="range"
                           min={40}
@@ -613,7 +954,7 @@ export default function ExportPage({ tasks }: Props) {
                         <span className="w-8 font-mono text-brand-cyan">{style.opacity}%</span>
                       </label>
                       <label className="flex items-center gap-2 text-[11px] font-medium text-slate-400">
-                        {style.borderStyle === 3 ? 'Lề box:' : 'Viền:'}
+                        {style.borderStyle === 3 ? 'Lề box:' : 'Độ dày viền:'}
                         <input
                           type="range"
                           min={style.borderStyle === 3 ? 1 : 0}
@@ -626,7 +967,7 @@ export default function ExportPage({ tasks }: Props) {
                         <span className="w-4 font-mono text-brand-cyan">{style.outline}</span>
                       </label>
                       <label className="flex items-center gap-2 text-[11px] font-medium text-slate-400">
-                        Bóng:
+                        Bóng đổ:
                         <input
                           type="range"
                           min={0}
@@ -640,40 +981,25 @@ export default function ExportPage({ tasks }: Props) {
                       </label>
                     </div>
 
-                    <div className="flex flex-wrap items-center gap-3">
-                      <div className="flex items-center gap-2">
-                        <span className="text-[11px] font-medium text-slate-400">Kiểu:</span>
-                        <select
-                          value={style.borderStyle}
-                          onChange={(e) => {
-                            const val = Number(e.target.value) as SubStyle['borderStyle'];
-                            setStyle((s) => ({
-                              ...s,
-                              borderStyle: val,
-                              outline: val === 3 && s.outline === 0 ? 3 : s.outline,
-                              shadow: val === 3 ? 0 : s.shadow || 1,
-                            }));
-                          }}
-                          disabled={isExporting}
-                          className="rounded-xl border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs text-slate-200 focus:outline-none"
-                        >
-                          <option value={1}>Viền + bóng</option>
-                          <option value={3}>Nền box đặc</option>
-                        </select>
-                      </div>
-                      <label className="flex items-center gap-2 text-[11px] font-medium text-slate-400">
-                        Cách mép:
-                        <input
-                          type="range"
-                          min={0}
-                          max={120}
-                          value={style.marginV}
-                          onChange={(e) => setStyle((s) => ({ ...s, marginV: Number(e.target.value) }))}
-                          disabled={isExporting}
-                          className="w-24 accent-cyan-400"
-                        />
-                        <span className="w-8 font-mono text-brand-cyan">{style.marginV}</span>
-                      </label>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[11px] font-medium text-slate-400">Kiểu hiển thị:</span>
+                      <select
+                        value={style.borderStyle}
+                        onChange={(e) => {
+                          const val = Number(e.target.value) as SubStyle['borderStyle'];
+                          setStyle((s) => ({
+                            ...s,
+                            borderStyle: val,
+                            outline: val === 3 && s.outline === 0 ? 3 : s.outline,
+                            shadow: val === 3 ? 0 : s.shadow || 1,
+                          }));
+                        }}
+                        disabled={isExporting}
+                        className="rounded-xl border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs text-slate-200 focus:outline-none"
+                      >
+                        <option value={1}>Viền nét + bóng đổ (Chuẩn)</option>
+                        <option value={3}>Nền hộp màu đặc (Box)</option>
+                      </select>
                     </div>
                   </div>
                 </div>
@@ -697,10 +1023,16 @@ export default function ExportPage({ tasks }: Props) {
                 <div className="flex flex-col gap-4">
                   {/* Che mờ tự do & Watermark */}
                   <OverlayMaskEditor
-                    customMask={customMask}
+                    customMasks={customMasks}
+                    activeMaskIndex={activeMaskIndex}
+                    onSelectMask={setActiveMaskIndex}
+                    onAddMask={handleAddMask}
+                    onRemoveMask={handleRemoveMask}
+                    onToggleMaskItem={handleToggleMaskItem}
+                    onDuplicateMask={handleDuplicateMask}
                     customMaskEnabled={customMaskEnabled}
                     onToggleMask={setCustomMaskEnabled}
-                    onChangeMask={(partial) => setCustomMask((prev) => ({ ...prev, ...partial }))}
+                    onChangeMask={handleChangeMask}
                     watermark={watermark}
                     watermarkEnabled={watermarkEnabled}
                     onToggleWatermark={setWatermarkEnabled}
@@ -980,20 +1312,22 @@ export default function ExportPage({ tasks }: Props) {
                 </span>
               </button>
 
-              {outputPath && !isExporting && !startingDub && (
+              {(outputPath || selectedTask.projectDir) && !isExporting && !startingDub && (
                 <>
                   <button
                     type="button"
                     onClick={handleShowOutput}
-                    className="inline-flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-800 px-4 py-2 text-xs font-medium text-slate-200 transition hover:bg-slate-700 cursor-pointer"
+                    className="inline-flex items-center gap-2 rounded-xl border border-cyan-500/40 bg-cyan-500/10 px-4 py-2 text-xs font-semibold text-cyan-300 transition hover:bg-cyan-500/20 cursor-pointer shadow-sm"
                   >
-                    <FolderOpen className="h-3.5 w-3.5 text-brand-cyan" />
-                    <span>Mở thư mục chứa file</span>
+                    <FolderOpen className="h-3.5 w-3.5 text-cyan-400" />
+                    <span>Mở thư mục dự án</span>
                   </button>
-                  <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-emerald-400">
-                    <CheckCircle2 className="h-3.5 w-3.5" />
-                    Đã xuất: {outputPath.split(/[/\\]/).pop()}
-                  </span>
+                  {outputPath && (
+                    <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-emerald-400">
+                      <CheckCircle2 className="h-3.5 w-3.5" />
+                      Đã xuất: {outputPath.split(/[/\\]/).pop()}
+                    </span>
+                  )}
                 </>
               )}
             </div>

@@ -20,7 +20,14 @@ export type SettingKey =
   | 'ocrDualEngine'
   | 'glossary'
   | 'translationStyleGuide'
-  | 'onboardingCompleted';
+  | 'onboardingCompleted'
+  | 'veoMode'
+  | 'veoSessionCookie'
+  | 'veoSessionAuthToken'
+  | 'veoAccountEmail'
+  | 'veoSessionStatus'
+  | 'veoLastChecked'
+  | 'veoCooldownSeconds';
 
 export type OcrMode = 'auto' | 'bottom' | 'full' | 'custom';
 
@@ -60,8 +67,12 @@ export interface SubStyle {
   shadow: number;
   bold: boolean;
   borderStyle: 1 | 3;
-  alignment: 2 | 5 | 8;
+  /** 1..9 theo Numpad: 1=BL, 2=BC, 3=BR, 4=ML, 5=C, 6=MR, 7=TL, 8=TC, 9=TR */
+  alignment: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
   marginV: number;
+  marginH?: number;
+  isVertical?: boolean;
+  posPercent?: { x: number; y: number };
 }
 
 export interface SubMaskRegion {
@@ -84,18 +95,26 @@ export interface PerLineSubtitleStyle {
   italic?: boolean;
   alignment?: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
   marginV?: number;
+  marginH?: number;
+  isVertical?: boolean;
   posPercent?: { x: number; y: number };
 }
 
+export type MaskMode = 'blur' | 'gaussian' | 'glass' | 'pixelate' | 'solid';
+
 export interface CustomMaskRegion {
+  id?: string;
+  name?: string;
   xPercent: number;
   yPercent: number;
   widthPercent: number;
   heightPercent: number;
-  mode: 'solid' | 'blur' | 'pixelate';
+  mode: MaskMode;
   intensity?: number;
+  colorHex?: string;
   startSec?: number;
   endSec?: number;
+  enabled?: boolean;
 }
 
 export interface WatermarkOptions {
@@ -103,8 +122,10 @@ export interface WatermarkOptions {
   content: string;
   opacity?: number;
   scalePercent?: number;
-  position: 'top_left' | 'top_right' | 'bottom_left' | 'bottom_right' | 'center' | 'custom';
+  fontSize?: number;
+  position: 'top_left' | 'top_right' | 'bottom_left' | 'bottom_right' | 'center' | 'custom' | 'floating' | 'bounce';
   customPos?: { xPercent: number; yPercent: number };
+  speed?: 'slow' | 'medium' | 'fast';
 }
 
 export interface ExportFormatOptions {
@@ -116,11 +137,19 @@ export interface ExportFormatOptions {
   preset?: 'ultrafast' | 'veryfast' | 'fast' | 'medium';
 }
 
+export interface DualSubtitleOption {
+  enabled: boolean;
+  layoutPreset?: 'douyin_music_left' | 'top_bottom_bilingual' | 'custom';
+  secondaryStyle?: Partial<SubStyle>;
+}
+
 export interface AdvancedExportOptions {
   perLineStyles?: Record<number, PerLineSubtitleStyle>;
   customMask?: CustomMaskRegion | null;
+  customMasks?: CustomMaskRegion[] | null;
   watermark?: WatermarkOptions | null;
   formatOptions?: ExportFormatOptions | null;
+  dualSubtitles?: DualSubtitleOption | null;
 }
 
 export interface VanhsubAPI {
@@ -202,6 +231,52 @@ export interface VanhsubAPI {
     >;
     synthesize: (text: string, voice: string) => Promise<{ ok: true; filePath: string } | { ok: false; error: string }>;
   };
+  veo: {
+    openLobby: () => Promise<{ ok: boolean; error?: string }>;
+    status: () => Promise<{
+      mode: 'free_session' | 'api_key' | 'simulation';
+      hasSession: boolean;
+      sessionStatus: 'active' | 'expired' | 'unauthenticated' | 'rate_limited' | 'captcha_required' | 'unknown';
+      email?: string;
+      lastChecked?: number;
+      antiSpam: {
+        allowed: boolean;
+        remainingCooldownSec: number;
+        cooldownTotalSec: number;
+        warningMessage?: string;
+        isLocked: boolean;
+        lastRequestTimestamp: number;
+      };
+    }>;
+    validate: () => Promise<{
+      valid: boolean;
+      status: 'active' | 'expired' | 'unauthenticated' | 'rate_limited' | 'captcha_required' | 'unknown';
+      detail: string;
+      email?: string;
+      quotaRemaining?: string;
+      lastChecked: number;
+    }>;
+    saveSession: (rawInput: string) => Promise<{ ok: boolean; result?: any; error?: string }>;
+    clearSession: () => Promise<{ ok: boolean; error?: string }>;
+    getAntiSpamStatus: () => Promise<{
+      status: {
+        allowed: boolean;
+        remainingCooldownSec: number;
+        cooldownTotalSec: number;
+        warningMessage?: string;
+        isLocked: boolean;
+        lastRequestTimestamp: number;
+      };
+      guidelines: Array<{
+        id: string;
+        title: string;
+        description: string;
+        severity: 'high' | 'medium' | 'info';
+        icon: string;
+      }>;
+    }>;
+    setMode: (mode: 'free_session' | 'api_key' | 'simulation') => Promise<{ ok: boolean }>;
+  };
   export: {
     start: (
       id: string,
@@ -234,7 +309,35 @@ export interface VanhsubAPI {
     openSrtFile: () => Promise<string | null>;
     openImageFile: () => Promise<string | null>;
     showInFolder: (filePath: string) => Promise<void>;
+    openFolder: (folderPath: string) => Promise<void>;
     chooseDirectory: () => Promise<string | null>;
+  };
+  downloader: {
+    inspect: (url: string) => Promise<{
+      url: string;
+      cleanUrl: string;
+      platform: 'youtube' | 'douyin' | 'bilibili' | 'tiktok' | 'other';
+      title: string;
+      author?: string;
+      duration?: number;
+      durationFormatted?: string;
+      thumbnail?: string;
+      availableQualities: Array<{
+        id: string;
+        label: string;
+      }>;
+    }>;
+    download: (options: { url: string; quality?: string }) => Promise<{
+      task: Task;
+      result: any;
+    }>;
+    onProgress: (callback: (progress: {
+      percent: number;
+      speed?: string;
+      eta?: string;
+      status: 'downloading' | 'processing' | 'completed' | 'error';
+      stageDescription?: string;
+    }) => void) => () => void;
   };
   files: {
     getPath: (file: File) => string;

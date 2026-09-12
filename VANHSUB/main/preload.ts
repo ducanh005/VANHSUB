@@ -92,6 +92,16 @@ const vanhsub = {
     voices: () => ipcRenderer.invoke('tiktok-tts:voices'),
     synthesize: (text: string, voice: string) => ipcRenderer.invoke('tiktok-tts:synthesize', text, voice),
   },
+  veo: {
+    openLobby: () => ipcRenderer.invoke('veo:open-lobby'),
+    status: () => ipcRenderer.invoke('veo:status'),
+    validate: () => ipcRenderer.invoke('veo:validate'),
+    saveSession: (rawInput: string) => ipcRenderer.invoke('veo:save-session', rawInput),
+    clearSession: () => ipcRenderer.invoke('veo:clear-session'),
+    getAntiSpamStatus: () => ipcRenderer.invoke('veo:get-anti-spam-status'),
+    setMode: (mode: 'free_session' | 'api_key' | 'simulation') =>
+      ipcRenderer.invoke('veo:set-mode', mode),
+  },
   models: {
     list: () => ipcRenderer.invoke('models:list'),
     delete: (modelName: string) => ipcRenderer.invoke('models:delete', modelName),
@@ -104,7 +114,18 @@ const vanhsub = {
     openSrtFile: () => ipcRenderer.invoke('dialog:openSrtFile'),
     openImageFile: () => ipcRenderer.invoke('dialog:openImageFile'),
     showInFolder: (filePath: string) => ipcRenderer.invoke('dialog:showInFolder', filePath),
+    openFolder: (folderPath: string) => ipcRenderer.invoke('dialog:openFolder', folderPath),
     chooseDirectory: () => ipcRenderer.invoke('dialog:chooseDirectory'),
+  },
+  downloader: {
+    inspect: (url: string) => ipcRenderer.invoke('downloader:inspect', url),
+    download: (options: { url: string; quality?: string }) =>
+      ipcRenderer.invoke('downloader:download', options),
+    onProgress: (callback: (progress: any) => void) => {
+      const handler = (_event: unknown, progress: any) => callback(progress);
+      ipcRenderer.on('downloader:progress', handler);
+      return () => ipcRenderer.removeListener('downloader:progress', handler);
+    },
   },
   files: {
     // Electron >=32 đã bỏ File.path — phải lấy đường dẫn qua webUtils ở phía renderer

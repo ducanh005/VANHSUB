@@ -21,10 +21,13 @@ import { OcrRunner } from './ocr/ocrRunner'
 import { checkVietTtsConnection, getAvailableVoices, previewTts } from './render/ttsEngine'
 import { VoiceSampleStore } from './store/voiceSampleStore'
 import { extractAudioFromUrl } from './helpers/voiceFromUrl'
+import { inspectMediaUrl, downloadVideoFromUrl } from './helpers/videoDownloader'
 import { installRendererLogger } from './helpers/logger'
 import { getSharedTikTokProvider } from './tts-providers/tiktok/sessionStores'
 import { TikTokTTSError } from './tts-providers/tiktok/types'
 import { registerWorkflowIpc } from './workflow/ipc'
+import { GoogleVeoSessionManager } from './veo/GoogleVeoSessionManager'
+import { GoogleVeoAntiSpamGuard } from './veo/GoogleVeoAntiSpamGuard'
 
 const isProd = process.env.NODE_ENV === 'production'
 
@@ -227,36 +230,43 @@ ipcMain.handle('tasks:get', async (_event, id: string) => {
   return TaskStore.getById(id)
 })
 
-// Thêm tác vụ từ link video công khai (TikTok, YouTube, …) — yt-dlp tải toàn bộ
-// audio về thư mục Downloads/VANHSUB rồi tạo task như một file audio thường.
-ipcMain.handle('tasks:addFromUrl', async (_event, url: string) => {
+// Phân tích liên kết video (Douyin, YouTube, Bilibili, TikTok...)
+ipcMain.handle('downloader:inspect', async (_event, rawUrl: string) => {
   try {
-    if (!/^https?:\/\//i.test(url || '')) {
-      throw new Error('Link không hợp lệ — phải bắt đầu bằng http(s)://')
-    }
-    // Thêm hậu tố ngẫu nhiên — stamp theo giây sẽ trùng nếu thêm 2 link trong cùng 1 giây
-    const stamp = `${new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14)}-${Math.random().toString(36).slice(2, 6)}`
-    const downloadsDir = path.join(app.getPath('downloads'), 'VANHSUB')
-    const audioPath = await extractAudioFromUrl(
-      url.trim(),
-      path.join(downloadsDir, `link-${stamp}.mp3`),
-      900_000, // video dài có thể mất vài phút tải
-      0 // không giới hạn thời lượng — lấy toàn bộ audio của video
-    )
-    const stat = fs.statSync(audioPath)
-    const task = TaskStore.create({
-      fileName: path.basename(audioPath),
-      filePath: audioPath,
-      fileSize: `${(stat.size / (1024 * 1024)).toFixed(1)} MB`,
-      workflow: 'full-dubbing',
-      stageDescription: 'Đã tải từ link — sẵn sàng phiên âm',
-    })
-    broadcastTasksUpdate()
-    return { task }
+    return await inspectMediaUrl(rawUrl);
   } catch (err: any) {
-    return { error: err?.message || 'Không thể tải audio từ link.' }
+    throw new Error(err.message || 'Không thể phân tích video từ liên kết này');
   }
-})
+});
+
+// Tải video MP4 từ liên kết và tự động tạo Task trong thư mục dự án
+ipcMain.handle('downloader:download', async (_event, options: { url: string; quality?: any }) => {
+  try {
+    const result = await downloadVideoFromUrl({
+      url: options.url,
+      quality: options.quality,
+      onProgress: (progress) => {
+        mainWindow?.webContents.send('downloader:progress', progress);
+      },
+    });
+
+    const task = TaskStore.create({
+      fileName: result.fileName,
+      filePath: result.filePath,
+      fileSize: result.fileSize || '0 MB',
+      workflow: 'fast-transcribe',
+      status: 'queued',
+      progress: 0,
+      projectDir: result.projectDir,
+      stageDescription: 'Đã tải từ link — sẵn sàng làm việc',
+    });
+
+    broadcastTasksUpdate();
+    return { task, result };
+  } catch (err: any) {
+    throw new Error(err.message || 'Lỗi khi tải video từ liên kết');
+  }
+});
 
 // Chạy cả quy trình còn thiếu: phiên âm → dịch → tạo giọng → ghép video.
 // Mỗi bước chỉ chạy khi kết quả của nó chưa tồn tại (resume được), và pipeline
@@ -452,7 +462,14 @@ const SETTING_KEYS: Array<keyof AppSettings> = [
   'ocrDualEngine',
   'glossary',
   'translationStyleGuide',
-  'onboardingCompleted'
+  'onboardingCompleted',
+  'veoMode',
+  'veoSessionCookie',
+  'veoSessionAuthToken',
+  'veoAccountEmail',
+  'veoSessionStatus',
+  'veoLastChecked',
+  'veoCooldownSeconds'
 ]
 
 ipcMain.handle('settings:get', async (_event, key: keyof AppSettings) => {
@@ -660,6 +677,58 @@ ipcMain.handle('tiktok-tts:synthesize', async (_event, text: string, voice: stri
 })
 
 // =========================================================================
+// GOOGLE VEO SESSION & ANTI-SPAM GUARD IPC HANDLERS
+// =========================================================================
+
+ipcMain.handle('veo:open-lobby', async () => {
+  try {
+    await GoogleVeoSessionManager.getInstance().openLobbyWindow(mainWindow)
+    return { ok: true }
+  } catch (err: any) {
+    return { ok: false, error: err?.message || 'Không thể mở sảnh Google Veo' }
+  }
+})
+
+ipcMain.handle('veo:status', async () => {
+  return GoogleVeoSessionManager.getInstance().getStatus()
+})
+
+ipcMain.handle('veo:validate', async () => {
+  return await GoogleVeoSessionManager.getInstance().validateSession()
+})
+
+ipcMain.handle('veo:save-session', async (_event, rawInput: string) => {
+  try {
+    const result = await GoogleVeoSessionManager.getInstance().saveManualSession(rawInput)
+    return { ok: true, result }
+  } catch (err: any) {
+    return { ok: false, error: err?.message || 'Không thể lưu session' }
+  }
+})
+
+ipcMain.handle('veo:clear-session', async () => {
+  try {
+    await GoogleVeoSessionManager.getInstance().clearSession()
+    return { ok: true }
+  } catch (err: any) {
+    return { ok: false, error: err?.message || 'Lỗi khi xóa session' }
+  }
+})
+
+ipcMain.handle('veo:get-anti-spam-status', async () => {
+  const guard = GoogleVeoAntiSpamGuard.getInstance()
+  return {
+    status: guard.getStatus(),
+    guidelines: GoogleVeoAntiSpamGuard.getSafetyGuidelines(),
+  }
+})
+
+ipcMain.handle('veo:set-mode', async (_event, mode: any) => {
+  GoogleVeoSessionManager.getInstance().setMode(mode)
+  return { ok: true }
+})
+
+// =========================================================================
 // GIỌNG ĐỌC CLONE TỪ FILE MẪU (voice sample)
 // =========================================================================
 
@@ -849,7 +918,36 @@ ipcMain.handle('dialog:openMediaFile', async () => {
 })
 
 ipcMain.handle('dialog:showInFolder', async (_event, filePath: string) => {
-  shell.showItemInFolder(filePath)
+  if (!filePath) return
+  if (fs.existsSync(filePath)) {
+    try {
+      const stat = fs.statSync(filePath)
+      if (stat.isDirectory()) {
+        await shell.openPath(filePath)
+      } else {
+        shell.showItemInFolder(filePath)
+      }
+    } catch {
+      shell.showItemInFolder(filePath)
+    }
+  } else {
+    const parent = path.dirname(filePath)
+    if (fs.existsSync(parent)) {
+      await shell.openPath(parent)
+    }
+  }
+})
+
+ipcMain.handle('dialog:openFolder', async (_event, folderPath: string) => {
+  if (!folderPath) return
+  if (fs.existsSync(folderPath)) {
+    await shell.openPath(folderPath)
+  } else {
+    const parent = path.dirname(folderPath)
+    if (fs.existsSync(parent)) {
+      await shell.openPath(parent)
+    }
+  }
 })
 
 // Chọn file .srt có sẵn (dùng cho "Nhập phụ đề" trên task)

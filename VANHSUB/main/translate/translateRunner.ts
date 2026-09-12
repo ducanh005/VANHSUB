@@ -1,7 +1,9 @@
+import fs from 'fs';
 import { TaskStore, type Task } from '../store/taskStore';
 import { SettingsStore } from '../store/settingsStore';
 import { translateSrtFile } from './translator';
 import { CancelledError, isCancelledError } from '../lib/cancel';
+import { getProjectArtifactPaths } from '../utils/projectFolder';
 
 export class TranslateRunner {
   private static runningTasks = new Set<string>();
@@ -48,7 +50,7 @@ export class TranslateRunner {
       });
       onUpdate?.();
 
-      const { translatedSrtPath } = await translateSrtFile(
+      const { translatedSrtPath: rawTranslatedPath } = await translateSrtFile(
         task.srtPath,
         targetLang,
         (percent) => {
@@ -61,11 +63,22 @@ export class TranslateRunner {
         () => this.cancelledTasks.has(taskId)
       );
 
+      const { translatedSrtPath: expectedPath, projectDir } = getProjectArtifactPaths(task);
+      let finalTranslated = rawTranslatedPath;
+      if (fs.existsSync(rawTranslatedPath) && rawTranslatedPath !== expectedPath) {
+        try {
+          fs.copyFileSync(rawTranslatedPath, expectedPath);
+          fs.unlinkSync(rawTranslatedPath);
+          finalTranslated = expectedPath;
+        } catch {}
+      }
+
       const updated = TaskStore.update(taskId, {
         status: 'done',
         progress: 100,
-        translatedSrtPath,
-        stageDescription: 'Đã hoàn tất dịch phụ đề',
+        projectDir,
+        translatedSrtPath: finalTranslated,
+        stageDescription: 'Đã hoàn tất dịch phụ đề vào thư mục dự án',
       });
       onUpdate?.();
 

@@ -63,6 +63,20 @@ export interface AppSettings {
   translationStyleGuide: string;
   /** Đã xem popup hướng dẫn cho người dùng mới (không hiện lại) */
   onboardingCompleted: boolean;
+  /** Chế độ tạo video Google Veo: 'free_session' | 'api_key' | 'simulation' */
+  veoMode: 'free_session' | 'api_key' | 'simulation';
+  /** Chuỗi Cookie phiên đăng nhập Google Labs (đã mã hóa an toàn) */
+  veoSessionCookie: string;
+  /** Auth / Bearer token Google Labs (đã mã hóa an toàn) */
+  veoSessionAuthToken: string;
+  /** Email tài khoản Google đăng nhập hiển thị */
+  veoAccountEmail: string;
+  /** Trạng thái session: active | expired | unauthenticated | rate_limited | captcha_required | unknown */
+  veoSessionStatus: 'active' | 'expired' | 'unauthenticated' | 'rate_limited' | 'captcha_required' | 'unknown';
+  /** Thời điểm kiểm tra trạng thái session lần cuối (timestamp ms) */
+  veoLastChecked: number;
+  /** Thời gian hồi chiêu chống spam (giây, mặc định 45) */
+  veoCooldownSeconds: number;
 }
 
 // Lazy singleton — cùng pattern với taskStore.ts để tránh lỗi
@@ -109,6 +123,13 @@ function getStore(): Store<AppSettings> {
         glossary: '',
         translationStyleGuide: '',
         onboardingCompleted: false,
+        veoMode: 'free_session',
+        veoSessionCookie: '',
+        veoSessionAuthToken: '',
+        veoAccountEmail: '',
+        veoSessionStatus: 'unauthenticated',
+        veoLastChecked: 0,
+        veoCooldownSeconds: 45,
       },
     });
   }
@@ -121,6 +142,7 @@ function getStore(): Store<AppSettings> {
 // =========================================================================
 
 const ENC_PREFIX = 'enc:v1:';
+const ENCRYPTED_KEYS = new Set(['geminiApiKey', 'veoSessionCookie', 'veoSessionAuthToken']);
 
 function encryptSecret(plain: string): string {
   if (!plain) return '';
@@ -145,18 +167,18 @@ function decryptSecret(stored: string): string {
 }
 
 export const SettingsStore = {
-  /** get('geminiApiKey') trả về giá trị ĐÃ GIẢI MÃ; các key khác trả nguyên bản */
+  /** get() tự động giải mã các secret (geminiApiKey, veoSessionCookie, veoSessionAuthToken) */
   get<K extends keyof AppSettings>(key: K): AppSettings[K] {
     const raw = getStore().get(key);
-    if (key === 'geminiApiKey') {
+    if (ENCRYPTED_KEYS.has(key)) {
       return decryptSecret(String(raw ?? '')) as AppSettings[K];
     }
     return raw;
   },
 
-  /** set('geminiApiKey', plain) sẽ tự mã hoá trước khi lưu; các key khác lưu nguyên bản */
+  /** set() tự động mã hoá các secret trước khi lưu */
   set<K extends keyof AppSettings>(key: K, value: AppSettings[K]): void {
-    if (key === 'geminiApiKey') {
+    if (ENCRYPTED_KEYS.has(key)) {
       getStore().set(key, encryptSecret(String(value ?? '')) as AppSettings[K]);
       return;
     }
@@ -165,5 +187,11 @@ export const SettingsStore = {
 
   hasGeminiKey(): boolean {
     return getStore().get('geminiApiKey').trim().length > 0;
+  },
+
+  hasVeoSession(): boolean {
+    const cookie = decryptSecret(String(getStore().get('veoSessionCookie') ?? '')).trim();
+    const token = decryptSecret(String(getStore().get('veoSessionAuthToken') ?? '')).trim();
+    return cookie.length > 0 || token.length > 0;
   },
 };

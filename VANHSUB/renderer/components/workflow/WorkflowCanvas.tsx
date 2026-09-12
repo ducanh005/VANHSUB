@@ -100,9 +100,18 @@ function FlowCanvasInner({
   const [showStudio, setShowStudio] = useState(false);
   const [showApiKeyModal, setShowApiKeyModal] = useState(false);
   const [hasGeminiKey, setHasGeminiKey] = useState(false);
+  const [veoMode, setVeoMode] = useState<'free_session' | 'api_key' | 'simulation'>('free_session');
+  const [veoSessionStatus, setVeoSessionStatus] = useState<string>('unknown');
 
-  // Kiểm tra key hiện tại
-  useEffect(() => {
+  // Kiểm tra key & Veo status hiện tại
+  const checkVeoStatus = useCallback(async () => {
+    if (typeof window !== 'undefined' && window.vanhsub?.veo?.status) {
+      try {
+        const res = await window.vanhsub.veo.status();
+        if (res.mode) setVeoMode(res.mode);
+        if (res.sessionStatus) setVeoSessionStatus(res.sessionStatus);
+      } catch {}
+    }
     if (typeof window !== 'undefined' && window.vanhsub?.settings) {
       window.vanhsub.settings
         .get('geminiApiKey')
@@ -110,6 +119,10 @@ function FlowCanvasInner({
         .catch(() => setHasGeminiKey(false));
     }
   }, []);
+
+  useEffect(() => {
+    checkVeoStatus();
+  }, [checkVeoStatus]);
 
   // Thoát Zen Mode bằng phím Escape
   useEffect(() => {
@@ -224,6 +237,19 @@ function FlowCanvasInner({
     if (nodes.length === 0) {
       toast.error('Canvas đang trống! Hãy kéo node vào trước khi chạy.');
       return;
+    }
+
+    // Pre-flight check cho Google Veo node để tránh mất thời gian
+    const hasVeoNode = nodes.some((n) => n.data?.nodeType === 'google-flow-video');
+    if (hasVeoNode && veoMode === 'free_session') {
+      if (veoSessionStatus === 'expired' || veoSessionStatus === 'unauthenticated') {
+        toast.error(
+          'Session Google Veo đã hết hạn hoặc chưa đăng nhập! Vui lòng bấm vào nút "Veo" để đăng nhập lại trước khi chạy để không mất thời gian render.',
+          { duration: 6000 }
+        );
+        setShowApiKeyModal(true);
+        return;
+      }
     }
 
     setIsRunning(true);
@@ -409,20 +435,46 @@ function FlowCanvasInner({
 
           <div className="h-5 w-[1px] bg-slate-800" />
 
-          {/* Veo 3.1 API Key status / config */}
+          {/* Google Veo Status / Config Modal Trigger */}
           <button
             onClick={() => setShowApiKeyModal(true)}
-            title="Cấu hình Google Gemini API Key cho Veo 3.1 & Imagen 3"
+            title="Cấu hình Google Veo (Sảnh Miễn phí / API Key / Mô phỏng)"
             className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-semibold transition-all cursor-pointer ${
-              hasGeminiKey
-                ? 'bg-emerald-950/40 hover:bg-emerald-900/60 border-emerald-700/60 text-emerald-300'
-                : 'bg-amber-950/40 hover:bg-amber-900/60 border-amber-700/60 text-amber-300'
+              veoMode === 'free_session'
+                ? veoSessionStatus === 'active'
+                  ? 'bg-emerald-950/40 hover:bg-emerald-900/60 border-emerald-700/60 text-emerald-300'
+                  : 'bg-rose-950/40 hover:bg-rose-900/60 border-rose-700/60 text-rose-300'
+                : veoMode === 'api_key'
+                ? hasGeminiKey
+                  ? 'bg-indigo-950/40 hover:bg-indigo-900/60 border-indigo-700/60 text-indigo-300'
+                  : 'bg-amber-950/40 hover:bg-amber-900/60 border-amber-700/60 text-amber-300'
+                : 'bg-slate-900 hover:bg-slate-800 border-slate-700 text-slate-300'
             }`}
           >
-            <span className={`w-2 h-2 rounded-full ${hasGeminiKey ? 'bg-emerald-400' : 'bg-amber-400 animate-pulse'}`} />
-            <span className="hidden sm:inline">Veo 3.1:</span>
+            <span
+              className={`w-2 h-2 rounded-full ${
+                veoMode === 'free_session'
+                  ? veoSessionStatus === 'active'
+                    ? 'bg-emerald-400'
+                    : 'bg-rose-500 animate-pulse'
+                  : veoMode === 'api_key'
+                  ? hasGeminiKey
+                    ? 'bg-indigo-400'
+                    : 'bg-amber-400 animate-pulse'
+                  : 'bg-slate-400'
+              }`}
+            />
+            <span className="hidden sm:inline">Veo:</span>
             <span className="font-bold">
-              {hasGeminiKey ? 'Google Flow' : 'Mô phỏng (Key)'}
+              {veoMode === 'free_session'
+                ? veoSessionStatus === 'active'
+                  ? 'Sảnh Free (Sẵn sàng)'
+                  : 'Sảnh Free (Hết hạn)'
+                : veoMode === 'api_key'
+                ? hasGeminiKey
+                  ? 'API Key'
+                  : 'Cần Key'
+                : 'Mô phỏng'}
             </span>
           </button>
 
@@ -752,8 +804,11 @@ function FlowCanvasInner({
       {/* Google Veo 3.1 & Gemini API Key Modal */}
       <ApiKeyConfigModal
         isOpen={showApiKeyModal}
-        onClose={() => setShowApiKeyModal(false)}
-        onKeyUpdated={(hasKey) => setHasGeminiKey(hasKey)}
+        onClose={() => {
+          setShowApiKeyModal(false);
+          checkVeoStatus();
+        }}
+        onKeyUpdated={() => checkVeoStatus()}
       />
     </div>
   );

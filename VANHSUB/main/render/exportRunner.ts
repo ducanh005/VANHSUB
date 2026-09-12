@@ -5,6 +5,7 @@ import { parseSrt } from '../lib/srt';
 import { TaskStore, type Task } from '../store/taskStore';
 import { SettingsStore } from '../store/settingsStore';
 import { nextAvailablePath } from '../lib/paths';
+import { getOrCreateProjectDir } from '../utils/projectFolder';
 import { compileToAss, type SubtitleEntryStyle, type GlobalAssStyle } from './assCompiler';
 import {
   burnHardsub,
@@ -16,11 +17,19 @@ import {
   type SubtitleStyle,
 } from './videoRenderer';
 
+export interface DualSubtitleOption {
+  enabled: boolean;
+  layoutPreset?: 'douyin_music_left' | 'top_bottom_bilingual' | 'custom';
+  secondaryStyle?: Partial<GlobalAssStyle>;
+}
+
 export interface AdvancedExportOptions {
   customMask?: CustomMaskRegion | null;
+  customMasks?: CustomMaskRegion[] | null;
   watermark?: WatermarkOptions | null;
   formatOptions?: ExportFormatOptions | null;
   perLineStyles?: Record<number, SubtitleEntryStyle>;
+  dualSubtitles?: DualSubtitleOption | null;
 }
 
 export class ExportRunner {
@@ -59,7 +68,9 @@ export class ExportRunner {
     const videoBase = path.basename(videoPath, videoExt);
 
     const exportDirSetting = SettingsStore.get('exportDir');
-    const targetDir = (exportDirSetting && fs.existsSync(exportDirSetting)) ? exportDirSetting : videoDir;
+    // Lưu vào thư mục dự án riêng của video
+    const projectDir = getOrCreateProjectDir(task);
+    const targetDir = projectDir;
 
     const suffix = mode === 'hardsub' ? 'hardsub' : 'softsub';
     const outputName = `${videoBase}.${suffix}.mp4`;
@@ -78,15 +89,21 @@ export class ExportRunner {
       onUpdate?.();
 
       if (mode === 'hardsub') {
-        // Nếu có perLineStyles hoặc style nâng cao: biên dịch ra file .ass trước khi burn
-        if (advancedOptions?.perLineStyles && Object.keys(advancedOptions.perLineStyles).length > 0) {
+        const hasPerLine = advancedOptions?.perLineStyles && Object.keys(advancedOptions.perLineStyles).length > 0;
+        const hasDual = !!(advancedOptions?.dualSubtitles?.enabled && task.translatedSrtPath && task.srtPath);
+        const hasVertical = !!style?.isVertical;
+        const hasCustomPos = !!(style?.posPercent || (style?.marginH !== undefined && style.marginH !== 20));
+        const needsAssCompilation = hasPerLine || hasDual || hasVertical || hasCustomPos;
+
+        // Nếu có perLineStyles, song ngữ hoặc style vị trí/chữ dọc: biên dịch ra file .ass trước khi burn
+        if (needsAssCompilation) {
           const srtContent = fs.readFileSync(rawSrtPath, 'utf-8');
           const parsedLines = parseSrt(srtContent);
           const items = parsedLines.map((line, idx) => ({
             startMs: line.startMs,
             endMs: line.endMs,
             text: line.text,
-            style: advancedOptions.perLineStyles?.[idx] || null,
+            style: advancedOptions?.perLineStyles?.[idx] || null,
           }));
 
           const globalAss: Partial<GlobalAssStyle> = style
@@ -102,12 +119,71 @@ export class ExportRunner {
                 borderStyle: style.borderStyle,
                 alignment: style.alignment as any,
                 marginV: style.marginV,
+                marginH: style.marginH,
+                isVertical: style.isVertical,
+                posPercent: style.posPercent,
               }
             : {};
+
+          let secondaryItems: any[] | undefined = undefined;
+          let secondaryStyle: Partial<GlobalAssStyle> | undefined = undefined;
+
+          if (hasDual) {
+            // Xác định file phụ: nếu file chính là translated thì file phụ là original (lời nhạc/gốc)
+            const secSrtPath = rawSrtPath === task.translatedSrtPath ? task.srtPath! : task.translatedSrtPath!;
+            if (fs.existsSync(secSrtPath)) {
+              const secContent = fs.readFileSync(secSrtPath, 'utf-8');
+              const secParsed = parseSrt(secContent);
+              secondaryItems = secParsed.map((line) => ({
+                startMs: line.startMs,
+                endMs: line.endMs,
+                text: line.text,
+              }));
+
+              const preset = advancedOptions?.dualSubtitles?.layoutPreset || 'douyin_music_left';
+              if (preset === 'douyin_music_left') {
+                secondaryStyle = {
+                  fontName: style?.fontName || 'Arial',
+                  fontSize: Math.max(14, Math.round((style?.fontSize || 22) * 0.85)),
+                  primaryColour: '#FFE135',
+                  outlineColour: '#000000',
+                  alignment: 4, // Giữa mép trái
+                  marginH: 35,
+                  marginV: 25,
+                  isVertical: true, // Xếp dọc
+                  bold: true,
+                  borderStyle: 1,
+                  outline: 2,
+                  shadow: 1,
+                  ...advancedOptions?.dualSubtitles?.secondaryStyle,
+                };
+              } else if (preset === 'top_bottom_bilingual') {
+                secondaryStyle = {
+                  fontName: style?.fontName || 'Arial',
+                  fontSize: Math.max(14, Math.round((style?.fontSize || 22) * 0.85)),
+                  primaryColour: '#E0E0E0',
+                  outlineColour: '#000000',
+                  alignment: 8, // Đỉnh giữa
+                  marginV: 30,
+                  marginH: 20,
+                  isVertical: false,
+                  bold: false,
+                  borderStyle: 1,
+                  outline: 2,
+                  shadow: 1,
+                  ...advancedOptions?.dualSubtitles?.secondaryStyle,
+                };
+              } else {
+                secondaryStyle = advancedOptions?.dualSubtitles?.secondaryStyle;
+              }
+            }
+          }
 
           const assContent = compileToAss(items, {
             globalStyle: globalAss,
             title: videoBase,
+            secondaryItems,
+            secondaryStyle,
           });
 
           tempAssFile = path.join(os.tmpdir(), `vanhsub_ass_${Date.now()}_compiled.ass`);
@@ -121,6 +197,7 @@ export class ExportRunner {
           outputPath,
           mask: mask || null,
           customMask: advancedOptions?.customMask || null,
+          customMasks: advancedOptions?.customMasks || null,
           watermark: advancedOptions?.watermark || null,
           formatOptions: advancedOptions?.formatOptions || null,
           style: style || null,
@@ -157,6 +234,7 @@ export class ExportRunner {
         status: 'done',
         progress: 100,
         outputPath,
+        projectDir,
         stageDescription: `Xuất video thành công: ${outputName}`,
       });
       onUpdate?.();

@@ -595,13 +595,16 @@ export const SubtitlesStyleEditor: React.FC<SubtitlesStyleEditorProps> = ({
               </div>
 
               {/* Preview câu được chọn */}
-              <div className="flex items-center justify-center rounded-lg border border-slate-700 bg-slate-950 p-3 min-h-[50px] text-center">
+              <div className="flex items-center justify-center rounded-lg border border-slate-700 bg-slate-950 p-3 min-h-[50px] text-center overflow-hidden">
                 <span
                   style={{
                     color: activeStyle.textColorHex || '#FFFFFF',
                     fontSize: `${(activeStyle.fontSize || 24) * 0.75}px`,
                     fontWeight: activeStyle.bold ? 700 : 400,
                     fontStyle: activeStyle.italic ? 'italic' : 'normal',
+                    writingMode: activeStyle.isVertical ? 'vertical-rl' : 'horizontal-tb',
+                    textOrientation: activeStyle.isVertical ? 'upright' : 'mixed',
+                    letterSpacing: activeStyle.isVertical ? '3px' : 'normal',
                     textShadow:
                       (activeStyle.outlineWidth || 0) > 0
                         ? `0 0 ${activeStyle.outlineWidth || 2}px ${
@@ -682,25 +685,124 @@ export const SubtitlesStyleEditor: React.FC<SubtitlesStyleEditorProps> = ({
                 </div>
               </div>
 
-              {/* Định dạng In đậm/nghiêng & Vị trí căn lề */}
-              <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-700/60 pt-2">
-                <div className="flex items-center gap-1">
+              {/* Điều khiển Vị trí 9 điểm & Kiểu chữ xếp dọc */}
+              <div className="flex flex-col gap-2.5 border-t border-slate-700/60 pt-2.5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-[11px] font-semibold text-slate-300 flex items-center gap-1">
+                    <span>Vị trí & Bố cục câu:</span>
+                    <span className="font-mono text-brand-cyan text-[10px]">
+                      {activeStyle.alignment === 7 ? 'Đỉnh trái' :
+                       activeStyle.alignment === 8 ? 'Đỉnh giữa' :
+                       activeStyle.alignment === 9 ? 'Đỉnh phải' :
+                       activeStyle.alignment === 4 ? 'Giữa trái (Cạnh trái)' :
+                       activeStyle.alignment === 5 ? 'Chính giữa tâm' :
+                       activeStyle.alignment === 6 ? 'Giữa phải (Cạnh phải)' :
+                       activeStyle.alignment === 1 ? 'Đáy trái' :
+                       activeStyle.alignment === 3 ? 'Đáy phải' : 'Đáy giữa (Mặc định)'}
+                    </span>
+                  </span>
+
+                  {/* Nút bật/tắt chữ xếp dọc */}
+                  <button
+                    type="button"
+                    onClick={() => handleStyleChange({ isVertical: !activeStyle.isVertical })}
+                    className={`inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-[11px] font-medium transition cursor-pointer ${
+                      activeStyle.isVertical
+                        ? 'bg-purple-500/20 text-purple-300 ring-1 ring-purple-500/50 font-semibold'
+                        : 'border border-slate-700 bg-slate-800 text-slate-400 hover:text-white'
+                    }`}
+                    title="Bật chế độ chữ xếp dọc thẳng đứng (chuyên dụng cho lời bài hát Douyin / TikTok)"
+                  >
+                    <span>🔤 Xếp dọc:</span>
+                    <span>{activeStyle.isVertical ? 'BẬT' : 'TẮT'}</span>
+                  </button>
+                </div>
+
+                <div className="flex items-center gap-4">
+                  {/* Lưới 3x3 căn vị trí Numpad */}
+                  <div className="grid grid-cols-3 gap-1 rounded-xl border border-slate-700 bg-slate-900/90 p-1.5 shrink-0">
+                    {[
+                      { id: 7, label: '↖', title: 'Đỉnh - Trái' },
+                      { id: 8, label: '⬆', title: 'Đỉnh - Giữa' },
+                      { id: 9, label: '↗', title: 'Đỉnh - Phải' },
+                      { id: 4, label: '⬅', title: 'Giữa - Trái (Nhạc)' },
+                      { id: 5, label: '⏺', title: 'Chính giữa tâm' },
+                      { id: 6, label: '➡', title: 'Giữa - Phải' },
+                      { id: 1, label: '↙', title: 'Đáy - Trái' },
+                      { id: 2, label: '⬇', title: 'Đáy - Giữa (Chuẩn)' },
+                      { id: 3, label: '↘', title: 'Đáy - Phải' },
+                    ].map((btn) => {
+                      const isCurrent = (activeStyle.alignment || 2) === btn.id;
+                      return (
+                        <button
+                          key={btn.id}
+                          type="button"
+                          onClick={() => handleStyleChange({ alignment: btn.id as any })}
+                          className={`flex h-7 w-7 items-center justify-center rounded-lg text-xs font-mono transition cursor-pointer ${
+                            isCurrent
+                              ? 'bg-brand-cyan text-black font-bold shadow-md shadow-brand-cyan/30'
+                              : 'bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-white'
+                          }`}
+                          title={btn.title}
+                        >
+                          {btn.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Thanh trượt lề dọc & ngang */}
+                  <div className="flex-1 flex flex-col gap-2">
+                    <div>
+                      <div className="flex justify-between text-[10px] text-slate-400 mb-0.5">
+                        <span>Lề dọc (Margin V):</span>
+                        <span className="font-mono text-brand-cyan">{activeStyle.marginV ?? 25}px</span>
+                      </div>
+                      <input
+                        type="range"
+                        min={0}
+                        max={120}
+                        value={activeStyle.marginV ?? 25}
+                        onChange={(e) => handleStyleChange({ marginV: Number(e.target.value) })}
+                        className="w-full accent-cyan-400"
+                      />
+                    </div>
+                    <div>
+                      <div className="flex justify-between text-[10px] text-slate-400 mb-0.5">
+                        <span>Lề ngang (Margin H):</span>
+                        <span className="font-mono text-brand-cyan">{activeStyle.marginH ?? 20}px</span>
+                      </div>
+                      <input
+                        type="range"
+                        min={0}
+                        max={150}
+                        value={activeStyle.marginH ?? 20}
+                        onChange={(e) => handleStyleChange({ marginH: Number(e.target.value) })}
+                        className="w-full accent-cyan-400"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Định dạng In đậm & In nghiêng */}
+                <div className="flex items-center gap-2 pt-1 border-t border-slate-700/40">
                   <button
                     type="button"
                     onClick={() => handleStyleChange({ bold: !activeStyle.bold })}
-                    className={`rounded-lg p-1.5 transition cursor-pointer ${
+                    className={`flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs transition cursor-pointer ${
                       activeStyle.bold
-                        ? 'bg-brand-cyan/20 text-brand-cyan ring-1 ring-brand-cyan/50'
+                        ? 'bg-brand-cyan/20 text-brand-cyan ring-1 ring-brand-cyan/50 font-bold'
                         : 'text-slate-400 hover:bg-slate-700 hover:text-white'
                     }`}
                     title="In đậm"
                   >
                     <Bold className="h-3.5 w-3.5" />
+                    <span>In đậm</span>
                   </button>
                   <button
                     type="button"
                     onClick={() => handleStyleChange({ italic: !activeStyle.italic })}
-                    className={`rounded-lg p-1.5 transition cursor-pointer ${
+                    className={`flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs transition cursor-pointer ${
                       activeStyle.italic
                         ? 'bg-brand-cyan/20 text-brand-cyan ring-1 ring-brand-cyan/50'
                         : 'text-slate-400 hover:bg-slate-700 hover:text-white'
@@ -708,47 +810,7 @@ export const SubtitlesStyleEditor: React.FC<SubtitlesStyleEditorProps> = ({
                     title="In nghiêng"
                   >
                     <Italic className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-
-                {/* Alignment */}
-                <div className="flex items-center gap-1">
-                  <span className="text-[11px] text-slate-400 mr-1">Căn:</span>
-                  <button
-                    type="button"
-                    onClick={() => handleStyleChange({ alignment: 1 })}
-                    className={`rounded-lg p-1.5 transition cursor-pointer ${
-                      activeStyle.alignment === 1
-                        ? 'bg-brand-cyan/20 text-brand-cyan ring-1 ring-brand-cyan/50'
-                        : 'text-slate-400 hover:bg-slate-700'
-                    }`}
-                    title="Trái"
-                  >
-                    <AlignLeft className="h-3.5 w-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleStyleChange({ alignment: 2 })}
-                    className={`rounded-lg p-1.5 transition cursor-pointer ${
-                      activeStyle.alignment === 2
-                        ? 'bg-brand-cyan/20 text-brand-cyan ring-1 ring-brand-cyan/50'
-                        : 'text-slate-400 hover:bg-slate-700'
-                    }`}
-                    title="Giữa đáy"
-                  >
-                    <AlignCenter className="h-3.5 w-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleStyleChange({ alignment: 3 })}
-                    className={`rounded-lg p-1.5 transition cursor-pointer ${
-                      activeStyle.alignment === 3
-                        ? 'bg-brand-cyan/20 text-brand-cyan ring-1 ring-brand-cyan/50'
-                        : 'text-slate-400 hover:bg-slate-700'
-                    }`}
-                    title="Phải"
-                  >
-                    <AlignRight className="h-3.5 w-3.5" />
+                    <span>In nghiêng</span>
                   </button>
                 </div>
               </div>

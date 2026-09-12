@@ -32,6 +32,8 @@ export interface Task {
   translatedSrtPath?: string;
   audioPath?: string;
   outputPath?: string;
+  /** Thư mục dự án gom toàn bộ file liên quan đến video này (sub, audio, export) */
+  projectDir?: string;
   errorMessage?: string;
   // TTS / Dubbing fields
   ttsVoice?: string;
@@ -127,6 +129,7 @@ export const TaskStore = {
       translatedSrtPath: input.translatedSrtPath,
       audioPath: input.audioPath,
       outputPath: input.outputPath,
+      projectDir: input.projectDir,
       errorMessage: input.errorMessage,
       ttsVoice: input.ttsVoice,
       ttsSpeed: input.ttsSpeed,

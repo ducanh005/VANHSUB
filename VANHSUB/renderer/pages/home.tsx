@@ -4,6 +4,7 @@ import {
   CheckCircle2,
   CircleHelp,
   Cpu,
+  Download,
   FileUp,
   FileVideo,
   Film,
@@ -38,6 +39,7 @@ import ExportPage from '../components/ExportPage';
 import SettingsPage from '../components/SettingsPage';
 import TerminalPanel from '../components/TerminalPanel';
 import OnboardingModal from '../components/OnboardingModal';
+import { DownloadModal } from '../components/download/DownloadModal';
 
 const WorkflowCanvas = dynamic(
   () => import('../components/workflow/WorkflowCanvas'),
@@ -83,6 +85,7 @@ export default function HomePage() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [linkUrl, setLinkUrl] = useState('');
+  const [downloadModalOpen, setDownloadModalOpen] = useState(false);
   const [downloadingLink, setDownloadingLink] = useState(false);
   const [linkMessage, setLinkMessage] = useState('');
   const [linkError, setLinkError] = useState(false);
@@ -318,7 +321,11 @@ export default function HomePage() {
   const handleShowInFolder = (filePath: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (window.vanhsub?.dialog) {
-      window.vanhsub.dialog.showInFolder(filePath);
+      if (window.vanhsub.dialog.openFolder) {
+        window.vanhsub.dialog.openFolder(filePath);
+      } else {
+        window.vanhsub.dialog.showInFolder(filePath);
+      }
     }
   };
 
@@ -691,38 +698,30 @@ export default function HomePage() {
                   </button>
                 </div>
 
-                {/* Thêm tác vụ từ link video công khai (TikTok/YouTube…) */}
+                {/* Thêm tác vụ từ link video (Douyin, YouTube, Bilibili, TikTok...) */}
                 <div className="mt-3 flex w-full max-w-md items-center gap-2">
-                  <input
-                    type="text"
-                    value={linkUrl}
-                    onChange={(e) => setLinkUrl(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && !downloadingLink) handleAddFromUrl();
-                    }}
-                    placeholder="Hoặc dán link TikTok/YouTube…"
-                    className="min-w-0 flex-1 rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 font-mono text-xs text-white placeholder:text-slate-500 focus:border-brand-cyan focus:outline-none"
-                  />
+                  <div className="relative flex-1">
+                    <input
+                      type="text"
+                      value={linkUrl}
+                      onChange={(e) => setLinkUrl(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') setDownloadModalOpen(true);
+                      }}
+                      placeholder="Dán link Douyin, YouTube, Bilibili, TikTok..."
+                      className="w-full rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 font-mono text-xs text-white placeholder:text-slate-500 focus:border-brand-cyan focus:outline-none"
+                    />
+                  </div>
                   <button
                     type="button"
-                    onClick={handleAddFromUrl}
-                    disabled={downloadingLink || !linkUrl.trim()}
-                    title="Tải audio từ link bằng yt-dlp (lần đầu tự tải yt-dlp ~18MB) rồi tạo tác vụ"
-                    className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-brand-cyan/40 bg-brand-cyan/10 px-3 py-2 text-xs font-semibold text-brand-cyan hover:bg-brand-cyan/20 cursor-pointer disabled:opacity-50"
+                    onClick={() => setDownloadModalOpen(true)}
+                    title="Tải video độ nét cao từ Douyin, YouTube, Bilibili... và tự động gom vào thư mục dự án"
+                    className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-cyan-400/40 bg-cyan-400/10 px-3 py-2 text-xs font-semibold text-cyan-300 hover:bg-cyan-400/20 cursor-pointer transition shadow-sm"
                   >
-                    {downloadingLink ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <Link2 className="h-3.5 w-3.5" />
-                    )}
-                    <span>{downloadingLink ? 'Đang tải...' : 'Tải & Tạo task'}</span>
+                    <Download className="h-3.5 w-3.5 text-cyan-400" />
+                    <span>Tải video từ link</span>
                   </button>
                 </div>
-                {linkMessage && (
-                  <p className={`mt-2 text-[11px] ${linkError ? 'text-rose-400' : 'text-brand-cyan'}`}>
-                    {linkMessage}
-                  </p>
-                )}
               </div>
 
               {/* Recent Tasks List */}
@@ -778,12 +777,20 @@ export default function HomePage() {
                             <div className="truncate font-medium text-slate-200 group-hover:text-white">
                               {t.fileName}
                             </div>
-                            <div className="mt-0.5 flex items-center gap-2 text-[11px] text-slate-400">
+                            <div className="mt-0.5 flex flex-wrap items-center gap-2 text-[11px] text-slate-400">
                               <span>{t.fileSize || 'Media file'}</span>
                               <span>•</span>
                               <span>{formatTimeAgoHelper(t.createdAt)}</span>
                               <span>•</span>
                               <span className="text-slate-300 font-mono">{t.workflow}</span>
+                              {t.projectDir && (
+                                <>
+                                  <span>•</span>
+                                  <span className="inline-flex items-center gap-1 text-cyan-300 font-mono text-[10px] bg-cyan-950/70 px-1.5 py-0.5 rounded border border-cyan-800/50">
+                                    📁 {t.projectDir.split(/[/\\]/).pop()}
+                                  </span>
+                                </>
+                              )}
                             </div>
                           </div>
                         </div>
@@ -867,9 +874,9 @@ export default function HomePage() {
 
                           <button
                             type="button"
-                            onClick={(e) => handleShowInFolder(t.filePath, e)}
+                            onClick={(e) => handleShowInFolder(t.projectDir || t.outputPath || t.filePath, e)}
                             className="flex h-7 w-7 items-center justify-center rounded-lg border border-slate-700 bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-slate-200 transition cursor-pointer"
-                            title="Mở thư mục chứa file"
+                            title={t.projectDir ? "Mở thư mục dự án (chứa toàn bộ file video, sub, audio)" : "Mở thư mục chứa file"}
                           >
                             <FolderOpen className="h-3.5 w-3.5" />
                           </button>
@@ -956,6 +963,18 @@ export default function HomePage() {
 
           {/* Popup hướng dẫn người dùng mới (portal, hiện lần đầu mở app) */}
           <OnboardingModal open={guideReady && showGuide} onClose={handleCloseGuide} />
+
+          {/* Modal tải video từ liên kết Douyin / YouTube / Bilibili / TikTok */}
+          <DownloadModal
+            open={downloadModalOpen}
+            onOpenChange={setDownloadModalOpen}
+            onSuccess={(task) => {
+              loadTasks();
+              if (task?.id) {
+                setSelectedTaskId(task.id);
+              }
+            }}
+          />
         </main>
       </div>
     </>

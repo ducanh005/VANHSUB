@@ -59,9 +59,12 @@ export interface SubtitleStyle {
   bold: boolean;
   /** 1 = viền + bóng, 3 = nền box đặc */
   borderStyle: 1 | 3;
-  /** 2 = đáy khung, 5 = giữa, 8 = đỉnh */
-  alignment: 2 | 5 | 8;
+  /** 1..9 theo Numpad: 2=đáy-giữa, 4=giữa-trái, 5=tâm, 8=đỉnh-giữa */
+  alignment: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
   marginV: number;
+  marginH?: number;
+  isVertical?: boolean;
+  posPercent?: { x: number; y: number };
 }
 
 const clampNum = (n: number, min: number, max: number, fallback: number): number =>
@@ -86,6 +89,10 @@ function hexToAss(hex: string, opacityPct: number): string {
 /** Dựng giá trị force_style — các trường số/màu tự sinh nên không lo escape */
 export function buildForceStyle(style: SubtitleStyle): string {
   const isBox = style.borderStyle === 3;
+  const alignment = style.alignment >= 1 && style.alignment <= 9 ? style.alignment : 2;
+  const marginV = clampNum(style.marginV, 0, 120, 25);
+  const marginL = clampNum(style.marginH ?? 20, 0, 150, 20);
+  const marginR = clampNum(style.marginH ?? 20, 0, 150, 20);
   const parts = [
     `FontName=${sanitizeFontName(style.fontName)}`,
     `FontSize=${clampNum(style.fontSize, 8, 99, 18)}`,
@@ -96,8 +103,10 @@ export function buildForceStyle(style: SubtitleStyle): string {
     `Outline=${isBox && style.outline === 0 ? 3 : clampNum(style.outline, 0, 8, 2)}`,
     `Shadow=${isBox ? 0 : clampNum(style.shadow, 0, 6, 1)}`,
     `Bold=${style.bold ? 1 : 0}`,
-    `Alignment=${style.alignment === 5 || style.alignment === 8 ? style.alignment : 2}`,
-    `MarginV=${clampNum(style.marginV, 0, 200, 25)}`,
+    `Alignment=${alignment}`,
+    `MarginV=${marginV}`,
+    `MarginL=${marginL}`,
+    `MarginR=${marginR}`,
   ];
   return parts.join(',');
 }
@@ -115,17 +124,22 @@ export interface MaskRegion {
   mode: 'solid' | 'blur';
 }
 
+export type MaskMode = 'blur' | 'gaussian' | 'glass' | 'pixelate' | 'solid';
+
 /** Vùng che mờ tự do (Bounding box mask) theo tọa độ % và khung thời gian */
 export interface CustomMaskRegion {
+  id?: string;             // ID định danh từng vùng
+  name?: string;           // Tên gợi nhớ
   xPercent: number;        // 0..100
   yPercent: number;        // 0..100
   widthPercent: number;    // 0..100
   heightPercent: number;   // 0..100
-  mode: 'blur' | 'pixelate' | 'solid';
+  mode: MaskMode;
   intensity?: number;      // 1..100 (mặc định 40)
   colorHex?: string;       // "#000000"
   startSec?: number;       // Giây bắt đầu (0 = từ đầu)
   endSec?: number;         // Giây kết thúc (0 = hết video)
+  enabled?: boolean;       // Bật/tắt vùng che
 }
 
 /** Cấu hình Watermark (Logo hoặc văn bản bản quyền) */
@@ -134,8 +148,10 @@ export interface WatermarkOptions {
   content: string;         // Chữ hoặc đường dẫn ảnh PNG
   opacity?: number;        // 0..1 (mặc định 0.8)
   scalePercent?: number;   // Kích thước tương đối 5..50%
-  position: 'top_left' | 'top_right' | 'bottom_left' | 'bottom_right' | 'center' | 'custom';
+  fontSize?: number;
+  position: 'top_left' | 'top_right' | 'bottom_left' | 'bottom_right' | 'center' | 'custom' | 'floating' | 'bounce';
   customPos?: { xPercent: number; yPercent: number };
+  speed?: 'slow' | 'medium' | 'fast';
 }
 
 /** Tùy chọn định dạng & tỉ lệ xuất video */
@@ -154,8 +170,10 @@ export interface RenderOptions {
   outputPath: string;
   /** Che vùng phụ đề cũ kiểu dải ngang cố định */
   mask?: MaskRegion | null;
-  /** Che vùng tự do với tọa độ X, Y, W, H và thời gian */
+  /** Che vùng tự do đơn (tương thích ngược) */
   customMask?: CustomMaskRegion | null;
+  /** Danh sách nhiều vùng che mờ tự do */
+  customMasks?: CustomMaskRegion[] | null;
   /** Watermark thương hiệu */
   watermark?: WatermarkOptions | null;
   /** Tùy chọn tỉ lệ (16:9, 9:16 TikTok) & độ phân giải */
@@ -193,37 +211,85 @@ function buildMaskFilter(mask: MaskRegion): string {
 
 /**
  * Dựng filter cho vùng che mờ tự do (Custom Bounding Box Mask)
+ * Hỗ trợ idx để sinh nhãn phân nhánh độc lập, tránh xung đột khi ghép nhiều vùng
  */
-function buildCustomMaskFilter(mask: CustomMaskRegion, inLabel: string, outLabel: string): string {
-  const xExpr = `main_w*${Math.max(0, Math.min(100, mask.xPercent))}/100`;
-  const yExpr = `main_h*${Math.max(0, Math.min(100, mask.yPercent))}/100`;
-  const wExpr = `iw*${Math.max(1, Math.min(100, mask.widthPercent))}/100`;
-  const hExpr = `ih*${Math.max(1, Math.min(100, mask.heightPercent))}/100`;
+export function buildCustomMaskFilter(
+  mask: CustomMaskRegion,
+  inLabel: string,
+  outLabel: string,
+  idx: number = 0
+): string {
+  const safeX = Math.max(0, Math.min(99.5, mask.xPercent));
+  const safeY = Math.max(0, Math.min(99.5, mask.yPercent));
+  const safeW = Math.max(0.5, Math.min(100 - safeX, mask.widthPercent));
+  const safeH = Math.max(0.5, Math.min(100 - safeY, mask.heightPercent));
+
+  const cropX = `iw*${safeX}/100`;
+  const cropY = `ih*${safeY}/100`;
+  const cropW = `iw*${safeW}/100`;
+  const cropH = `ih*${safeH}/100`;
+
+  const overX = `main_w*${safeX}/100`;
+  const overY = `main_h*${safeY}/100`;
+
   const hasTime = (mask.startSec !== undefined && mask.startSec > 0) || (mask.endSec !== undefined && mask.endSec > 0);
   const timeExpr = hasTime
     ? `:enable='between(t,${mask.startSec || 0},${mask.endSec && mask.endSec > 0 ? mask.endSec : 999999})'`
     : '';
 
-  if (mask.mode === 'blur') {
-    const blurRadius = Math.max(4, Math.min(60, Math.round((mask.intensity || 40) * 0.5)));
+  const baseLbl = `cm_base_${idx}`;
+  const srcLbl = `cm_src_${idx}`;
+  const effLbl = `cm_eff_${idx}`;
+
+  // 1. Làm mờ Gauss (Gaussian Blur) mịn màng, tự nhiên
+  if (mask.mode === 'gaussian') {
+    const sigma = Math.max(2, Math.min(40, Math.round((mask.intensity || 40) * 0.4)));
     return (
-      `[${inLabel}]split=2[cm_base][cm_src];` +
-      `[cm_src]crop=${wExpr}:${hExpr}:${xExpr}:${yExpr},boxblur=${blurRadius}:2[cm_blur];` +
-      `[cm_base][cm_blur]overlay=${xExpr}:${yExpr}${timeExpr}[${outLabel}]`
+      `[${inLabel}]split=2[${baseLbl}][${srcLbl}];` +
+      `[${srcLbl}]crop=${cropW}:${cropH}:${cropX}:${cropY},gblur=sigma=${sigma}:steps=2[${effLbl}];` +
+      `[${baseLbl}][${effLbl}]overlay=${overX}:${overY}${timeExpr}[${outLabel}]`
     );
   }
+
+  // 2. Kính mờ nghệ thuật (Frosted Glass)
+  if (mask.mode === 'glass') {
+    const blurRadius = Math.max(4, Math.min(30, Math.round((mask.intensity || 40) * 0.3)));
+    const rawTint = mask.colorHex ? mask.colorHex.replace('#', '') : 'white';
+    const tint = /^[0-9a-fA-F]{6}$/.test(rawTint) ? `0x${rawTint}` : rawTint;
+    return (
+      `[${inLabel}]split=2[${baseLbl}][${srcLbl}];` +
+      `[${srcLbl}]crop=${cropW}:${cropH}:${cropX}:${cropY},boxblur=${blurRadius}:1:2:1,eq=contrast=1.12:brightness=0.03,drawbox=color=${tint}@0.15:t=fill[${effLbl}];` +
+      `[${baseLbl}][${effLbl}]overlay=${overX}:${overY}${timeExpr}[${outLabel}]`
+    );
+  }
+
+  // 3. Điểm ảnh (Pixelate / Mosaic ô vuông)
   if (mask.mode === 'pixelate') {
     const scaleDown = Math.max(4, Math.min(30, Math.round((mask.intensity || 40) * 0.25)));
     return (
-      `[${inLabel}]split=2[cm_base][cm_src];` +
-      `[cm_src]crop=${wExpr}:${hExpr}:${xExpr}:${yExpr},scale=iw/${scaleDown}:ih/${scaleDown},scale=iw*${scaleDown}:ih*${scaleDown}:flags=neighbor[cm_pix];` +
-      `[cm_base][cm_pix]overlay=${xExpr}:${yExpr}${timeExpr}[${outLabel}]`
+      `[${inLabel}]split=2[${baseLbl}][${srcLbl}];` +
+      `[${srcLbl}]crop=${cropW}:${cropH}:${cropX}:${cropY},scale=iw/${scaleDown}:ih/${scaleDown},scale=${cropW}:${cropH}:flags=neighbor[${effLbl}];` +
+      `[${baseLbl}][${effLbl}]overlay=${overX}:${overY}${timeExpr}[${outLabel}]`
     );
   }
-  // Solid color / black box
-  const color = mask.colorHex ? mask.colorHex.replace('#', '') : 'black';
-  const drawboxTime = hasTime ? `:enable='between(t,${mask.startSec || 0},${mask.endSec && mask.endSec > 0 ? mask.endSec : 999999})'` : '';
-  return `[${inLabel}]drawbox=x=${xExpr}:y=${yExpr}:w=${wExpr}:h=${hExpr}:color=${color}@1:t=fill${drawboxTime}[${outLabel}]`;
+
+  // 4. Hộp màu / Tô đặc (Solid Color / Black Box)
+  if (mask.mode === 'solid') {
+    const rawColor = mask.colorHex ? mask.colorHex.replace('#', '') : 'black';
+    const color = /^[0-9a-fA-F]{6}$/.test(rawColor) ? `0x${rawColor}` : rawColor;
+    const intensity = mask.intensity !== undefined ? mask.intensity : 100;
+    const alpha = Math.max(0.1, Math.min(1.0, intensity / 100));
+    const drawboxTime = hasTime ? `:enable='between(t,${mask.startSec || 0},${mask.endSec && mask.endSec > 0 ? mask.endSec : 999999})'` : '';
+    return `[${inLabel}]drawbox=x=${cropX}:y=${cropY}:w=${cropW}:h=${cropH}:color=${color}@${alpha}:t=fill${drawboxTime}[${outLabel}]`;
+  }
+
+  // 5. Mặc định: Làm mờ hộp chuẩn (Box Blur với chroma_radius an toàn)
+  const blurRadius = Math.max(4, Math.min(30, Math.round((mask.intensity || 40) * 0.35)));
+  return (
+    `[${inLabel}]split=2[${baseLbl}][${srcLbl}];` +
+    `[${srcLbl}]crop=${cropW}:${cropH}:${cropX}:${cropY},boxblur=${blurRadius}:1:2:1[${effLbl}];` +
+    `[${baseLbl}][${effLbl}]overlay=${overX}:${overY}${timeExpr}[${outLabel}]`
+  );
 }
 
 /**
@@ -322,11 +388,20 @@ export async function burnHardsub(options: RenderOptions): Promise<void> {
       currentVLabel = nextLabel;
     }
 
-    // 2. Vùng che mờ (Custom Mask hoặc Mask dải cố định)
-    if (customMask) {
-      const nextLabel = 'v_mask';
-      filterChains.push(buildCustomMaskFilter(customMask, currentVLabel, nextLabel));
-      currentVLabel = nextLabel;
+    // 2. Vùng che mờ (Nhiều vùng Custom Masks hoặc Mask dải cố định)
+    const activeMasks: CustomMaskRegion[] = [];
+    if (options.customMasks && Array.isArray(options.customMasks) && options.customMasks.length > 0) {
+      activeMasks.push(...options.customMasks.filter((m) => m.enabled !== false));
+    } else if (customMask && customMask.enabled !== false) {
+      activeMasks.push(customMask);
+    }
+
+    if (activeMasks.length > 0) {
+      for (let i = 0; i < activeMasks.length; i++) {
+        const nextLabel = `v_mask_${i}`;
+        filterChains.push(buildCustomMaskFilter(activeMasks[i], currentVLabel, nextLabel, i));
+        currentVLabel = nextLabel;
+      }
     } else if (mask) {
       const nextLabel = 'v_mask';
       const height = clampMaskHeight(mask.heightPercent);
@@ -353,26 +428,86 @@ export async function burnHardsub(options: RenderOptions): Promise<void> {
     filterChains.push(`[${currentVLabel}]subtitles=filename='${escapedSubPath}'${styleSuffix}[${subNextLabel}]`);
     currentVLabel = subNextLabel;
 
-    // 4. Watermark (Hình ảnh hoặc Chữ)
-    if (watermark) {
-      if (watermark.type === 'image' && watermark.content && fs.existsSync(watermark.content)) {
+    // 4. Watermark (Hình ảnh hoặc Chữ, hỗ trợ chạy khắp màn hình)
+    if (watermark && watermark.content) {
+      const speed = watermark.speed || 'medium';
+      const speedMult = speed === 'slow' ? 0.6 : speed === 'fast' ? 1.5 : 1.0;
+
+      // 1. Chế độ lượn sóng (Harmonic Lissajous): lướt êm ái hình vô cực, không bao giờ bị đứng khựng
+      const wx = (0.42 * speedMult).toFixed(3);
+      const wx2 = (0.42 * 1.62 * speedMult).toFixed(3);
+      const wy = (0.31 * speedMult).toFixed(3);
+      const wy2 = (0.31 * 1.41 * speedMult).toFixed(3);
+
+      // 2. Chế độ nảy cạnh DVD (DVD Screensaver Bounce): Vận tốc đều đặn, tỉ lệ chu kỳ vô tỉ tránh lặp góc
+      const tx = (6.4 / speedMult).toFixed(2);
+      const ty = (4.5 / speedMult).toFixed(2);
+      const cycleX = (2 * (6.4 / speedMult)).toFixed(2);
+      const cycleY = (2 * (4.5 / speedMult)).toFixed(2);
+
+      if (watermark.type === 'image' && fs.existsSync(watermark.content)) {
         command.input(watermark.content); // Input 1: watermark image
         const wmScale = Math.max(5, Math.min(50, watermark.scalePercent || 15)) / 100;
         const wmOpacity = Math.max(0.1, Math.min(1.0, watermark.opacity ?? 0.8));
 
-        let wmPos = 'W-w-25:H-h-25'; // mặc định: bottom_right
-        if (watermark.position === 'top_left') wmPos = '25:25';
-        else if (watermark.position === 'top_right') wmPos = 'W-w-25:25';
-        else if (watermark.position === 'bottom_left') wmPos = '25:H-h-25';
-        else if (watermark.position === 'center') wmPos = '(W-w)/2:(H-h)/2';
-        else if (watermark.position === 'custom' && watermark.customPos) {
-          wmPos = `W*${watermark.customPos.xPercent / 100}:H*${watermark.customPos.yPercent / 100}`;
+        let wmPos = 'x=W-w-25:y=H-h-25'; // mặc định: bottom_right
+        if (watermark.position === 'bounce') {
+          wmPos = `x='(W-w)*(1-abs(mod(t,${cycleX})-${tx})/${tx})':y='(H-h)*(1-abs(mod(t,${cycleY})-${ty})/${ty})'`;
+        } else if (watermark.position === 'floating') {
+          wmPos = `x='(W-w)*(0.5+0.38*sin(t*${wx})+0.10*sin(t*${wx2}))':y='(H-h)*(0.5+0.38*cos(t*${wy})+0.10*cos(t*${wy2}))'`;
+        } else if (watermark.position === 'top_left') {
+          wmPos = 'x=25:y=25';
+        } else if (watermark.position === 'top_right') {
+          wmPos = 'x=W-w-25:y=25';
+        } else if (watermark.position === 'bottom_left') {
+          wmPos = 'x=25:y=H-h-25';
+        } else if (watermark.position === 'center') {
+          wmPos = 'x=(W-w)/2:y=(H-h)/2';
+        } else if (watermark.position === 'custom' && watermark.customPos) {
+          wmPos = `x=W*${watermark.customPos.xPercent / 100}:y=H*${watermark.customPos.yPercent / 100}`;
         }
 
         const nextLabel = 'v_wm';
         filterChains.push(
-          `[1:v]scale=main_w*${wmScale}:-1,format=rgba,colorchannelmixer=aa=${wmOpacity}[wm_prep];` +
-          `[${currentVLabel}][wm_prep]overlay=${wmPos}[${nextLabel}]`
+          `[1:v][${currentVLabel}]scale2ref=w=main_w*${wmScale}:h=-1[wm_scaled][wm_base];` +
+          `[wm_scaled]format=rgba,colorchannelmixer=aa=${wmOpacity}[wm_prep];` +
+          `[wm_base][wm_prep]overlay=${wmPos}[${nextLabel}]`
+        );
+        currentVLabel = nextLabel;
+      } else if (watermark.type === 'text' && watermark.content.trim()) {
+        const wmOpacity = Math.max(0.1, Math.min(1.0, watermark.opacity ?? 0.8));
+        const fontSize = Math.max(14, Math.min(80, Math.round((watermark.scalePercent || 18) * 1.8)));
+        const escapedContent = watermark.content
+          .replace(/\\/g, '\\\\')
+          .replace(/'/g, "\\'")
+          .replace(/:/g, '\\:')
+          .replace(/%/g, '\\%');
+
+        let posX = 'w-text_w-25';
+        let posY = 'h-text_h-25';
+
+        if (watermark.position === 'bounce') {
+          posX = `'(w-text_w)*(1-abs(mod(t,${cycleX})-${tx})/${tx})'`;
+          posY = `'(h-text_h)*(1-abs(mod(t,${cycleY})-${ty})/${ty})'`;
+        } else if (watermark.position === 'floating') {
+          posX = `'(w-text_w)*(0.5+0.38*sin(t*${wx})+0.10*sin(t*${wx2}))'`;
+          posY = `'(h-text_h)*(0.5+0.38*cos(t*${wy})+0.10*cos(t*${wy2}))'`;
+        } else if (watermark.position === 'top_left') {
+          posX = '25'; posY = '25';
+        } else if (watermark.position === 'top_right') {
+          posX = 'w-text_w-25'; posY = '25';
+        } else if (watermark.position === 'bottom_left') {
+          posX = '25'; posY = 'h-text_h-25';
+        } else if (watermark.position === 'center') {
+          posX = '(w-text_w)/2'; posY = '(h-text_h)/2';
+        } else if (watermark.position === 'custom' && watermark.customPos) {
+          posX = `w*${watermark.customPos.xPercent / 100}`;
+          posY = `h*${watermark.customPos.yPercent / 100}`;
+        }
+
+        const nextLabel = 'v_wm';
+        filterChains.push(
+          `[${currentVLabel}]drawtext=text='${escapedContent}':fontsize=${fontSize}:fontcolor=white@${wmOpacity}:shadowcolor=black@${wmOpacity}:shadowx=2:shadowy=2:x=${posX}:y=${posY}[${nextLabel}]`
         );
         currentVLabel = nextLabel;
       }
@@ -383,8 +518,8 @@ export async function burnHardsub(options: RenderOptions): Promise<void> {
     const lastChain = filterChains[lastChainIndex];
     filterChains[lastChainIndex] = lastChain.replace(new RegExp(`\\[${currentVLabel}\\]$`), '[vout]');
 
+    command.complexFilter(filterChains.join(';'));
     command.outputOptions([
-      '-filter_complex', filterChains.join(';'),
       '-map', '[vout]',
       '-map', '0:a:0?',
     ]);
@@ -430,6 +565,7 @@ export async function burnHardsub(options: RenderOptions): Promise<void> {
       })
       .on('error', (err) => {
         cleanup();
+        console.error('Lỗi ffmpeg hardsub:', err.message);
         reject(new Error(`Lỗi render ffmpeg: ${err.message}`));
       })
       .run();

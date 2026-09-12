@@ -4,6 +4,7 @@ import { SettingsStore } from '../store/settingsStore';
 import { generateTtsFromSrt, regenerateTtsLine, type TTSEngine } from '../render/ttsEngine';
 import { getSharedTikTokProvider } from '../tts-providers/tiktok/sessionStores';
 import { isCancelledError } from '../lib/cancel';
+import { getOrCreateProjectDir } from '../utils/projectFolder';
 
 export class TTSRunner {
   private static runningTasks = new Set<string>();
@@ -133,11 +134,9 @@ export class TTSRunner {
       });
       onUpdate?.();
 
-      // Tạo thư mục tạm để lưu audio files từng dòng
-      const ttsAudioDir = path.join(
-        path.dirname(task.filePath),
-        `.vanhsub_tts_${taskId.slice(0, 8)}`
-      );
+      // Lưu audio files từng dòng vào thư mục dự án của video
+      const projectDir = getOrCreateProjectDir(task);
+      const ttsAudioDir = path.join(projectDir, 'tts_audio');
 
       const { audioFiles, totalDuration } = await generateTtsFromSrt(
         srtPath,
@@ -162,8 +161,9 @@ export class TTSRunner {
       const updated = TaskStore.update(taskId, {
         status: 'done',
         progress: 100,
+        projectDir,
         ttsAudioDir, // Lưu thư mục audio để dùng cho bước dubbing tiếp theo
-        stageDescription: 'Đã hoàn tất tạo lồng tiếng',
+        stageDescription: 'Đã hoàn tất tạo lồng tiếng vào thư mục dự án',
       });
       onUpdate?.();
 

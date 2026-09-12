@@ -13,8 +13,10 @@ export interface SubtitleEntryStyle {
   fontName?: string;          // Tên font
   bold?: boolean;
   italic?: boolean;
-  alignment?: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9; // Numpad: 2 đáy-giữa, 8 đỉnh-giữa, 5 chính-giữa
-  marginV?: number;           // Khoảng cách lề dọc
+  alignment?: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9; // Numpad: 2 đáy-giữa, 4 giữa-trái, 8 đỉnh-giữa...
+  marginV?: number;           // Khoảng cách lề dọc (0..120)
+  marginH?: number;           // Khoảng cách lề ngang (0..150)
+  isVertical?: boolean;       // Chữ xếp dọc (cho nhạc Douyin/TikTok)
   opacity?: number;           // 0..100
   posPercent?: { x: number; y: number }; // Tọa độ tương đối 0..100%
   fadeInMs?: number;
@@ -40,6 +42,9 @@ export interface GlobalAssStyle {
   borderStyle: 1 | 3;        // 1: outline, 3: opaque box
   alignment: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
   marginV: number;
+  marginH?: number;
+  isVertical?: boolean;
+  posPercent?: { x: number; y: number };
 }
 
 export const DEFAULT_GLOBAL_STYLE: GlobalAssStyle = {
@@ -53,7 +58,9 @@ export const DEFAULT_GLOBAL_STYLE: GlobalAssStyle = {
   bold: false,
   borderStyle: 1,
   alignment: 2,
-  marginV: 30,
+  marginV: 25,
+  marginH: 20,
+  isVertical: false,
 };
 
 /** Chuyển mã màu hex #RRGGBB hoặc #RRGGBBAA sang định dạng ASS &HAABBGGRR */
@@ -95,6 +102,31 @@ function escapeAssText(text: string): string {
     .replace(/\r\n/g, '\\N')
     .replace(/[\r\n]/g, '\\N')
     .trim();
+}
+
+/**
+ * Chuyển đổi văn bản thành dạng chữ xếp dọc (Vertical layout) bằng cách chèn ký tự \N ngắt dòng.
+ * - Với Hán tự / CJK (tiếng Trung, Nhật, Hàn): ngắt sau từng ký tự (như câu đối / Douyin lyric).
+ * - Với tiếng Việt / Latinh: ngắt theo từng từ để giữ nguyên nghĩa, hoặc ngắt theo từng chữ cái nếu là từ đơn.
+ */
+export function formatVerticalText(text: string): string {
+  if (!text) return '';
+  const trimmed = text.trim();
+  const hasCJK = /[\u4e00-\u9fa5\u3040-\u30ff\uac00-\ud7af]/.test(trimmed);
+  if (hasCJK) {
+    return trimmed
+      .split('')
+      .filter((c) => c !== '\r' && c !== '\n')
+      .join('\\N');
+  }
+  const words = trimmed.split(/\s+/).filter(Boolean);
+  if (words.length > 1) {
+    return words.join('\\N');
+  }
+  return trimmed
+    .split('')
+    .filter((c) => c !== '\r' && c !== '\n')
+    .join('\\N');
 }
 
 /**
@@ -170,21 +202,28 @@ export function buildEntryOverrideTags(
   return tags.length > 0 ? `{${tags.join('')}}` : '';
 }
 
+export interface CompileToAssOptions {
+  globalStyle?: Partial<GlobalAssStyle>;
+  videoWidth?: number;
+  videoHeight?: number;
+  title?: string;
+  /** Track phụ đề thứ 2 (Ví dụ: Lời bài hát gốc hoặc song ngữ) */
+  secondaryItems?: CompileSubtitleItem[];
+  secondaryStyle?: Partial<GlobalAssStyle>;
+}
+
 /**
  * Biên dịch danh sách câu thoại thành chuỗi nội dung file ASS hoàn chỉnh
  */
 export function compileToAss(
   items: CompileSubtitleItem[],
-  options?: {
-    globalStyle?: Partial<GlobalAssStyle>;
-    videoWidth?: number;
-    videoHeight?: number;
-    title?: string;
-  }
+  options?: CompileToAssOptions
 ): string {
-  const width = options?.videoWidth || 1920;
-  const height = options?.videoHeight || 1080;
+  const width = options?.videoWidth || 384;
+  const height = options?.videoHeight || 288;
   const g = { ...DEFAULT_GLOBAL_STYLE, ...options?.globalStyle };
+  const safeMarginV = Math.min(120, Math.max(0, g.marginV ?? 25));
+  const safeMarginH = Math.min(150, Math.max(0, g.marginH ?? 20));
 
   const isBox = g.borderStyle === 3;
   const primaryColAss = hexToAssColor(g.primaryColour, g.opacity);
@@ -205,22 +244,100 @@ export function compileToAss(
     '',
   ].join('\n');
 
-  const stylesHeader = [
+  const styles = [
     '[V4+ Styles]',
     'Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding',
-    `Style: Default,${g.fontName},${g.fontSize},${primaryColAss},&H000000FF&,${outlineColAss},${backColAss},${g.bold ? 1 : 0},0,0,0,100,100,0,0,${g.borderStyle},${effectiveOutline},${effectiveShadow},${g.alignment},20,20,${g.marginV},1`,
-    '',
-  ].join('\n');
+    `Style: Default,${g.fontName},${g.fontSize},${primaryColAss},&H000000FF&,${outlineColAss},${backColAss},${g.bold ? 1 : 0},0,0,0,100,100,0,0,${g.borderStyle},${effectiveOutline},${effectiveShadow},${g.alignment},${safeMarginH},${safeMarginH},${safeMarginV},1`,
+  ];
 
-  const dialogueLines = items.map((item) => {
-    const startStr = formatAssTime(item.startMs);
-    const endStr = formatAssTime(item.endMs);
+  // Track phụ đề thứ 2 (Song ngữ / Lời nhạc gốc)
+  const hasSecondary = options?.secondaryItems && options.secondaryItems.length > 0;
+  let secGlobal: GlobalAssStyle | null = null;
+  if (hasSecondary) {
+    secGlobal = {
+      ...DEFAULT_GLOBAL_STYLE,
+      fontName: 'Arial',
+      fontSize: 18,
+      primaryColour: '#FFE135',
+      outlineColour: '#000000',
+      alignment: 4, // Mặc định: Giữa trái (Cạnh trái)
+      marginV: 25,
+      marginH: 35,
+      isVertical: true, // Mặc định: Xếp dọc
+      ...options?.secondaryStyle,
+    };
+    const sMarginH = Math.min(150, Math.max(0, secGlobal.marginH ?? 35));
+    const sMarginV = Math.min(120, Math.max(0, secGlobal.marginV ?? 25));
+    const sIsBox = secGlobal.borderStyle === 3;
+    const sPrimaryCol = hexToAssColor(secGlobal.primaryColour, secGlobal.opacity);
+    const sOutlineCol = hexToAssColor(secGlobal.outlineColour, 100);
+    const sBackCol = sIsBox ? hexToAssColor(secGlobal.outlineColour, 95) : '&H80000000&';
+    const sOutline = sIsBox && secGlobal.outline === 0 ? 3 : secGlobal.outline;
+    const sShadow = sIsBox ? 0 : secGlobal.shadow;
+
+    styles.push(
+      `Style: Secondary,${secGlobal.fontName},${secGlobal.fontSize},${sPrimaryCol},&H000000FF&,${sOutlineCol},${sBackCol},${secGlobal.bold ? 1 : 0},0,0,0,100,100,0,0,${secGlobal.borderStyle},${sOutline},${sShadow},${secGlobal.alignment},${sMarginH},${sMarginH},${sMarginV},1`
+    );
+  }
+  styles.push('');
+
+  interface OutputLine {
+    startMs: number;
+    endMs: number;
+    styleName: string;
+    text: string;
+    overrides: string;
+  }
+
+  const allLines: OutputLine[] = [];
+
+  // Track 1 (Chính: Thường là bản dịch)
+  items.forEach((item) => {
+    const isVert = item.style?.isVertical !== undefined ? item.style.isVertical : !!g.isVertical;
+    let textStr = escapeAssText(item.text);
+    if (isVert) {
+      textStr = formatVerticalText(textStr);
+    }
     const overrides = buildEntryOverrideTags(item.style, width, height);
-    const textStr = escapeAssText(item.text);
-    return `Dialogue: 0,${startStr},${endStr},Default,,0,0,0,,${overrides}${textStr}`;
+    allLines.push({
+      startMs: item.startMs,
+      endMs: item.endMs,
+      styleName: 'Default',
+      text: textStr,
+      overrides,
+    });
+  });
+
+  // Track 2 (Phụ: Thường là lời bài hát gốc)
+  if (hasSecondary && secGlobal && options?.secondaryItems) {
+    const secStyleRef = secGlobal;
+    options.secondaryItems.forEach((item) => {
+      const isVert = item.style?.isVertical !== undefined ? item.style.isVertical : !!secStyleRef.isVertical;
+      let textStr = escapeAssText(item.text);
+      if (isVert) {
+        textStr = formatVerticalText(textStr);
+      }
+      const overrides = buildEntryOverrideTags(item.style, width, height);
+      allLines.push({
+        startMs: item.startMs,
+        endMs: item.endMs,
+        styleName: 'Secondary',
+        text: textStr,
+        overrides,
+      });
+    });
+  }
+
+  // Sắp xếp các dòng theo thời gian bắt đầu
+  allLines.sort((a, b) => a.startMs - b.startMs);
+
+  const dialogueLines = allLines.map((line) => {
+    const startStr = formatAssTime(line.startMs);
+    const endStr = formatAssTime(line.endMs);
+    return `Dialogue: 0,${startStr},${endStr},${line.styleName},,0,0,0,,${line.overrides}${line.text}`;
   });
 
   const events = ['[Events]', 'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text', ...dialogueLines].join('\n');
 
-  return `${scriptInfo}\n${stylesHeader}\n${events}\n`;
+  return `${scriptInfo}\n${styles.join('\n')}\n${events}\n`;
 }

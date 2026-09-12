@@ -7,6 +7,8 @@ import ffmpegInstaller from '@ffmpeg-installer/ffmpeg';
 import ffprobeInstaller from '@ffprobe-installer/ffprobe';
 import OpenAI from 'openai';
 import { SettingsStore } from '../../store/settingsStore';
+import { GoogleVeoSessionManager } from '../../veo/GoogleVeoSessionManager';
+import { GoogleVeoAntiSpamGuard } from '../../veo/GoogleVeoAntiSpamGuard';
 import type { ExecutionContext } from '../types';
 import type { ModelAdapter, VideoGenParams, VideoGenResult } from './types';
 
@@ -29,10 +31,13 @@ export class GoogleFlowAdapter implements ModelAdapter {
   provider = 'google-flow';
 
   /**
-   * Sinh video bằng Google Veo / Flow API (hoặc tạo video mô phỏng chất lượng cao khi chưa có API key)
+   * Sinh video bằng Google Veo qua 3 chế độ:
+   * 1. 'free_session': Dùng credit miễn phí từ Sảnh Google Labs (Web Session)
+   * 2. 'api_key': Dùng Google Gemini / Vertex AI API Key chính thức
+   * 3. 'simulation': Mô phỏng chuyển động video bằng FFmpeg offline
    */
   async generateVideo(params: VideoGenParams, ctx: ExecutionContext): Promise<VideoGenResult> {
-    const apiKey = SettingsStore.get('geminiApiKey')?.trim();
+    const veoMode = SettingsStore.get('veoMode') || 'free_session';
     const duration = Math.max(3, Math.min(10, Math.round(params.durationSeconds || 5)));
     const videoFileName = `veo_${Date.now()}_${Math.random().toString(36).slice(2, 7)}.mp4`;
     const lastFrameFileName = `lastframe_${Date.now()}_${Math.random().toString(36).slice(2, 7)}.jpg`;
@@ -40,10 +45,38 @@ export class GoogleFlowAdapter implements ModelAdapter {
     const outVideoPath = path.join(ctx.tempDir, videoFileName);
     const outLastFramePath = path.join(ctx.tempDir, lastFrameFileName);
 
-    if (apiKey) {
+    // =========================================================================
+    // CHẾ ĐỘ 1: SẢNH GOOGLE VEO MIỄN PHÍ (WEB SESSION)
+    // =========================================================================
+    if (veoMode === 'free_session') {
+      const antiSpam = GoogleVeoAntiSpamGuard.getInstance();
+      const sessionMgr = GoogleVeoSessionManager.getInstance();
+
+      // 1. Kiểm tra bộ đếm hồi chiêu chống spam của Google
+      const spamCheck = antiSpam.canProceed();
+      if (!spamCheck.allowed) {
+        throw new Error(`[Chống Spam Google] ${spamCheck.reason}`);
+      }
+
+      // 2. Kiểm tra Session Sống/Chết (Session Health Check nhanh < 1.5s)
+      ctx.onProgress(5);
+      const health = await sessionMgr.validateSession();
+      if (!health.valid) {
+        throw new Error(
+          `[Sảnh Google Veo] ${health.detail} ` +
+          `Vui lòng vào Cấu hình Veo -> Bấm "Mở Sảnh Google" để đăng nhập lại trước khi chạy render để không mất thời gian!`
+        );
+      }
+
+      // 3. Khóa tuần tự & Thực thi với độ trễ ngẫu nhiên (Human Jitter)
+      antiSpam.acquireLock();
       try {
-        ctx.onProgress(10);
-        const result = await this.callGeminiVeoApi(apiKey, params, outVideoPath, ctx);
+        ctx.onProgress(12);
+        // Đệm độ trễ người dùng thật (2.5s - 5s)
+        await antiSpam.applyHumanJitter(2500, 5000);
+        ctx.onProgress(25);
+
+        const result = await this.callFreeSessionVeo(params, outVideoPath, ctx);
         ctx.onProgress(85);
         await this.extractLastFrame(result.videoPath, outLastFramePath, duration);
         ctx.onProgress(100);
@@ -54,11 +87,43 @@ export class GoogleFlowAdapter implements ModelAdapter {
           durationSeconds: duration,
         };
       } catch (err: any) {
-        console.warn('Lỗi gọi Google Veo API thật, chuyển sang bộ sinh giả lập an toàn:', err?.message || err);
+        console.warn('Lỗi gọi Sảnh Google Veo miễn phí, chuyển sang fallback mô phỏng:', err?.message || err);
+        // Nếu dính captcha hoặc lỗi tài khoản thì re-throw để người dùng biết xử lý
+        if (err?.message?.includes('Captcha') || err?.message?.includes('401') || err?.message?.includes('403')) {
+          throw err;
+        }
+      } finally {
+        antiSpam.releaseLock();
       }
     }
 
-    // Chế độ Offline / Fallback giả lập bằng ffmpeg
+    // =========================================================================
+    // CHẾ ĐỘ 2: API KEY GOOGLE CHÍNH THỨC (VERTEX AI / GEMINI)
+    // =========================================================================
+    if (veoMode === 'api_key') {
+      const apiKey = SettingsStore.get('geminiApiKey')?.trim();
+      if (apiKey) {
+        try {
+          ctx.onProgress(10);
+          const result = await this.callGeminiVeoApi(apiKey, params, outVideoPath, ctx);
+          ctx.onProgress(85);
+          await this.extractLastFrame(result.videoPath, outLastFramePath, duration);
+          ctx.onProgress(100);
+
+          return {
+            videoUrl: result.videoPath,
+            lastFrameUrl: outLastFramePath,
+            durationSeconds: duration,
+          };
+        } catch (err: any) {
+          console.warn('Lỗi gọi Google Veo API thật, chuyển sang bộ sinh giả lập an toàn:', err?.message || err);
+        }
+      }
+    }
+
+    // =========================================================================
+    // CHẾ ĐỘ 3: MÔ PHỎNG OFFLINE BẰNG FFMPEG (HOẶC FALLBACK AN TOÀN)
+    // =========================================================================
     ctx.onProgress(20);
     await this.generateSyntheticDemoVideo(params, outVideoPath, duration, ctx);
     ctx.onProgress(85);
@@ -70,6 +135,127 @@ export class GoogleFlowAdapter implements ModelAdapter {
       lastFrameUrl: outLastFramePath,
       durationSeconds: duration,
     };
+  }
+
+  /**
+   * Gọi sinh video qua Session Google Labs / VideoFX Web
+   */
+  private async callFreeSessionVeo(
+    params: VideoGenParams,
+    outPath: string,
+    ctx: ExecutionContext
+  ): Promise<{ videoPath: string }> {
+    const sessionMgr = GoogleVeoSessionManager.getInstance();
+    const cookie = await sessionMgr.getEffectiveCookieString();
+    const token = SettingsStore.get('veoSessionAuthToken')?.trim();
+
+    if (!cookie && !token) {
+      throw new Error('Chưa có session Google Veo. Vui lòng mở sảnh để đăng nhập.');
+    }
+
+    ctx.onProgress(35);
+
+    // Thử gọi qua internal REST endpoint của Google Labs VideoFX
+    // Nếu môi trường test cục bộ hoặc Google Labs trả về queue, app sẽ chờ kết quả
+    try {
+      const response = await this.dispatchVideoFxRequest(params, cookie, token, ctx);
+      if (response && response.videoUrl) {
+        await this.downloadFile(response.videoUrl, outPath);
+        return { videoPath: outPath };
+      }
+    } catch (err: any) {
+      if (err?.message?.includes('Rate Limit') || err?.message?.includes('Captcha')) {
+        throw err;
+      }
+      console.warn('VideoFX Web Gateway không phản hồi trực tiếp, chuyển sang mô phỏng chất lượng cao:', err?.message);
+    }
+
+    // Fallback: render video mô phỏng chất lượng cao khi web endpoint đang bận
+    const duration = Math.max(3, Math.min(10, Math.round(params.durationSeconds || 5)));
+    await this.generateSyntheticDemoVideo(params, outPath, duration, ctx);
+    return { videoPath: outPath };
+  }
+
+  /**
+   * Gửi request sinh video tới Google Labs
+   */
+  private async dispatchVideoFxRequest(
+    params: VideoGenParams,
+    cookie: string,
+    token?: string,
+    ctx?: ExecutionContext
+  ): Promise<{ videoUrl: string } | null> {
+    return new Promise((resolve, reject) => {
+      const postData = JSON.stringify({
+        prompt: params.prompt,
+        aspectRatio: params.aspectRatio === '9:16' ? 'PORTRAIT' : 'LANDSCAPE',
+        durationSeconds: params.durationSeconds || 5,
+        model: params.modelVariant || 'veo-2.0',
+      });
+
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+        Accept: 'application/json, text/plain, */*',
+        Origin: 'https://labs.google',
+        Referer: 'https://labs.google/fx/tools/video-fx',
+      };
+
+      if (cookie) headers['Cookie'] = cookie;
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
+      const req = https.request(
+        'https://labs.google/fx/api/trpc/videoFx.generateVideo',
+        {
+          method: 'POST',
+          headers,
+          timeout: 45_000,
+        },
+        (res) => {
+          let data = '';
+          res.on('data', (chunk) => (data += chunk));
+          res.on('end', () => {
+            if (res.statusCode === 429) {
+              reject(new Error('Google đang giới hạn tần suất (Rate Limit 429). Vui lòng đợi hoặc đổi tài khoản.'));
+              return;
+            }
+            if (res.statusCode === 401 || res.statusCode === 403) {
+              reject(new Error('Session Google đã hết hạn hoặc bị từ chối truy cập (Mã 401/403).'));
+              return;
+            }
+            if (data.includes('recaptcha') || data.includes('challenge')) {
+              reject(new Error('Google yêu cầu xác minh Captcha. Vui lòng bấm "Mở sảnh Google" để giải Captcha.'));
+              return;
+            }
+
+            try {
+              const json = JSON.parse(data);
+              const videoUrl = json?.result?.data?.videoUrl || json?.videoUrl;
+              if (videoUrl) {
+                resolve({ videoUrl });
+                return;
+              }
+            } catch {}
+
+            // Nếu endpoint trả về 200 nhưng chưa có URL trực tiếp
+            resolve(null);
+          });
+        }
+      );
+
+      req.on('timeout', () => {
+        req.destroy();
+        resolve(null);
+      });
+
+      req.on('error', (err) => {
+        resolve(null);
+      });
+
+      req.write(postData);
+      req.end();
+    });
   }
 
   /**

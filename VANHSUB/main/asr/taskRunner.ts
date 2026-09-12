@@ -5,6 +5,7 @@ import { extract16kHzWav } from './audioExtractor';
 import { transcribe } from './whisperEngine';
 import { TranslateRunner } from '../translate/translateRunner';
 import { CancelledError, isCancelledError } from '../lib/cancel';
+import { getProjectArtifactPaths } from '../utils/projectFolder';
 
 export class TaskRunner {
   private static runningTasks = new Set<string>();
@@ -33,15 +34,18 @@ export class TaskRunner {
     this.cancelledTasks.delete(taskId);
 
     try {
-      // Giai đoạn 1: Chuẩn bị & trích xuất audio 16kHz
+      const { projectDir, audioWavPath, rawSrtPath } = getProjectArtifactPaths(task);
+
+      // Giai đoạn 1: Chuẩn bị & trích xuất audio 16kHz vào thư mục dự án
       TaskStore.update(taskId, {
         status: 'transcribing',
         progress: 10,
-        stageDescription: 'Đang trích xuất audio 16kHz chuẩn...',
+        projectDir,
+        stageDescription: 'Đang trích xuất audio vào thư mục dự án...',
       });
       onUpdate?.();
 
-      const { wavPath } = await extract16kHzWav(task.filePath, undefined, (percent) => {
+      const { wavPath } = await extract16kHzWav(task.filePath, audioWavPath, (percent) => {
         TaskStore.update(taskId, {
           progress: 10 + Math.round(percent * 0.2), // 10% -> 30%
         });
@@ -77,14 +81,26 @@ export class TaskRunner {
         },
         shouldStop: () => this.cancelledTasks.has(taskId),
       });
-      console.log(`[ASR] Phiên âm hoàn tất! Đã lưu file phụ đề: ${result.srtPath}`);
+
+      // Chuẩn hoá file phụ đề về [cleanBase].srt trong projectDir
+      let finalSrt = result.srtPath;
+      if (fs.existsSync(result.srtPath) && result.srtPath !== rawSrtPath) {
+        try {
+          fs.copyFileSync(result.srtPath, rawSrtPath);
+          fs.unlinkSync(result.srtPath);
+          finalSrt = rawSrtPath;
+        } catch {
+          // nếu lỗi thì dùng result.srtPath
+        }
+      }
+      console.log(`[ASR] Phiên âm hoàn tất! Đã lưu file phụ đề: ${finalSrt}`);
 
       // Giai đoạn 3: Hoàn thành tạo phụ đề .srt
       TaskStore.update(taskId, {
         status: 'done',
         progress: 100,
-        srtPath: result.srtPath,
-        stageDescription: 'Đã tạo xong phụ đề .srt',
+        srtPath: finalSrt,
+        stageDescription: 'Đã tạo xong phụ đề .srt trong thư mục dự án',
       });
       onUpdate?.();
 
