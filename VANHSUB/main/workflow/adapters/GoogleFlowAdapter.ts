@@ -87,20 +87,7 @@ export class GoogleFlowAdapter implements ModelAdapter {
       ctx.onProgress(5);
       const health = await sessionMgr.validateSession();
       if (!health.valid) {
-        console.warn(
-          `[Sảnh Google Flow] ${health.detail}. Tự động chuyển sang bộ mô phỏng offline chất lượng cao để workflow không bị gián đoạn.`
-        );
-        ctx.onProgress(20);
-        await this.generateSyntheticDemoVideo(params, outVideoPath, duration, ctx);
-        ctx.onProgress(85);
-        await this.extractLastFrame(outVideoPath, outLastFramePath, duration);
-        ctx.onProgress(100);
-
-        return {
-          videoUrl: outVideoPath,
-          lastFrameUrl: outLastFramePath,
-          durationSeconds: duration,
-        };
+        throw new Error(`[Sảnh Google Flow] ${health.detail}. Vui lòng đăng nhập Google Flow để tiếp tục.`);
       }
 
       // 2. Tự động xếp hàng (FIFO Queue) & Tự động đếm lùi Cooldown an toàn
@@ -134,18 +121,8 @@ export class GoogleFlowAdapter implements ModelAdapter {
           console.log('[Google Flow] Workflow đã bị người dùng hủy bỏ.');
           throw new Error('Tác vụ đã bị hủy bởi người dùng.');
         }
-        console.warn('Lỗi gọi Sảnh Google Veo miễn phí, chuyển sang fallback mô phỏng an toàn:', err?.message || err);
-        ctx.onProgress(30);
-        await this.generateSyntheticDemoVideo(params, outVideoPath, duration, ctx);
-        ctx.onProgress(85);
-        await this.extractLastFrame(outVideoPath, outLastFramePath, duration);
-        ctx.onProgress(100);
-
-        return {
-          videoUrl: outVideoPath,
-          lastFrameUrl: outLastFramePath,
-          durationSeconds: duration,
-        };
+        console.error('[Google Flow] Lỗi tạo video từ Google Veo:', err?.message || err);
+        throw new Error(err?.message || 'Không thể tạo video từ Google Veo.');
       } finally {
         antiSpam.releaseLock();
       }
@@ -170,34 +147,36 @@ export class GoogleFlowAdapter implements ModelAdapter {
             durationSeconds: duration,
           };
         } catch (err: any) {
-          console.warn('Lỗi gọi Google Veo API thật, chuyển sang bộ sinh giả lập an toàn:', err?.message || err);
+          console.error('[Google Flow] Lỗi gọi Google Veo API:', err?.message || err);
+          throw new Error(err?.message || 'Lỗi gọi Google Veo API thật.');
         }
+      } else {
+        throw new Error('[Google Flow] Thiếu Gemini API Key. Vui lòng cấu hình API Key trong Cài đặt.');
       }
     }
 
     // =========================================================================
-    // CHẾ ĐỘ 3: MÔ PHỎNG OFFLINE BẰNG FFMPEG (HOẶC FALLBACK AN TOÀN)
+    // CHẾ ĐỘ 3: MÔ PHỎNG OFFLINE BẰNG FFMPEG (CHỈ KHI NGƯỜI DÙNG CHỦ ĐỘNG CHỌN)
     // =========================================================================
-    ctx.onProgress(20);
-    await this.generateSyntheticDemoVideo(params, outVideoPath, duration, ctx);
-    ctx.onProgress(85);
-    await this.extractLastFrame(outVideoPath, outLastFramePath, duration);
-    ctx.onProgress(100);
+    if (veoMode === 'simulation') {
+      ctx.onProgress(20);
+      await this.generateSyntheticDemoVideo(params, outVideoPath, duration, ctx);
+      ctx.onProgress(85);
+      await this.extractLastFrame(outVideoPath, outLastFramePath, duration);
+      ctx.onProgress(100);
 
-    return {
-      videoUrl: outVideoPath,
-      lastFrameUrl: outLastFramePath,
-      durationSeconds: duration,
-    };
+      return {
+        videoUrl: outVideoPath,
+        lastFrameUrl: outLastFramePath,
+        durationSeconds: duration,
+      };
+    }
+
+    throw new Error(`[Google Flow] Không thể sinh video. Chế độ hiện tại: ${veoMode}`);
   }
 
   /**
    * Gọi sinh video qua Session Google Labs / VideoFX Web.
-   *
-   * CHIẾN LƯỢC:
-   * 1. Browser Automation (executeJavaScript) — gọi fetch() TRONG trình duyệt Electron
-   *    → Browser tự gán Cookie, CSRF token, Origin đúng chuẩn, Google không phân biệt được.
-   * 2. Fallback: Mô phỏng Ken Burns từ ảnh Keyframe (nếu có) hoặc gradient
    */
   private async callFreeSessionVeo(
     params: VideoGenParams,
@@ -212,12 +191,10 @@ export class GoogleFlowAdapter implements ModelAdapter {
     const token = SettingsStore.get('veoSessionAuthToken')?.trim();
 
     if (!cookie && !token) {
-      console.warn('[Google Flow] Chưa có session. Chuyển sang mô phỏng offline.');
-      await this.generateSyntheticDemoVideo(params, outPath, duration, ctx);
-      return { videoPath: outPath };
+      throw new Error('[Google Flow] Chưa có phiên đăng nhập Google Flow. Vui lòng mở sảnh và đăng nhập.');
     }
 
-    // === CHIẾN LƯỢC 1: Browser Automation (executeJavaScript trong Electron) ===
+    // === CHIẾN LƯỢC: Browser Automation (executeJavaScript trong Electron) ===
     ctx.onProgress(8);
     try {
       const browserResult = await sessionMgr.generateVideoViaBrowserContext(
@@ -257,18 +234,15 @@ export class GoogleFlowAdapter implements ModelAdapter {
       if (ctx.isCancelled() || browserErr?.message?.includes('hủy')) {
         throw new Error('Tác vụ đã bị hủy bởi người dùng.');
       }
-      console.warn('[Google Flow] Browser automation lỗi, chuyển sang fallback:', browserErr?.message || browserErr);
+      throw new Error(browserErr?.message || '[Google Flow] Lỗi khi tạo video trên trình duyệt.');
     }
 
     if (ctx.isCancelled()) {
       throw new Error('Tác vụ đã bị hủy bởi người dùng.');
     }
 
-    // === CHIẾN LƯỢC 2: Fallback — Mô phỏng offline (Ken Burns hoặc gradient) ===
-    console.warn('[Google Flow] Không nhận được video từ Google Veo, dùng bộ mô phỏng chất lượng cao.');
-    ctx.onProgress(30);
-    await this.generateSyntheticDemoVideo(params, outPath, duration, ctx);
-    return { videoPath: outPath };
+    // Nếu không nhận được video từ Google Veo, báo lỗi ngay lập tức
+    throw new Error('[Google Flow] Không nhận được video từ Google Veo sau thời gian chờ.');
   }
 
   /**

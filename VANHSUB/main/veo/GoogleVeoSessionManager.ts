@@ -1182,8 +1182,9 @@ export class GoogleVeoSessionManager {
       onProgress?.(pct, `Google Veo đang xử lý (${Math.round(elapsed)}s / ${maxWaitSeconds}s)...`);
     }
 
-    console.warn('[Google Flow Browser] Quá thời gian chờ video từ Google Flow (sẽ tự động dùng mô phỏng offline).');
+    console.warn('[Google Flow Browser] Quá thời gian chờ video từ Google Flow.');
     return null;
   }
 
 }
+
