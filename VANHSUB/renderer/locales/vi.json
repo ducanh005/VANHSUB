@@ -104,18 +104,14 @@
     "startTts": "Tạo lồng tiếng",
     "creatingTts": "Đang tạo lồng tiếng...",
     "ttsProgress": "Đang tạo lồng tiếng",
-    "connection": "Trạng thái VietTTS",
+    "connection": "Trạng thái TTS",
     "connected": "✓ Sẵn sàng",
-    "disconnected": "✗ Không kết nối",
-    "connectionWarning": "⚠️ VietTTS không kết nối. Hãy chắc chắn Docker đã chạy",
-    "dockerCommand": "docker run -p 6006:6006 vanhsub/viettts",
+    "disconnected": "✗ Chưa sẵn sàng",
+    "connectionWarning": "⚠️ Chưa có session TikTok TTS hoặc lỗi kết nối",
+    "dockerCommand": "",
     "voices": {
-      "alloy": "Alloy (Trung tính)",
-      "echo": "Echo (Nam)",
-      "fable": "Fable (Kể chuyện)",
-      "onyx": "Onyx (Sâu, lịch sự)",
-      "nova": "Nova (Nữ, tươi sáng)",
-      "shimmer": "Shimmer (Nữ, mềm mại)"
+      "BV074_streaming": "Tiếng Việt — Nữ (BV074)",
+      "BV075_streaming": "Tiếng Việt — Nam (BV075)"
     },
     "speeds": {
       "0.5": "0.5x (Rất chậm)",
@@ -125,7 +121,7 @@
       "1.5": "1.5x (Rất nhanh)",
       "2.0": "2.0x (Siêu nhanh)"
     },
-    "selectTaskPrompt": "Chọn một tác vụ đã có phụ đề .srt ở menu phía trên để tạo lồng tiếng bằng VietTTS AI.",
+    "selectTaskPrompt": "Chọn một tác vụ đã có phụ đề .srt ở menu phía trên để tạo lồng tiếng bằng AI.",
     "noSrtFile": "Tác vụ này chưa có file .srt — hãy chạy phiên âm ở Trang chủ trước."
   },
   "export": {

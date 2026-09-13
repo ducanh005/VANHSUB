@@ -508,7 +508,7 @@ export default function HomePage() {
           {isSidebarCollapsed ? (
             <div
               className="flex flex-col items-center justify-center p-2.5 rounded-xl border border-slate-800 bg-slate-900/60 text-slate-400 hover:text-brand-cyan transition-colors cursor-pointer"
-              title={`AI Core Engine: Hoạt động\nASR: Whisper ${asrModel}\nTranslate: Gemini Flash\nTTS: VietTTS Local`}
+              title={`AI Core Engine: Hoạt động\nASR: Whisper ${asrModel}\nTranslate: Gemini Flash\nTTS: TikTok TTS`}
             >
               <Cpu className="h-4 w-4 text-brand-cyan" />
               <span className="mt-1 h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
@@ -536,7 +536,7 @@ export default function HomePage() {
                 </div>
                 <div className="flex items-center justify-between">
                   <span>TTS Voice</span>
-                  <span className="font-mono text-slate-300">VietTTS Local</span>
+                  <span className="font-mono text-slate-300">TikTok TTS</span>
                 </div>
               </div>
             </div>
@@ -547,11 +547,25 @@ export default function HomePage() {
             MAIN CONTENT AREA
             ========================================================================= */}
         <main className="flex flex-1 flex-col overflow-hidden bg-[#080D1A]">
-          {/* Header (Ẩn khi ở Workflow Mode để Canvas chiếm trọn không gian màn hình) */}
-          {activeTab !== 'workflow' && (
-            <header className="flex h-16 items-center justify-between border-b border-slate-800/80 bg-[#0B1120]/80 px-6 backdrop-blur-md">
+          {/* Header chính: luôn hiển thị đồng bộ ở mọi tab (chỉ ẩn khi bật Zen Mode để Canvas chiếm trọn màn hình) */}
+          {!isZenMode && (
+            <header className="flex h-16 shrink-0 items-center justify-between border-b border-slate-800/80 bg-[#0B1120]/80 px-6 backdrop-blur-md z-20">
               <div className="flex flex-1 items-center gap-4">
-                <h2 className="text-lg font-semibold text-white tracking-tight">Studio Trang chủ</h2>
+                <h2 className="text-lg font-semibold text-white tracking-tight">
+                  {activeTab === 'workflow'
+                    ? 'Workflow AI Studio'
+                    : activeTab === 'editor'
+                    ? 'Hiệu đính Phụ đề'
+                    : activeTab === 'dubbing'
+                    ? 'Lồng tiếng AI'
+                    : activeTab === 'export'
+                    ? 'Xuất Video'
+                    : activeTab === 'settings'
+                    ? 'Cài đặt Hệ thống'
+                    : activeTab === 'subtitles'
+                    ? 'Không gian Phụ đề'
+                    : 'Studio Trang chủ'}
+                </h2>
 
                 {/* Universal Search bar */}
                 <div className="flex flex-1 items-center justify-center px-4">
@@ -921,7 +935,7 @@ export default function HomePage() {
                   </div>
                   <div className="flex items-center justify-between rounded-xl border border-slate-800/60 bg-slate-900/80 p-2.5">
                     <span className="text-slate-300">Lồng tiếng TTS</span>
-                    <span className="font-medium text-brand-rose">VietTTS Studio</span>
+                    <span className="font-medium text-brand-rose">TikTok TTS Engine</span>
                   </div>
                 </div>
               </div>

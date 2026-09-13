@@ -113,7 +113,7 @@ function getStore(): Store<AppSettings> {
         translateConcurrency: 1,
         autoTranslateAfterAsr: false,
         vietTtsEndpoint: 'http://localhost:6006',
-        ttsVoice: 'default',
+        ttsVoice: 'BV074_streaming',
         ttsSpeed: 1.0,
         ocrLanguage: 'vie',
         ocrFps: 2,

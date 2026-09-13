@@ -26,7 +26,7 @@ export class TTSRunner {
     if (engine) return engine;
     if (getSharedTikTokProvider().hasSession()) return 'tiktok';
     if (task.ttsEngine) return task.ttsEngine;
-    return 'viettts';
+    return 'tiktok';
   }
 
   /** Yêu cầu huỷ: hiệu lực sau khi câu hiện tại tạo audio xong */
@@ -110,7 +110,7 @@ export class TTSRunner {
     this.runningTasks.add(taskId);
     this.cancelledTasks.delete(taskId);
 
-    const voiceToUse = voice || task.ttsVoice || SettingsStore.get('ttsVoice') || 'alloy';
+    const voiceToUse = voice || task.ttsVoice || SettingsStore.get('ttsVoice') || 'BV074_streaming';
     const speedToUse = speed || task.ttsSpeed || SettingsStore.get('ttsSpeed') || 1.0;
     // Engine: tham số caller > engine đã lưu trên task > mặc định theo session —
     // có session TikTok thì dùng TikTok; KHÔNG dùng ttsVoice làm dấu hiệu chọn

@@ -121,10 +121,10 @@ const STEPS: GuideStep[] = [
     description: 'Đưa giọng đọc tiếng Việt vào video và xuất bản hoàn chỉnh.',
     bullets: [
       <>
-        Tạo giọng đọc bằng <strong className="text-white">VietTTS</strong> — cần chạy Docker theo hướng dẫn ngay trong tab "Lồng tiếng".
+        Tạo giọng đọc bằng <strong className="text-white">TikTok TTS</strong> với giọng nam, nữ tiếng Việt tự nhiên và ~80 giọng đa ngôn ngữ.
       </>,
       <>
-        <strong className="text-white">Clone giọng</strong> từ file mẫu, gán giọng riêng cho từng câu thoại, nghe thử trước khi tạo.
+        Gán giọng riêng cho từng câu thoại, tuỳ chỉnh tốc độ đọc, nghe thử trực tiếp trước khi tạo.
       </>,
       <>
         Ghép audio vào video rồi xuất <strong className="text-white">Hardsub</strong> (ghi cứng phụ đề) hoặc <strong className="text-white">Softsub</strong> ở tab "Xuất video".

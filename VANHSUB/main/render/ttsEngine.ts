@@ -121,9 +121,9 @@ async function generateAudioFromSample(
  */
 async function generateAudio(
   text: string,
-  voice: string = 'default',
+  voice: string = 'BV074_streaming',
   speed: number = 1.0,
-  engine: TTSEngine = 'viettts'
+  engine: TTSEngine = 'tiktok'
 ): Promise<Buffer> {
   if (engine === 'tiktok') {
     try {
@@ -259,9 +259,9 @@ export async function regenerateTtsLine(
     throw new Error(`Không tìm thấy dòng ${lineIndex} trong file phụ đề.`);
   }
 
-  const voiceToUse = voice || SettingsStore.get('ttsVoice') || 'default';
+  const voiceToUse = voice || SettingsStore.get('ttsVoice') || 'BV074_streaming';
   const speedToUse = speed || SettingsStore.get('ttsSpeed') || 1.0;
-  const engineToUse: TTSEngine = engine || 'viettts';
+  const engineToUse: TTSEngine = engine || 'tiktok';
 
   console.log(`[TTS] Tạo lại audio dòng ${lineIndex} (${engineToUse}/${voiceToUse}): "${sub.text.slice(0, 50)}..."`);
   const audioBuffer = await withRetry(() => generateAudio(sub.text, voiceToUse, speedToUse, engineToUse));
@@ -437,7 +437,7 @@ export async function previewTts(
   speed?: number,
   engine?: TTSEngine
 ): Promise<{ audioBase64: string; mimeType: string }> {
-  const buffer = await generateAudio(text, voice, speed, engine || 'viettts');
+  const buffer = await generateAudio(text, voice || 'BV074_streaming', speed, engine || 'tiktok');
   return { audioBase64: buffer.toString('base64'), mimeType: 'audio/mpeg' };
 }
 
