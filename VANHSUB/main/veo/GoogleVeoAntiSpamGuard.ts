@@ -26,13 +26,13 @@ export class GoogleVeoAntiSpamGuard {
     return this.instance;
   }
 
-  /** Lấy thời gian hồi chiêu cấu hình (mặc định 45 giây) */
+  /** Lấy thời gian hồi chiêu cấu hình (mặc định 8 giây thay vì 45s để tránh treo workflow) */
   private getCooldownMs(): number {
     try {
-      const sec = Number(SettingsStore.get('veoCooldownSeconds')) || 45;
-      return Math.max(10, Math.min(180, sec)) * 1000;
+      const sec = Number(SettingsStore.get('veoCooldownSeconds')) || 8;
+      return Math.max(3, Math.min(180, sec)) * 1000;
     } catch {
-      return 45_000;
+      return 8_000;
     }
   }
 
@@ -106,7 +106,7 @@ export class GoogleVeoAntiSpamGuard {
         const watchdog = setTimeout(() => {
           this.releaseLock();
           resolve();
-        }, 45_000);
+        }, 12_000);
 
         this.queue.push({
           resolve: () => {
@@ -125,11 +125,11 @@ export class GoogleVeoAntiSpamGuard {
     // Nhận quyền tạo video
     this.isGenerating = true;
 
-    // 2. Tự động kiểm tra và đếm lùi Cooldown an toàn chống bị Google gắn cờ bot
+    // 2. Tự động kiểm tra và đếm lùi Cooldown an toàn chống bị Google gắn cờ bot (giới hạn tối đa 8s)
     const cooldownMs = this.getCooldownMs();
     const now = Date.now();
     const elapsed = this.lastRequestTimestamp === 0 ? cooldownMs : now - this.lastRequestTimestamp;
-    let remainingMs = Math.max(0, cooldownMs - elapsed);
+    let remainingMs = Math.min(8_000, Math.max(0, cooldownMs - elapsed));
 
     while (remainingMs > 0) {
       if (options?.isCancelled?.()) {
@@ -176,7 +176,7 @@ export class GoogleVeoAntiSpamGuard {
   /**
    * Đệm thêm độ trễ ngẫu nhiên (Human Jitter) để phá tính chu kỳ máy móc của Bot.
    */
-  async applyHumanJitter(minMs = 2500, maxMs = 6000): Promise<number> {
+  async applyHumanJitter(minMs = 800, maxMs = 2000): Promise<number> {
     const jitter = Math.floor(Math.random() * (maxMs - minMs + 1)) + minMs;
     await new Promise((resolve) => setTimeout(resolve, jitter));
     return jitter;

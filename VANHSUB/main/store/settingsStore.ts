@@ -129,7 +129,7 @@ function getStore(): Store<AppSettings> {
         veoAccountEmail: '',
         veoSessionStatus: 'unauthenticated',
         veoLastChecked: 0,
-        veoCooldownSeconds: 45,
+        veoCooldownSeconds: 8,
       },
     });
   }
