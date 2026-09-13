@@ -34,6 +34,7 @@ const GOOGLE_AUTH_COOKIE_NAMES = [
 export class GoogleVeoSessionManager {
   private static instance: GoogleVeoSessionManager | null = null;
   private lobbyWindow: any = null;
+  private _webRequestListenerAttached = false;
 
   private constructor() {}
 
@@ -700,35 +701,52 @@ export class GoogleVeoSessionManager {
     const win = this.lobbyWindow;
     if (!win || win.isDestroyed()) return false;
 
-    // Đợi page load ban đầu
+    // Đợi page load ban đầu nếu đang loading
     if (win.webContents.isLoading()) {
       await new Promise<void>((resolve) => {
-        const onStop = () => resolve();
-        win.webContents.once('did-stop-loading', onStop);
+        win.webContents.once('did-stop-loading', () => resolve());
         setTimeout(resolve, 7000);
       });
     }
 
-    // Kiểm tra xem đang ở đúng domain chưa
+    // PHẢI ở đúng domain labs.google để relative fetch hoạt động đúng.
+    // flow.google.com KHÔNG có endpoint /fx/api/trpc — chỉ labs.google mới có.
     const currentUrl = (win.webContents.getURL() || '').toLowerCase();
-    const isOnFlowOrLabs = currentUrl.includes('labs.google') || currentUrl.includes('flow.google.com');
+    const isOnLabs = currentUrl.includes('labs.google');
 
-    if (!isOnFlowOrLabs) {
-      console.log('[Google Flow Browser] Đang navigate tới labs.google VideoFX...');
+    if (!isOnLabs) {
+      console.log('[Google Flow Browser] Đang navigate tới labs.google/fx/tools/video-fx...');
       try {
         await win.loadURL('https://labs.google/fx/tools/video-fx');
         await new Promise<void>((resolve) => {
-          const onStop = () => resolve();
-          win.webContents.once('did-stop-loading', onStop);
-          setTimeout(resolve, 8000);
+          win.webContents.once('did-stop-loading', () => resolve());
+          setTimeout(resolve, 10000);
         });
-        // Extra wait for JS to initialize
-        await new Promise((r) => setTimeout(r, 2000));
+        // Extra wait cho JS của page khởi động xong
+        await new Promise((r) => setTimeout(r, 2500));
       } catch (e) {
-        console.warn('[Google Flow Browser] Không thể load VideoFX page:', e);
+        console.warn('[Google Flow Browser] Không thể load labs.google VideoFX page:', e);
         return false;
       }
     }
+
+    // Gắn webRequest listener để log tất cả POST requests từ page này
+    // → giúp phát hiện endpoint thật mà Google VideoFX dùng
+    try {
+      const electron = require('electron');
+      const ses = electron.session.fromPartition('persist:google_veo');
+      if (ses && !this._webRequestListenerAttached) {
+        this._webRequestListenerAttached = true;
+        ses.webRequest.onCompleted(
+          { urls: ['*://labs.google/*', '*://flow.google.com/*'] },
+          (details: any) => {
+            if (details.method === 'POST' && details.statusCode) {
+              console.log(`[Google Flow Network] POST ${details.url} → HTTP ${details.statusCode}`);
+            }
+          }
+        );
+      }
+    } catch {}
 
     return !win.isDestroyed();
   }
@@ -774,42 +792,57 @@ export class GoogleVeoSessionManager {
     onProgress?.(12, 'Đang gửi yêu cầu sinh video tới Google Labs...');
 
     // === BƯỚC 1: Submit video generation job ===
-    // Thử tRPC batch format (format chuẩn của labs.google)
+    // Thử nhiều endpoint/format khác nhau, log status code để debug
     const generateJs = `
       (async function __vanhsubGenerate() {
         try {
-          // Thử tRPC batch endpoint (format v10/v11)
-          const endpoints = [
-            { url: '/fx/api/trpc/videoFx.generateVideo?batch=1', isBatch: true },
-            { url: '/api/trpc/videoFx.generateVideo?batch=1', isBatch: true },
-            { url: '/fx/api/trpc/videoFx.generateVideo', isBatch: false },
+          const baseBody = {
+            prompt: ${promptJson},
+            aspectRatio: '${aspect}',
+            durationSeconds: ${duration},
+            model: '${model}',
+          };
+
+          // Các format tRPC có thể có: batch v10, batch v11, non-batch, raw POST
+          const attempts = [
+            // tRPC batch v10 (array wrapper)
+            { url: '/fx/api/trpc/videoFx.generateVideo?batch=1', body: JSON.stringify([{ json: baseBody }]) },
+            // tRPC non-batch
+            { url: '/fx/api/trpc/videoFx.generateVideo', body: JSON.stringify({ json: baseBody }) },
+            // Raw REST (không wrap json)
+            { url: '/fx/api/generate', body: JSON.stringify(baseBody) },
+            // Tên procedure khác có thể dùng
+            { url: '/fx/api/trpc/video.generate?batch=1', body: JSON.stringify([{ json: baseBody }]) },
+            { url: '/fx/api/trpc/videofx.generate?batch=1', body: JSON.stringify([{ json: baseBody }]) },
           ];
 
-          for (const ep of endpoints) {
+          const tried = [];
+          for (const ep of attempts) {
+            let status = 0;
+            let respBody = '';
             try {
-              const body = ep.isBatch
-                ? JSON.stringify([{ json: { prompt: ${promptJson}, aspectRatio: '${aspect}', durationSeconds: ${duration}, model: '${model}' } }])
-                : JSON.stringify({ json: { prompt: ${promptJson}, aspectRatio: '${aspect}', durationSeconds: ${duration}, model: '${model}' } });
-
               const resp = await fetch(ep.url, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Accept': 'application/json, text/plain, */*' },
                 credentials: 'include',
-                body: body,
+                body: ep.body,
               });
-
+              status = resp.status;
               if (resp.status === 200 || resp.status === 201) {
-                const text = await resp.text();
-                return JSON.stringify({ ok: true, endpointUrl: ep.url, status: resp.status, body: text.slice(0, 8000) });
+                respBody = await resp.text();
+                return JSON.stringify({ ok: true, endpointUrl: ep.url, status: resp.status, body: respBody.slice(0, 8000), tried });
               }
-              // 404/405 → thử endpoint tiếp theo
+              // Đọc body để log (không throw)
+              try { respBody = (await resp.text()).slice(0, 200); } catch {}
             } catch (fetchErr) {
-              // tiếp tục thử
+              status = -1;
+              respBody = String(fetchErr && fetchErr.message ? fetchErr.message : fetchErr);
             }
+            tried.push({ url: ep.url, status, snippet: respBody });
           }
-          return JSON.stringify({ ok: false, error: 'Tất cả endpoint đều thất bại' });
+          return JSON.stringify({ ok: false, error: 'Tất cả endpoint đều thất bại', tried });
         } catch(e) {
-          return JSON.stringify({ ok: false, error: String(e && e.message ? e.message : e) });
+          return JSON.stringify({ ok: false, error: String(e && e.message ? e.message : e), tried: [] });
         }
       })()
     `;
@@ -824,11 +857,16 @@ export class GoogleVeoSessionManager {
     }
 
     if (!generateResult?.ok) {
-      console.warn('[Google Flow Browser] Generate request thất bại:', generateResult?.error);
+      // Log chi tiết status code từng endpoint để debug
+      console.warn('[Google Flow Browser] Tất cả endpoint thất bại. Chi tiết:');
+      const tried: any[] = generateResult?.tried || [];
+      tried.forEach((t: any) => {
+        console.warn(`  [${t.status}] ${t.url}  →  ${t.snippet || ''}`);
+      });
       return null;
     }
 
-    console.log(`[Google Flow Browser] Endpoint hoạt động: ${generateResult.endpointUrl}`);
+    console.log(`[Google Flow Browser] ✅ Endpoint hoạt động: ${generateResult.endpointUrl}`);
 
     // Parse tRPC response để lấy jobId hoặc videoUrl
     let responseBody: any;
