@@ -901,32 +901,46 @@ export class GoogleVeoSessionManager {
 
     // === BƯỚC 3: Điền prompt và bấm nút Generate ===
     onProgress?.(25, 'Đang nộp prompt vào Google Flow...');
+
+    // Đảm bảo cửa sổ được hiển thị và lấy focus để Chromium kích hoạt input
+    if (!win.isDestroyed()) {
+      try {
+        if (win.isMinimized()) win.restore();
+        win.show();
+        win.focus();
+      } catch {}
+    }
+
     const fillPromptJs = `
       (async function() {
         try {
-          // Các selector ô prompt có thể có trên Google Flow
+          // 1. Tìm container chứa prompt box
+          const promptBox = document.querySelector(
+            'flow-prompt-box, flow-base-prompt-box, flow-creative-agent-prompt-box, .prompt-box-container, .base-prompt-box'
+          ) || document;
+
+          // 2. Tìm ô soạn thảo prompt trong Google Flow
           const selectors = [
+            'flow-rich-text-editor .ProseMirror',
+            '.prosemirror-editor .ProseMirror',
             '.ProseMirror',
             '[contenteditable="true"]',
             '.prompt-input [contenteditable]',
-            'flow-prompt-input [contenteditable]',
-            '.prompt-input',
-            'flow-prompt-box textarea',
             'textarea',
             'input[type="text"]'
           ];
 
           let promptEl = null;
-          for (let i = 0; i < 12; i++) {
+          for (let i = 0; i < 15; i++) {
             for (const sel of selectors) {
-              const el = document.querySelector(sel);
+              const el = promptBox.querySelector(sel) || document.querySelector(sel);
               if (el && (el.isContentEditable || el.tagName === 'TEXTAREA' || el.tagName === 'INPUT')) {
                 promptEl = el;
                 break;
               }
             }
             if (promptEl) break;
-            await new Promise(r => setTimeout(r, 500));
+            await new Promise(r => setTimeout(r, 400));
           }
 
           if (!promptEl) {
@@ -939,34 +953,82 @@ export class GoogleVeoSessionManager {
           }
 
           promptEl.focus();
-          if (promptEl.isContentEditable) {
-            document.execCommand('selectAll', false, null);
-            document.execCommand('insertText', false, ${promptJson});
-            promptEl.dispatchEvent(new Event('input', { bubbles: true }));
-            promptEl.dispatchEvent(new Event('change', { bubbles: true }));
-          } else {
+
+          // 3. Nạp nội dung vào ProseMirror / Input
+          // Cách 1: Clipboard paste event (kích hoạt trực tiếp handlePaste của ProseMirror)
+          try {
+            const dt = new DataTransfer();
+            dt.setData('text/plain', ${promptJson});
+            const pasteEv = new ClipboardEvent('paste', {
+              clipboardData: dt,
+              bubbles: true,
+              cancelable: true
+            });
+            promptEl.dispatchEvent(pasteEv);
+          } catch (e) {}
+
+          // Cách 2: execCommand insertText nếu paste chưa ghi vào DOM
+          let textNow = (promptEl.innerText || promptEl.textContent || promptEl.value || '').trim();
+          if (!textNow) {
+            try {
+              const sel = window.getSelection();
+              const range = document.createRange();
+              range.selectNodeContents(promptEl);
+              sel.removeAllRanges();
+              sel.addRange(range);
+              document.execCommand('delete', false, null);
+              document.execCommand('insertText', false, ${promptJson});
+            } catch (e) {}
+          }
+
+          // Cách 3: InputEvent
+          textNow = (promptEl.innerText || promptEl.textContent || promptEl.value || '').trim();
+          if (!textNow) {
+            try {
+              promptEl.dispatchEvent(new InputEvent('beforeinput', {
+                inputType: 'insertText',
+                data: ${promptJson},
+                bubbles: true,
+                cancelable: true
+              }));
+              promptEl.dispatchEvent(new InputEvent('input', {
+                inputType: 'insertText',
+                data: ${promptJson},
+                bubbles: true
+              }));
+            } catch (e) {}
+          }
+
+          if (promptEl.tagName === 'TEXTAREA' || promptEl.tagName === 'INPUT') {
             promptEl.value = ${promptJson};
             promptEl.dispatchEvent(new Event('input', { bubbles: true }));
             promptEl.dispatchEvent(new Event('change', { bubbles: true }));
           }
 
-          await new Promise(r => setTimeout(r, 400));
+          await new Promise(r => setTimeout(r, 500));
+          const textAfterInsert = (promptEl.innerText || promptEl.textContent || promptEl.value || '').trim();
 
-          // Tìm nút Generate hoặc bấm Enter
-          const buttons = Array.from(document.querySelectorAll('button, [role="button"]'));
-          const genBtn = buttons.find(b => {
-            const t = (b.innerText || b.textContent || '').toLowerCase().trim();
-            const a = (b.getAttribute('aria-label') || '').toLowerCase();
-            return (
-              t === 'generate' || t === 'create' || t === 'tạo' ||
-              a.includes('generate') || a.includes('create')
-            ) && !b.disabled;
-          }) || document.querySelector('.flow-button-primary, button[type="submit"], flow-prompt-box button');
+          // 4. Tìm nút Submit / Generate (chính xác bên trong promptBox)
+          let genBtn = null;
+          for (let i = 0; i < 10; i++) {
+            genBtn = promptBox.querySelector(
+              'flow-generate-icon-button button, button.generate-icon-button, button[aria-label*="Start generation" i], .submit-controls button:not([disabled])'
+            ) || document.querySelector(
+              'flow-generate-icon-button button, button.generate-icon-button, button[aria-label*="Start generation" i]'
+            );
 
-          if (genBtn && !genBtn.disabled) {
+            if (genBtn && !genBtn.disabled && !genBtn.hasAttribute('disabled')) {
+              break;
+            }
+            await new Promise(r => setTimeout(r, 200));
+          }
+
+          let submitMethod = 'none';
+          if (genBtn && !genBtn.disabled && !genBtn.hasAttribute('disabled')) {
             genBtn.click();
-            return JSON.stringify({ ok: true, method: 'click_button' });
+            submitMethod = 'click_gen_button';
           } else {
+            // Phát phím Enter trên ProseMirror (Google Flow lắng nghe Enter để emit submitPrompt)
             promptEl.dispatchEvent(new KeyboardEvent('keydown', {
               key: 'Enter',
               code: 'Enter',
@@ -974,8 +1036,15 @@ export class GoogleVeoSessionManager {
               which: 13,
               bubbles: true
             }));
-            return JSON.stringify({ ok: true, method: 'enter_key' });
+            submitMethod = 'enter_key';
           }
+
+          return JSON.stringify({
+            ok: true,
+            method: submitMethod,
+            insertedText: textAfterInsert.slice(0, 80),
+            buttonFound: Boolean(genBtn)
+          });
         } catch (e) {
           return JSON.stringify({ ok: false, error: String(e && e.message ? e.message : e) });
         }
@@ -990,6 +1059,20 @@ export class GoogleVeoSessionManager {
       return null;
     }
 
+    // Nếu sau khi nạp DOM mà text trong editor vẫn chưa thấy, gọi native input từ Electron
+    if (!fillResult.insertedText && !win.isDestroyed()) {
+      console.log('[Google Flow Browser] Thử gõ trực tiếp qua webContents native input fallback...');
+      try {
+        win.focus();
+        await win.webContents.insertText(promptClean);
+        await new Promise((r) => setTimeout(r, 400));
+        await win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Enter' });
+        await win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Enter' });
+      } catch (err: any) {
+        console.warn('[Google Flow Browser] Native input fallback warning:', err?.message);
+      }
+    }
+
     // === BƯỚC 4: Polling chờ video (tối đa 130s, mỗi 3s kiểm tra 1 lần) ===
     onProgress?.(30, 'Đang chờ Google Veo render video...');
 
@@ -999,7 +1082,7 @@ export class GoogleVeoSessionManager {
           const videos = Array.from(document.querySelectorAll('video'));
           for (const v of videos) {
             const src = v.currentSrc || v.src || (v.querySelector('source') ? v.querySelector('source').src : '');
-            if (!src || src.includes('gstatic.com') || src.includes('/banners/')) continue;
+            if (!src || src.includes('/banners/') || src.includes('googleusercontent.com/a/')) continue;
 
             // 1. Nếu là HTTP URL thật
             if (src.startsWith('http')) {
