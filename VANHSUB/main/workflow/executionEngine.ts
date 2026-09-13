@@ -8,6 +8,7 @@ import { QcEngine } from './qcEngine';
 import { VideoProcessor } from './videoProcessor';
 import { TaskStore } from '../store/taskStore';
 import { SettingsStore } from '../store/settingsStore';
+import { GoogleVeoAntiSpamGuard } from '../veo/GoogleVeoAntiSpamGuard';
 
 export interface WorkflowGraphData {
   id: string;
@@ -224,7 +225,25 @@ export class WorkflowExecutionEngine {
             isCancelled,
           };
 
-          const taskPromise = this.executeSingleNode(node, resolvedInputs, ctx)
+          const nodeWatchdogMs = 120_000;
+          let watchdogTimer: NodeJS.Timeout;
+          const watchdogPromise = new Promise<never>((_, reject) => {
+            watchdogTimer = setTimeout(() => {
+              reject(
+                new Error(
+                  `Node #${nodeId.slice(-5)} (${node.data.label || node.data.nodeType}) chạy quá hạn (${nodeWatchdogMs / 1000}s), tự động dừng để tránh treo workflow.`
+                )
+              );
+            }, nodeWatchdogMs);
+          });
+
+          const taskPromise = Promise.race([
+            this.executeSingleNode(node, resolvedInputs, ctx),
+            watchdogPromise,
+          ])
+            .finally(() => {
+              clearTimeout(watchdogTimer);
+            })
             .then((output) => {
               if (isCancelled()) return;
 
@@ -242,8 +261,14 @@ export class WorkflowExecutionEngine {
                 nodeId,
                 status: 'success',
                 progress: 100,
-                thumbnailUrl: output.last_frame || output.lastFrameUrl || output.thumbnailUrl || output.image,
-                outputUrl: output.video || output.outputUrl,
+                thumbnailUrl:
+                  output.last_frame ||
+                  output.lastFrameUrl ||
+                  output.thumbnailUrl ||
+                  output.image ||
+                  output.image_out ||
+                  output.face_image,
+                outputUrl: output.video || output.video_out || output.outputUrl || output.exportedPath,
                 outputData: output,
                 durationMs,
               });
@@ -336,8 +361,13 @@ export class WorkflowExecutionEngine {
       case 'character-ref':
         return {
           character: config,
+          character_out: config,
           face_image: config.referenceImageUrl || '',
+          image: config.referenceImageUrl || '',
+          thumbnailUrl: config.referenceImageUrl || '',
           name: config.characterName || 'Nhân vật',
+          characterName: config.characterName || 'Nhân vật',
+          description: config.description || '',
         };
 
       case 'scene-ref':
@@ -378,8 +408,10 @@ export class WorkflowExecutionEngine {
 
         // Tự động append Style lock nếu có
         if (inputs['style']) {
-          const styleVal = inputs['style'].style_out || inputs['style'];
-          prompt = `${prompt} ${styleVal}`.trim();
+          const styleVal = inputs['style'].style_out || inputs['style'].stylePrompt || inputs['style'];
+          if (typeof styleVal === 'string') {
+            prompt = `${prompt} ${styleVal}`.trim();
+          }
         }
 
         // Tự động append Scene continuity nếu có
@@ -486,11 +518,23 @@ export class WorkflowExecutionEngine {
       }
 
       case 'concat': {
-        const videoA = inputs['video_a'];
-        const videoB = inputs['video_b'];
-        const list = [];
-        if (videoA && fs.existsSync(videoA)) list.push(videoA);
-        if (videoB && fs.existsSync(videoB)) list.push(videoB);
+        const list: string[] = [];
+        // Ưu tiên các cổng định danh theo thứ tự: video_a, video_b, video_c, video_d, video_e...
+        const orderedHandles = ['video_a', 'video_b', 'video_c', 'video_d', 'video_e', 'video_1', 'video_2', 'video_3', 'video_4'];
+        for (const h of orderedHandles) {
+          const v = inputs[h];
+          if (typeof v === 'string' && v && fs.existsSync(v) && !list.includes(v)) {
+            list.push(v);
+          }
+        }
+        // Thêm bất kỳ video input nào khác chưa có trong danh sách
+        for (const [k, v] of Object.entries(inputs)) {
+          if (typeof v === 'string' && v && fs.existsSync(v) && !list.includes(v)) {
+            if (v.endsWith('.mp4') || v.endsWith('.mov') || v.endsWith('.mkv') || k.startsWith('video')) {
+              list.push(v);
+            }
+          }
+        }
         if (list.length === 0) {
           throw new Error('Không có video hợp lệ nào được đưa vào node concat!');
         }
@@ -573,11 +617,25 @@ export class WorkflowExecutionEngine {
       }
 
       case 'style-lock': {
-        const palette = config.colorPalette || 'teal_orange';
-        const lens = config.lensType || 'anamorphic_35mm';
-        const styleToken = `[Style: ${palette}, Lens: ${lens}, Cinematic 8k Color Grade]`;
+        const palette = config.colorPalette || 'flat_vivid';
+        const lens = config.lensType || 'flat_2d';
+        const stylePrompt = config.stylePrompt || '';
+        const negativePrompt = config.negativePrompt || '';
+
+        let styleToken = '';
+        if (stylePrompt) {
+          styleToken = `[Master Art Style: ${stylePrompt}] [Color Palette: ${palette}, Perspective: ${lens}]`;
+          if (negativePrompt) {
+            styleToken += ` [Negative: ${negativePrompt}]`;
+          }
+        } else {
+          styleToken = `[Style: ${palette}, Lens: ${lens}, Cinematic 8k Color Grade]`;
+        }
+
         return {
           style_out: styleToken,
+          stylePrompt,
+          negativePrompt,
           colorPalette: palette,
           lensType: lens,
         };
@@ -618,7 +676,47 @@ export class WorkflowExecutionEngine {
 
       case 'google-imagen': {
         const adapter = adapterRegistry.get('google-flow');
-        const prompt = inputs['prompt'] || config.prompt || 'Cinematic artwork';
+        const rawInputPrompt = typeof inputs['prompt'] === 'object'
+          ? inputs['prompt'].prompt || inputs['prompt'].text
+          : inputs['prompt'];
+        const baseConfigPrompt = config.prompt || '';
+
+        let prompt = '';
+        if (baseConfigPrompt && rawInputPrompt && baseConfigPrompt !== rawInputPrompt) {
+          prompt = `${baseConfigPrompt}. [Script Context: ${rawInputPrompt}]`;
+        } else {
+          prompt = baseConfigPrompt || rawInputPrompt || 'Cinematic artwork';
+        }
+
+        // Tự động append Character lock vào prompt nếu có
+        const charInput = inputs['character'];
+        if (charInput) {
+          const charObj = charInput.character_locked || charInput.character || charInput;
+          const charName = charObj.characterName || charObj.name || '';
+          const charDesc = charObj.description || '';
+          if (charName || charDesc) {
+            prompt = `${prompt} [Consistent Character: ${charName}${charDesc ? ' - ' + charDesc : ''}]`.trim();
+          }
+        }
+
+        // Tự động append Style lock nếu có
+        if (inputs['style']) {
+          const styleVal = inputs['style'].style_out || inputs['style'].stylePrompt || inputs['style'];
+          if (typeof styleVal === 'string') {
+            prompt = `${prompt} ${styleVal}`.trim();
+          }
+        }
+
+        // Tự động append Scene continuity nếu có
+        if (inputs['scene']) {
+          const sceneVal = inputs['scene'].scene_out || inputs['scene'];
+          const sceneName = sceneVal.sceneName || sceneVal.name || '';
+          const mood = sceneVal.lightingMood || sceneVal.mood || '';
+          if (sceneName || mood) {
+            prompt = `${prompt} [Scene: ${sceneName}${mood ? ' - ' + mood : ''}]`.trim();
+          }
+        }
+
         const aspectRatio = config.aspectRatio || '16:9';
         const imgRes = await adapter.generateImage!({ prompt, aspectRatio }, ctx);
         return {
@@ -705,6 +803,40 @@ export class WorkflowExecutionEngine {
         return {
           batch_out: list,
           seeds: Array.from({ length: size }, (_, i) => 1000 + i),
+        };
+      }
+
+      case 'queue-gate': {
+        const inputVal = inputs['in'] || inputs['video_in'] || inputs['image_in'] || inputs['input'];
+        let delaySec = Number(config.delaySeconds || 25);
+
+        if (config.mode === 'auto_session') {
+          const status = GoogleVeoAntiSpamGuard.getInstance().getStatus();
+          delaySec = Math.max(5, status.remainingCooldownSec || 20);
+        }
+
+        const totalMs = delaySec * 1000;
+        let elapsedMs = 0;
+        const stepMs = 1000;
+
+        while (elapsedMs < totalMs) {
+          if (ctx.isCancelled()) {
+            throw new Error('Tác vụ hàng đợi đã bị hủy.');
+          }
+          const percent = Math.min(99, Math.round((elapsedMs / totalMs) * 100));
+          ctx.onProgress(percent);
+          await new Promise((r) => setTimeout(r, Math.min(stepMs, totalMs - elapsedMs)));
+          elapsedMs += stepMs;
+        }
+
+        ctx.onProgress(100);
+
+        return {
+          out: inputVal,
+          video_out: typeof inputVal === 'string' ? inputVal : undefined,
+          image_out: typeof inputVal === 'string' ? inputVal : undefined,
+          video: typeof inputVal === 'string' ? inputVal : undefined,
+          image: typeof inputVal === 'string' ? inputVal : undefined,
         };
       }
 
