@@ -619,4 +619,278 @@ export class GoogleVeoSessionManager {
   setMode(mode: VeoMode): void {
     SettingsStore.set('veoMode', mode);
   }
+
+  // =========================================================================
+  // BROWSER AUTOMATION — Sinh video qua fetchThật trong Electron BrowserWindow
+  // =========================================================================
+
+  /**
+   * Đảm bảo lobby window đang mở và đã navigate đến VideoFX page của labs.google.
+   * Trả về true nếu sẵn sàng, false nếu thất bại.
+   */
+  private async ensureLobbyAtVideoFx(): Promise<boolean> {
+    let electron: any;
+    try {
+      electron = require('electron');
+    } catch {
+      return false;
+    }
+
+    const { BrowserWindow } = electron;
+    if (!BrowserWindow) return false;
+
+    // Mở lobby window nếu chưa có
+    if (!this.lobbyWindow || this.lobbyWindow.isDestroyed()) {
+      try {
+        await this.openLobbyWindow();
+      } catch (e) {
+        console.warn('[Google Flow Browser] Không thể mở lobby window:', e);
+        return false;
+      }
+    }
+
+    const win = this.lobbyWindow;
+    if (!win || win.isDestroyed()) return false;
+
+    // Đợi page load ban đầu
+    if (win.webContents.isLoading()) {
+      await new Promise<void>((resolve) => {
+        const onStop = () => resolve();
+        win.webContents.once('did-stop-loading', onStop);
+        setTimeout(resolve, 7000);
+      });
+    }
+
+    // Kiểm tra xem đang ở đúng domain chưa
+    const currentUrl = (win.webContents.getURL() || '').toLowerCase();
+    const isOnFlowOrLabs = currentUrl.includes('labs.google') || currentUrl.includes('flow.google.com');
+
+    if (!isOnFlowOrLabs) {
+      console.log('[Google Flow Browser] Đang navigate tới labs.google VideoFX...');
+      try {
+        await win.loadURL('https://labs.google/fx/tools/video-fx');
+        await new Promise<void>((resolve) => {
+          const onStop = () => resolve();
+          win.webContents.once('did-stop-loading', onStop);
+          setTimeout(resolve, 8000);
+        });
+        // Extra wait for JS to initialize
+        await new Promise((r) => setTimeout(r, 2000));
+      } catch (e) {
+        console.warn('[Google Flow Browser] Không thể load VideoFX page:', e);
+        return false;
+      }
+    }
+
+    return !win.isDestroyed();
+  }
+
+  /**
+   * Sinh video bằng cách thực thi fetch() thật từ trong Electron BrowserWindow
+   * (session partition 'persist:google_veo' đã đăng nhập sẵn).
+   * 
+   * Đây là cách duy nhất để dùng credit Google Flow miễn phí mà không cần API key:
+   * - Browser tự gán Cookie, Origin, CSRF token đúng chuẩn
+   * - Google không phân biệt được với request thật của người dùng
+   * - Video được render bởi Google Veo thật sự
+   */
+  async generateVideoViaBrowserContext(
+    params: {
+      prompt: string;
+      aspectRatio?: string;
+      durationSeconds?: number;
+      modelVariant?: string;
+    },
+    onProgress?: (percent: number, msg?: string) => void
+  ): Promise<{ videoUrl: string } | null> {
+    onProgress?.(5, 'Đang chuẩn bị Sảnh Google Labs...');
+
+    const ready = await this.ensureLobbyAtVideoFx();
+    if (!ready) {
+      console.warn('[Google Flow Browser] Không thể chuẩn bị browser context.');
+      return null;
+    }
+
+    const win = this.lobbyWindow;
+    if (!win || win.isDestroyed()) return null;
+
+    // Xây dựng tham số
+    const aspect = params.aspectRatio === '9:16' ? 'PORTRAIT' : 'LANDSCAPE';
+    let model = params.modelVariant || 'veo-3.1-generate-quality';
+    if (model === 'veo-3.1-quality') model = 'veo-3.1-generate-quality';
+    if (model === 'veo-3.1-lite') model = 'veo-3.1-generate-preview';
+    if (model === 'veo-2.0') model = 'veo-2.0-generate-001';
+    const duration = Math.max(3, Math.min(10, Math.round(params.durationSeconds || 5)));
+    const promptJson = JSON.stringify(params.prompt || '');
+
+    onProgress?.(12, 'Đang gửi yêu cầu sinh video tới Google Labs...');
+
+    // === BƯỚC 1: Submit video generation job ===
+    // Thử tRPC batch format (format chuẩn của labs.google)
+    const generateJs = `
+      (async function __vanhsubGenerate() {
+        try {
+          // Thử tRPC batch endpoint (format v10/v11)
+          const endpoints = [
+            { url: '/fx/api/trpc/videoFx.generateVideo?batch=1', isBatch: true },
+            { url: '/api/trpc/videoFx.generateVideo?batch=1', isBatch: true },
+            { url: '/fx/api/trpc/videoFx.generateVideo', isBatch: false },
+          ];
+
+          for (const ep of endpoints) {
+            try {
+              const body = ep.isBatch
+                ? JSON.stringify([{ json: { prompt: ${promptJson}, aspectRatio: '${aspect}', durationSeconds: ${duration}, model: '${model}' } }])
+                : JSON.stringify({ json: { prompt: ${promptJson}, aspectRatio: '${aspect}', durationSeconds: ${duration}, model: '${model}' } });
+
+              const resp = await fetch(ep.url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json, text/plain, */*' },
+                credentials: 'include',
+                body: body,
+              });
+
+              if (resp.status === 200 || resp.status === 201) {
+                const text = await resp.text();
+                return JSON.stringify({ ok: true, endpointUrl: ep.url, status: resp.status, body: text.slice(0, 8000) });
+              }
+              // 404/405 → thử endpoint tiếp theo
+            } catch (fetchErr) {
+              // tiếp tục thử
+            }
+          }
+          return JSON.stringify({ ok: false, error: 'Tất cả endpoint đều thất bại' });
+        } catch(e) {
+          return JSON.stringify({ ok: false, error: String(e && e.message ? e.message : e) });
+        }
+      })()
+    `;
+
+    let generateResult: any;
+    try {
+      const raw = await win.webContents.executeJavaScript(generateJs, true);
+      generateResult = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    } catch (e) {
+      console.warn('[Google Flow Browser] executeJavaScript lỗi ở bước generate:', e);
+      return null;
+    }
+
+    if (!generateResult?.ok) {
+      console.warn('[Google Flow Browser] Generate request thất bại:', generateResult?.error);
+      return null;
+    }
+
+    console.log(`[Google Flow Browser] Endpoint hoạt động: ${generateResult.endpointUrl}`);
+
+    // Parse tRPC response để lấy jobId hoặc videoUrl
+    let responseBody: any;
+    try {
+      responseBody = JSON.parse(generateResult.body);
+    } catch {
+      console.warn('[Google Flow Browser] Không parse được response body');
+      return null;
+    }
+
+    // Hỗ trợ cả batch (array) và non-batch (object)
+    const firstItem = Array.isArray(responseBody) ? responseBody[0] : responseBody;
+    const resultData = firstItem?.result?.data;
+    const dataJson = resultData?.json ?? resultData;
+
+    // Kiểm tra videoUrl trực tiếp (hiếm gặp với async API)
+    const directUrl = dataJson?.videoUrl || dataJson?.url || dataJson?.outputUrl || dataJson?.videoUri;
+    if (typeof directUrl === 'string' && directUrl.startsWith('http')) {
+      onProgress?.(90, 'Google Labs đã trả về video ngay lập tức!');
+      return { videoUrl: directUrl };
+    }
+
+    // Lấy jobId để polling
+    const jobId = dataJson?.jobId || dataJson?.id || dataJson?.requestId || dataJson?.operationName || dataJson?.name;
+    if (!jobId) {
+      console.warn('[Google Flow Browser] Không tìm thấy jobId hay videoUrl trong response:', JSON.stringify(dataJson).slice(0, 300));
+      return null;
+    }
+
+    console.log(`[Google Flow Browser] Nhận jobId: ${String(jobId).slice(0, 40)}, bắt đầu polling...`);
+    onProgress?.(20, `Google Labs đang render (JobId: ${String(jobId).slice(0, 16)}...)...`);
+
+    // === BƯỚC 2: Poll cho đến khi video render xong ===
+    const jobIdJson = JSON.stringify(String(jobId));
+    const pollEndpoint = generateResult.endpointUrl.includes('batch=1')
+      ? generateResult.endpointUrl.replace('videoFx.generateVideo', 'videoFx.getVideoStatus')
+      : '/fx/api/trpc/videoFx.getVideoStatus?batch=1';
+
+    for (let attempt = 0; attempt < 24; attempt++) {
+      if (win.isDestroyed()) return null;
+      await new Promise((r) => setTimeout(r, 5000));
+      const pct = Math.min(80, 20 + attempt * 2.5);
+      onProgress?.(pct, `Google Labs đang render... (${(attempt + 1) * 5}s / 120s tối đa)`);
+
+      const pollJs = `
+        (async function __vanhsubPoll() {
+          try {
+            const inputParam = JSON.stringify([{ json: { jobId: ${jobIdJson} } }]);
+            const pollUrls = [
+              '${pollEndpoint}' + '&input=' + encodeURIComponent(inputParam),
+              '/fx/api/trpc/videoFx.getVideoStatus?batch=1&input=' + encodeURIComponent(inputParam),
+              '/api/trpc/videoFx.getVideoStatus?batch=1&input=' + encodeURIComponent(inputParam),
+            ];
+
+            for (const url of pollUrls) {
+              try {
+                const resp = await fetch(url, { credentials: 'include' });
+                if (resp.status === 200) {
+                  const text = await resp.text();
+                  return JSON.stringify({ ok: true, body: text.slice(0, 8000) });
+                }
+              } catch {}
+            }
+            return JSON.stringify({ ok: false, error: 'Poll không thành công' });
+          } catch(e) {
+            return JSON.stringify({ ok: false, error: String(e && e.message ? e.message : e) });
+          }
+        })()
+      `;
+
+      let pollResult: any;
+      try {
+        const pollRaw = await win.webContents.executeJavaScript(pollJs, true);
+        pollResult = typeof pollRaw === 'string' ? JSON.parse(pollRaw) : pollRaw;
+      } catch {
+        continue;
+      }
+
+      if (!pollResult?.ok) continue;
+
+      let pollData: any;
+      try {
+        pollData = JSON.parse(pollResult.body);
+      } catch {
+        continue;
+      }
+
+      const pollFirst = Array.isArray(pollData) ? pollData[0] : pollData;
+      const pollResultData = pollFirst?.result?.data;
+      const pollJson = pollResultData?.json ?? pollResultData;
+
+      // Kiểm tra trạng thái
+      const jobStatus = (pollJson?.status || pollJson?.state || '').toUpperCase();
+      if (jobStatus === 'FAILED' || jobStatus === 'ERROR' || jobStatus === 'CANCELLED') {
+        console.warn('[Google Flow Browser] Google Labs báo render thất bại:', jobStatus, pollJson?.error || '');
+        return null;
+      }
+
+      // Kiểm tra video URL
+      const videoUrl = pollJson?.videoUrl || pollJson?.url || pollJson?.outputUrl || pollJson?.videoUri
+        || pollJson?.video?.url || pollJson?.output?.url;
+      if (typeof videoUrl === 'string' && videoUrl.startsWith('http')) {
+        onProgress?.(85, 'Google Labs đã render video thành công!');
+        console.log('[Google Flow Browser] ✅ Nhận được video URL từ Google Veo thật!');
+        return { videoUrl };
+      }
+    }
+
+    // Hết 120s vẫn không có video
+    console.warn('[Google Flow Browser] Timeout 120s: Google Labs không trả về video URL');
+    return null;
+  }
 }

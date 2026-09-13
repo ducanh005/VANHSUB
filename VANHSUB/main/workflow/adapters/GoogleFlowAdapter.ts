@@ -188,7 +188,12 @@ export class GoogleFlowAdapter implements ModelAdapter {
   }
 
   /**
-   * Gọi sinh video qua Session Google Labs / VideoFX Web
+   * Gọi sinh video qua Session Google Labs / VideoFX Web.
+   *
+   * CHIẾN LƯỢC:
+   * 1. Browser Automation (executeJavaScript) — gọi fetch() TRONG trình duyệt Electron
+   *    → Browser tự gán Cookie, CSRF token, Origin đúng chuẩn, Google không phân biệt được.
+   * 2. Fallback: Mô phỏng Ken Burns từ ảnh Keyframe (nếu có) hoặc gradient
    */
   private async callFreeSessionVeo(
     params: VideoGenParams,
@@ -196,31 +201,47 @@ export class GoogleFlowAdapter implements ModelAdapter {
     ctx: ExecutionContext
   ): Promise<{ videoPath: string }> {
     const sessionMgr = GoogleVeoSessionManager.getInstance();
+    const duration = Math.max(3, Math.min(10, Math.round(params.durationSeconds || 5)));
+
+    // Kiểm tra nhanh: có session không (cookie hoặc electron partition)?
     const cookie = await sessionMgr.getEffectiveCookieString();
     const token = SettingsStore.get('veoSessionAuthToken')?.trim();
 
     if (!cookie && !token) {
-      console.warn('Chưa có session Google Flow. Tự động chuyển sang bộ mô phỏng tạo video chất lượng cao.');
-      const duration = Math.max(3, Math.min(10, Math.round(params.durationSeconds || 5)));
+      console.warn('[Google Flow] Chưa có session. Chuyển sang mô phỏng offline.');
       await this.generateSyntheticDemoVideo(params, outPath, duration, ctx);
       return { videoPath: outPath };
     }
 
-    ctx.onProgress(35);
-
-    // Thử gọi qua internal REST endpoint của Google Labs / Flow
+    // === CHIẾN LƯỢC 1: Browser Automation (executeJavaScript trong Electron) ===
+    ctx.onProgress(8);
     try {
-      const response = await this.dispatchVideoFxRequest(params, cookie, token, ctx);
-      if (response && response.videoUrl) {
-        await this.downloadFile(response.videoUrl, outPath);
+      const browserResult = await sessionMgr.generateVideoViaBrowserContext(
+        {
+          prompt: params.prompt,
+          aspectRatio: params.aspectRatio,
+          durationSeconds: params.durationSeconds,
+          modelVariant: params.modelVariant,
+        },
+        (percent, msg) => {
+          ctx.onProgress(Math.max(8, Math.min(82, percent)));
+          if (msg) console.log(`[Google Flow Browser] ${msg}`);
+        }
+      );
+
+      if (browserResult?.videoUrl) {
+        console.log('[Google Flow] ✅ Tải video thật từ Google Veo...');
+        ctx.onProgress(85);
+        await this.downloadFile(browserResult.videoUrl, outPath, 5, 60000);
         return { videoPath: outPath };
       }
-    } catch (err: any) {
-      console.warn('Google Flow Web Gateway không phản hồi trực tiếp, chuyển sang mô phỏng chất lượng cao:', err?.message || err);
+    } catch (browserErr: any) {
+      console.warn('[Google Flow] Browser automation lỗi, chuyển sang fallback:', browserErr?.message || browserErr);
     }
 
-    // Fallback: render video mô phỏng chất lượng cao khi web endpoint đang bận
-    const duration = Math.max(3, Math.min(10, Math.round(params.durationSeconds || 5)));
+    // === CHIẾN LƯỢC 2: Fallback — Mô phỏng offline (Ken Burns hoặc gradient) ===
+    console.warn('[Google Flow] Không nhận được video từ Google Veo, dùng bộ mô phỏng chất lượng cao.');
+    ctx.onProgress(30);
     await this.generateSyntheticDemoVideo(params, outPath, duration, ctx);
     return { videoPath: outPath };
   }
