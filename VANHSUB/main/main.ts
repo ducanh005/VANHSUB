@@ -109,6 +109,11 @@ const MIME_BY_EXT: Record<string, string> = {
   '.flac': 'audio/flac',
   '.aac': 'audio/aac',
   '.ogg': 'audio/ogg',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.png': 'image/png',
+  '.webp': 'image/webp',
+  '.gif': 'image/gif',
 }
 
 app.whenReady().then(() => {
@@ -181,6 +186,13 @@ function broadcastTasksUpdate() {
 
 ;(async () => {
   await app.whenReady()
+
+  // Khởi động đồng bộ session Google Flow / Veo từ phân vùng Electron
+  try {
+    await GoogleVeoSessionManager.getInstance().init()
+  } catch (veoInitErr) {
+    console.warn('Không thể khởi tạo session Google Veo ban đầu:', veoInitErr)
+  }
 
   // Gỡ kẹt task còn dính trạng thái "đang chạy" của phiên trước (crash/đóng app):
   // đánh dấu error để chạy lại được — pipeline vẫn bỏ qua các bước đã có kết quả
@@ -950,6 +962,20 @@ ipcMain.handle('dialog:openFolder', async (_event, folderPath: string) => {
   }
 })
 
+ipcMain.handle('files:readImageAsDataUrl', async (_event, filePath: string) => {
+  if (!filePath || typeof filePath !== 'string') return null
+  try {
+    if (!fs.existsSync(filePath)) return null
+    const ext = path.extname(filePath).toLowerCase()
+    const mime = ext === '.png' ? 'image/png' : ext === '.webp' ? 'image/webp' : ext === '.gif' ? 'image/gif' : 'image/jpeg'
+    const buf = fs.readFileSync(filePath)
+    return `data:${mime};base64,${buf.toString('base64')}`
+  } catch (err) {
+    console.warn('[readImageAsDataUrl] Lỗi đọc ảnh:', err)
+    return null
+  }
+})
+
 // Chọn file .srt có sẵn (dùng cho "Nhập phụ đề" trên task)
 ipcMain.handle('dialog:openSrtFile', async () => {
   if (!mainWindow) return null
@@ -965,14 +991,29 @@ ipcMain.handle('dialog:openSrtFile', async () => {
   return result.filePaths[0]
 })
 
-// Chọn file ảnh (logo, watermark)
+// Chọn file ảnh (logo, watermark, workflow reference image)
 ipcMain.handle('dialog:openImageFile', async () => {
   if (!mainWindow) return null
   const result = await dialog.showOpenDialog(mainWindow, {
-    title: 'Chọn ảnh Watermark / Logo',
+    title: 'Chọn ảnh tham chiếu / Watermark / Logo',
     properties: ['openFile'],
     filters: [
-      { name: 'Hình ảnh', extensions: ['png', 'jpg', 'jpeg', 'webp', 'bmp'] },
+      { name: 'Hình ảnh', extensions: ['png', 'jpg', 'jpeg', 'webp', 'bmp', 'avif'] },
+      { name: 'Tất cả file', extensions: ['*'] },
+    ],
+  })
+  if (result.canceled || result.filePaths.length === 0) return null
+  return result.filePaths[0]
+})
+
+// Chọn 1 file video (dùng cho node Tải Video / Workflow)
+ipcMain.handle('dialog:openVideoFile', async () => {
+  if (!mainWindow) return null
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: 'Chọn file Video nguồn',
+    properties: ['openFile'],
+    filters: [
+      { name: 'Video Files', extensions: ['mp4', 'mkv', 'mov', 'avi', 'webm', 'flv', 'wmv'] },
       { name: 'Tất cả file', extensions: ['*'] },
     ],
   })

@@ -1,3 +1,4 @@
+import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import Store from 'electron-store';
@@ -33,6 +34,17 @@ interface BibleStoreSchema {
 }
 
 const DEFAULT_CHARACTERS: CharacterProfile[] = [
+  {
+    id: 'char-bob-newbie-youtuber',
+    name: 'Newbie YouTuber Bob',
+    description: 'Chàng trai ngáo ngơ hài hước phong cách vẽ tay MS Paint meme: mắt to tròn lồi như mất ngủ, đầu to người nhỏ, mặc vest đen xộc xệch hoặc áo phông đơn giản, nét vẽ nguệch ngoạc ngu ngốc nhưng vô cùng biểu cảm.',
+    referenceImages: [],
+    gender: 'male',
+    ageGroup: 'Crude MS Paint Doodle',
+    lockedSeed: 202688,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  },
   {
     id: 'char-agent-vanh',
     name: 'Điệp viên Vanh',
@@ -99,6 +111,12 @@ function getStore(): Store<BibleStoreSchema> {
       }
     }
 
+    if (cwd && !fs.existsSync(cwd)) {
+      try {
+        fs.mkdirSync(cwd, { recursive: true });
+      } catch {}
+    }
+
     _store = new Store<BibleStoreSchema>({
       name: 'vanhsub-bible',
       ...(cwd ? { cwd } : {}),
@@ -114,7 +132,14 @@ function getStore(): Store<BibleStoreSchema> {
 export const BibleStore = {
   // --- Character Bible ---
   getCharacters(): CharacterProfile[] {
-    return getStore().get('characters', DEFAULT_CHARACTERS);
+    const list = getStore().get('characters', DEFAULT_CHARACTERS);
+    // Tự động bổ sung Bob nếu store cũ chưa có
+    if (Array.isArray(list) && !list.some((c) => c.id === 'char-bob-newbie-youtuber')) {
+      const bob = DEFAULT_CHARACTERS[0];
+      list.unshift(bob);
+      getStore().set('characters', list);
+    }
+    return list;
   },
 
   getCharacterById(id: string): CharacterProfile | undefined {

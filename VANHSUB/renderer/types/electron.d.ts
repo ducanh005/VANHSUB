@@ -306,6 +306,7 @@ export interface VanhsubAPI {
   };
   dialog: {
     openMediaFile: () => Promise<string[] | null>;
+    openVideoFile?: () => Promise<string | null>;
     openSrtFile: () => Promise<string | null>;
     openImageFile: () => Promise<string | null>;
     showInFolder: (filePath: string) => Promise<void>;
@@ -341,6 +342,7 @@ export interface VanhsubAPI {
   };
   files: {
     getPath: (file: File) => string;
+    readImageAsDataUrl: (filePath: string) => Promise<string | null>;
   };
   logs: {
     onLog: (callback: (entry: { level: string; text: string; ts: number }) => void) => () => void;

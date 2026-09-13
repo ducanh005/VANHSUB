@@ -111,6 +111,7 @@ const vanhsub = {
   },
   dialog: {
     openMediaFile: () => ipcRenderer.invoke('dialog:openMediaFile'),
+    openVideoFile: () => ipcRenderer.invoke('dialog:openVideoFile'),
     openSrtFile: () => ipcRenderer.invoke('dialog:openSrtFile'),
     openImageFile: () => ipcRenderer.invoke('dialog:openImageFile'),
     showInFolder: (filePath: string) => ipcRenderer.invoke('dialog:showInFolder', filePath),
@@ -130,6 +131,7 @@ const vanhsub = {
   files: {
     // Electron >=32 đã bỏ File.path — phải lấy đường dẫn qua webUtils ở phía renderer
     getPath: (file: File) => webUtils.getPathForFile(file),
+    readImageAsDataUrl: (filePath: string) => ipcRenderer.invoke('files:readImageAsDataUrl', filePath),
   },
   logs: {
     // Đăng ký nhận log từ main process; trả về hàm huỷ đăng ký

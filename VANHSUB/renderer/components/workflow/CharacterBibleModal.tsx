@@ -25,6 +25,15 @@ export interface CharacterItem {
 
 const DEFAULT_CHARS: CharacterItem[] = [
   {
+    id: 'char-bob-newbie-youtuber',
+    name: 'Newbie YouTuber Bob',
+    description: 'Chàng trai ngáo ngơ hài hước phong cách vẽ tay MS Paint meme: mắt to tròn lồi như mất ngủ, đầu to người nhỏ, mặc vest đen xộc xệch hoặc áo phông đơn giản, nét vẽ nguệch ngoạc ngu ngốc nhưng vô cùng biểu cảm.',
+    referenceImages: [],
+    gender: 'male',
+    ageGroup: 'Crude MS Paint Doodle',
+    lockedSeed: 202688,
+  },
+  {
     id: 'char-agent-vanh',
     name: 'Điệp viên Vanh',
     description: 'Nam mật vụ người Việt, áo khoác măng-tô sẫm màu, ánh mắt tập trung sắc bén.',
@@ -71,7 +80,7 @@ export default function CharacterBibleModal({
     if (typeof window !== 'undefined' && window.vanhsub?.bible?.getCharacters) {
       try {
         const list = await window.vanhsub.bible.getCharacters();
-        if (list && list.length > 0) {
+        if (Array.isArray(list)) {
           setCharacters(list);
         }
       } catch (err) {
@@ -299,15 +308,29 @@ export default function CharacterBibleModal({
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1 flex items-center gap-1">
-                    <Camera className="w-3 h-3 text-rose-400" />
-                    <span>URL Ảnh chân dung tham chiếu</span>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1 flex items-center justify-between">
+                    <span className="flex items-center gap-1">
+                      <Camera className="w-3 h-3 text-rose-400" />
+                      <span>Ảnh chân dung tham chiếu</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (window?.vanhsub?.dialog?.openImageFile) {
+                          const file = await window.vanhsub.dialog.openImageFile();
+                          if (file) setRefImage(file);
+                        }
+                      }}
+                      className="text-[11px] text-rose-400 hover:text-rose-300 underline cursor-pointer"
+                    >
+                      Chọn file ảnh từ máy...
+                    </button>
                   </label>
                   <input
                     type="text"
                     value={refImage}
                     onChange={(e) => setRefImage(e.target.value)}
-                    placeholder="Dán đường dẫn ảnh hoặc URL..."
+                    placeholder="Dán đường dẫn ảnh hoặc bấm 'Chọn file ảnh'..."
                     className="w-full text-xs rounded-lg bg-slate-950 border border-slate-800 px-3 py-2 text-white focus:outline-none focus:border-rose-500"
                   />
                 </div>
@@ -340,8 +363,19 @@ export default function CharacterBibleModal({
                   <div className="space-y-2">
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex items-center gap-2.5">
-                        <div className="w-10 h-10 rounded-full bg-rose-950 border border-rose-800/80 flex items-center justify-center font-bold text-sm text-rose-300 shrink-0">
-                          {char.name.charAt(0)}
+                        <div className="w-10 h-10 rounded-full bg-rose-950 border border-rose-800/80 flex items-center justify-center font-bold text-sm text-rose-300 shrink-0 overflow-hidden">
+                          {char.referenceImages?.[0] ? (
+                            <img
+                              src={char.referenceImages[0]}
+                              alt={char.name}
+                              className="w-full h-full object-cover"
+                              onError={(e) => {
+                                (e.target as HTMLElement).style.display = 'none';
+                              }}
+                            />
+                          ) : (
+                            char.name.charAt(0)
+                          )}
                         </div>
                         <div>
                           <h4 className="text-sm font-bold text-white tracking-wide">
