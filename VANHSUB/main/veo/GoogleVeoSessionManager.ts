@@ -765,6 +765,7 @@ export class GoogleVeoSessionManager {
       aspectRatio?: string;
       durationSeconds?: number;
       modelVariant?: string;
+      outputCount?: number;
     },
     onProgress?: (percent: number, msg?: string) => void,
     isCancelled?: () => boolean
@@ -902,6 +903,44 @@ export class GoogleVeoSessionManager {
     }
 
     if (isCancelled?.()) return null;
+
+    // Thiết lập Mode VIDEO và Output Count (mặc định x1 để tránh tạo trùng)
+    const switchModeToVideoJs = `
+      (function() {
+        const targetCount = ${params.outputCount || 1};
+        try {
+          const raw = localStorage.getItem('flow-prompt-box-settings');
+          const settings = raw ? JSON.parse(raw) : {};
+          settings.mode = 'VIDEO';
+          settings.Qp = targetCount;
+          localStorage.setItem('flow-prompt-box-settings', JSON.stringify(settings));
+          window.dispatchEvent(new StorageEvent('storage', {
+            key: 'flow-prompt-box-settings',
+            newValue: JSON.stringify(settings)
+          }));
+        } catch (e) {}
+
+        const allButtons = Array.from(document.querySelectorAll(
+          'button, mat-button-toggle, [role="tab"], .mat-button-toggle-button, [aria-label*="Output count" i] button'
+        ));
+        const countBtn = allButtons.find(b => {
+          const t = (b.innerText || b.textContent || '').trim().toLowerCase();
+          return t === 'x' + targetCount;
+        });
+        if (countBtn) countBtn.click();
+
+        const vidBtn = allButtons.find(b => {
+          const label = (b.getAttribute('aria-label') || b.textContent || b.innerText || '').toLowerCase();
+          return label === 'video' || label.includes('video mode') || label.includes('tạo video');
+        });
+        if (vidBtn) {
+          vidBtn.click();
+          return 'clicked_vid_btn';
+        }
+        return 'storage_updated';
+      })()
+    `;
+    await this.safeExecuteJs(win, switchModeToVideoJs, 2000);
 
     // === BƯỚC 3: Điền prompt và bấm nút Generate ===
     onProgress?.(25, 'Đang nộp prompt vào Google Flow...');
@@ -1102,6 +1141,10 @@ export class GoogleVeoSessionManager {
       console.warn('[Google Flow Browser] Native click/enter warning:', clickErr?.message);
     }
 
+    // Đợi 1.2s và tự động xác nhận quyền của Tác nhân (nếu sảnh hiện tab tác nhân/permission message)
+    await new Promise((r) => setTimeout(r, 1200));
+    await this.autoConfirmAgentPermission(win);
+
     if (isCancelled?.()) return null;
 
     // === BƯỚC 4: Polling chờ video (tối đa 130s, mỗi 3s kiểm tra 1 lần) ===
@@ -1154,6 +1197,9 @@ export class GoogleVeoSessionManager {
         return null;
       }
 
+      // Tự động nhấn nút xác nhận nếu Tác nhân Creative Agent đang chờ duyệt
+      await this.autoConfirmAgentPermission(win);
+
       // 1. Kiểm tra network sniffer
       if (capturedVideoUrl) {
         onProgress?.(90, 'Đã nhận được video từ Google Flow!');
@@ -1194,6 +1240,7 @@ export class GoogleVeoSessionManager {
     params: {
       prompt: string;
       aspectRatio?: string;
+      outputCount?: number;
     },
     onProgress?: (pct: number, msg?: string) => void,
     isCancelled?: () => boolean
@@ -1317,13 +1364,15 @@ export class GoogleVeoSessionManager {
 
     if (isCancelled?.()) return null;
 
-    // Chuyển Mode sang IMAGE trong Google Flow nếu có thể
+    // Chuyển Mode sang IMAGE và thiết lập Output Count (mặc định x1) trong Google Flow
     const switchModeToImageJs = `
       (function() {
+        const targetCount = ${params.outputCount || 1};
         try {
           const raw = localStorage.getItem('flow-prompt-box-settings');
           const settings = raw ? JSON.parse(raw) : {};
           settings.mode = 'IMAGE';
+          settings.Qp = targetCount;
           localStorage.setItem('flow-prompt-box-settings', JSON.stringify(settings));
           window.dispatchEvent(new StorageEvent('storage', {
             key: 'flow-prompt-box-settings',
@@ -1331,7 +1380,15 @@ export class GoogleVeoSessionManager {
           }));
         } catch (e) {}
 
-        const allButtons = Array.from(document.querySelectorAll('button, mat-button-toggle, [role="tab"], .mat-button-toggle-button'));
+        const allButtons = Array.from(document.querySelectorAll(
+          'button, mat-button-toggle, [role="tab"], .mat-button-toggle-button, [aria-label*="Output count" i] button'
+        ));
+        const countBtn = allButtons.find(b => {
+          const t = (b.innerText || b.textContent || '').trim().toLowerCase();
+          return t === 'x' + targetCount;
+        });
+        if (countBtn) countBtn.click();
+
         const imgBtn = allButtons.find(b => {
           const label = (b.getAttribute('aria-label') || b.textContent || b.innerText || '').toLowerCase();
           return label === 'image' || label.includes('image mode') || label.includes('tạo ảnh');
@@ -1469,6 +1526,10 @@ export class GoogleVeoSessionManager {
       await win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Enter' });
     } catch {}
 
+    // Đợi 1.2s và tự động xác nhận quyền của Tác nhân (nếu xuất hiện tab tác nhân/permission message)
+    await new Promise((r) => setTimeout(r, 1200));
+    await this.autoConfirmAgentPermission(win);
+
     if (isCancelled?.()) return null;
 
     // Bước 4: Polling chờ ảnh (tối đa 60s, mỗi 2s)
@@ -1519,6 +1580,9 @@ export class GoogleVeoSessionManager {
         return null;
       }
 
+      // Tự động nhấn nút xác nhận nếu Tác nhân Creative Agent đang chờ duyệt
+      await this.autoConfirmAgentPermission(win);
+
       if (capturedImageUrl) {
         onProgress?.(90, 'Đã nhận được ảnh từ Google Flow!');
         console.log('[Google Flow Browser] ✅ Bắt được ảnh qua network:', capturedImageUrl);
@@ -1545,6 +1609,71 @@ export class GoogleVeoSessionManager {
 
     console.warn('[Google Flow Browser] Quá thời gian chờ ảnh từ Google Flow.');
     return null;
+  }
+
+  /**
+   * Tự động kiểm tra và nhấn nút xác nhận tạo nội dung của Tác nhân (Creative Agent Permission).
+   * Giúp workflow tự động chạy tiếp mà không cần người dùng phải bấm tay vào tab tác nhân.
+   */
+  private async autoConfirmAgentPermission(win: any): Promise<string> {
+    if (!win || win.isDestroyed()) return 'none';
+
+    const autoConfirmJs = `
+      (function() {
+        // 1. Kiểm tra permission message của Creative Agent
+        const permRadios = Array.from(document.querySelectorAll(
+          'flow-permission-message [role="radio"], flow-permission-message .option-row, flow-permission-message mat-radio-button, [role="radiogroup"][aria-label*="Permission" i] [role="radio"]'
+        ));
+        if (permRadios.length > 0) {
+          // Ưu tiên chọn option 2 ("Luôn luôn cho phép" / "Không hỏi lại") nếu có để không phải hỏi lại lần sau
+          const targetRadio = permRadios.length > 1 ? permRadios[1] : permRadios[0];
+          targetRadio.click();
+          targetRadio.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true }));
+          return 'clicked_permission_radio';
+        }
+
+        // 2. Kiểm tra các nút bấm xác nhận trong flow-agent-panel, flow-permission-message, dialog
+        const buttons = Array.from(document.querySelectorAll(
+          'flow-agent-panel button, flow-permission-message button, flow-chat-view button, flow-confirmation-dialog button, mat-dialog-container button, .agree-actions-group button, button[aria-label*="Confirm" i], button[aria-label*="Generate" i], button[aria-label*="Tạo" i]'
+        ));
+        const actionBtn = buttons.find(b => {
+          if (b.disabled) return false;
+          const txt = (b.innerText || b.textContent || b.getAttribute('aria-label') || '').trim().toLowerCase();
+          return (
+            txt === 'tạo' ||
+            txt === 'bắt đầu tạo' ||
+            txt === 'xác nhận' ||
+            txt === 'cho phép' ||
+            txt === 'luôn cho phép' ||
+            txt === 'đồng ý' ||
+            txt === 'generate' ||
+            txt === 'confirm' ||
+            txt === 'allow' ||
+            txt === 'always allow' ||
+            txt === 'agree' ||
+            txt === 'proceed' ||
+            txt.includes('tạo nội dung') ||
+            txt.includes('start generation')
+          ) && !txt.includes('hủy') && !txt.includes('cancel') && !txt.includes('không') && !txt.includes('close');
+        });
+
+        if (actionBtn) {
+          actionBtn.click();
+          return 'clicked_action_button';
+        }
+
+        return 'none';
+      })()
+    `;
+
+    try {
+      const res = await this.safeExecuteJs<string>(win, autoConfirmJs, 2000);
+      if (res && res !== 'none') {
+        console.log('[Google Flow Browser] 👉 Đã tự động nhấn nút xác nhận tạo nội dung của Tác nhân:', res);
+        return res;
+      }
+    } catch {}
+    return 'none';
   }
 }
 

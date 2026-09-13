@@ -459,6 +459,7 @@ export class WorkflowExecutionEngine {
         const aspectRatio = config.aspectRatio || '16:9';
         const seed = config.seed ? Number(config.seed) : undefined;
         const modelVariant = config.modelVariant || 'veo-3.1-generate-preview';
+        const outputCount = Number(config.outputCount || 1);
 
         const result = await adapter.generateVideo(
           {
@@ -468,6 +469,7 @@ export class WorkflowExecutionEngine {
             aspectRatio,
             seed,
             modelVariant,
+            outputCount,
           },
           ctx
         );
@@ -741,7 +743,8 @@ export class WorkflowExecutionEngine {
 
         const aspectRatio = config.aspectRatio || '16:9';
         const imageEngine = config.imageEngine || 'banana-pro';
-        const imgRes = await adapter.generateImage!({ prompt, aspectRatio, imageEngine }, ctx);
+        const outputCount = Number(config.outputCount || 1);
+        const imgRes = await adapter.generateImage!({ prompt, aspectRatio, imageEngine, outputCount }, ctx);
         return {
           image: imgRes.imageUrl,
           sourceUrl: imgRes.imageUrl,

@@ -253,13 +253,24 @@ export const NODE_DEFINITIONS: Record<string, NodeDefinition> = {
       modelVariant: {
         type: 'select',
         label: 'Phiên bản Model',
-        defaultValue: 'veo-3.1-quality',
+        defaultValue: 'omni-flash',
         options: [
+          { label: 'Omni 1.1 Flash (Google Flow - Tốc độ cao)', value: 'omni-flash' },
           { label: 'Google Veo 3.1 Quality (Điện ảnh 1080p, tối đa chi tiết)', value: 'veo-3.1-quality' },
           { label: 'Google Veo 3.1 Lite (Tốc độ cao, tiết kiệm credit)', value: 'veo-3.1-lite' },
           { label: 'Google Veo 2.0 (Tiêu chuẩn / Ổn định)', value: 'veo-2.0-generate-001' },
           { label: 'Google Veo Fast (Render nhanh)', value: 'veo-fast-001' },
-          { label: 'Gemini Omni Flash Video', value: 'gemini-omni-flash-video' },
+        ],
+      },
+      outputCount: {
+        type: 'select',
+        label: 'Số lượng video tạo (Output count)',
+        defaultValue: 1,
+        options: [
+          { label: 'x1 (Mặc định - 1 video)', value: 1 },
+          { label: 'x2 (2 video)', value: 2 },
+          { label: 'x3 (3 video)', value: 3 },
+          { label: 'x4 (4 video)', value: 4 },
         ],
       },
       qualityPreset: {
@@ -284,9 +295,8 @@ export const NODE_DEFINITIONS: Record<string, NodeDefinition> = {
         label: 'Tỉ lệ khung hình',
         defaultValue: '16:9',
         options: [
-          { label: '16:9 (Landscape)', value: '16:9' },
-          { label: '9:16 (Portrait / Reels)', value: '9:16' },
-          { label: '1:1 (Square)', value: '1:1' },
+          { label: '16:9 (Landscape / Ngang)', value: '16:9' },
+          { label: '9:16 (Portrait / Reels / Dọc)', value: '9:16' },
         ],
       },
       fps: {
@@ -306,7 +316,8 @@ export const NODE_DEFINITIONS: Record<string, NodeDefinition> = {
       },
     },
     defaultData: {
-      modelVariant: 'veo-3.1-quality',
+      modelVariant: 'omni-flash',
+      outputCount: 1,
       qualityPreset: 'quality',
       durationSeconds: 5,
       aspectRatio: '16:9',
@@ -333,11 +344,22 @@ export const NODE_DEFINITIONS: Record<string, NodeDefinition> = {
       imageEngine: {
         type: 'select',
         label: 'Mô hình AI tạo ảnh',
-        defaultValue: 'banana-pro',
+        defaultValue: 'nano-banana',
         options: [
-          { label: 'Banana Pro (Chất lượng cao)', value: 'banana-pro' },
-          { label: 'Nano Banana (Tốc độ cao)', value: 'nano-banana' },
+          { label: '🍌 Nano Banana 2 (Google Flow)', value: 'nano-banana' },
+          { label: '🍌 Banana Pro (4K Studio)', value: 'banana-pro' },
           { label: 'Tự động (Theo thiết lập Sảnh / API Key)', value: 'auto' },
+        ],
+      },
+      outputCount: {
+        type: 'select',
+        label: 'Số lượng ảnh tạo (Output count)',
+        defaultValue: 1,
+        options: [
+          { label: 'x1 (Mặc định - 1 ảnh)', value: 1 },
+          { label: 'x2 (2 ảnh)', value: 2 },
+          { label: 'x3 (3 ảnh)', value: 3 },
+          { label: 'x4 (4 ảnh)', value: 4 },
         ],
       },
       prompt: {
@@ -350,15 +372,17 @@ export const NODE_DEFINITIONS: Record<string, NodeDefinition> = {
         label: 'Tỷ lệ khung hình',
         defaultValue: '16:9',
         options: [
-          { label: '1:1 (Square)', value: '1:1' },
-          { label: '16:9 (Landscape)', value: '16:9' },
-          { label: '9:16 (Portrait / Reels)', value: '9:16' },
-          { label: '4:3 (Classic)', value: '4:3' },
+          { label: '16:9 (Ngang)', value: '16:9' },
+          { label: '4:3 (Tiêu chuẩn)', value: '4:3' },
+          { label: '1:1 (Vuông)', value: '1:1' },
+          { label: '3:4 (Dọc cổ điển)', value: '3:4' },
+          { label: '9:16 (Dọc TikTok / Reels)', value: '9:16' },
         ],
       },
     },
     defaultData: {
-      imageEngine: 'banana-pro',
+      imageEngine: 'nano-banana',
+      outputCount: 1,
       prompt: 'Cinematic portrait of Vietnamese secret agent in futuristic Hanoi, neon rain, volumetric lighting, photorealistic 8k',
       aspectRatio: '16:9',
     },

@@ -203,6 +203,7 @@ export class GoogleFlowAdapter implements ModelAdapter {
           aspectRatio: params.aspectRatio,
           durationSeconds: params.durationSeconds,
           modelVariant: params.modelVariant,
+          outputCount: params.outputCount || 1,
         },
         (percent, msg) => {
           ctx.onProgress(Math.max(8, Math.min(82, percent)));
@@ -766,6 +767,7 @@ export class GoogleFlowAdapter implements ModelAdapter {
           {
             prompt: params.prompt,
             aspectRatio: params.aspectRatio,
+            outputCount: params.outputCount || 1,
           },
           (percent, msg) => {
             ctx.onProgress(Math.max(10, Math.min(85, percent)));

@@ -10,6 +10,7 @@ export interface VideoGenParams {
   aspectRatio?: string;
   fps?: number;
   modelVariant?: string;
+  outputCount?: number;
 }
 
 export interface VideoGenResult {
@@ -27,6 +28,7 @@ export interface ImageGenParams {
   steps?: number;
   cfgScale?: number;
   imageEngine?: string;
+  outputCount?: number;
 }
 
 export interface DirectorPromptParams {
