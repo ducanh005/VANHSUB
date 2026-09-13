@@ -796,12 +796,16 @@ export class GoogleVeoSessionManager {
       const headers = details.responseHeaders || {};
       const ct = (headers['content-type']?.[0] || headers['Content-Type']?.[0] || '').toLowerCase();
       
+      // Bỏ qua các video banner quảng cáo tĩnh từ gstatic / webview
+      const isStaticBanner = url.includes('gstatic.com') || url.includes('/banners/') || url.includes('landing_page');
+
       if (
         (ct.includes('video/mp4') || ct.includes('video/webm') || url.includes('.mp4') || url.includes('googlevideo.com/videoplayback')) &&
         !url.includes('blank') &&
+        !isStaticBanner &&
         details.statusCode >= 200 && details.statusCode < 300
       ) {
-        console.log('[Google Flow Network] 🎬 Bắt được luồng video Veo:', url.slice(0, 100));
+        console.log('[Google Flow Network] 🎬 Bắt được luồng video Veo thật:', url.slice(0, 100));
         capturedVideoUrl = url;
       }
     };
@@ -821,7 +825,10 @@ export class GoogleVeoSessionManager {
         const hasPrompt = Boolean(document.querySelector('.ProseMirror, [contenteditable="true"], flow-prompt-box textarea, textarea'));
         const projectCard = Boolean(document.querySelector('flow-project-card'));
         const newProjBtn = Boolean(document.querySelector('button.new-project-button, [aria-label*="New project" i]'));
-        const isSignIn = Boolean(document.querySelector('a[href*="accounts.google.com"]'));
+        // Chỉ coi là chưa đăng nhập nếu KHÔNG có project/card/prompt và thấy nút đăng nhập rõ ràng
+        const isSignIn = !hasPrompt && !projectCard && !newProjBtn && Boolean(
+          document.querySelector('a[href*="ServiceLogin"], [aria-label*="Sign in" i]')
+        );
         return JSON.stringify({
           url: window.location.href,
           hasPrompt,
@@ -860,17 +867,24 @@ export class GoogleVeoSessionManager {
       if (win.webContents.isLoading()) {
         await new Promise<void>((resolve) => {
           win.webContents.once('did-stop-loading', () => resolve());
-          setTimeout(resolve, 4000);
+          setTimeout(resolve, 5000);
         });
       }
+      await new Promise((r) => setTimeout(r, 1500));
     }
 
     // === BƯỚC 3: Điền prompt và bấm nút Generate ===
     onProgress?.(25, 'Đang nộp prompt vào Google Flow...');
     const fillPromptJs = `
-      (function() {
+      (async function() {
         try {
-          const promptEl = document.querySelector('.ProseMirror, [contenteditable="true"], flow-prompt-box textarea, textarea');
+          let promptEl = null;
+          for (let i = 0; i < 10; i++) {
+            promptEl = document.querySelector('.ProseMirror, [contenteditable="true"], flow-prompt-box textarea, textarea');
+            if (promptEl) break;
+            await new Promise(r => setTimeout(r, 500));
+          }
+
           if (!promptEl) return JSON.stringify({ ok: false, error: 'no_prompt_input' });
 
           promptEl.focus();
@@ -884,6 +898,8 @@ export class GoogleVeoSessionManager {
             promptEl.dispatchEvent(new Event('input', { bubbles: true }));
             promptEl.dispatchEvent(new Event('change', { bubbles: true }));
           }
+
+          await new Promise(r => setTimeout(r, 300));
 
           // Tìm nút Generate
           const buttons = Array.from(document.querySelectorAll('button, [role="button"]'));
@@ -915,7 +931,7 @@ export class GoogleVeoSessionManager {
       })()
     `;
 
-    const fillResult = await this.safeExecuteJs<any>(win, fillPromptJs, 4000);
+    const fillResult = await this.safeExecuteJs<any>(win, fillPromptJs, 8000);
     console.log('[Google Flow Browser] Kết quả điền prompt:', fillResult);
 
     if (!fillResult?.ok) {
@@ -931,7 +947,13 @@ export class GoogleVeoSessionManager {
         const videos = Array.from(document.querySelectorAll('video'));
         for (const v of videos) {
           const src = v.currentSrc || v.src || (v.querySelector('source') ? v.querySelector('source').src : '');
-          if (src && src.startsWith('http') && !src.includes('blob:')) {
+          if (
+            src &&
+            src.startsWith('http') &&
+            !src.includes('blob:') &&
+            !src.includes('gstatic.com') &&
+            !src.includes('/banners/')
+          ) {
             return src;
           }
         }
