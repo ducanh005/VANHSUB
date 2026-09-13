@@ -191,7 +191,7 @@ export class GoogleVeoSessionManager {
       minWidth: 800,
       minHeight: 600,
       title: 'Sảnh Google Flow / Veo - Đăng nhập tài khoản Google để nhận Credit miễn phí',
-      parent: parentWindow && !parentWindow.isDestroyed() ? parentWindow : undefined,
+      // Không đặt parent để sảnh là cửa sổ độc lập, thu nhỏ (-) xuống taskbar thoải mái không bị đóng
       modal: false,
       autoHideMenuBar: true,
       webPreferences: {
@@ -852,25 +852,51 @@ export class GoogleVeoSessionManager {
       onProgress?.(18, 'Đang mở dự án trên Google Flow...');
       const clickProjectJs = `
         (function() {
-          const card = document.querySelector('flow-project-card');
-          if (card) { card.click(); return 'clicked_card'; }
-          const btn = document.querySelector('button.new-project-button, [aria-label*="New project" i]');
-          if (btn) { btn.click(); return 'clicked_btn'; }
+          // 1. Thử click link/thẻ mở project bên trong flow-project-card
+          const cardLink = document.querySelector('flow-project-card a[aria-label*="project" i]') ||
+                           document.querySelector('flow-project-card a.project-thumbnail-container') ||
+                           document.querySelector('flow-project-card a') ||
+                           document.querySelector('flow-project-card .project-card');
+          if (cardLink) {
+            const href = cardLink.getAttribute('href') || (cardLink.href ? cardLink.href : null);
+            if (href && (href.startsWith('/project/') || href.includes('flow.google.com/project/'))) {
+              window.location.href = href;
+              return 'navigated_href_' + href;
+            }
+            cardLink.click();
+            return 'clicked_card_link';
+          }
+
+          // 2. Thử nút New Project
+          const newBtn = document.querySelector('button.new-project-button') ||
+                         document.querySelector('[aria-label*="New project" i]') ||
+                         document.querySelector('button[extended]');
+          if (newBtn) {
+            newBtn.click();
+            return 'clicked_new_btn';
+          }
+
           return 'none';
         })()
       `;
-      // Click và không đợi trong JS để tránh Mojo hang khi navigation xảy ra
-      await this.safeExecuteJs(win, clickProjectJs, 3000);
+      const clickResult = await this.safeExecuteJs(win, clickProjectJs, 3000);
+      console.log('[Google Flow Browser] Kết quả click mở project:', clickResult);
 
-      // Đợi navigation trong Node.js
-      await new Promise((r) => setTimeout(r, 2500));
-      if (win.webContents.isLoading()) {
-        await new Promise<void>((resolve) => {
-          win.webContents.once('did-stop-loading', () => resolve());
-          setTimeout(resolve, 5000);
-        });
+      // Đợi SPA router chuyển trang (tối đa 8s, kiểm tra mỗi 1s)
+      for (let i = 0; i < 8; i++) {
+        await new Promise((r) => setTimeout(r, 1000));
+        const checkEditorJs = `
+          Boolean(document.querySelector(
+            '.ProseMirror, [contenteditable="true"], .prompt-input, flow-prompt-input, flow-prompt-box, .prompt-box-container'
+          ))
+        `;
+        const inEditor = await this.safeExecuteJs<boolean>(win, checkEditorJs, 2000);
+        if (inEditor) {
+          console.log(`[Google Flow Browser] Đã tải xong editor sau ${i + 1}s.`);
+          break;
+        }
       }
-      await new Promise((r) => setTimeout(r, 1500));
+      await new Promise((r) => setTimeout(r, 1000));
     }
 
     // === BƯỚC 3: Điền prompt và bấm nút Generate ===
@@ -878,14 +904,39 @@ export class GoogleVeoSessionManager {
     const fillPromptJs = `
       (async function() {
         try {
+          // Các selector ô prompt có thể có trên Google Flow
+          const selectors = [
+            '.ProseMirror',
+            '[contenteditable="true"]',
+            '.prompt-input [contenteditable]',
+            'flow-prompt-input [contenteditable]',
+            '.prompt-input',
+            'flow-prompt-box textarea',
+            'textarea',
+            'input[type="text"]'
+          ];
+
           let promptEl = null;
-          for (let i = 0; i < 10; i++) {
-            promptEl = document.querySelector('.ProseMirror, [contenteditable="true"], flow-prompt-box textarea, textarea');
+          for (let i = 0; i < 12; i++) {
+            for (const sel of selectors) {
+              const el = document.querySelector(sel);
+              if (el && (el.isContentEditable || el.tagName === 'TEXTAREA' || el.tagName === 'INPUT')) {
+                promptEl = el;
+                break;
+              }
+            }
             if (promptEl) break;
             await new Promise(r => setTimeout(r, 500));
           }
 
-          if (!promptEl) return JSON.stringify({ ok: false, error: 'no_prompt_input' });
+          if (!promptEl) {
+            return JSON.stringify({
+              ok: false,
+              error: 'no_prompt_input',
+              url: window.location.href,
+              htmlSnippet: document.body.innerText.slice(0, 300)
+            });
+          }
 
           promptEl.focus();
           if (promptEl.isContentEditable) {
@@ -899,9 +950,9 @@ export class GoogleVeoSessionManager {
             promptEl.dispatchEvent(new Event('change', { bubbles: true }));
           }
 
-          await new Promise(r => setTimeout(r, 300));
+          await new Promise(r => setTimeout(r, 400));
 
-          // Tìm nút Generate
+          // Tìm nút Generate hoặc bấm Enter
           const buttons = Array.from(document.querySelectorAll('button, [role="button"]'));
           const genBtn = buttons.find(b => {
             const t = (b.innerText || b.textContent || '').toLowerCase().trim();
@@ -931,7 +982,7 @@ export class GoogleVeoSessionManager {
       })()
     `;
 
-    const fillResult = await this.safeExecuteJs<any>(win, fillPromptJs, 8000);
+    const fillResult = await this.safeExecuteJs<any>(win, fillPromptJs, 9000);
     console.log('[Google Flow Browser] Kết quả điền prompt:', fillResult);
 
     if (!fillResult?.ok) {
