@@ -767,7 +767,7 @@ export class GoogleVeoSessionManager {
       modelVariant?: string;
     },
     onProgress?: (percent: number, msg?: string) => void
-  ): Promise<{ videoUrl: string } | null> {
+  ): Promise<{ videoUrl?: string; base64Data?: string } | null> {
     onProgress?.(5, 'Đang chuẩn bị Sảnh Google Flow...');
 
     const ready = await this.ensureLobbyAtFlow();
@@ -990,48 +990,70 @@ export class GoogleVeoSessionManager {
       return null;
     }
 
-    // === BƯỚC 4: Polling chờ video (tối đa 60s, mỗi 3s kiểm tra 1 lần) ===
+    // === BƯỚC 4: Polling chờ video (tối đa 130s, mỗi 3s kiểm tra 1 lần) ===
     onProgress?.(30, 'Đang chờ Google Veo render video...');
 
     const pollDomVideoJs = `
-      (function() {
-        const videos = Array.from(document.querySelectorAll('video'));
-        for (const v of videos) {
-          const src = v.currentSrc || v.src || (v.querySelector('source') ? v.querySelector('source').src : '');
-          if (
-            src &&
-            src.startsWith('http') &&
-            !src.includes('blob:') &&
-            !src.includes('gstatic.com') &&
-            !src.includes('/banners/')
-          ) {
-            return src;
+      (async function() {
+        try {
+          const videos = Array.from(document.querySelectorAll('video'));
+          for (const v of videos) {
+            const src = v.currentSrc || v.src || (v.querySelector('source') ? v.querySelector('source').src : '');
+            if (!src || src.includes('gstatic.com') || src.includes('/banners/')) continue;
+
+            // 1. Nếu là HTTP URL thật
+            if (src.startsWith('http')) {
+              return JSON.stringify({ type: 'http', videoUrl: src });
+            }
+
+            // 2. Nếu là Blob URL (MediaSource / Blob)
+            if (src.startsWith('blob:')) {
+              try {
+                const resp = await fetch(src);
+                const blob = await resp.blob();
+                if (blob.size > 20000) {
+                  const b64 = await new Promise((resolve) => {
+                    const reader = new FileReader();
+                    reader.onloadend = () => resolve(reader.result);
+                    reader.readAsDataURL(blob);
+                  });
+                  return JSON.stringify({ type: 'blob', base64Data: b64 });
+                }
+              } catch (e) {}
+            }
           }
-        }
+        } catch (e) {}
         return null;
       })()
     `;
 
-    const maxWaitSeconds = 60;
+    const maxWaitSeconds = 130;
     const pollIntervalMs = 3000;
     const maxAttempts = Math.floor((maxWaitSeconds * 1000) / pollIntervalMs);
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       if (win.isDestroyed()) break;
 
-      // Kiểm tra network sniffer
+      // 1. Kiểm tra network sniffer
       if (capturedVideoUrl) {
         onProgress?.(90, 'Đã nhận được video từ Google Flow!');
         console.log('[Google Flow Browser] ✅ Bắt được video qua network:', capturedVideoUrl);
         return { videoUrl: capturedVideoUrl };
       }
 
-      // Kiểm tra DOM thẻ <video>
-      const domSrc = await this.safeExecuteJs<string>(win, pollDomVideoJs, 2500);
-      if (domSrc && typeof domSrc === 'string' && domSrc.startsWith('http')) {
-        onProgress?.(90, 'Đã nhận được video từ Google Flow!');
-        console.log('[Google Flow Browser] ✅ Tìm thấy video qua DOM:', domSrc);
-        return { videoUrl: domSrc };
+      // 2. Kiểm tra DOM thẻ <video> (hỗ trợ cả link HTTP và Blob base64)
+      const domResult = await this.safeExecuteJs<any>(win, pollDomVideoJs, 3500);
+      if (domResult) {
+        if (domResult.type === 'http' && domResult.videoUrl) {
+          onProgress?.(90, 'Đã nhận được video từ Google Flow!');
+          console.log('[Google Flow Browser] ✅ Tìm thấy video HTTP qua DOM:', domResult.videoUrl);
+          return { videoUrl: domResult.videoUrl };
+        }
+        if (domResult.type === 'blob' && domResult.base64Data) {
+          onProgress?.(90, 'Đã trích xuất video Blob từ Google Flow!');
+          console.log('[Google Flow Browser] ✅ Trích xuất video Blob thành công');
+          return { base64Data: domResult.base64Data };
+        }
       }
 
       await new Promise((r) => setTimeout(r, pollIntervalMs));

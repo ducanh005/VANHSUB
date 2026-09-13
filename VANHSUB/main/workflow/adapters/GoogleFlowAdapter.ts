@@ -229,6 +229,15 @@ export class GoogleFlowAdapter implements ModelAdapter {
         }
       );
 
+      if (browserResult?.base64Data) {
+        console.log('[Google Flow] ✅ Lưu video Blob từ Google Veo...');
+        ctx.onProgress(85);
+        const b64 = browserResult.base64Data.replace(/^data:[^;]+;base64,/, '');
+        const fs = require('fs');
+        fs.writeFileSync(outPath, Buffer.from(b64, 'base64'));
+        return { videoPath: outPath };
+      }
+
       if (browserResult?.videoUrl) {
         console.log('[Google Flow] ✅ Tải video thật từ Google Veo...');
         ctx.onProgress(85);
