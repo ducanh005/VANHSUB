@@ -318,8 +318,8 @@ export const NODE_DEFINITIONS: Record<string, NodeDefinition> = {
   'google-imagen': {
     type: 'google-imagen',
     category: 'model',
-    label: 'Banana Pro / Imagen 3 (Image AI)',
-    description: 'Sinh ảnh chất lượng cao bằng Banana Pro (Google Gemini 3 Pro Image / 4K) hoặc Imagen 3 làm Init Frame hoặc Storyboard.',
+    label: 'Banana Pro (Image AI)',
+    description: 'Sinh ảnh chất lượng cao bằng Banana Pro (Google Flow / Imagen) làm Keyframe, Init Frame hoặc Storyboard.',
     inputs: [
       { id: 'prompt', label: 'Prompt', dataType: 'text', description: 'Mô tả hình ảnh' },
       { id: 'character', label: 'Nhân vật (Lock)', dataType: 'character_ref', description: 'Tham chiếu nhân vật' },
@@ -335,10 +335,9 @@ export const NODE_DEFINITIONS: Record<string, NodeDefinition> = {
         label: 'Mô hình AI tạo ảnh',
         defaultValue: 'banana-pro',
         options: [
-          { label: 'Banana Pro (Google Gemini 3 Pro Image - 4K)', value: 'banana-pro' },
-          { label: 'Nano Banana (Google Gemini 2.5 Flash Image)', value: 'nano-banana' },
-          { label: 'Tự động (Ưu tiên Banana Pro, dự phòng online)', value: 'auto' },
-          { label: 'Engine trực tuyến (Miễn phí)', value: 'pollinations' },
+          { label: 'Banana Pro (Chất lượng cao)', value: 'banana-pro' },
+          { label: 'Nano Banana (Tốc độ cao)', value: 'nano-banana' },
+          { label: 'Tự động (Theo thiết lập Sảnh / API Key)', value: 'auto' },
         ],
       },
       prompt: {

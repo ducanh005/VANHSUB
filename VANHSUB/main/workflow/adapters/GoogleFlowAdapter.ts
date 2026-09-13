@@ -679,187 +679,171 @@ export class GoogleFlowAdapter implements ModelAdapter {
   }
 
   /**
-   * Sinh ảnh bằng Google Banana Pro (Gemini 3 Pro Image / Nano Banana)
+   * Sinh ảnh bằng Banana Pro (Google Imagen / Banana AI) qua API Key
    */
   private async callBananaProImageApi(
     apiKey: string,
     prompt: string,
     aspectRatio: string,
-    outPath: string,
-    preferredEngine = 'banana-pro'
+    outPath: string
   ): Promise<boolean> {
-    const candidateModels =
-      preferredEngine === 'nano-banana'
-        ? ['gemini-2.5-flash-image', 'nano-banana-pro-preview', 'gemini-3-pro-image-preview']
-        : [
-            'nano-banana-pro-preview',
-            'gemini-3-pro-image-preview',
-            'gemini-3-pro-image',
-            'gemini-2.5-flash-image',
-            'gemini-3.1-flash-image-preview',
-          ];
+    const model = 'nano-banana-pro-preview';
+    console.log(`[Banana Pro AI] Đang gửi yêu cầu sinh ảnh tới Banana Pro (${model})...`);
 
-    const targetRatio = aspectRatio === '1:1' ? '1:1' : aspectRatio === '9:16' ? '9:16' : '16:9';
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+    const payload = JSON.stringify({
+      contents: [
+        {
+          parts: [{ text: prompt }],
+        },
+      ],
+    });
 
-    for (const model of candidateModels) {
-      try {
-        console.log(`[Banana Pro AI] Đang gửi yêu cầu sinh ảnh tới model Google ${model}...`);
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-        const payload = JSON.stringify({
-          contents: [
-            {
-              parts: [{ text: prompt }],
-            },
-          ],
-          generationConfig: {
-            imageConfig: {
-              aspectRatio: targetRatio,
-            },
-          },
-        });
+    const resData = await this.postJson(url, payload);
 
-        const resData = await this.postJson(url, payload);
-        const parts = resData?.candidates?.[0]?.content?.parts || [];
-        for (const part of parts) {
-          if (part.inlineData && part.inlineData.data) {
-            const buf = Buffer.from(part.inlineData.data, 'base64');
-            fs.writeFileSync(outPath, buf);
-            console.log(`[Banana Pro AI] ✓ Sinh ảnh thành công với Google ${model} (${buf.length} bytes)!`);
-            return true;
-          }
-        }
-      } catch (err: any) {
-        const msg = err?.message || String(err);
-        if (msg.includes('429') || msg.includes('RESOURCE_EXHAUSTED') || msg.includes('quota') || msg.includes('limit: 0')) {
-          console.warn(
-            `[Banana Pro AI] Google API Key chưa có hạn ngạch cho Banana Pro (Google quy định model sinh ảnh Banana Pro 4K cần bật thanh toán Pay-as-you-go tại https://aistudio.google.com). Tự động chuyển sang engine dự phòng...`
-          );
-          break;
-        } else {
-          console.warn(`[Banana Pro AI] Model ${model} phản hồi: ${msg.slice(0, 150)}`);
-        }
+    if (resData?.error) {
+      const errMsg = resData.error.message || JSON.stringify(resData.error);
+      if (resData.error.code === 429 || errMsg.includes('quota') || errMsg.includes('RESOURCE_EXHAUSTED')) {
+        console.error(
+          '[Banana Pro AI] Google API Key chưa có hạn ngạch (429 RESOURCE_EXHAUSTED). Banana Pro yêu cầu tài khoản có bật thanh toán Pay-as-you-go trên Google AI Studio.'
+        );
+        throw new Error(
+          '[Banana Pro AI] Google API Key đã hết hoặc chưa được cấp hạn ngạch sinh ảnh Banana Pro (429 Quota Exceeded). Vui lòng chuyển sang chế độ Sảnh Google Flow để dùng credit miễn phí hoặc bật Pay-as-you-go trên https://aistudio.google.com.'
+        );
+      }
+      throw new Error(`[Banana Pro AI] Lỗi từ Banana Pro API: ${errMsg}`);
+    }
+
+    const parts = resData?.candidates?.[0]?.content?.parts || [];
+    for (const part of parts) {
+      if (part.inlineData && part.inlineData.data) {
+        const buf = Buffer.from(part.inlineData.data, 'base64');
+        fs.writeFileSync(outPath, buf);
+        console.log(`[Banana Pro AI] ✓ Sinh ảnh thành công với Banana Pro (${buf.length} bytes)!`);
+        return true;
       }
     }
-    return false;
+
+    throw new Error('[Banana Pro AI] Không nhận được dữ liệu ảnh hợp lệ từ Banana Pro.');
   }
 
   /**
    * Sinh ảnh Keyframe AI bám sát 100% Prompt người dùng
-   * Ưu tiên Banana Pro (Gemini 3 Pro Image), tự động fallback sang Engine trực tuyến tốc độ cao
+   * Hỗ trợ Sảnh Google Flow (Web Session) và Banana Pro API
    */
   async generateImage(params: import('./types').ImageGenParams, ctx: ExecutionContext): Promise<{ imageUrl: string }> {
-    const apiKey = SettingsStore.get('geminiApiKey')?.trim();
+    const veoMode = SettingsStore.get('veoMode') || 'free_session';
     const fileName = `imagen_${Date.now()}_${Math.random().toString(36).slice(2, 7)}.jpg`;
     const outImagePath = path.join(ctx.tempDir, fileName);
-    const engineChoice = params.imageEngine || 'banana-pro';
 
     // =========================================================================
-    // CHẾ ĐỘ 1: ƯU TIÊN BANANA PRO (GOOGLE GEMINI 3 PRO IMAGE / NANO BANANA)
+    // CHẾ ĐỘ 1: SẢNH GOOGLE FLOW MIỄN PHÍ (WEB SESSION TRÊN BROWSER)
     // =========================================================================
-    if (apiKey && (engineChoice === 'banana-pro' || engineChoice === 'nano-banana' || engineChoice === 'auto')) {
+    if (veoMode === 'free_session') {
+      const antiSpam = GoogleVeoAntiSpamGuard.getInstance();
+      const sessionMgr = GoogleVeoSessionManager.getInstance();
+
+      ctx.onProgress(5);
+      const health = await sessionMgr.validateSession();
+      if (!health.valid) {
+        throw new Error(`[Sảnh Google Flow] ${health.detail}. Vui lòng mở sảnh và đăng nhập Google Flow để tiếp tục.`);
+      }
+
+      await antiSpam.acquireLockAsync({
+        onProgress: (percent, msg) => {
+          ctx.onProgress(percent);
+          if (msg) console.log(`[Flow Queue] ${msg}`);
+        },
+        isCancelled: ctx.isCancelled,
+      });
+
       try {
-        ctx.onProgress(20);
-        const bananaSuccess = await this.callBananaProImageApi(
-          apiKey,
-          params.prompt,
-          params.aspectRatio || '1:1',
-          outImagePath,
-          engineChoice
+        ctx.onProgress(12);
+        await antiSpam.applyHumanJitter(1500, 3000);
+        ctx.onProgress(25);
+
+        const result = await sessionMgr.generateImageViaBrowserContext(
+          {
+            prompt: params.prompt,
+            aspectRatio: params.aspectRatio,
+          },
+          (percent, msg) => {
+            ctx.onProgress(Math.max(10, Math.min(85, percent)));
+            if (msg) console.log(`[Google Flow Browser] ${msg}`);
+          },
+          ctx.isCancelled
         );
-        if (bananaSuccess && fs.existsSync(outImagePath) && fs.statSync(outImagePath).size > 1000) {
+
+        if (ctx.isCancelled()) {
+          throw new Error('Tác vụ đã bị hủy bởi người dùng.');
+        }
+
+        if (result?.base64Data) {
+          console.log('[Google Flow] ✅ Lưu ảnh Blob từ Google Flow...');
+          ctx.onProgress(95);
+          const b64 = result.base64Data.replace(/^data:[^;]+;base64,/, '');
+          fs.writeFileSync(outImagePath, Buffer.from(b64, 'base64'));
           ctx.onProgress(100);
           return { imageUrl: outImagePath };
         }
-      } catch (bananaErr: any) {
-        console.warn('[Banana Pro AI] Quá trình sinh ảnh Banana Pro gặp sự cố:', bananaErr?.message || bananaErr);
+
+        if (result?.imageUrl) {
+          console.log('[Google Flow] ✅ Tải ảnh thật từ Google Flow...');
+          ctx.onProgress(90);
+          await this.downloadFile(result.imageUrl, outImagePath, 5, 30000);
+          ctx.onProgress(100);
+          return { imageUrl: outImagePath };
+        }
+
+        throw new Error('[Google Flow] Không nhận được ảnh từ Google Flow sau thời gian chờ.');
+      } catch (err: any) {
+        if (ctx.isCancelled() || err?.message?.includes('hủy')) {
+          console.log('[Google Flow] Workflow đã bị người dùng hủy bỏ.');
+          throw new Error('Tác vụ đã bị hủy bởi người dùng.');
+        }
+        console.error('[Google Flow] Lỗi tạo ảnh từ Google Flow:', err?.message || err);
+        throw new Error(err?.message || 'Không thể tạo ảnh từ Google Flow.');
+      } finally {
+        antiSpam.releaseLock();
       }
     }
 
     // =========================================================================
-    // CHẾ ĐỘ 2: ENGINE DỰ PHÒNG TRỰC TUYẾN TUẦN TỰ HÓA (ĐẢM BẢO KHÔNG BỊ HTTP 429)
+    // CHẾ ĐỘ 2: BANANA PRO QUA GOOGLE API KEY CHÍNH THỨC
     // =========================================================================
-    try {
-      return await OnlineImageRateLimiter.schedule(async () => {
-        const isSquare = params.aspectRatio === '1:1';
-        const isPortrait = params.aspectRatio === '9:16';
-        // Kích thước chuẩn 512x512: thời gian tạo chỉ 2-4 giây, không lo bị timeout 20s hay dính 429
-        const width = isSquare ? 512 : isPortrait ? 384 : 512;
-        const height = isSquare ? 512 : isPortrait ? 512 : 288;
-        const baseSeed = Math.floor(Math.random() * 900000) + 100000;
+    if (veoMode === 'api_key') {
+      const apiKey = SettingsStore.get('geminiApiKey')?.trim();
+      if (!apiKey) {
+        throw new Error('[Banana Pro AI] Thiếu Gemini API Key. Vui lòng cấu hình API Key trong Cài đặt.');
+      }
 
-        // 1. Dịch và chắt lọc prompt sang tiếng Anh chuẩn thị giác (<35 từ) bằng Gemini
-        let englishPrompt = params.prompt;
-        if (apiKey) {
-          try {
-            ctx.onProgress(30);
-            const geminiModel = SettingsStore.get('geminiModel') || 'gemini-3.1-flash-lite';
-            const transRes = await this.postJson(
-              `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${apiKey}`,
-              JSON.stringify({
-                contents: [
-                  {
-                    parts: [
-                      {
-                        text: `You are an expert AI prompt engineer. Translate and condense this scene description into a single short English prompt (under 35 words) for AI image generation, focused on characters, action, visual appearance and art style. Output ONLY the English prompt, no extra text:\n${params.prompt}`,
-                      },
-                    ],
-                  },
-                ],
-              })
-            );
-            const distilled = transRes?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-            if (distilled && distilled.length > 5) {
-              englishPrompt = distilled.replace(/[\r\n\t]+/g, ' ').replace(/[^\x20-\x7E]/g, ' ').trim();
-            }
-          } catch (tErr) {
-            console.warn('[AI Image Engine] Không thể dịch prompt qua Gemini, dùng prompt gốc:', tErr);
-          }
-        }
+      ctx.onProgress(20);
+      const bananaSuccess = await this.callBananaProImageApi(
+        apiKey,
+        params.prompt,
+        params.aspectRatio || '1:1',
+        outImagePath
+      );
 
-        // Làm sạch prompt: loại bỏ các thẻ ngữ cảnh thừa
-        const cleanPrompt = englishPrompt
-          .replace(/\[(?:Consistent Character|Master Art Style|Scene|Script Context):[^\]]*\]/gi, (match) => {
-            const colon = match.indexOf(':');
-            return colon > 0 ? match.slice(colon + 1, -1) : match;
-          })
-          .replace(/[\r\n\t]+/g, ' ')
-          .replace(/[^\x20-\x7E\u00C0-\u024F\u1EA0-\u1EF9]/g, ' ')
-          .trim()
-          .slice(0, 220);
+      if (bananaSuccess && fs.existsSync(outImagePath) && fs.statSync(outImagePath).size > 1000) {
+        ctx.onProgress(100);
+        return { imageUrl: outImagePath };
+      }
 
-        // 2. Thử tải ảnh trực tuyến với cơ chế hồi chiêu an toàn (timeout 35s)
-        for (let attempt = 1; attempt <= 2; attempt++) {
-          try {
-            ctx.onProgress(40 + attempt * 25);
-            const seedToUse = baseSeed + attempt * 73;
-            const aiImageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(cleanPrompt)}?width=${width}&height=${height}&seed=${seedToUse}&nologo=true`;
-            await this.downloadFile(aiImageUrl, outImagePath, 3, 35000);
-
-            if (fs.existsSync(outImagePath) && fs.statSync(outImagePath).size > 1500) {
-              ctx.onProgress(100);
-              return { imageUrl: outImagePath };
-            }
-          } catch (err: any) {
-            console.warn(`[AI Image Engine] Lần ${attempt} không thành công (${err?.message || err}), thử lại...`);
-            if (attempt < 2) {
-              await new Promise((r) => setTimeout(r, 4000));
-            }
-          }
-        }
-
-        throw new Error('Tất cả nguồn ảnh trực tuyến tạm thời gián đoạn.');
-      });
-    } catch (aiErr) {
-      console.warn('Không thể tải ảnh từ AI Image Engine trực tuyến, dùng bộ mô phỏng offline:', aiErr);
+      throw new Error('[Banana Pro AI] Không thể sinh ảnh từ Banana Pro API.');
     }
 
     // =========================================================================
-    // CHẾ ĐỘ 3: DỰ PHÒNG CẤP CUỐI KHI OFFLINE
+    // CHẾ ĐỘ 3: MÔ PHỎNG OFFLINE (CHỈ KHI NGƯỜI DÙNG CHỦ ĐỘNG CHỌN SIMULATION)
     // =========================================================================
-    ctx.onProgress(70);
-    await this.generateSyntheticImage(params.prompt, outImagePath, params.aspectRatio || '16:9');
-    ctx.onProgress(100);
-    return { imageUrl: outImagePath };
+    if (veoMode === 'simulation') {
+      ctx.onProgress(50);
+      await this.generateSyntheticImage(params.prompt, outImagePath, params.aspectRatio || '16:9');
+      ctx.onProgress(100);
+      return { imageUrl: outImagePath };
+    }
+
+    throw new Error(`[Google Flow] Chế độ sinh ảnh không hợp lệ: ${veoMode}`);
   }
 
   /**

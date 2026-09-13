@@ -1186,5 +1186,366 @@ export class GoogleVeoSessionManager {
     return null;
   }
 
+  /**
+   * Sinh ảnh trực tiếp trên trình duyệt Google Flow (Electron context)
+   * Đảm bảo ảnh được tạo ngay trong project của Google Flow và xuất hiện trong lịch sử web flow.
+   */
+  async generateImageViaBrowserContext(
+    params: {
+      prompt: string;
+      aspectRatio?: string;
+    },
+    onProgress?: (pct: number, msg?: string) => void,
+    isCancelled?: () => boolean
+  ): Promise<{ imageUrl?: string; base64Data?: string } | null> {
+    onProgress?.(5, 'Đang chuẩn bị Sảnh Google Flow...');
+
+    const ready = await this.ensureLobbyAtFlow();
+    if (!ready) {
+      console.warn('[Google Flow Browser] Sảnh Google Flow chưa sẵn sàng.');
+      return null;
+    }
+
+    const win = this.lobbyWindow;
+    if (!win || win.isDestroyed()) return null;
+
+    let electron: any;
+    try {
+      electron = require('electron');
+    } catch {
+      return null;
+    }
+
+    // Network listener để bắt URL ảnh mới
+    let capturedImageUrl: string | null = null;
+    const ses = electron.session.fromPartition('persist:google_veo');
+    const netFilter = { urls: ['*://*/*'] };
+
+    const onResponseStartedHandler = (details: any) => {
+      const url = details.url || '';
+      const headers = details.responseHeaders || {};
+      const ct = (headers['content-type']?.[0] || headers['Content-Type']?.[0] || '').toLowerCase();
+
+      const isStatic =
+        url.includes('gstatic.com') ||
+        url.includes('/banners/') ||
+        url.includes('landing_page') ||
+        url.includes('favicon') ||
+        url.includes('/icons/') ||
+        url.includes('fonts.');
+
+      if (
+        (ct.includes('image/png') || ct.includes('image/jpeg') || ct.includes('image/webp')) &&
+        !url.includes('blank') &&
+        !isStatic &&
+        details.statusCode >= 200 &&
+        details.statusCode < 300
+      ) {
+        console.log('[Google Flow Network] 🖼️ Bắt được luồng ảnh Flow thật:', url.slice(0, 100));
+        capturedImageUrl = url;
+      }
+    };
+
+    try {
+      ses.webRequest.onResponseStarted(netFilter, onResponseStartedHandler);
+    } catch {}
+
+    const promptClean = (params.prompt || '').trim();
+    const promptJson = JSON.stringify(promptClean);
+
+    onProgress?.(12, 'Đang phân tích giao diện Google Flow...');
+
+    // Bước 1: Kiểm tra trạng thái trang
+    const checkStateJs = `
+      (function() {
+        const hasPrompt = Boolean(document.querySelector('.ProseMirror, [contenteditable="true"], flow-prompt-box textarea, textarea'));
+        const projectCard = Boolean(document.querySelector('flow-project-card'));
+        const newProjBtn = Boolean(document.querySelector('button.new-project-button, [aria-label*="New project" i]'));
+        const isSignIn = !hasPrompt && !projectCard && !newProjBtn && Boolean(
+          document.querySelector('a[href*="ServiceLogin"], [aria-label*="Sign in" i]')
+        );
+        return JSON.stringify({ url: window.location.href, hasPrompt, projectCard, newProjBtn, isSignIn });
+      })()
+    `;
+    const stateResult = await this.safeExecuteJs<any>(win, checkStateJs, 4000);
+    if (stateResult?.isSignIn) {
+      console.warn('[Google Flow Browser] Tài khoản chưa đăng nhập trên Google Flow.');
+      return null;
+    }
+
+    // Bước 2: Mở project nếu chưa vào editor
+    if (!stateResult?.hasPrompt && (stateResult?.projectCard || stateResult?.newProjBtn)) {
+      onProgress?.(18, 'Đang mở dự án trên Google Flow...');
+      const clickProjectJs = `
+        (function() {
+          const cardLink = document.querySelector('flow-project-card a[aria-label*="project" i]') ||
+                           document.querySelector('flow-project-card a.project-thumbnail-container') ||
+                           document.querySelector('flow-project-card a') ||
+                           document.querySelector('flow-project-card .project-card');
+          if (cardLink) {
+            const href = cardLink.getAttribute('href') || (cardLink.href ? cardLink.href : null);
+            if (href && (href.startsWith('/project/') || href.includes('flow.google.com/project/'))) {
+              window.location.href = href;
+              return 'navigated_href_' + href;
+            }
+            cardLink.click();
+            return 'clicked_card_link';
+          }
+          const newBtn = document.querySelector('button.new-project-button') ||
+                         document.querySelector('[aria-label*="New project" i]') ||
+                         document.querySelector('button[extended]');
+          if (newBtn) {
+            newBtn.click();
+            return 'clicked_new_btn';
+          }
+          return 'none';
+        })()
+      `;
+      await this.safeExecuteJs(win, clickProjectJs, 3000);
+
+      for (let i = 0; i < 8; i++) {
+        if (isCancelled?.()) return null;
+        await new Promise((r) => setTimeout(r, 1000));
+        const checkEditorJs = `
+          Boolean(document.querySelector('.ProseMirror, [contenteditable="true"], .prompt-input, flow-prompt-input, flow-prompt-box, .prompt-box-container'))
+        `;
+        const inEditor = await this.safeExecuteJs<boolean>(win, checkEditorJs, 2000);
+        if (inEditor) break;
+      }
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+
+    if (isCancelled?.()) return null;
+
+    // Chuyển Mode sang IMAGE trong Google Flow nếu có thể
+    const switchModeToImageJs = `
+      (function() {
+        try {
+          const raw = localStorage.getItem('flow-prompt-box-settings');
+          const settings = raw ? JSON.parse(raw) : {};
+          settings.mode = 'IMAGE';
+          localStorage.setItem('flow-prompt-box-settings', JSON.stringify(settings));
+          window.dispatchEvent(new StorageEvent('storage', {
+            key: 'flow-prompt-box-settings',
+            newValue: JSON.stringify(settings)
+          }));
+        } catch (e) {}
+
+        const allButtons = Array.from(document.querySelectorAll('button, mat-button-toggle, [role="tab"], .mat-button-toggle-button'));
+        const imgBtn = allButtons.find(b => {
+          const label = (b.getAttribute('aria-label') || b.textContent || b.innerText || '').toLowerCase();
+          return label === 'image' || label.includes('image mode') || label.includes('tạo ảnh');
+        });
+        if (imgBtn) {
+          imgBtn.click();
+          return 'clicked_img_btn';
+        }
+        return 'storage_updated';
+      })()
+    `;
+    await this.safeExecuteJs(win, switchModeToImageJs, 2000);
+
+    // Bước 3: Điền prompt
+    onProgress?.(25, 'Đang nộp prompt sinh ảnh vào Google Flow...');
+
+    if (!win.isDestroyed()) {
+      try {
+        if (win.isMinimized()) win.restore();
+        win.show();
+        win.focus();
+      } catch {}
+    }
+
+    const focusEditorJs = `
+      (function() {
+        const promptBox = document.querySelector('flow-prompt-box, flow-base-prompt-box, flow-creative-agent-prompt-box, .prompt-box-container, .base-prompt-box') || document;
+        const selectors = ['flow-rich-text-editor .ProseMirror', '.prosemirror-editor .ProseMirror', '.ProseMirror', '[contenteditable="true"]', 'textarea', 'input[type="text"]'];
+        for (const sel of selectors) {
+          const el = promptBox.querySelector(sel) || document.querySelector(sel);
+          if (el && (el.isContentEditable || el.tagName === 'TEXTAREA' || el.tagName === 'INPUT')) {
+            el.focus();
+            const selObj = window.getSelection();
+            const range = document.createRange();
+            range.selectNodeContents(el);
+            selObj.removeAllRanges();
+            selObj.addRange(range);
+            return true;
+          }
+        }
+        return false;
+      })()
+    `;
+    await this.safeExecuteJs(win, focusEditorJs, 2500);
+
+    try {
+      electron.clipboard.writeText(promptClean);
+      win.focus();
+      win.webContents.paste();
+    } catch (e) {
+      console.warn('[Google Flow Browser] Clipboard paste error:', e);
+    }
+
+    await new Promise((r) => setTimeout(r, 400));
+
+    const fillPromptJs = `
+      (async function() {
+        try {
+          const promptBox = document.querySelector('flow-prompt-box, flow-base-prompt-box, flow-creative-agent-prompt-box, .prompt-box-container, .base-prompt-box') || document;
+          const selectors = ['flow-rich-text-editor .ProseMirror', '.prosemirror-editor .ProseMirror', '.ProseMirror', '[contenteditable="true"]', 'textarea', 'input[type="text"]'];
+          let promptEl = null;
+          for (let i = 0; i < 10; i++) {
+            for (const sel of selectors) {
+              const el = promptBox.querySelector(sel) || document.querySelector(sel);
+              if (el && (el.isContentEditable || el.tagName === 'TEXTAREA' || el.tagName === 'INPUT')) {
+                promptEl = el;
+                break;
+              }
+            }
+            if (promptEl) break;
+            await new Promise(r => setTimeout(r, 200));
+          }
+          if (!promptEl) return JSON.stringify({ ok: false, error: 'no_prompt_input' });
+
+          promptEl.focus();
+          let currentText = (promptEl.innerText || promptEl.textContent || promptEl.value || '').trim();
+          if (!currentText) {
+            try {
+              document.execCommand('insertText', false, ${promptJson});
+            } catch (e) {}
+          }
+          if (promptEl.tagName === 'TEXTAREA' || promptEl.tagName === 'INPUT') {
+            promptEl.value = ${promptJson};
+            promptEl.dispatchEvent(new Event('input', { bubbles: true }));
+            promptEl.dispatchEvent(new Event('change', { bubbles: true }));
+          }
+
+          await new Promise(r => setTimeout(r, 300));
+          let genBtn = null;
+          for (let i = 0; i < 8; i++) {
+            genBtn = promptBox.querySelector(
+              'flow-generate-icon-button button, button.generate-icon-button, button[aria-label*="Start generation" i], .submit-controls button'
+            ) || document.querySelector(
+              'flow-generate-icon-button button, button.generate-icon-button, button[aria-label*="Start generation" i]'
+            );
+            if (genBtn) break;
+            await new Promise(r => setTimeout(r, 150));
+          }
+
+          let btnCoords = null;
+          if (genBtn) {
+            genBtn.disabled = false;
+            genBtn.removeAttribute('disabled');
+            genBtn.setAttribute('aria-disabled', 'false');
+            const rect = genBtn.getBoundingClientRect();
+            if (rect && rect.width > 0 && rect.height > 0) {
+              btnCoords = { x: Math.round(rect.x + rect.width / 2), y: Math.round(rect.y + rect.height / 2) };
+            }
+            genBtn.click();
+          }
+
+          promptEl.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true }));
+          return JSON.stringify({ ok: true, method: genBtn ? 'click_gen_button' : 'enter_key', btnCoords });
+        } catch (e) {
+          return JSON.stringify({ ok: false, error: String(e?.message || e) });
+        }
+      })()
+    `;
+    const fillResult = await this.safeExecuteJs<any>(win, fillPromptJs, 9000);
+    console.log('[Google Flow Browser] Kết quả điền prompt ảnh:', fillResult);
+
+    if (fillResult?.btnCoords && !win.isDestroyed()) {
+      try {
+        const { x, y } = fillResult.btnCoords;
+        await win.webContents.sendInputEvent({ type: 'mouseDown', x, y, button: 'left', clickCount: 1 });
+        await new Promise((r) => setTimeout(r, 60));
+        await win.webContents.sendInputEvent({ type: 'mouseUp', x, y, button: 'left', clickCount: 1 });
+      } catch {}
+    }
+
+    try {
+      await new Promise((r) => setTimeout(r, 100));
+      await win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Enter' });
+      await new Promise((r) => setTimeout(r, 60));
+      await win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Enter' });
+    } catch {}
+
+    if (isCancelled?.()) return null;
+
+    // Bước 4: Polling chờ ảnh (tối đa 60s, mỗi 2s)
+    onProgress?.(35, 'Đang chờ Google Flow tạo ảnh...');
+
+    const pollDomImageJs = `
+      (async function() {
+        try {
+          const imgs = Array.from(document.querySelectorAll(
+            'flow-media-card img, flow-image-card img, .media-card img, .project-canvas img, flow-canvas img, [role="img"] img'
+          ));
+          for (const img of imgs) {
+            const src = img.currentSrc || img.src;
+            if (!src || src.includes('gstatic.com') || src.includes('/banners/') || src.includes('favicon') || src.includes('avatar') || src.includes('/icons/')) continue;
+
+            if (src.startsWith('http') && (src.includes('googleusercontent.com') || src.includes('blob:'))) {
+              return JSON.stringify({ type: 'http', imageUrl: src });
+            }
+
+            if (src.startsWith('blob:')) {
+              try {
+                const resp = await fetch(src);
+                const blob = await resp.blob();
+                if (blob.size > 3000) {
+                  const b64 = await new Promise((resolve) => {
+                    const reader = new FileReader();
+                    reader.onloadend = () => resolve(reader.result);
+                    reader.readAsDataURL(blob);
+                  });
+                  return JSON.stringify({ type: 'blob', base64Data: b64 });
+                }
+              } catch (e) {}
+            }
+          }
+        } catch (e) {}
+        return null;
+      })()
+    `;
+
+    const maxWaitSeconds = 60;
+    const pollIntervalMs = 2000;
+    const maxAttempts = Math.floor((maxWaitSeconds * 1000) / pollIntervalMs);
+
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      if (win.isDestroyed()) break;
+      if (isCancelled?.()) {
+        console.log('[Google Flow Browser] Tác vụ đã bị người dùng hủy bỏ.');
+        return null;
+      }
+
+      if (capturedImageUrl) {
+        onProgress?.(90, 'Đã nhận được ảnh từ Google Flow!');
+        console.log('[Google Flow Browser] ✅ Bắt được ảnh qua network:', capturedImageUrl);
+        return { imageUrl: capturedImageUrl };
+      }
+
+      const domResult = await this.safeExecuteJs<any>(win, pollDomImageJs, 3000);
+      if (domResult) {
+        if (domResult.type === 'http' && domResult.imageUrl) {
+          onProgress?.(90, 'Đã nhận được ảnh từ Google Flow!');
+          return { imageUrl: domResult.imageUrl };
+        }
+        if (domResult.type === 'blob' && domResult.base64Data) {
+          onProgress?.(90, 'Đã trích xuất ảnh Blob từ Google Flow!');
+          return { base64Data: domResult.base64Data };
+        }
+      }
+
+      await new Promise((r) => setTimeout(r, pollIntervalMs));
+      const elapsed = (attempt + 1) * (pollIntervalMs / 1000);
+      const pct = Math.min(85, Math.round(35 + (elapsed / maxWaitSeconds) * 50));
+      onProgress?.(pct, `Google Flow đang xử lý ảnh (${Math.round(elapsed)}s / ${maxWaitSeconds}s)...`);
+    }
+
+    console.warn('[Google Flow Browser] Quá thời gian chờ ảnh từ Google Flow.');
+    return null;
+  }
 }
+
 
