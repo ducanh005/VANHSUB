@@ -226,7 +226,7 @@ export class GoogleFlowAdapter implements ModelAdapter {
   }
 
   /**
-   * Gửi request sinh video tới Google Labs
+   * Gửi request sinh video tới Google Labs (kèm Hard Watchdog 10s chống treo)
    */
   private async dispatchVideoFxRequest(
     params: VideoGenParams,
@@ -259,17 +259,32 @@ export class GoogleFlowAdapter implements ModelAdapter {
       if (cookie) headers['Cookie'] = cookie;
       if (token && token.startsWith('ya29.')) headers['Authorization'] = `Bearer ${token}`;
 
+      let isSettled = false;
+      const hardTimer = setTimeout(() => {
+        if (!isSettled) {
+          isSettled = true;
+          try {
+            req.destroy();
+          } catch {}
+          resolve(null);
+        }
+      }, 10_000);
+
       const req = https.request(
         'https://labs.google/fx/api/trpc/videoFx.generateVideo',
         {
           method: 'POST',
           headers,
-          timeout: 45_000,
+          timeout: 10_000,
         },
         (res) => {
           let data = '';
           res.on('data', (chunk) => (data += chunk));
           res.on('end', () => {
+            if (isSettled) return;
+            isSettled = true;
+            clearTimeout(hardTimer);
+
             if (res.statusCode === 429) {
               reject(new Error('Google đang giới hạn tần suất (Rate Limit 429). Vui lòng đợi hoặc đổi tài khoản.'));
               return;
@@ -299,11 +314,17 @@ export class GoogleFlowAdapter implements ModelAdapter {
       );
 
       req.on('timeout', () => {
+        if (isSettled) return;
+        isSettled = true;
+        clearTimeout(hardTimer);
         req.destroy();
         resolve(null);
       });
 
-      req.on('error', (err) => {
+      req.on('error', () => {
+        if (isSettled) return;
+        isSettled = true;
+        clearTimeout(hardTimer);
         resolve(null);
       });
 
@@ -313,7 +334,7 @@ export class GoogleFlowAdapter implements ModelAdapter {
   }
 
   /**
-   * Gọi API Google Veo qua OpenAI-compatible endpoint
+   * Gọi API Google Veo qua OpenAI-compatible endpoint (kèm Hard Watchdog 15s)
    */
   private async callGeminiVeoApi(
     apiKey: string,
@@ -324,7 +345,7 @@ export class GoogleFlowAdapter implements ModelAdapter {
     const openai = new OpenAI({
       apiKey,
       baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai/',
-      timeout: 120_000,
+      timeout: 15_000,
     });
 
     const extraBody: Record<string, any> = {
@@ -353,52 +374,74 @@ export class GoogleFlowAdapter implements ModelAdapter {
     if (modelName === 'veo-2.0') modelName = 'veo-2.0-generate-001';
     ctx.onProgress(25);
 
-    // Gửi yêu cầu sinh video (Long-Running Operation)
-    const createRes: any = await (openai as any).videos.create({
+    // Gửi yêu cầu sinh video với hard timeout 15s
+    const createPromise = (openai as any).videos.create({
       model: modelName,
       prompt: params.prompt,
       extra_body: extraBody,
     });
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error('Google Veo API không phản hồi trong 15 giây')), 15_000);
+    });
 
+    const createRes: any = await Promise.race([createPromise, timeoutPromise]);
     const operationId = createRes?.id;
     if (!operationId) {
       throw new Error('Google Veo không trả về operation ID');
     }
 
-    // Polling cho tới khi video render xong
+    // Polling cho tới khi video render xong (tối đa 40s)
     let pollCount = 0;
-    while (!ctx.isCancelled()) {
+    while (!ctx.isCancelled() && pollCount < 8) {
       pollCount++;
       await new Promise((resolve) => setTimeout(resolve, 5000));
-      ctx.onProgress(Math.min(80, 25 + pollCount * 5));
+      ctx.onProgress(Math.min(80, 25 + pollCount * 7));
 
       const statusRes: any = await (openai as any).videos.retrieve(operationId);
       if (statusRes.status === 'completed' && statusRes.url) {
         // Tải video về thư mục tạm
-        await this.downloadFile(statusRes.url, outPath);
+        await this.downloadFile(statusRes.url, outPath, 3, 20000);
         return { videoPath: outPath };
       } else if (statusRes.status === 'failed') {
         throw new Error(`Google Veo render thất bại: ${statusRes.error || 'Unknown error'}`);
       }
     }
 
-    throw new Error('Quá trình render bị huỷ bỏ');
+    throw new Error('Quá trình render Google Veo API quá thời hạn cho phép');
   }
 
   /**
-   * Trích xuất khung hình cuối cùng (Last-Frame) bằng ffmpeg phục vụ Shot Chaining
+   * Trích xuất khung hình cuối cùng (Last-Frame) bằng ffmpeg phục vụ Shot Chaining (có watchdog 10s)
    */
   private async extractLastFrame(videoPath: string, lastFramePath: string, durationSeconds: number): Promise<void> {
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
+      let isSettled = false;
+      const watchdog = setTimeout(() => {
+        if (!isSettled) {
+          isSettled = true;
+          try {
+            fs.writeFileSync(lastFramePath, Buffer.from(''));
+          } catch {}
+          resolve();
+        }
+      }, 10_000);
+
       const seekTime = Math.max(0, durationSeconds - 0.2);
       ffmpeg(videoPath)
         .seekInput(seekTime)
         .frames(1)
         .output(lastFramePath)
-        .on('end', () => resolve())
+        .on('end', () => {
+          if (isSettled) return;
+          isSettled = true;
+          clearTimeout(watchdog);
+          resolve();
+        })
         .on('error', (err) => {
+          if (isSettled) return;
+          isSettled = true;
+          clearTimeout(watchdog);
           console.warn('Lỗi khi trích xuất last-frame:', err);
-          // Tạo một ảnh placeholder nếu trích xuất lỗi
           try {
             fs.writeFileSync(lastFramePath, Buffer.from(''));
           } catch {}
@@ -409,7 +452,9 @@ export class GoogleFlowAdapter implements ModelAdapter {
   }
 
   /**
-   * Tạo video test thực tế bằng ffmpeg (dùng khi offline hoặc test cục bộ)
+   * Tạo video thực tế bằng ffmpeg (dùng khi offline hoặc test cục bộ):
+   * Nhận diện ảnh từ initFrameUrl hoặc characterRefUrls để tạo video chuyển động
+   * điện ảnh Ken Burns mượt mà (camera zoom-in/pan) đúng bối cảnh kịch bản trong 1.5s.
    */
   private async generateSyntheticDemoVideo(
     params: VideoGenParams,
@@ -417,14 +462,91 @@ export class GoogleFlowAdapter implements ModelAdapter {
     duration: number,
     ctx: ExecutionContext
   ): Promise<void> {
-    return new Promise((resolve, reject) => {
-      const isPortrait = params.aspectRatio === '9:16';
-      const width = isPortrait ? 720 : 1280;
-      const height = isPortrait ? 1280 : 720;
+    const isPortrait = params.aspectRatio === '9:16';
+    const width = isPortrait ? 720 : 1280;
+    const height = isPortrait ? 1280 : 720;
 
-      const promptClean = (typeof params.prompt === 'string' ? params.prompt : JSON.stringify(params.prompt || '')).replace(/['\\:]/g, ' ').slice(0, 45);
+    // 1. Kiểm tra xem có ảnh đầu vào (Keyframe hoặc Character Image) hay không
+    let sourceImagePath = '';
+    const rawImage = params.initFrameUrl || (params.characterRefUrls && params.characterRefUrls[0]);
+    if (typeof rawImage === 'string' && rawImage.trim()) {
+      const cleanImg = rawImage.trim();
+      if (cleanImg.startsWith('data:image/')) {
+        const base64Data = cleanImg.replace(/^data:image\/\w+;base64,/, '');
+        const tempImgPath = path.join(ctx.tempDir, `init_frame_${Date.now()}_${Math.random().toString(36).slice(2, 6)}.png`);
+        try {
+          fs.writeFileSync(tempImgPath, Buffer.from(base64Data, 'base64'));
+          sourceImagePath = tempImgPath;
+        } catch {}
+      } else if (cleanImg.startsWith('file://')) {
+        let filePath = cleanImg.replace(/^file:\/\/\/?/, '');
+        if (/^[a-zA-Z]:/.test(filePath) || fs.existsSync(filePath)) {
+          sourceImagePath = filePath;
+        }
+      } else if (cleanImg.startsWith('http://') || cleanImg.startsWith('https://')) {
+        const tempImgPath = path.join(ctx.tempDir, `init_frame_${Date.now()}_${Math.random().toString(36).slice(2, 6)}.jpg`);
+        try {
+          await this.downloadFile(cleanImg, tempImgPath, 3, 10000);
+          if (fs.existsSync(tempImgPath) && fs.statSync(tempImgPath).size > 100) {
+            sourceImagePath = tempImgPath;
+          }
+        } catch {}
+      } else if (fs.existsSync(cleanImg)) {
+        sourceImagePath = cleanImg;
+      }
+    }
 
-      // Sinh clip màu gradient cinematic chuyển động mượt mà
+    // Nếu có ảnh nguồn (Banana Pro Keyframe), tạo video Ken Burns cinematic zoompan
+    if (sourceImagePath && fs.existsSync(sourceImagePath)) {
+      return new Promise((resolve) => {
+        const totalFrames = duration * 24;
+        ffmpeg()
+          .input(sourceImagePath)
+          .inputOptions(['-loop 1'])
+          .complexFilter([
+            `scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height},zoompan=z='min(zoom+0.0015,1.15)':d=${totalFrames}:s=${width}x${height}:fps=24[v]`
+          ])
+          .outputOptions([
+            '-map [v]',
+            '-c:v libx264',
+            '-pix_fmt yuv420p',
+            '-r 24',
+            '-t', `${duration}`,
+          ])
+          .output(outPath)
+          .on('progress', (p) => {
+            if (p.percent) {
+              ctx.onProgress(Math.min(80, 20 + Math.round(p.percent * 0.6)));
+            }
+          })
+          .on('end', () => resolve())
+          .on('error', (err) => {
+            console.warn('Lỗi khi render Ken Burns từ ảnh, chuyển sang gradient animation:', err?.message || err);
+            this.renderGradientVideo(params, outPath, duration, ctx, width, height)
+              .then(resolve)
+              .catch(() => resolve());
+          })
+          .run();
+      });
+    }
+
+    // Nếu không có ảnh nguồn, tạo video gradient chuyển động
+    return this.renderGradientVideo(params, outPath, duration, ctx, width, height);
+  }
+
+  private async renderGradientVideo(
+    params: VideoGenParams,
+    outPath: string,
+    duration: number,
+    ctx: ExecutionContext,
+    width: number,
+    height: number
+  ): Promise<void> {
+    return new Promise((resolve) => {
+      const promptClean = (typeof params.prompt === 'string' ? params.prompt : JSON.stringify(params.prompt || ''))
+        .replace(/['\\:]/g, ' ')
+        .slice(0, 45);
+
       ffmpeg()
         .input(`color=c=0x0E1A1B:s=${width}x${height}:d=${duration}`)
         .inputFormat('lavfi')
@@ -449,15 +571,15 @@ export class GoogleFlowAdapter implements ModelAdapter {
           }
         })
         .on('end', () => resolve())
-        .on('error', (err) => {
-          // Fallback đơn giản nếu drawtext không hỗ trợ font trên máy
+        .on('error', () => {
+          // Fallback đơn giản nếu drawtext lỗi font
           ffmpeg()
             .input(`color=c=0x1E1B4B:s=${width}x${height}:d=${duration}`)
             .inputFormat('lavfi')
             .outputOptions(['-c:v libx264', '-pix_fmt yuv420p', '-t', `${duration}`])
             .output(outPath)
             .on('end', () => resolve())
-            .on('error', reject)
+            .on('error', () => resolve())
             .run();
         })
         .run();

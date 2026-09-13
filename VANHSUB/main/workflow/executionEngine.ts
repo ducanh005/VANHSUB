@@ -225,7 +225,7 @@ export class WorkflowExecutionEngine {
             isCancelled,
           };
 
-          const nodeWatchdogMs = 120_000;
+          const nodeWatchdogMs = 180_000;
           let watchdogTimer: NodeJS.Timeout;
           const watchdogPromise = new Promise<never>((_, reject) => {
             watchdogTimer = setTimeout(() => {
