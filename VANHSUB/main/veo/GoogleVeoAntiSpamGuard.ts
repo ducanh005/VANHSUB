@@ -11,6 +11,11 @@ export class GoogleVeoAntiSpamGuard {
 
   private lastRequestTimestamp = 0;
   private isGenerating = false;
+  private queue: Array<{
+    resolve: () => void;
+    reject: (err: any) => void;
+    isCancelled?: () => boolean;
+  }> = [];
 
   private constructor() {}
 
@@ -25,7 +30,7 @@ export class GoogleVeoAntiSpamGuard {
   private getCooldownMs(): number {
     try {
       const sec = Number(SettingsStore.get('veoCooldownSeconds')) || 45;
-      return Math.max(15, Math.min(180, sec)) * 1000;
+      return Math.max(10, Math.min(180, sec)) * 1000;
     } catch {
       return 45_000;
     }
@@ -83,7 +88,67 @@ export class GoogleVeoAntiSpamGuard {
     return { allowed: true, remainingSec: 0 };
   }
 
-  /** Đánh dấu bắt đầu một request sinh video (Khóa tuần tự) */
+  /**
+   * Khóa tuần tự bất đồng bộ (FIFO Async Queue + Auto Cooldown):
+   * - Nếu session đang bận tạo video khác: tự động xếp hàng chờ, không quăng lỗi làm dừng workflow.
+   * - Khi đến lượt: tự động đếm lùi thời gian hồi chiêu an toàn chống ban bot Google trước khi thực thi.
+   */
+  async acquireLockAsync(options?: {
+    onProgress?: (percent: number, message?: string) => void;
+    isCancelled?: () => boolean;
+  }): Promise<void> {
+    // 1. Nếu đang có một video khác đang tạo, xếp hàng chờ tới lượt
+    if (this.isGenerating) {
+      if (options?.onProgress) {
+        options.onProgress(2, 'Đang xếp hàng chờ session Veo (Video trước đang xử lý)...');
+      }
+      await new Promise<void>((resolve, reject) => {
+        const watchdog = setTimeout(() => {
+          this.releaseLock();
+          resolve();
+        }, 45_000);
+
+        this.queue.push({
+          resolve: () => {
+            clearTimeout(watchdog);
+            resolve();
+          },
+          reject: (err) => {
+            clearTimeout(watchdog);
+            reject(err);
+          },
+          isCancelled: options?.isCancelled,
+        });
+      });
+    }
+
+    // Nhận quyền tạo video
+    this.isGenerating = true;
+
+    // 2. Tự động kiểm tra và đếm lùi Cooldown an toàn chống bị Google gắn cờ bot
+    const cooldownMs = this.getCooldownMs();
+    const now = Date.now();
+    const elapsed = this.lastRequestTimestamp === 0 ? cooldownMs : now - this.lastRequestTimestamp;
+    let remainingMs = Math.max(0, cooldownMs - elapsed);
+
+    while (remainingMs > 0) {
+      if (options?.isCancelled?.()) {
+        this.releaseLock();
+        throw new Error('Tác vụ tạo video đã bị hủy trong thời gian chờ giãn cách an toàn.');
+      }
+      const remainingSec = Math.ceil(remainingMs / 1000);
+      if (options?.onProgress) {
+        const totalSec = Math.max(1, Math.round(cooldownMs / 1000));
+        const pct = Math.min(10, Math.max(2, Math.round(10 - (remainingSec / totalSec) * 8)));
+        options.onProgress(pct, `Đang chờ giãn cách an toàn chống Google ban (${remainingSec}s)...`);
+      }
+      const step = Math.min(1000, remainingMs);
+      await new Promise((r) => setTimeout(r, step));
+      remainingMs -= step;
+    }
+  }
+
+  /** Đánh dấu bắt đầu một request sinh video đồng bộ (Legacy fallback) */
   acquireLock(): void {
     if (this.isGenerating) {
       throw new Error('Chỉ được phép tạo 1 video tại một thời điểm trên cùng một Session để tránh bị Google ban.');
@@ -91,10 +156,21 @@ export class GoogleVeoAntiSpamGuard {
     this.isGenerating = true;
   }
 
-  /** Đánh dấu kết thúc request và kích hoạt bộ đếm hồi chiêu */
+  /** Đánh dấu kết thúc request và kích hoạt tác vụ tiếp theo trong hàng đợi FIFO */
   releaseLock(): void {
     this.isGenerating = false;
     this.lastRequestTimestamp = Date.now();
+
+    // Kích hoạt tác vụ tiếp theo trong hàng đợi FIFO (nếu có)
+    while (this.queue.length > 0) {
+      const next = this.queue.shift()!;
+      if (next.isCancelled && next.isCancelled()) {
+        next.reject(new Error('Tác vụ đã bị hủy khi đang chờ trong hàng đợi.'));
+        continue;
+      }
+      next.resolve();
+      return;
+    }
   }
 
   /**

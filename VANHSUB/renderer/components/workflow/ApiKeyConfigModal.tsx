@@ -518,9 +518,26 @@ export default function ApiKeyConfigModal({
                 {/* Collapsible Manual Cookie Form */}
                 {showManualCookieInput && (
                   <div className="mt-2 pt-2 border-t border-slate-800/80 space-y-2 animate-in fade-in duration-150">
-                    <label className="text-[11px] font-semibold text-slate-300">
-                      Dán chuỗi Cookie từ trình duyệt (hoặc Bearer Token):
-                    </label>
+                    <div className="flex items-center justify-between">
+                      <label className="text-[11px] font-semibold text-slate-300">
+                        Dán chuỗi Cookie từ trình duyệt (hoặc Bearer Token):
+                      </label>
+                      <span className="text-[10px] text-emerald-400">
+                        ✓ Khắc phục triệt để lỗi "Ứng dụng không tin cậy"
+                      </span>
+                    </div>
+                    <div className="p-2.5 rounded-lg bg-indigo-950/40 border border-indigo-800/50 text-[11px] text-slate-300 space-y-1.5">
+                      <p className="font-semibold text-indigo-300">Cách lấy chuỗi Cookie đầy đủ từ Chrome / Edge / Cốc Cốc:</p>
+                      <ol className="list-decimal list-inside space-y-1 text-slate-400 text-[10px]">
+                        <li>Truy cập <span className="text-white font-mono">flow.google.com</span> trên trình duyệt và đăng nhập tài khoản Google.</li>
+                        <li>Bấm <b>F12</b> $\rightarrow$ Chọn tab <b>Network (Mạng)</b> $\rightarrow$ F5 tải lại trang $\rightarrow$ Bấm vào dòng request đầu tiên (<span className="text-white font-mono">flow.google.com</span>).</li>
+                        <li>Ở bảng bên phải, tìm phần <b>Request Headers</b> $\rightarrow$ Chuột phải vào dòng <b>Cookie:</b> $\rightarrow$ Chọn <b>Copy value</b> (sẽ copy toàn bộ chuỗi).</li>
+                        <li>Hoặc dùng tiện ích extension <b>Cookie-Editor</b> $\rightarrow$ Bấm <b>Export $\rightarrow$ Header String</b>.</li>
+                      </ol>
+                      <p className="text-[10px] text-amber-300 bg-amber-950/40 p-1.5 rounded border border-amber-800/40">
+                        ⚠️ <b>Lưu ý quan trọng</b>: Google <b>bắt buộc</b> phải có đủ bộ cookie (<code className="text-amber-200">SID</code>, <code className="text-amber-200">HSID</code>, <code className="text-amber-200">SSID</code>, <code className="text-amber-200">__Secure-1PSID</code>). Nếu chỉ dán một mình giá trị <code className="text-amber-200">SID</code> thì Google sẽ từ chối xác thực ngay lập tức!
+                      </p>
+                    </div>
                     <textarea
                       value={manualCookieValue}
                       onChange={(e) => setManualCookieValue(e.target.value)}
