@@ -115,6 +115,9 @@ function FlowCanvasInner({
   const importGraphJson = useWorkflowStore((s) => s.importGraphJson);
   const updateNodeRuntime = useWorkflowStore((s) => s.updateNodeRuntime);
   const runtimeMap = useWorkflowStore((s) => s.runtimeMap);
+  const savedWorkflows = useWorkflowStore((s) => s.savedWorkflows);
+  const saveCurrentWorkflow = useWorkflowStore((s) => s.saveCurrentWorkflow);
+  const loadSavedWorkflow = useWorkflowStore((s) => s.loadSavedWorkflow);
 
   const [showLibrary, setShowLibrary] = useState(true);
   const [showInspector, setShowInspector] = useState(true);
@@ -417,22 +420,39 @@ function FlowCanvasInner({
 
           {/* Template Presets Picker */}
           <div className="flex items-center gap-2">
-            <span className="text-xs text-slate-400 hidden sm:inline">Mẫu sẵn:</span>
+            <span className="text-xs text-slate-400 hidden sm:inline">Mẫu:</span>
             <select
               value={activePresetId}
               onChange={(e) => {
                 const id = e.target.value;
                 setActivePresetId(id);
-                loadPreset(id);
-                toast.success('Đã tải mẫu workflow mới');
+                if (id.startsWith('saved_')) {
+                  const savedId = id.replace('saved_', '');
+                  loadSavedWorkflow(savedId);
+                  toast.success('Đã tải workflow đã lưu');
+                } else {
+                  loadPreset(id);
+                  toast.success('Đã tải mẫu workflow mới');
+                }
               }}
               className="text-xs rounded-lg bg-slate-900 border border-slate-800 px-2.5 py-1 text-slate-200 focus:outline-none focus:border-indigo-500 cursor-pointer"
             >
-              {WORKFLOW_PRESETS.map((preset) => (
-                <option key={preset.id} value={preset.id} className="bg-slate-900">
-                  {preset.name}
-                </option>
-              ))}
+              {savedWorkflows.length > 0 && (
+                <optgroup label="Workflow đã lưu của bạn">
+                  {savedWorkflows.map((sw) => (
+                    <option key={sw.id} value={`saved_${sw.id}`}>
+                      ⭐ {sw.name}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
+              <optgroup label="Mẫu tích hợp sẵn">
+                {WORKFLOW_PRESETS.map((preset) => (
+                  <option key={preset.id} value={preset.id} className="bg-slate-900">
+                    {preset.name}
+                  </option>
+                ))}
+              </optgroup>
             </select>
           </div>
 
@@ -501,6 +521,18 @@ function FlowCanvasInner({
             accept=".json"
             className="hidden"
           />
+
+          <button
+            onClick={() => {
+              saveCurrentWorkflow();
+              toast.success(`Đã lưu workflow "${graphName}" thành công!`);
+            }}
+            title="Lưu workflow hiện tại vào bộ nhớ máy"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-950/70 hover:bg-emerald-900 border border-emerald-700/60 text-xs font-bold text-emerald-300 hover:text-white transition-colors cursor-pointer shadow-sm"
+          >
+            <Save className="w-3.5 h-3.5 text-emerald-400" />
+            <span className="hidden sm:inline">Lưu Workflow</span>
+          </button>
 
           <button
             onClick={() => fileInputRef.current?.click()}
@@ -658,8 +690,14 @@ function FlowCanvasInner({
                     toast.info('Đã gửi yêu cầu hủy render workflow');
                   }
                   setIsRunning(false);
+                  for (const node of nodes) {
+                    const st = runtimeMap[node.id]?.status;
+                    if (st === 'running' || st === 'queued') {
+                      updateNodeRuntime(node.id, { status: 'idle', progress: 0, error: 'Đã hủy bởi người dùng' });
+                    }
+                  }
                 }}
-                className="px-2.5 py-1.5 rounded-lg bg-rose-950/70 hover:bg-rose-900 border border-rose-800 text-rose-300 text-xs font-bold transition-colors"
+                className="px-2.5 py-1.5 rounded-lg bg-rose-950/70 hover:bg-rose-900 border border-rose-800 text-rose-300 text-xs font-bold transition-colors cursor-pointer active:scale-95"
                 title="Hủy quá trình render hiện tại"
               >
                 Hủy

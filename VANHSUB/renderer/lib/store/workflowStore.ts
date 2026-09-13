@@ -13,6 +13,14 @@ import type { WorkflowNodeData, WorkflowGraph, NodeRuntimeState } from '../../ty
 import { NODE_DEFINITIONS } from '../workflow/nodeRegistry';
 import { WORKFLOW_PRESETS } from '../workflow/presets';
 
+export interface SavedWorkflowItem {
+  id: string;
+  name: string;
+  updatedAt: string;
+  nodesCount: number;
+  graph: WorkflowGraph;
+}
+
 interface WorkflowState {
   // Graph Data
   nodes: Node<WorkflowNodeData>[];
@@ -26,6 +34,9 @@ interface WorkflowState {
 
   // Runtime status for nodes (for execution visualization)
   runtimeMap: Record<string, NodeRuntimeState>;
+
+  // Saved Workflows
+  savedWorkflows: SavedWorkflowItem[];
 
   // Actions
   onNodesChange: (changes: NodeChange<Node<WorkflowNodeData>>[]) => void;
@@ -43,6 +54,10 @@ interface WorkflowState {
   loadPreset: (presetId: string) => void;
   clearCanvas: () => void;
 
+  saveCurrentWorkflow: () => SavedWorkflowItem;
+  loadSavedWorkflow: (id: string) => boolean;
+  deleteSavedWorkflow: (id: string) => void;
+
   exportGraphJson: () => string;
   importGraphJson: (jsonStr: string) => boolean;
 }
@@ -59,6 +74,16 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   version: 1,
 
   runtimeMap: {},
+
+  savedWorkflows: (() => {
+    if (typeof window === 'undefined') return [];
+    try {
+      const raw = localStorage.getItem('vanhsub_saved_workflows');
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  })(),
 
   onNodesChange: (changes) => {
     set({
@@ -193,6 +218,68 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       selectedNodeId: null,
       runtimeMap: {},
     });
+  },
+
+  saveCurrentWorkflow: () => {
+    const { graphId, graphName, version, nodes, edges, savedWorkflows } = get();
+    const currentGraph: WorkflowGraph = {
+      id: graphId,
+      name: graphName,
+      version,
+      nodes,
+      edges,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    const item: SavedWorkflowItem = {
+      id: graphId,
+      name: graphName,
+      updatedAt: new Date().toISOString(),
+      nodesCount: nodes.length,
+      graph: currentGraph,
+    };
+
+    const existingIndex = savedWorkflows.findIndex((w) => w.id === graphId || w.name === graphName);
+    let updated: SavedWorkflowItem[];
+    if (existingIndex >= 0) {
+      updated = [...savedWorkflows];
+      updated[existingIndex] = item;
+    } else {
+      updated = [item, ...savedWorkflows];
+    }
+
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem('vanhsub_saved_workflows', JSON.stringify(updated));
+      } catch (e) {
+        console.error('Lỗi khi lưu workflow vào localStorage:', e);
+      }
+    }
+
+    set({ savedWorkflows: updated });
+    return item;
+  },
+
+  loadSavedWorkflow: (id: string) => {
+    const { savedWorkflows } = get();
+    const found = savedWorkflows.find((w) => w.id === id);
+    if (found?.graph) {
+      get().loadGraph(found.graph);
+      return true;
+    }
+    return false;
+  },
+
+  deleteSavedWorkflow: (id: string) => {
+    const { savedWorkflows } = get();
+    const filtered = savedWorkflows.filter((w) => w.id !== id);
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem('vanhsub_saved_workflows', JSON.stringify(filtered));
+      } catch {}
+    }
+    set({ savedWorkflows: filtered });
   },
 
   exportGraphJson: () => {

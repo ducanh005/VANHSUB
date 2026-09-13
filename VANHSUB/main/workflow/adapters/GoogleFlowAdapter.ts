@@ -130,6 +130,10 @@ export class GoogleFlowAdapter implements ModelAdapter {
           durationSeconds: duration,
         };
       } catch (err: any) {
+        if (ctx.isCancelled() || err?.message?.includes('hủy')) {
+          console.log('[Google Flow] Workflow đã bị người dùng hủy bỏ.');
+          throw new Error('Tác vụ đã bị hủy bởi người dùng.');
+        }
         console.warn('Lỗi gọi Sảnh Google Veo miễn phí, chuyển sang fallback mô phỏng an toàn:', err?.message || err);
         ctx.onProgress(30);
         await this.generateSyntheticDemoVideo(params, outVideoPath, duration, ctx);
@@ -226,8 +230,13 @@ export class GoogleFlowAdapter implements ModelAdapter {
         (percent, msg) => {
           ctx.onProgress(Math.max(8, Math.min(82, percent)));
           if (msg) console.log(`[Google Flow Browser] ${msg}`);
-        }
+        },
+        ctx.isCancelled
       );
+
+      if (ctx.isCancelled()) {
+        throw new Error('Tác vụ đã bị hủy bởi người dùng.');
+      }
 
       if (browserResult?.base64Data) {
         console.log('[Google Flow] ✅ Lưu video Blob từ Google Veo...');
@@ -245,7 +254,14 @@ export class GoogleFlowAdapter implements ModelAdapter {
         return { videoPath: outPath };
       }
     } catch (browserErr: any) {
+      if (ctx.isCancelled() || browserErr?.message?.includes('hủy')) {
+        throw new Error('Tác vụ đã bị hủy bởi người dùng.');
+      }
       console.warn('[Google Flow] Browser automation lỗi, chuyển sang fallback:', browserErr?.message || browserErr);
+    }
+
+    if (ctx.isCancelled()) {
+      throw new Error('Tác vụ đã bị hủy bởi người dùng.');
     }
 
     // === CHIẾN LƯỢC 2: Fallback — Mô phỏng offline (Ken Burns hoặc gradient) ===

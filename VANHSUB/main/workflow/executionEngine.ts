@@ -311,6 +311,28 @@ export class WorkflowExecutionEngine {
         }
       }
 
+      if (isCancelled()) {
+        console.log(`[Workflow Engine] Workflow ${workflowId} đã bị hủy bởi người dùng.`);
+        for (const node of nodes) {
+          const st = nodeStatus.get(node.id);
+          if (st === 'running' || st === 'queued') {
+            nodeStatus.set(node.id, 'failed');
+            onEvent({
+              workflowId,
+              nodeId: node.id,
+              status: 'failed',
+              error: 'Đã hủy bởi người dùng',
+            });
+          }
+        }
+        this.activeRuns.delete(workflowId);
+        return {
+          success: false,
+          outputs: Object.fromEntries(nodeOutputs),
+          error: 'Workflow đã bị hủy bởi người dùng.',
+        };
+      }
+
       this.activeRuns.delete(workflowId);
 
       const allSuccess = Array.from(nodeStatus.values()).every((s) => s === 'success');
