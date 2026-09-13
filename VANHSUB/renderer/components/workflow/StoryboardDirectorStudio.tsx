@@ -19,6 +19,7 @@ import {
   Sliders,
   ChevronRight,
   Video,
+  Coins,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import ImageInpaintModal from './ImageInpaintModal';
@@ -102,8 +103,15 @@ export default function StoryboardDirectorStudio({
   const [isAnimatingAll, setIsAnimatingAll] = useState(false);
   const [masterSequenceUrl, setMasterSequenceUrl] = useState<string | null>(null);
   const [previewVideoUrl, setPreviewVideoUrl] = useState<string | null>(null);
+  const [selectedVeoModel, setSelectedVeoModel] = useState<'veo-3.1-quality' | 'veo-3.1-lite'>('veo-3.1-quality');
   const [showApiKeyModal, setShowApiKeyModal] = useState(false);
   const [hasGeminiKey, setHasGeminiKey] = useState(false);
+
+  const totalDurationSeconds = shots.reduce((acc, s) => acc + (s.durationSeconds || 4), 0);
+  const creditsPerSec = selectedVeoModel === 'veo-3.1-quality' ? 3 : 1;
+  const costPerSec = selectedVeoModel === 'veo-3.1-quality' ? 0.03 : 0.01;
+  const totalEstimatedCredits = totalDurationSeconds * creditsPerSec;
+  const totalEstimatedCostUsd = (totalDurationSeconds * costPerSec).toFixed(2);
 
   useEffect(() => {
     if (typeof window !== 'undefined' && window.vanhsub?.settings) {
@@ -211,7 +219,11 @@ export default function StoryboardDirectorStudio({
   // 1-Click Diễn hoạt toàn bộ Shots (Image-to-Video với Google Veo 3.1)
   const handleAnimateAllShots = async () => {
     setIsAnimatingAll(true);
-    toast.info(`Đang bắt đầu diễn hoạt ${shots.length} shots bằng Google Veo 3.1...`);
+    toast.info(
+      `Đang bắt đầu diễn hoạt ${shots.length} shots bằng ${
+        selectedVeoModel === 'veo-3.1-quality' ? 'Google Veo 3.1 Quality' : 'Google Veo 3.1 Lite'
+      } (Dự tính: ~${totalEstimatedCredits} Credits)...`
+    );
 
     try {
       for (let i = 0; i < shots.length; i++) {
@@ -565,24 +577,58 @@ export default function StoryboardDirectorStudio({
         {/* STEP 3: ANIMATE & MASTER SEQUENCE */}
         {currentStep === 3 && (
           <div className="max-w-5xl mx-auto space-y-6">
-            <div className="p-6 rounded-2xl bg-slate-900/80 border border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-4">
-              <div>
+            <div className="p-6 rounded-2xl bg-slate-900/80 border border-slate-800 flex flex-col md:flex-row items-center justify-between gap-4">
+              <div className="space-y-2">
                 <h3 className="text-base font-bold text-white flex items-center gap-2">
                   <Video className="w-5 h-5 text-rose-500" />
-                  <span>Chuyển Động Hóa Image-to-Video (Google Veo 3.1)</span>
+                  <span>Chuyển Động Hóa Image-to-Video (Google Veo)</span>
                 </h3>
-                <p className="text-xs text-slate-400 mt-1">
-                  Đưa từng bức ảnh Keyframe tĩnh vào Veo 3.1 để diễn hoạt chuyển động vật lý 3–5 giây.
+                <p className="text-xs text-slate-400">
+                  Đưa từng bức ảnh Keyframe tĩnh vào Veo để diễn hoạt chuyển động vật lý 3–5 giây.
                 </p>
+
+                {/* Model Variant & Credit Badge */}
+                <div className="flex flex-wrap items-center gap-3 pt-1">
+                  <div className="flex items-center gap-1.5 bg-slate-950 p-1 rounded-lg border border-slate-800 text-xs">
+                    <span className="text-[11px] text-slate-400 pl-1.5">Model:</span>
+                    <button
+                      onClick={() => setSelectedVeoModel('veo-3.1-quality')}
+                      className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-all cursor-pointer ${
+                        selectedVeoModel === 'veo-3.1-quality'
+                          ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-sm'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      Veo 3.1 Quality (1080p)
+                    </button>
+                    <button
+                      onClick={() => setSelectedVeoModel('veo-3.1-lite')}
+                      className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-all cursor-pointer ${
+                        selectedVeoModel === 'veo-3.1-lite'
+                          ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-sm'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      Veo 3.1 Lite (Tiết kiệm Cr)
+                    </button>
+                  </div>
+
+                  <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-950/60 border border-amber-800/60 text-xs font-mono text-amber-300">
+                    <Coins className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Dự tính: <b>~{totalEstimatedCredits} Credits</b> (~${totalEstimatedCostUsd})</span>
+                  </div>
+                </div>
               </div>
 
               <button
                 onClick={handleAnimateAllShots}
                 disabled={isAnimatingAll}
-                className="px-6 py-3 rounded-xl bg-gradient-to-r from-rose-600 to-indigo-600 hover:from-rose-500 hover:to-indigo-500 disabled:opacity-50 text-xs font-bold text-white flex items-center gap-2 shadow-xl shadow-rose-950/50 transition-all shrink-0"
+                className="px-6 py-3 rounded-xl bg-gradient-to-r from-rose-600 to-indigo-600 hover:from-rose-500 hover:to-indigo-500 disabled:opacity-50 text-xs font-bold text-white flex items-center gap-2 shadow-xl shadow-rose-950/50 transition-all shrink-0 cursor-pointer"
               >
                 <Sparkles className="w-4 h-4" />
-                <span>{isAnimatingAll ? 'Đang Diễn Hoạt Toàn Bộ...' : '1-Click Diễn Hoạt Toàn Bộ (Animate All)'}</span>
+                <span>
+                  {isAnimatingAll ? 'Đang Diễn Hoạt Toàn Bộ...' : `1-Click Diễn Hoạt (${shots.length} Shot • ~${totalEstimatedCredits} Cr)`}
+                </span>
               </button>
             </div>
 

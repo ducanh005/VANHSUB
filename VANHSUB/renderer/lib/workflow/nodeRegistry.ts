@@ -106,17 +106,24 @@ export const NODE_DEFINITIONS: Record<string, NodeDefinition> = {
     inputs: [],
     outputs: [
       { id: 'character', label: 'Nhân vật', dataType: 'character_ref', description: 'Gói định danh nhân vật' },
+      { id: 'character_out', label: 'Nhân vật (Out)', dataType: 'character_ref', description: 'Gói định danh nhân vật' },
       { id: 'face_image', label: 'Ảnh khuôn mặt', dataType: 'image', description: 'Ảnh chân dung tham chiếu' },
     ],
     configSchema: {
       characterName: {
         type: 'string',
         label: 'Tên nhân vật',
-        defaultValue: 'Nhân vật chính',
+        defaultValue: 'Newbie YouTuber Bob',
+      },
+      description: {
+        type: 'textarea',
+        label: 'Mô tả Ngoại hình & Trang phục (Character Description)',
+        placeholder: 'Mô tả khuôn mặt, kiểu tóc, trang phục, phong cách nhân vật...',
+        defaultValue: 'Chàng trai ngáo ngơ hài hước phong cách MS Paint meme: mắt to tròn lồi như mất ngủ, đầu to người nhỏ, mặc vest đen xộc xệch hoặc áo phông đơn giản, nét vẽ nguệch ngoạc ngu ngốc nhưng vô cùng biểu cảm.',
       },
       referenceImageUrl: {
         type: 'file',
-        label: 'Ảnh mẫu chân dung',
+        label: 'Ảnh mẫu chân dung (Tùy chọn)',
         defaultValue: '',
       },
       gender: {
@@ -132,14 +139,15 @@ export const NODE_DEFINITIONS: Record<string, NodeDefinition> = {
       ageGroup: {
         type: 'string',
         label: 'Độ tuổi / Nhận dạng',
-        defaultValue: '25-30 tuổi',
+        defaultValue: 'Crude MS Paint Doodle',
       },
     },
     defaultData: {
-      characterName: 'Nhân vật chính',
+      characterName: 'Newbie YouTuber Bob',
+      description: 'Chàng trai ngáo ngơ hài hước phong cách MS Paint meme: mắt to tròn lồi như mất ngủ, đầu to người nhỏ, mặc vest đen xộc xệch hoặc áo phông đơn giản, nét vẽ nguệch ngoạc ngu ngốc nhưng vô cùng biểu cảm.',
       referenceImageUrl: '',
       gender: 'male',
-      ageGroup: '25-30 tuổi',
+      ageGroup: 'Crude MS Paint Doodle',
     },
   },
 
@@ -233,7 +241,9 @@ export const NODE_DEFINITIONS: Record<string, NodeDefinition> = {
       { id: 'prompt', label: 'Prompt', dataType: 'text', description: 'Kịch bản câu lệnh' },
       { id: 'init_frame', label: 'Khung hình đầu (Init Frame)', dataType: 'image', description: 'Khung tham chiếu hoặc last-frame shot trước' },
       { id: 'character', label: 'Nhân vật (Lock)', dataType: 'character_ref', description: 'Khóa nhân vật' },
+      { id: 'style', label: 'Phong cách (Style Lock)', dataType: 'any', description: 'Định hình phong cách tổng thể' },
       { id: 'camera', label: 'Camera Path', dataType: 'any', description: 'Đường chuyển động máy quay' },
+      { id: 'queue_trigger', label: 'Hàng đợi kích hoạt', dataType: 'any', description: 'Nhận tín hiệu sau khi qua node hàng đợi / delay' },
     ],
     outputs: [
       { id: 'video', label: 'Video Clip', dataType: 'video', description: 'Video hoàn thành' },
@@ -243,11 +253,22 @@ export const NODE_DEFINITIONS: Record<string, NodeDefinition> = {
       modelVariant: {
         type: 'select',
         label: 'Phiên bản Model',
-        defaultValue: 'veo-2.0-generate-001',
+        defaultValue: 'veo-3.1-quality',
         options: [
-          { label: 'Google Veo 2.0 (Chất lượng điện ảnh cao)', value: 'veo-2.0-generate-001' },
-          { label: 'Google Veo Fast (Tốc độ render cao)', value: 'veo-fast-001' },
+          { label: 'Google Veo 3.1 Quality (Điện ảnh 1080p, tối đa chi tiết)', value: 'veo-3.1-quality' },
+          { label: 'Google Veo 3.1 Lite (Tốc độ cao, tiết kiệm credit)', value: 'veo-3.1-lite' },
+          { label: 'Google Veo 2.0 (Tiêu chuẩn / Ổn định)', value: 'veo-2.0-generate-001' },
+          { label: 'Google Veo Fast (Render nhanh)', value: 'veo-fast-001' },
           { label: 'Gemini Omni Flash Video', value: 'gemini-omni-flash-video' },
+        ],
+      },
+      qualityPreset: {
+        type: 'select',
+        label: 'Chế độ chất lượng (Quality Preset)',
+        defaultValue: 'quality',
+        options: [
+          { label: 'Quality (Độ nét cao, khử nhiễu tối đa)', value: 'quality' },
+          { label: 'Lite / Speed (Render nhanh, tiết kiệm credit)', value: 'lite' },
         ],
       },
       durationSeconds: {
@@ -285,7 +306,8 @@ export const NODE_DEFINITIONS: Record<string, NodeDefinition> = {
       },
     },
     defaultData: {
-      modelVariant: 'veo-2.0-generate-001',
+      modelVariant: 'veo-3.1-quality',
+      qualityPreset: 'quality',
       durationSeconds: 5,
       aspectRatio: '16:9',
       fps: 24,
@@ -301,6 +323,7 @@ export const NODE_DEFINITIONS: Record<string, NodeDefinition> = {
     inputs: [
       { id: 'prompt', label: 'Prompt', dataType: 'text', description: 'Mô tả hình ảnh' },
       { id: 'character', label: 'Nhân vật (Lock)', dataType: 'character_ref', description: 'Tham chiếu nhân vật' },
+      { id: 'style', label: 'Phong cách (Style Lock)', dataType: 'any', description: 'Định hình phong cách tổng thể' },
       { id: 'scene', label: 'Bối cảnh', dataType: 'scene_ref', description: 'Tham chiếu bối cảnh' },
     ],
     outputs: [
@@ -586,18 +609,31 @@ export const NODE_DEFINITIONS: Record<string, NodeDefinition> = {
   'style-lock': {
     type: 'style-lock',
     category: 'consistency',
-    label: 'Khóa Phong cách (Style Lock)',
-    description: 'Khóa tông màu, ống kính máy quay (anamorphic/35mm) và độ hạt phim.',
+    label: 'Khóa Phong cách Tổng thể (Master Style Lock)',
+    description: 'Định hình phong cách nghệ thuật đồng bộ cho toàn bộ video (MS Paint doodle, anime, cinematic,...) và khóa tông màu.',
     inputs: [],
     outputs: [
       { id: 'style_out', label: 'Style Token', dataType: 'any' },
     ],
     configSchema: {
+      stylePrompt: {
+        type: 'textarea',
+        label: 'Mô tả Phong cách Toàn bộ Video (Master Art Style)',
+        placeholder: 'Nhập phong cách tổng thể, ví dụ: illustrated in a crude amateur MS Paint cartoon style, rough uneven black outlines, flat solid colors...',
+        defaultValue: 'illustrated in a crude amateur MS Paint cartoon style, rough uneven black outlines, flat solid colors, 2D flat illustration, low resolution',
+      },
+      negativePrompt: {
+        type: 'textarea',
+        label: 'Loại trừ phong cách (Negative Prompt)',
+        placeholder: 'Những chi tiết cần tránh, ví dụ: photorealistic, 3D render, smooth shading...',
+        defaultValue: 'photorealistic, 3D rendering, smooth gradients, cinematic realistic lighting, high-definition art',
+      },
       colorPalette: {
         type: 'select',
-        label: 'Bảng màu điện ảnh',
-        defaultValue: 'teal_orange',
+        label: 'Bảng màu điện ảnh / Nghệ thuật',
+        defaultValue: 'flat_vivid',
         options: [
+          { label: 'Flat Vivid Colors (Màu bệt tươi sáng - MS Paint / Meme)', value: 'flat_vivid' },
           { label: 'Teal & Orange (Hollywood)', value: 'teal_orange' },
           { label: 'Cyberpunk Neon (Xanh/Hồng)', value: 'cyberpunk' },
           { label: 'Vintage Noir (Đen trắng cổ điển)', value: 'noir' },
@@ -606,9 +642,10 @@ export const NODE_DEFINITIONS: Record<string, NodeDefinition> = {
       },
       lensType: {
         type: 'select',
-        label: 'Mô phỏng ống kính',
-        defaultValue: 'anamorphic_35mm',
+        label: 'Mô phỏng ống kính / Phối cảnh',
+        defaultValue: 'flat_2d',
         options: [
+          { label: '2D Flat Doodle (Tranh vẽ 2D phẳng, đơn giản)', value: 'flat_2d' },
           { label: 'Anamorphic 35mm (Hiệu ứng flare ngang)', value: 'anamorphic_35mm' },
           { label: '50mm Prime (Tự nhiên như mắt người)', value: 'prime_50mm' },
           { label: 'Wide Angle 24mm (Góc rộng kịch tính)', value: 'wide_24mm' },
@@ -616,8 +653,10 @@ export const NODE_DEFINITIONS: Record<string, NodeDefinition> = {
       },
     },
     defaultData: {
-      colorPalette: 'teal_orange',
-      lensType: 'anamorphic_35mm',
+      stylePrompt: 'illustrated in a crude amateur MS Paint cartoon style, rough uneven black outlines, flat solid colors, 2D flat illustration, low resolution',
+      negativePrompt: 'photorealistic, 3D rendering, smooth gradients, cinematic realistic lighting, high-definition art',
+      colorPalette: 'flat_vivid',
+      lensType: 'flat_2d',
     },
   },
 
@@ -728,10 +767,11 @@ export const NODE_DEFINITIONS: Record<string, NodeDefinition> = {
     type: 'concat',
     category: 'editing',
     label: 'Ghép nối Video (Concat)',
-    description: 'Nối 2 đoạn video liên tiếp thành một chuỗi video liền mạch.',
+    description: 'Nối các đoạn video liên tiếp thành một chuỗi video liền mạch.',
     inputs: [
       { id: 'video_a', label: 'Video 1 (Shot trước)', dataType: 'video' },
       { id: 'video_b', label: 'Video 2 (Shot sau)', dataType: 'video' },
+      { id: 'video_c', label: 'Video 3 (Shot tiếp theo)', dataType: 'video' },
     ],
     outputs: [
       { id: 'video_out', label: 'Video ghép', dataType: 'video' },
@@ -1011,6 +1051,44 @@ export const NODE_DEFINITIONS: Record<string, NodeDefinition> = {
     },
     defaultData: {
       separator: ', ',
+    },
+  },
+
+  'queue-gate': {
+    type: 'queue-gate',
+    category: 'logic',
+    label: 'Hàng Đợi Chống Spam (Queue & Delay)',
+    description: 'Điều tiết hàng đợi và tạo độ trễ an toàn giữa các lượt gọi AI để chống bị Google/Kling gắn cờ spam hoặc quá tải session.',
+    inputs: [
+      { id: 'in', label: 'Tín hiệu / Dữ liệu vào', dataType: 'any', description: 'Nhận tín hiệu hoặc media từ node trước' },
+    ],
+    outputs: [
+      { id: 'out', label: 'Kích hoạt tiếp theo', dataType: 'any', description: 'Được kích hoạt sau khi đếm lùi xong' },
+      { id: 'video_out', label: 'Video chuyển tiếp', dataType: 'video' },
+      { id: 'image_out', label: 'Ảnh chuyển tiếp', dataType: 'image' },
+    ],
+    configSchema: {
+      delaySeconds: {
+        type: 'slider',
+        label: 'Thời gian giãn cách an toàn (giây)',
+        defaultValue: 25,
+        min: 5,
+        max: 120,
+        step: 5,
+      },
+      mode: {
+        type: 'select',
+        label: 'Cơ chế điều tiết',
+        defaultValue: 'fixed_delay',
+        options: [
+          { label: 'Giãn cách cố định (Fixed Delay)', value: 'fixed_delay' },
+          { label: 'Tự động bám theo Cooldown Session Google', value: 'auto_session' },
+        ],
+      },
+    },
+    defaultData: {
+      delaySeconds: 25,
+      mode: 'fixed_delay',
     },
   },
 };

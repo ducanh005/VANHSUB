@@ -16,10 +16,13 @@ import {
   Building,
   ShieldCheck,
   X,
+  Coins,
+  FolderOpen,
 } from 'lucide-react';
 import { useWorkflowStore } from '../../lib/store/workflowStore';
 import { NODE_DEFINITIONS } from '../../lib/workflow/nodeRegistry';
 import { CATEGORY_STYLES } from '../../lib/workflow/portColors';
+import { calculateNodeCreditEstimate } from '../../lib/workflow/creditCalculator';
 import type { ConfigFieldSchema, NodeCategory } from '../../types/workflow';
 
 export interface InspectorProps {
@@ -80,6 +83,7 @@ export default function Inspector({ onClose }: InspectorProps = {}) {
   const configValues = selectedNode.data.config || {};
   const runtime = selectedNode.data.runtime;
   const outputData = runtime?.outputData;
+  const creditEst = calculateNodeCreditEstimate(selectedNode.data.nodeType, configValues);
 
   const handleFieldChange = (fieldKey: string, value: any) => {
     updateNodeConfig(selectedNode.id, fieldKey, value);
@@ -89,6 +93,9 @@ export default function Inspector({ onClose }: InspectorProps = {}) {
     const char = bibleCharacters.find((c) => c.id === charId);
     if (!char) return;
     updateNodeConfig(selectedNode.id, 'characterName', char.name);
+    if (char.description) {
+      updateNodeConfig(selectedNode.id, 'description', char.description);
+    }
     if (char.referenceImages?.[0]) {
       updateNodeConfig(selectedNode.id, 'referenceImageUrl', char.referenceImages[0]);
     }
@@ -100,9 +107,69 @@ export default function Inspector({ onClose }: InspectorProps = {}) {
     const scene = bibleScenes.find((s) => s.id === sceneId);
     if (!scene) return;
     updateNodeConfig(selectedNode.id, 'sceneName', scene.name);
+    if (scene.description) {
+      updateNodeConfig(selectedNode.id, 'description', scene.description);
+    }
     if (scene.environment) updateNodeConfig(selectedNode.id, 'environment', scene.environment);
     if (scene.lightingMood) updateNodeConfig(selectedNode.id, 'lightingMood', scene.lightingMood);
     if (scene.colorPalette) updateNodeConfig(selectedNode.id, 'colorPalette', scene.colorPalette);
+  };
+
+  const handlePickFile = async (fieldKey: string, schema: ConfigFieldSchema) => {
+    const isVideoField =
+      fieldKey.toLowerCase().includes('video') ||
+      Boolean(schema.label && schema.label.toLowerCase().includes('video'));
+    const isAudioField =
+      fieldKey.toLowerCase().includes('audio') ||
+      Boolean(schema.label && schema.label.toLowerCase().includes('audio'));
+
+    try {
+      if (typeof window !== 'undefined' && window.vanhsub?.dialog) {
+        if (isVideoField) {
+          if (window.vanhsub.dialog.openVideoFile) {
+            const filePath = await window.vanhsub.dialog.openVideoFile();
+            if (filePath) handleFieldChange(fieldKey, filePath);
+            return;
+          }
+          const files = await window.vanhsub.dialog.openMediaFile();
+          if (files && files.length > 0) {
+            handleFieldChange(fieldKey, files[0]);
+            return;
+          }
+        } else if (isAudioField) {
+          const files = await window.vanhsub.dialog.openMediaFile();
+          if (files && files.length > 0) {
+            handleFieldChange(fieldKey, files[0]);
+            return;
+          }
+        } else {
+          // Mặc định là file hình ảnh
+          const filePath = await window.vanhsub.dialog.openImageFile();
+          if (filePath) {
+            handleFieldChange(fieldKey, filePath);
+            return;
+          }
+        }
+      } else {
+        // Fallback input cho web
+        const input = document.createElement('input');
+        input.type = 'file';
+        if (isVideoField) input.accept = 'video/*';
+        else if (isAudioField) input.accept = 'audio/*';
+        else input.accept = 'image/*';
+
+        input.onchange = (e: any) => {
+          const file = e.target.files?.[0];
+          if (file) {
+            const path = (file as any).path || URL.createObjectURL(file);
+            handleFieldChange(fieldKey, path);
+          }
+        };
+        input.click();
+      }
+    } catch (err) {
+      console.warn('Lỗi khi mở hộp thoại chọn file:', err);
+    }
   };
 
   return (
@@ -249,7 +316,7 @@ export default function Inspector({ onClose }: InspectorProps = {}) {
             </div>
             <select
               onChange={(e) => handleSelectCharacterFromBible(e.target.value)}
-              defaultValue=""
+              value={bibleCharacters.find((c) => c.name === configValues.characterName)?.id || ''}
               className="w-full text-xs rounded-lg bg-slate-950 border border-slate-800 px-2.5 py-1.5 text-slate-200 focus:outline-none focus:border-rose-500 cursor-pointer"
             >
               <option value="" disabled>-- Chọn hồ sơ nhân vật có sẵn --</option>
@@ -273,7 +340,7 @@ export default function Inspector({ onClose }: InspectorProps = {}) {
             </div>
             <select
               onChange={(e) => handleSelectSceneFromBible(e.target.value)}
-              defaultValue=""
+              value={bibleScenes.find((s) => s.name === configValues.sceneName)?.id || ''}
               className="w-full text-xs rounded-lg bg-slate-950 border border-slate-800 px-2.5 py-1.5 text-slate-200 focus:outline-none focus:border-indigo-500 cursor-pointer"
             >
               <option value="" disabled>-- Chọn bối cảnh có sẵn --</option>
@@ -283,6 +350,79 @@ export default function Inspector({ onClose }: InspectorProps = {}) {
                 </option>
               ))}
             </select>
+          </div>
+        )}
+
+        {/* Free Image Generation Card for google-imagen */}
+        {selectedNode.data.nodeType === 'google-imagen' && (
+          <div className="p-3.5 rounded-xl bg-emerald-950/30 border border-emerald-800/60 space-y-2 shadow-md">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                  <Sparkles className="w-4 h-4" />
+                </div>
+                <div>
+                  <span className="text-xs font-bold text-emerald-200 block">Sinh Ảnh Google Imagen 3</span>
+                  <span className="text-[10px] text-slate-400">Ảnh tĩnh Keyframe & Storyboard</span>
+                </div>
+              </div>
+              <div className="text-right">
+                <span className="text-xs font-bold font-mono text-emerald-300 bg-emerald-900/60 px-2 py-0.5 rounded border border-emerald-700/60">
+                  FREE (0 Credit)
+                </span>
+              </div>
+            </div>
+            <p className="text-[10px] text-slate-400 leading-relaxed">
+              Tạo ảnh tĩnh bằng Imagen 3 được <b>miễn phí hoàn toàn (0đ)</b> trên Google Labs. Bạn có thể sinh ảnh thoải mái mà không lo bị trừ credit video!
+            </p>
+          </div>
+        )}
+
+        {/* Pre-generation Credit & Cost Estimation Card */}
+        {creditEst.credits > 0 && (
+          <div className="p-3.5 rounded-xl bg-gradient-to-br from-amber-950/40 to-slate-900 border border-amber-800/60 space-y-2.5 shadow-md">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                  <Coins className="w-4 h-4" />
+                </div>
+                <div>
+                  <span className="text-xs font-bold text-amber-200 block">Dự Tính Tiêu Tốn Credit</span>
+                  <span className="text-[10px] text-slate-400">Trước khi sinh video</span>
+                </div>
+              </div>
+              <div className="text-right">
+                <span className="text-sm font-bold font-mono text-amber-300 block">
+                  ~{creditEst.credits} Credits
+                </span>
+                <span className="text-[10px] text-slate-400 font-mono">
+                  ~${creditEst.costUsd} USD
+                </span>
+              </div>
+            </div>
+
+            <div className="text-[11px] p-2.5 rounded-lg bg-black/50 border border-slate-800 font-mono text-slate-300 space-y-1">
+              <div className="flex justify-between">
+                <span className="text-slate-400">Model:</span>
+                <span className="text-indigo-300 font-semibold">{creditEst.modelLabel}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">Thời lượng:</span>
+                <span>{configValues.durationSeconds || 5}s</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">Chế độ chất lượng:</span>
+                <span className={configValues.qualityPreset === 'quality' ? 'text-purple-300 font-semibold' : 'text-emerald-300 font-semibold'}>
+                  {configValues.qualityPreset === 'quality' ? 'Quality (Nét cao)' : 'Lite (Tiết kiệm)'}
+                </span>
+              </div>
+            </div>
+
+            {selectedNode.data.nodeType === 'google-flow-video' && (
+              <p className="text-[10px] text-slate-400 leading-relaxed">
+                💡 <span className="text-slate-300">Gợi ý:</span> Chọn <b>Veo 3.1 Lite</b> để tiết kiệm ~65% credit khi test shot; chọn <b>Veo 3.1 Quality</b> khi render phim chính thức.
+              </p>
+            )}
           </div>
         )}
 
@@ -379,13 +519,50 @@ export default function Inspector({ onClose }: InspectorProps = {}) {
                   </label>
                 ) : schema.type === 'file' ? (
                   <div className="space-y-2">
-                    <input
-                      type="text"
-                      placeholder="Nhập đường dẫn hoặc dán URL..."
-                      value={currentValue || ''}
-                      onChange={(e) => handleFieldChange(fieldKey, e.target.value)}
-                      className="w-full text-xs rounded-lg bg-slate-950/80 border border-slate-800 px-3 py-2 text-slate-200 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 font-mono"
-                    />
+                    <div className="flex gap-1.5">
+                      <input
+                        type="text"
+                        placeholder="Nhập đường dẫn file hoặc dán URL..."
+                        value={currentValue || ''}
+                        onChange={(e) => handleFieldChange(fieldKey, e.target.value)}
+                        className="flex-1 min-w-0 text-xs rounded-lg bg-slate-950/80 border border-slate-800 px-3 py-2 text-slate-200 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 font-mono"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => handlePickFile(fieldKey, schema)}
+                        title="Chọn file từ máy tính"
+                        className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shrink-0 transition-all shadow-sm cursor-pointer active:scale-95"
+                      >
+                        <FolderOpen className="w-3.5 h-3.5" />
+                        <span>Chọn file</span>
+                      </button>
+                    </div>
+
+                    {currentValue ? (
+                      <div className="flex items-center justify-between text-[11px] text-slate-400 bg-slate-950/80 p-2 rounded-lg border border-slate-800/80">
+                        <span className="truncate max-w-[170px] font-mono text-[10px] text-slate-300" title={currentValue}>
+                          📁 {String(currentValue).split(/[\\/]/).pop()}
+                        </span>
+                        <div className="flex items-center gap-2 shrink-0 text-[10px]">
+                          {typeof window !== 'undefined' && window?.vanhsub?.dialog?.showInFolder && !String(currentValue).startsWith('http') && (
+                            <button
+                              type="button"
+                              onClick={() => window.vanhsub?.dialog?.showInFolder?.(currentValue)}
+                              className="text-indigo-400 hover:text-indigo-300 hover:underline cursor-pointer"
+                            >
+                              Mở thư mục
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => handleFieldChange(fieldKey, '')}
+                            className="text-rose-400 hover:text-rose-300 hover:underline cursor-pointer"
+                          >
+                            Xóa
+                          </button>
+                        </div>
+                      </div>
+                    ) : null}
                   </div>
                 ) : null}
               </div>
