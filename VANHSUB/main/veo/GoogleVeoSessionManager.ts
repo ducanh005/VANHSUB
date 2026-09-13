@@ -241,11 +241,11 @@ export class GoogleVeoSessionManager {
       }
     });
 
-    this.lobbyWindow.on('closed', async () => {
+    this.lobbyWindow.on('closed', () => {
       this.lobbyWindow = null;
-      // Khi người dùng đóng cửa sổ, tự động chạy health check 1 lần để cập nhật UI
-      await this.syncCookiesFromPartition(ses);
-      await this.validateSession();
+      // Khi người dùng đóng cửa sổ, chỉ sync cookie; KHÔNG gọi validateSession()
+      // vì validateSession() có thể hang nếu mạng chậm và không có ai await nó đúng cách
+      this.syncCookiesFromPartition(ses).catch(() => {});
     });
 
     try {
@@ -438,30 +438,40 @@ export class GoogleVeoSessionManager {
   }
 
   /**
-   * Gửi request probe siêu nhẹ đến Google Flow / Labs
+   * Gửi request probe siêu nhẹ đến Google Flow / Labs.
+   * Có hard timeout toàn bộ 8s để tuyệt đối không hang.
    */
   private async executeHealthProbe(cookie: string, token?: string): Promise<VeoSessionValidationResult> {
-    return new Promise((resolve) => {
+    const hasCoreCookies = cookie.includes('SID=') || cookie.includes('__Secure-1PSID=') || Boolean(token);
+    const now = Date.now();
+
+    // Hard outer timeout — đảm bảo hàm này LUÔN kết thúc trong tối đa 8 giây
+    const HARD_TIMEOUT_MS = 8000;
+
+    const probePromise = new Promise<VeoSessionValidationResult>((resolve) => {
       const headers: Record<string, string> = {
         'User-Agent': CHROME_DESKTOP_UA,
-        Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+        Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         'Accept-Language': 'vi,en-US;q=0.9,en;q=0.8',
+        Connection: 'close',
       };
 
-      if (cookie) {
-        headers['Cookie'] = cookie;
-      }
+      if (cookie) headers['Cookie'] = cookie;
       if (token && token.startsWith('ya29.')) {
         headers['Authorization'] = `Bearer ${token}`;
       }
 
-      const hasCoreCookies = cookie.includes('SID=') || cookie.includes('__Secure-1PSID=') || Boolean(token);
-
-      const probeUrl = 'https://flow.google.com';
+      let settled = false;
+      const done = (result: VeoSessionValidationResult) => {
+        if (!settled) {
+          settled = true;
+          resolve(result);
+        }
+      };
 
       const sendRequest = (targetUrl: string, hopCount = 0) => {
         if (hopCount > 3) {
-          resolve({
+          done({
             valid: hasCoreCookies,
             status: hasCoreCookies ? 'active' : 'unknown',
             detail: 'Quá nhiều lần chuyển hướng, nhưng cookie phiên vẫn còn hiệu lực.',
@@ -470,7 +480,14 @@ export class GoogleVeoSessionManager {
           return;
         }
 
-        const parsedUrl = new URL(targetUrl);
+        let parsedUrl: URL;
+        try {
+          parsedUrl = new URL(targetUrl);
+        } catch {
+          done({ valid: hasCoreCookies, status: hasCoreCookies ? 'active' : 'unknown', detail: 'URL probe không hợp lệ.', lastChecked: Date.now() });
+          return;
+        }
+
         const req = https.request(
           {
             protocol: parsedUrl.protocol,
@@ -485,12 +502,18 @@ export class GoogleVeoSessionManager {
             const statusCode = res.statusCode || 0;
             const location = res.headers['location'] || '';
 
-            // Nếu bị chuyển hướng về trang Login của Google -> Session đã hết hạn
+            // Phải consume body để socket không bị treo
+            const drainAndDone = (result: VeoSessionValidationResult) => {
+              res.resume(); // drain ngay, không đọc nội dung
+              done(result);
+            };
+
+            // Redirect tới trang login → session expired
             if (
-              (statusCode >= 300 && statusCode < 400) &&
+              statusCode >= 300 && statusCode < 400 &&
               (location.includes('accounts.google.com') || location.includes('ServiceLogin') || location.includes('signin'))
             ) {
-              resolve({
+              drainAndDone({
                 valid: false,
                 status: 'expired',
                 detail: 'Phiên Google đã hết hạn hoặc đã đăng xuất. Vui lòng mở lại sảnh để đăng nhập.',
@@ -499,65 +522,73 @@ export class GoogleVeoSessionManager {
               return;
             }
 
-            // Chuyển hướng nội bộ an toàn (ví dụ redirect sang /fx/ hoặc flow.google.com/...)
+            // Redirect nội bộ an toàn → follow
             if (statusCode >= 300 && statusCode < 400 && location) {
+              res.resume(); // drain redirect response (thường không có body)
               const nextUrl = location.startsWith('http') ? location : new URL(location, targetUrl).toString();
               sendRequest(nextUrl, hopCount + 1);
               return;
             }
 
-            // Bị Google Rate Limit
+            // Rate limited
             if (statusCode === 429) {
-              resolve({
+              drainAndDone({
                 valid: false,
                 status: 'rate_limited',
-                detail: 'Google đang hạn chế tần suất (Rate Limit 429). Vui lòng đợi hồi chiêu hoặc đổi tài khoản.',
+                detail: 'Google đang hạn chế tần suất (Rate Limit 429). Vui lòng đợi hoặc đổi tài khoản.',
                 lastChecked: Date.now(),
               });
               return;
             }
 
-            // Bị cấm quyền truy cập
+            // Forbidden / Unauthorized
             if (statusCode === 401 || statusCode === 403) {
-              resolve({
+              drainAndDone({
                 valid: false,
                 status: 'expired',
-                detail: 'Tài khoản không có quyền truy cập Google Labs hoặc session không hợp lệ (Mã 403/401).',
+                detail: 'Tài khoản không có quyền truy cập hoặc session không hợp lệ (Mã 403/401).',
                 lastChecked: Date.now(),
               });
               return;
             }
 
-            // Đọc một phần body để kiểm tra xem có dính Captcha không
+            // Đọc một phần body để check Captcha, có giới hạn dung lượng
             let data = '';
             res.on('data', (chunk) => {
               data += chunk.toString();
-              if (data.length > 50000) {
-                res.destroy();
+              if (data.length > 20000) {
+                res.destroy(); // Đã đọc đủ, ngắt
               }
             });
 
             res.on('end', () => {
-              const isCaptchaChallenge =
+              if (
                 data.includes('google.com/sorry') ||
-                data.includes('Unusual traffic from your computer network') ||
-                data.includes('g-recaptcha-response');
-
-              if (isCaptchaChallenge) {
-                resolve({
+                data.includes('Unusual traffic') ||
+                data.includes('g-recaptcha-response')
+              ) {
+                done({
                   valid: false,
                   status: 'captcha_required',
-                  detail: 'Google yêu cầu giải mã Captcha chống bot. Vui lòng mở sảnh để hoàn tất giải Captcha.',
+                  detail: 'Google yêu cầu giải Captcha chống bot. Vui lòng mở sảnh để hoàn tất.',
                   lastChecked: Date.now(),
                 });
                 return;
               }
 
-              // Nếu trả về 200 OK
-              resolve({
+              done({
                 valid: true,
                 status: 'active',
-                detail: 'Session Google Flow / Veo đang hoạt động hoàn hảo! Sẵn sàng sử dụng credit miễn phí.',
+                detail: 'Session Google Flow / Veo đang hoạt động! Sẵn sàng sử dụng credit miễn phí.',
+                lastChecked: Date.now(),
+              });
+            });
+
+            res.on('error', () => {
+              done({
+                valid: hasCoreCookies,
+                status: hasCoreCookies ? 'active' : 'unknown',
+                detail: 'Kết nối probe bị ngắt, nhưng cookie vẫn sẵn sàng.',
                 lastChecked: Date.now(),
               });
             });
@@ -566,23 +597,23 @@ export class GoogleVeoSessionManager {
 
         req.on('timeout', () => {
           req.destroy();
-          resolve({
+          done({
             valid: hasCoreCookies,
             status: hasCoreCookies ? 'active' : 'unknown',
             detail: hasCoreCookies
-              ? 'Đã lưu session (kết nối kiểm tra quá hạn, nhưng cookie vẫn sẵn sàng).'
+              ? 'Đã lưu session (kết nối kiểm tra quá hạn, cookie vẫn sẵn sàng).'
               : 'Kiểm tra quá hạn (timeout).',
             lastChecked: Date.now(),
           });
         });
 
-        req.on('error', (err) => {
-          resolve({
+        req.on('error', () => {
+          done({
             valid: hasCoreCookies,
             status: hasCoreCookies ? 'active' : 'unknown',
             detail: hasCoreCookies
               ? 'Đã lưu session Google Flow (mạng gián đoạn tạm thời).'
-              : `Không thể kết nối tới máy chủ Google Flow: ${err.message}`,
+              : 'Không thể kết nối tới máy chủ Google Flow.',
             lastChecked: Date.now(),
           });
         });
@@ -590,8 +621,25 @@ export class GoogleVeoSessionManager {
         req.end();
       };
 
-      sendRequest(probeUrl);
+      sendRequest('https://flow.google.com');
     });
+
+    const timeoutPromise = new Promise<VeoSessionValidationResult>((resolve) =>
+      setTimeout(
+        () =>
+          resolve({
+            valid: hasCoreCookies,
+            status: hasCoreCookies ? 'active' : 'unknown',
+            detail: hasCoreCookies
+              ? 'Đã lưu session (server phản hồi chậm, cookie vẫn hợp lệ).'
+              : 'Không thể xác minh session (server không phản hồi).',
+            lastChecked: now,
+          }),
+        HARD_TIMEOUT_MS
+      )
+    );
+
+    return Promise.race([probePromise, timeoutPromise]);
   }
 
   /**
