@@ -674,6 +674,27 @@ export class GoogleVeoSessionManager {
   // =========================================================================
 
   /**
+   * Thực thi JavaScript an toàn với Hard Watchdog timeout (tránh vĩnh viễn lỗi Mojo interface hang)
+   */
+  private async safeExecuteJs<T = any>(win: any, js: string, timeoutMs = 6000): Promise<T | null> {
+    if (!win || win.isDestroyed()) return null;
+    try {
+      const execPromise = win.webContents.executeJavaScript(js, true);
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('executeJavaScript timeout')), timeoutMs)
+      );
+      const raw = await Promise.race([execPromise, timeoutPromise]);
+      if (typeof raw === 'string') {
+        try { return JSON.parse(raw); } catch { return raw as any; }
+      }
+      return raw as T;
+    } catch (err: any) {
+      console.warn('[Google Flow Browser] safeExecuteJs warning:', err?.message || err);
+      return null;
+    }
+  }
+
+  /**
    * Đảm bảo lobby window đang mở và đã ở trang Google Flow (https://flow.google.com).
    */
   private async ensureLobbyAtFlow(): Promise<boolean> {
@@ -700,19 +721,19 @@ export class GoogleVeoSessionManager {
     const win = this.lobbyWindow;
     if (!win || win.isDestroyed()) return false;
 
-    // Đợi load ban đầu nếu đang loading
+    // Đợi load ban đầu nếu đang loading (tối đa 5s)
     if (win.webContents.isLoading()) {
       await new Promise<void>((resolve) => {
         win.webContents.once('did-stop-loading', () => resolve());
-        setTimeout(resolve, 8000);
+        setTimeout(resolve, 5000);
       });
     }
 
     const currentUrl = (win.webContents.getURL() || '').toLowerCase();
 
-    // Nếu đang ở trang đăng nhập Google → yêu cầu người dùng hoàn tất đăng nhập
+    // Nếu đang ở trang đăng nhập Google
     if (currentUrl.includes('accounts.google.com') || currentUrl.includes('servicelogin')) {
-      console.warn('[Google Flow Browser] Sảnh đang ở trang đăng nhập Google. Người dùng cần đăng nhập trước.');
+      console.warn('[Google Flow Browser] Cần đăng nhập tài khoản Google trên Sảnh Flow trước.');
       return false;
     }
 
@@ -723,9 +744,8 @@ export class GoogleVeoSessionManager {
         await win.loadURL(GOOGLE_FLOW_LOBBY_URL);
         await new Promise<void>((resolve) => {
           win.webContents.once('did-stop-loading', () => resolve());
-          setTimeout(resolve, 10000);
+          setTimeout(resolve, 6000);
         });
-        await new Promise((r) => setTimeout(r, 2000));
       } catch (e) {
         console.warn('[Google Flow Browser] Không thể load flow.google.com:', e);
         return false;
@@ -736,15 +756,8 @@ export class GoogleVeoSessionManager {
   }
 
   /**
-   * Sinh video bằng cách tự động hóa giao diện thật của Google Flow trên Electron BrowserWindow
-   * (session partition 'persist:google_veo' đã đăng nhập tài khoản Google).
-   * 
-   * Quy trình:
-   * 1. Đảm bảo sảnh đang ở https://flow.google.com
-   * 2. Nếu ở trang danh sách dự án → vào dự án có sẵn hoặc bấm "New project"
-   * 3. Điền prompt vào ô nhập (ProseMirror / Textarea của Google Flow)
-   * 4. Bấm nút Tạo / Generate (hoặc Enter)
-   * 5. Lắng nghe network stream & DOM để bắt link video MP4 hoàn chỉnh từ Google Veo
+   * Sinh video qua tự động hóa giao diện Google Flow trên Electron BrowserWindow.
+   * Tất cả các bước đều có timeout ngắn để tuyệt đối không làm treo workflow.
    */
   async generateVideoViaBrowserContext(
     params: {
@@ -759,7 +772,7 @@ export class GoogleVeoSessionManager {
 
     const ready = await this.ensureLobbyAtFlow();
     if (!ready) {
-      console.warn('[Google Flow Browser] Sảnh Google Flow chưa sẵn sàng (chưa đăng nhập hoặc cửa sổ bị đóng).');
+      console.warn('[Google Flow Browser] Sảnh Google Flow chưa sẵn sàng (chưa đăng nhập hoặc cửa sổ đã đóng).');
       return null;
     }
 
@@ -773,7 +786,7 @@ export class GoogleVeoSessionManager {
       return null;
     }
 
-    // Gắn network listener để bắt URL video stream (mp4 / googlevideo / fife)
+    // Gắn network listener tạm thời để bắt link video
     let capturedVideoUrl: string | null = null;
     const ses = electron.session.fromPartition('persist:google_veo');
     const netFilter = { urls: ['*://*/*'] };
@@ -800,55 +813,66 @@ export class GoogleVeoSessionManager {
     const promptClean = (params.prompt || '').trim();
     const promptJson = JSON.stringify(promptClean);
 
-    onProgress?.(15, 'Đang tương tác với giao diện Google Flow...');
+    onProgress?.(12, 'Đang phân tích giao diện Google Flow...');
 
-    // Script thực hiện tự động hóa UI trong trang Google Flow
-    const automateJs = `
-      (async function __vanhsubFlowAutomate() {
+    // === BƯỚC 1: Kiểm tra trạng thái trang hiện tại (chạy cực nhanh, không click) ===
+    const checkStateJs = `
+      (function() {
+        const hasPrompt = Boolean(document.querySelector('.ProseMirror, [contenteditable="true"], flow-prompt-box textarea, textarea'));
+        const projectCard = Boolean(document.querySelector('flow-project-card'));
+        const newProjBtn = Boolean(document.querySelector('button.new-project-button, [aria-label*="New project" i]'));
+        const isSignIn = Boolean(document.querySelector('a[href*="accounts.google.com"]'));
+        return JSON.stringify({
+          url: window.location.href,
+          hasPrompt,
+          projectCard,
+          newProjBtn,
+          isSignIn
+        });
+      })()
+    `;
+
+    const stateResult = await this.safeExecuteJs<any>(win, checkStateJs, 4000);
+    console.log('[Google Flow Browser] Trạng thái trang:', stateResult);
+
+    if (stateResult?.isSignIn) {
+      console.warn('[Google Flow Browser] Tài khoản chưa đăng nhập trên Google Flow.');
+      return null;
+    }
+
+    // === BƯỚC 2: Nếu chưa ở trang soạn thảo prompt, mở project ===
+    if (!stateResult?.hasPrompt && (stateResult?.projectCard || stateResult?.newProjBtn)) {
+      onProgress?.(18, 'Đang mở dự án trên Google Flow...');
+      const clickProjectJs = `
+        (function() {
+          const card = document.querySelector('flow-project-card');
+          if (card) { card.click(); return 'clicked_card'; }
+          const btn = document.querySelector('button.new-project-button, [aria-label*="New project" i]');
+          if (btn) { btn.click(); return 'clicked_btn'; }
+          return 'none';
+        })()
+      `;
+      // Click và không đợi trong JS để tránh Mojo hang khi navigation xảy ra
+      await this.safeExecuteJs(win, clickProjectJs, 3000);
+
+      // Đợi navigation trong Node.js
+      await new Promise((r) => setTimeout(r, 2500));
+      if (win.webContents.isLoading()) {
+        await new Promise<void>((resolve) => {
+          win.webContents.once('did-stop-loading', () => resolve());
+          setTimeout(resolve, 4000);
+        });
+      }
+    }
+
+    // === BƯỚC 3: Điền prompt và bấm nút Generate ===
+    onProgress?.(25, 'Đang nộp prompt vào Google Flow...');
+    const fillPromptJs = `
+      (function() {
         try {
-          const currentPath = window.location.pathname;
-          
-          // 1. Nếu đang ở trang chủ/danh sách dự án (flow.google.com/ hoặc flow.google.com/tools):
-          // Thử mở project đầu tiên hoặc bấm "New project"
-          const projectCard = document.querySelector('flow-project-card');
-          const newProjBtn = document.querySelector('button.new-project-button') ||
-                             document.querySelector('[aria-label*="New project" i]') ||
-                             document.querySelector('button[extended]');
+          const promptEl = document.querySelector('.ProseMirror, [contenteditable="true"], flow-prompt-box textarea, textarea');
+          if (!promptEl) return JSON.stringify({ ok: false, error: 'no_prompt_input' });
 
-          if (projectCard && !window.location.pathname.includes('/project/') && !window.location.pathname.includes('/scene/')) {
-            projectCard.click();
-            await new Promise(r => setTimeout(r, 3000));
-          } else if (newProjBtn && !window.location.pathname.includes('/project/') && !window.location.pathname.includes('/scene/')) {
-            newProjBtn.click();
-            await new Promise(r => setTimeout(r, 4000));
-          }
-
-          // 2. Tìm ô nhập prompt (Google Flow dùng ProseMirror rich-text hoặc flow-prompt-box)
-          let promptEl = document.querySelector('.ProseMirror') ||
-                         document.querySelector('[contenteditable="true"]') ||
-                         document.querySelector('flow-prompt-box textarea') ||
-                         document.querySelector('textarea');
-
-          // Đợi tối đa 5s nếu trang đang tải editor
-          for (let i = 0; i < 10 && !promptEl; i++) {
-            await new Promise(r => setTimeout(r, 500));
-            promptEl = document.querySelector('.ProseMirror') ||
-                       document.querySelector('[contenteditable="true"]') ||
-                       document.querySelector('flow-prompt-box textarea') ||
-                       document.querySelector('textarea');
-          }
-
-          if (!promptEl) {
-            return JSON.stringify({
-              ok: false,
-              stage: 'no_prompt_input',
-              url: window.location.href,
-              title: document.title,
-              bodySnippet: document.body.innerText.slice(0, 300)
-            });
-          }
-
-          // 3. Điền prompt
           promptEl.focus();
           if (promptEl.isContentEditable) {
             document.execCommand('selectAll', false, null);
@@ -861,9 +885,7 @@ export class GoogleVeoSessionManager {
             promptEl.dispatchEvent(new Event('change', { bubbles: true }));
           }
 
-          await new Promise(r => setTimeout(r, 500));
-
-          // 4. Tìm và bấm nút Generate
+          // Tìm nút Generate
           const buttons = Array.from(document.querySelectorAll('button, [role="button"]'));
           const genBtn = buttons.find(b => {
             const t = (b.innerText || b.textContent || '').toLowerCase().trim();
@@ -872,14 +894,12 @@ export class GoogleVeoSessionManager {
               t === 'generate' || t === 'create' || t === 'tạo' ||
               a.includes('generate') || a.includes('create')
             ) && !b.disabled;
-          }) || document.querySelector('.flow-button-primary') ||
-             document.querySelector('button[type="submit"]') ||
-             document.querySelector('flow-prompt-box button');
+          }) || document.querySelector('.flow-button-primary, button[type="submit"], flow-prompt-box button');
 
           if (genBtn && !genBtn.disabled) {
             genBtn.click();
+            return JSON.stringify({ ok: true, method: 'click_button' });
           } else {
-            // Thử gửi sự kiện phím Enter
             promptEl.dispatchEvent(new KeyboardEvent('keydown', {
               key: 'Enter',
               code: 'Enter',
@@ -887,34 +907,27 @@ export class GoogleVeoSessionManager {
               which: 13,
               bubbles: true
             }));
+            return JSON.stringify({ ok: true, method: 'enter_key' });
           }
-
-          return JSON.stringify({
-            ok: true,
-            stage: 'prompt_submitted',
-            url: window.location.href,
-            title: document.title
-          });
         } catch (e) {
           return JSON.stringify({ ok: false, error: String(e && e.message ? e.message : e) });
         }
       })()
     `;
 
-    let submitResult: any;
-    try {
-      const raw = await win.webContents.executeJavaScript(automateJs, true);
-      submitResult = typeof raw === 'string' ? JSON.parse(raw) : raw;
-      console.log('[Google Flow Browser] Kết quả nộp prompt:', submitResult);
-    } catch (e) {
-      console.warn('[Google Flow Browser] Lỗi executeJavaScript khi nộp prompt:', e);
+    const fillResult = await this.safeExecuteJs<any>(win, fillPromptJs, 4000);
+    console.log('[Google Flow Browser] Kết quả điền prompt:', fillResult);
+
+    if (!fillResult?.ok) {
+      console.warn('[Google Flow Browser] Không thể tương tác với ô prompt:', fillResult?.error || 'unknown');
+      return null;
     }
 
+    // === BƯỚC 4: Polling chờ video (tối đa 60s, mỗi 3s kiểm tra 1 lần) ===
     onProgress?.(30, 'Đang chờ Google Veo render video...');
 
-    // Polling tìm video URL (qua network listener hoặc DOM <video>)
-    const pollVideoJs = `
-      (function __checkDomVideo() {
+    const pollDomVideoJs = `
+      (function() {
         const videos = Array.from(document.querySelectorAll('video'));
         for (const v of videos) {
           const src = v.currentSrc || v.src || (v.querySelector('source') ? v.querySelector('source').src : '');
@@ -926,29 +939,27 @@ export class GoogleVeoSessionManager {
       })()
     `;
 
-    const maxWaitSeconds = 120;
-    const pollIntervalMs = 4000;
+    const maxWaitSeconds = 60;
+    const pollIntervalMs = 3000;
     const maxAttempts = Math.floor((maxWaitSeconds * 1000) / pollIntervalMs);
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       if (win.isDestroyed()) break;
 
-      // 1. Kiểm tra nếu network listener đã bắt được link video
+      // Kiểm tra network sniffer
       if (capturedVideoUrl) {
         onProgress?.(90, 'Đã nhận được video từ Google Flow!');
-        console.log('[Google Flow Browser] ✅ Thành công bắt video URL qua network:', capturedVideoUrl);
+        console.log('[Google Flow Browser] ✅ Bắt được video qua network:', capturedVideoUrl);
         return { videoUrl: capturedVideoUrl };
       }
 
-      // 2. Kiểm tra DOM xem có thẻ <video> đã render xong
-      try {
-        const domSrc = await win.webContents.executeJavaScript(pollVideoJs, true);
-        if (domSrc && typeof domSrc === 'string' && domSrc.startsWith('http')) {
-          onProgress?.(90, 'Đã tìm thấy video trên giao diện Google Flow!');
-          console.log('[Google Flow Browser] ✅ Thành công lấy video URL qua DOM:', domSrc);
-          return { videoUrl: domSrc };
-        }
-      } catch {}
+      // Kiểm tra DOM thẻ <video>
+      const domSrc = await this.safeExecuteJs<string>(win, pollDomVideoJs, 2500);
+      if (domSrc && typeof domSrc === 'string' && domSrc.startsWith('http')) {
+        onProgress?.(90, 'Đã nhận được video từ Google Flow!');
+        console.log('[Google Flow Browser] ✅ Tìm thấy video qua DOM:', domSrc);
+        return { videoUrl: domSrc };
+      }
 
       await new Promise((r) => setTimeout(r, pollIntervalMs));
       const elapsed = (attempt + 1) * (pollIntervalMs / 1000);
@@ -956,8 +967,9 @@ export class GoogleVeoSessionManager {
       onProgress?.(pct, `Google Veo đang xử lý (${Math.round(elapsed)}s / ${maxWaitSeconds}s)...`);
     }
 
-    console.warn('[Google Flow Browser] Hết thời gian chờ video từ Google Flow.');
+    console.warn('[Google Flow Browser] Quá thời gian chờ video từ Google Flow (sẽ tự động dùng mô phỏng offline).');
     return null;
   }
+
 
 }
