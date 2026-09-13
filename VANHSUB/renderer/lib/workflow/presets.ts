@@ -390,6 +390,7 @@ export const WORKFLOW_PRESETS: WorkflowPreset[] = [
             category: 'model',
             label: 'Keyframe 1 (Hook: F5 Điên Cuồng)',
             config: {
+              imageEngine: 'banana-pro',
               prompt: 'A funny clumsy newbie YouTuber character Bob with crazy bloodshot eyes staring at a computer screen in a dark room, goofy grinning face, pressing F5 frantically, 1:1 square composition.',
               aspectRatio: '1:1',
             },
@@ -436,6 +437,7 @@ export const WORKFLOW_PRESETS: WorkflowPreset[] = [
             category: 'model',
             label: 'Keyframe 2 (Hồi 1: Nút Vàng & Siêu Xe)',
             config: {
+              imageEngine: 'banana-pro',
               prompt: 'The goofy character Bob wearing a messy ill-fitting black suit, proudly holding a giant shiny golden YouTube play button plaque, childish crudely drawn dollar bills raining down, absurd triumphant grin, 1:1 square.',
               aspectRatio: '1:1',
             },
@@ -482,6 +484,7 @@ export const WORKFLOW_PRESETS: WorkflowPreset[] = [
             category: 'model',
             label: 'Keyframe 3 (Hồi 2: Thực Tế 4 Views)',
             config: {
+              imageEngine: 'banana-pro',
               prompt: 'The goofy character Bob waking up in morning, looking at smartphone with totally hollow dead soulless eyes, jaw dropped in shock, small comical blue tear dripping, big text on screen saying "4 VIEWS", 1:1 square.',
               aspectRatio: '1:1',
             },

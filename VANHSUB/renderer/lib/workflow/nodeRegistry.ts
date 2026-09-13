@@ -318,8 +318,8 @@ export const NODE_DEFINITIONS: Record<string, NodeDefinition> = {
   'google-imagen': {
     type: 'google-imagen',
     category: 'model',
-    label: 'Google Imagen 3 (Image AI)',
-    description: 'Sinh hình ảnh chất lượng cao bằng Google Imagen 3 qua Gemini API làm Init Frame hoặc Storyboard.',
+    label: 'Banana Pro / Imagen 3 (Image AI)',
+    description: 'Sinh ảnh chất lượng cao bằng Banana Pro (Google Gemini 3 Pro Image / 4K) hoặc Imagen 3 làm Init Frame hoặc Storyboard.',
     inputs: [
       { id: 'prompt', label: 'Prompt', dataType: 'text', description: 'Mô tả hình ảnh' },
       { id: 'character', label: 'Nhân vật (Lock)', dataType: 'character_ref', description: 'Tham chiếu nhân vật' },
@@ -330,6 +330,17 @@ export const NODE_DEFINITIONS: Record<string, NodeDefinition> = {
       { id: 'image', label: 'Ảnh sinh ra', dataType: 'image', description: 'Ảnh hoàn thiện' },
     ],
     configSchema: {
+      imageEngine: {
+        type: 'select',
+        label: 'Mô hình AI tạo ảnh',
+        defaultValue: 'banana-pro',
+        options: [
+          { label: 'Banana Pro (Google Gemini 3 Pro Image - 4K)', value: 'banana-pro' },
+          { label: 'Nano Banana (Google Gemini 2.5 Flash Image)', value: 'nano-banana' },
+          { label: 'Tự động (Ưu tiên Banana Pro, dự phòng online)', value: 'auto' },
+          { label: 'Engine trực tuyến (Miễn phí)', value: 'pollinations' },
+        ],
+      },
       prompt: {
         type: 'textarea',
         label: 'Prompt sinh ảnh',
@@ -340,14 +351,15 @@ export const NODE_DEFINITIONS: Record<string, NodeDefinition> = {
         label: 'Tỷ lệ khung hình',
         defaultValue: '16:9',
         options: [
+          { label: '1:1 (Square)', value: '1:1' },
           { label: '16:9 (Landscape)', value: '16:9' },
           { label: '9:16 (Portrait / Reels)', value: '9:16' },
-          { label: '1:1 (Square)', value: '1:1' },
           { label: '4:3 (Classic)', value: '4:3' },
         ],
       },
     },
     defaultData: {
+      imageEngine: 'banana-pro',
       prompt: 'Cinematic portrait of Vietnamese secret agent in futuristic Hanoi, neon rain, volumetric lighting, photorealistic 8k',
       aspectRatio: '16:9',
     },

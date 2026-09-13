@@ -718,7 +718,8 @@ export class WorkflowExecutionEngine {
         }
 
         const aspectRatio = config.aspectRatio || '16:9';
-        const imgRes = await adapter.generateImage!({ prompt, aspectRatio }, ctx);
+        const imageEngine = config.imageEngine || 'banana-pro';
+        const imgRes = await adapter.generateImage!({ prompt, aspectRatio, imageEngine }, ctx);
         return {
           image: imgRes.imageUrl,
           sourceUrl: imgRes.imageUrl,

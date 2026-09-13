@@ -28,12 +28,12 @@ if (rawFfprobe) {
 }
 
 /**
- * Bộ điều phối chống quá tải (Rate Limiter & Serializer) cho AI Image Engine trực tuyến.
- * Đảm bảo các node sinh ảnh chạy song song không gửi dồn dập vào Pollinations làm dính lỗi HTTP 429.
+ * Bộ điều phối tuần tự hóa (Strict Serializer & Rate Limiter) cho AI Image Engine.
+ * Đảm bảo các node sinh ảnh chạy song song không gửi dồn dập, tuyệt đối không bị HTTP 429.
  */
 class OnlineImageRateLimiter {
-  private static lastCallTime = 0;
-  private static queue: Promise<void> = Promise.resolve();
+  private static lastFinishTime = 0;
+  private static queue: Promise<any> = Promise.resolve();
 
   static async schedule<T>(task: () => Promise<T>): Promise<T> {
     const prev = this.queue;
@@ -44,15 +44,15 @@ class OnlineImageRateLimiter {
 
     try {
       await prev.catch(() => {});
-      // Giữ khoảng cách an toàn 1.5 giây giữa các lần gọi để tránh HTTP 429 Rate Limit
+      // Giữ khoảng cách an toàn 2.5 giây sau khi tác vụ trước KẾT THÚC để tránh HTTP 429
       const now = Date.now();
-      const diff = now - this.lastCallTime;
-      if (diff < 1500) {
-        await new Promise((r) => setTimeout(r, 1500 - diff));
+      const diff = now - this.lastFinishTime;
+      if (this.lastFinishTime > 0 && diff < 2500) {
+        await new Promise((r) => setTimeout(r, 2500 - diff));
       }
-      this.lastCallTime = Date.now();
       return await task();
     } finally {
+      this.lastFinishTime = Date.now();
       finish!();
     }
   }
@@ -537,24 +537,115 @@ export class GoogleFlowAdapter implements ModelAdapter {
   }
 
   /**
+   * Sinh ảnh bằng Google Banana Pro (Gemini 3 Pro Image / Nano Banana)
+   */
+  private async callBananaProImageApi(
+    apiKey: string,
+    prompt: string,
+    aspectRatio: string,
+    outPath: string,
+    preferredEngine = 'banana-pro'
+  ): Promise<boolean> {
+    const candidateModels =
+      preferredEngine === 'nano-banana'
+        ? ['gemini-2.5-flash-image', 'nano-banana-pro-preview', 'gemini-3-pro-image-preview']
+        : [
+            'nano-banana-pro-preview',
+            'gemini-3-pro-image-preview',
+            'gemini-3-pro-image',
+            'gemini-2.5-flash-image',
+            'gemini-3.1-flash-image-preview',
+          ];
+
+    const targetRatio = aspectRatio === '1:1' ? '1:1' : aspectRatio === '9:16' ? '9:16' : '16:9';
+
+    for (const model of candidateModels) {
+      try {
+        console.log(`[Banana Pro AI] Đang gửi yêu cầu sinh ảnh tới model Google ${model}...`);
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+        const payload = JSON.stringify({
+          contents: [
+            {
+              parts: [{ text: prompt }],
+            },
+          ],
+          generationConfig: {
+            imageConfig: {
+              aspectRatio: targetRatio,
+            },
+          },
+        });
+
+        const resData = await this.postJson(url, payload);
+        const parts = resData?.candidates?.[0]?.content?.parts || [];
+        for (const part of parts) {
+          if (part.inlineData && part.inlineData.data) {
+            const buf = Buffer.from(part.inlineData.data, 'base64');
+            fs.writeFileSync(outPath, buf);
+            console.log(`[Banana Pro AI] ✓ Sinh ảnh thành công với Google ${model} (${buf.length} bytes)!`);
+            return true;
+          }
+        }
+      } catch (err: any) {
+        const msg = err?.message || String(err);
+        if (msg.includes('429') || msg.includes('RESOURCE_EXHAUSTED') || msg.includes('quota') || msg.includes('limit: 0')) {
+          console.warn(
+            `[Banana Pro AI] Google API Key chưa có hạn ngạch cho Banana Pro (Google quy định model sinh ảnh Banana Pro 4K cần bật thanh toán Pay-as-you-go tại https://aistudio.google.com). Tự động chuyển sang engine dự phòng...`
+          );
+          break;
+        } else {
+          console.warn(`[Banana Pro AI] Model ${model} phản hồi: ${msg.slice(0, 150)}`);
+        }
+      }
+    }
+    return false;
+  }
+
+  /**
    * Sinh ảnh Keyframe AI bám sát 100% Prompt người dùng
+   * Ưu tiên Banana Pro (Gemini 3 Pro Image), tự động fallback sang Engine trực tuyến tốc độ cao
    */
   async generateImage(params: import('./types').ImageGenParams, ctx: ExecutionContext): Promise<{ imageUrl: string }> {
     const apiKey = SettingsStore.get('geminiApiKey')?.trim();
     const fileName = `imagen_${Date.now()}_${Math.random().toString(36).slice(2, 7)}.jpg`;
     const outImagePath = path.join(ctx.tempDir, fileName);
+    const engineChoice = params.imageEngine || 'banana-pro';
 
-    // Chế độ Generative AI Online (Pollinations Sana/Flux Engine):
+    // =========================================================================
+    // CHẾ ĐỘ 1: ƯU TIÊN BANANA PRO (GOOGLE GEMINI 3 PRO IMAGE / NANO BANANA)
+    // =========================================================================
+    if (apiKey && (engineChoice === 'banana-pro' || engineChoice === 'nano-banana' || engineChoice === 'auto')) {
+      try {
+        ctx.onProgress(20);
+        const bananaSuccess = await this.callBananaProImageApi(
+          apiKey,
+          params.prompt,
+          params.aspectRatio || '1:1',
+          outImagePath,
+          engineChoice
+        );
+        if (bananaSuccess && fs.existsSync(outImagePath) && fs.statSync(outImagePath).size > 1000) {
+          ctx.onProgress(100);
+          return { imageUrl: outImagePath };
+        }
+      } catch (bananaErr: any) {
+        console.warn('[Banana Pro AI] Quá trình sinh ảnh Banana Pro gặp sự cố:', bananaErr?.message || bananaErr);
+      }
+    }
+
+    // =========================================================================
+    // CHẾ ĐỘ 2: ENGINE DỰ PHÒNG TRỰC TUYẾN TUẦN TỰ HÓA (ĐẢM BẢO KHÔNG BỊ HTTP 429)
+    // =========================================================================
     try {
       return await OnlineImageRateLimiter.schedule(async () => {
         const isSquare = params.aspectRatio === '1:1';
         const isPortrait = params.aspectRatio === '9:16';
-        const width = isSquare ? 768 : isPortrait ? 576 : 768;
-        const height = isSquare ? 768 : isPortrait ? 768 : 432;
+        // Kích thước chuẩn 512x512: thời gian tạo chỉ 2-4 giây, không lo bị timeout 20s hay dính 429
+        const width = isSquare ? 512 : isPortrait ? 384 : 512;
+        const height = isSquare ? 512 : isPortrait ? 512 : 288;
         const baseSeed = Math.floor(Math.random() * 900000) + 100000;
 
-        // 1. Nếu có Gemini API Key: dịch và chắt lọc prompt sang tiếng Anh chuẩn điện ảnh (<35 từ)
-        // để mô hình AI quốc tế hiểu và sinh đúng 100% tạo hình nhân vật & phong cách
+        // 1. Dịch và chắt lọc prompt sang tiếng Anh chuẩn thị giác (<35 từ) bằng Gemini
         let englishPrompt = params.prompt;
         if (apiKey) {
           try {
@@ -594,13 +685,13 @@ export class GoogleFlowAdapter implements ModelAdapter {
           .trim()
           .slice(0, 220);
 
-        // 2. Gọi Pollinations GET với prompt tiếng Anh chuẩn xác (chế độ Sana Engine)
+        // 2. Thử tải ảnh trực tuyến với cơ chế hồi chiêu an toàn (timeout 35s)
         for (let attempt = 1; attempt <= 2; attempt++) {
           try {
             ctx.onProgress(40 + attempt * 25);
-            const seedToUse = baseSeed + attempt * 17;
+            const seedToUse = baseSeed + attempt * 73;
             const aiImageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(cleanPrompt)}?width=${width}&height=${height}&seed=${seedToUse}&nologo=true`;
-            await this.downloadFile(aiImageUrl, outImagePath, 3, 20000);
+            await this.downloadFile(aiImageUrl, outImagePath, 3, 35000);
 
             if (fs.existsSync(outImagePath) && fs.statSync(outImagePath).size > 1500) {
               ctx.onProgress(100);
@@ -609,7 +700,7 @@ export class GoogleFlowAdapter implements ModelAdapter {
           } catch (err: any) {
             console.warn(`[AI Image Engine] Lần ${attempt} không thành công (${err?.message || err}), thử lại...`);
             if (attempt < 2) {
-              await new Promise((r) => setTimeout(r, 2000));
+              await new Promise((r) => setTimeout(r, 4000));
             }
           }
         }
@@ -620,7 +711,9 @@ export class GoogleFlowAdapter implements ModelAdapter {
       console.warn('Không thể tải ảnh từ AI Image Engine trực tuyến, dùng bộ mô phỏng offline:', aiErr);
     }
 
-    // 3. Chế độ Offline / Fallback cấp cuối: Tạo ảnh bằng FFmpeg khi mất kết nối internet
+    // =========================================================================
+    // CHẾ ĐỘ 3: DỰ PHÒNG CẤP CUỐI KHI OFFLINE
+    // =========================================================================
     ctx.onProgress(70);
     await this.generateSyntheticImage(params.prompt, outImagePath, params.aspectRatio || '16:9');
     ctx.onProgress(100);

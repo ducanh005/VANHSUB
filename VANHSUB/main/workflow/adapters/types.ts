@@ -26,6 +26,7 @@ export interface ImageGenParams {
   aspectRatio?: string;
   steps?: number;
   cfgScale?: number;
+  imageEngine?: string;
 }
 
 export interface DirectorPromptParams {
