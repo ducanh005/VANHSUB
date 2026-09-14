@@ -101,6 +101,10 @@ const vanhsub = {
     getAntiSpamStatus: () => ipcRenderer.invoke('veo:get-anti-spam-status'),
     setMode: (mode: 'free_session' | 'api_key' | 'simulation') =>
       ipcRenderer.invoke('veo:set-mode', mode),
+    getCredits: (maxAgeMs?: number) => ipcRenderer.invoke('veo:get-credits', maxAgeMs),
+    showLobbyDebug: () => ipcRenderer.invoke('veo:show-lobby-debug'),
+    hideLobbyOffscreen: () => ipcRenderer.invoke('veo:hide-lobby-offscreen'),
+    isLobbyDebug: () => ipcRenderer.invoke('veo:is-lobby-debug'),
   },
   models: {
     list: () => ipcRenderer.invoke('models:list'),
@@ -144,6 +148,7 @@ const vanhsub = {
   },
   workflow: {
     run: (graph: any) => ipcRenderer.invoke('workflow:run', graph),
+    runNode: (graph: any, nodeId: string) => ipcRenderer.invoke('workflow:runNode', graph, nodeId),
     cancel: (workflowId: string) => ipcRenderer.invoke('workflow:cancel', workflowId),
     compareFrames: (frameA: string, frameB: string, config?: any) =>
       ipcRenderer.invoke('workflow:compareFrames', frameA, frameB, config),

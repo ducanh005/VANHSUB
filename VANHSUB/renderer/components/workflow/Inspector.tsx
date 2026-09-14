@@ -35,6 +35,8 @@ export default function Inspector({ onClose }: InspectorProps = {}) {
   const updateNodeConfig = useWorkflowStore((s) => s.updateNodeConfig);
   const removeNode = useWorkflowStore((s) => s.removeNode);
   const setSelectedNodeId = useWorkflowStore((s) => s.setSelectedNodeId);
+  const runSingleNode = useWorkflowStore((s) => s.runSingleNode);
+  const runningNodeId = useWorkflowStore((s) => s.runningNodeId);
 
   const [bibleCharacters, setBibleCharacters] = useState<any[]>([]);
   const [bibleScenes, setBibleScenes] = useState<any[]>([]);
@@ -218,6 +220,68 @@ export default function Inspector({ onClose }: InspectorProps = {}) {
             <Tag className="w-3 h-3 text-slate-500" />
             <span>{def?.type || selectedNode.data.nodeType}</span>
           </div>
+        </div>
+
+        {/* Run Node Action Bar (Phong cách Weavy.ai / Flow Studio) */}
+        <div className="mt-3.5 pt-3 border-t border-slate-800/80">
+          <button
+            type="button"
+            onClick={() => runSingleNode(selectedNode.id)}
+            disabled={runtime?.status === 'running'}
+            className={`w-full py-2 px-3 rounded-lg text-xs font-bold flex items-center justify-center gap-2 transition-all shadow-md cursor-pointer ${
+              runtime?.status === 'running'
+                ? 'bg-amber-600/30 text-amber-300 border border-amber-500/40 animate-pulse'
+                : 'bg-gradient-to-r from-indigo-600 via-indigo-500 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white shadow-indigo-950/50 hover:shadow-indigo-600/30 border border-indigo-400/30'
+            }`}
+          >
+            {runtime?.status === 'running' ? (
+              <>
+                <Clock className="w-4 h-4 animate-spin text-amber-400" />
+                <span>Đang thực thi node {runtime.progress ? `(${runtime.progress}%)` : '...'}</span>
+              </>
+            ) : (
+              <>
+                <Play className="w-4 h-4 fill-current" />
+                <span>Chạy node này (Run Node)</span>
+              </>
+            )}
+          </button>
+
+          {/* Execution Status Tag */}
+          <div className="flex items-center justify-between mt-2 px-1 text-[11px]">
+            <span className="text-slate-400">Trạng thái:</span>
+            <div className="flex items-center gap-1.5">
+              {runtime?.status === 'running' && (
+                <span className="text-amber-400 font-medium flex items-center gap-1">
+                  <Clock className="w-3 h-3 animate-spin" /> Đang xử lý
+                </span>
+              )}
+              {runtime?.status === 'success' && (
+                <span className="text-emerald-400 font-medium flex items-center gap-1">
+                  <CheckCircle2 className="w-3 h-3" />
+                  Hoàn tất {runtime.durationMs ? `(${(runtime.durationMs / 1000).toFixed(1)}s)` : ''}
+                </span>
+              )}
+              {runtime?.status === 'failed' && (
+                <span className="text-rose-400 font-medium flex items-center gap-1">
+                  <AlertCircle className="w-3 h-3" /> Thất bại
+                </span>
+              )}
+              {(!runtime?.status || runtime.status === 'idle') && (
+                <span className="text-slate-500 font-mono">Chưa chạy (Idle)</span>
+              )}
+              {runtime?.status === 'queued' && (
+                <span className="text-sky-400 font-mono">Đang chờ (Queued)</span>
+              )}
+            </div>
+          </div>
+
+          {/* Error display if failed */}
+          {runtime?.status === 'failed' && runtime?.error && (
+            <div className="mt-2 p-2 rounded bg-rose-950/70 border border-rose-800/80 text-[11px] text-rose-300 leading-tight">
+              {runtime.error}
+            </div>
+          )}
         </div>
       </div>
 

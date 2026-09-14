@@ -57,6 +57,7 @@ function GenericCategoryNodeComponent({ id, data, selected }: NodeProps<Workflow
   const def = NODE_DEFINITIONS[nodeData.nodeType];
   const removeNode = useWorkflowStore((s) => s.removeNode);
   const updateNodeConfig = useWorkflowStore((s) => s.updateNodeConfig);
+  const runSingleNode = useWorkflowStore((s) => s.runSingleNode);
   const runtime = nodeData.runtime || { status: 'idle' };
 
   const [isPlaying, setIsPlaying] = useState(false);
@@ -236,8 +237,28 @@ function GenericCategoryNodeComponent({ id, data, selected }: NodeProps<Workflow
           </div>
         </div>
 
-        <div className="flex items-center gap-1 shrink-0">
+        <div className="flex items-center gap-1.5 shrink-0">
           {statusBadge}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              runSingleNode(id);
+            }}
+            disabled={runtime.status === 'running'}
+            title="Chạy riêng node này (Run node)"
+            className={`p-1 rounded-md transition-all flex items-center justify-center cursor-pointer shadow-sm ${
+              runtime.status === 'running'
+                ? 'text-amber-400 bg-amber-950/80 border border-amber-500/40 animate-pulse'
+                : 'text-indigo-200 hover:text-white hover:bg-indigo-600/80 bg-slate-900/80 border border-indigo-500/30 hover:border-indigo-400'
+            }`}
+          >
+            {runtime.status === 'running' ? (
+              <Clock className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Play className="w-3.5 h-3.5 fill-current ml-0.5" />
+            )}
+          </button>
           <button
             onClick={(e) => {
               e.stopPropagation();
@@ -324,6 +345,13 @@ function GenericCategoryNodeComponent({ id, data, selected }: NodeProps<Workflow
               title={config.prompt || config.stylePrompt || config.description}
             >
               "{config.prompt || config.stylePrompt || config.description}"
+            </div>
+          )}
+
+          {runtime.error && (
+            <div className="p-2 rounded bg-rose-950/70 border border-rose-800/80 text-[10px] text-rose-300 flex items-start gap-1.5 leading-tight" title={runtime.error}>
+              <AlertCircle className="w-3.5 h-3.5 text-rose-400 shrink-0 mt-0.5" />
+              <span className="line-clamp-2">{runtime.error}</span>
             </div>
           )}
 

@@ -9,6 +9,7 @@ import { VideoProcessor } from './videoProcessor';
 import { TaskStore } from '../store/taskStore';
 import { SettingsStore } from '../store/settingsStore';
 import { GoogleVeoAntiSpamGuard } from '../veo/GoogleVeoAntiSpamGuard';
+import { GoogleFlowBrowserMutex } from './dispatcher/GoogleFlowBrowserMutex';
 
 export interface WorkflowGraphData {
   id: string;
@@ -21,6 +22,7 @@ export interface WorkflowGraphData {
       category: string;
       label: string;
       config: Record<string, any>;
+      runtime?: any;
     };
   }>;
   edges: Array<{
@@ -34,6 +36,9 @@ export interface WorkflowGraphData {
 
 export class WorkflowExecutionEngine {
   private activeRuns = new Set<string>();
+  public static async withBrowserMutex<T>(task: () => Promise<T>): Promise<T> {
+    return GoogleFlowBrowserMutex.getInstance().runExclusive(task, 'legacy_workflow_engine');
+  }
 
   public cancel(workflowId: string): void {
     this.activeRuns.delete(workflowId);
@@ -198,9 +203,15 @@ export class WorkflowExecutionEngine {
           const resolvedInputs: ResolvedInputs = {};
           for (const inc of incomingEdges.get(nodeId) || []) {
             const parentOut = nodeOutputs.get(inc.source);
-            if (parentOut && inc.targetHandle) {
-              const val = inc.sourceHandle ? parentOut[inc.sourceHandle] : parentOut;
-              resolvedInputs[inc.targetHandle] = val;
+            if (parentOut) {
+              if (inc.targetHandle) {
+                const val = inc.sourceHandle ? parentOut[inc.sourceHandle] : parentOut;
+                resolvedInputs[inc.targetHandle] = val;
+              }
+              // Tự động kế thừa projectId từ node cha nếu có
+              if (parentOut.projectId && !resolvedInputs['projectId']) {
+                resolvedInputs['projectId'] = parentOut.projectId;
+              }
             }
           }
 
@@ -351,6 +362,135 @@ export class WorkflowExecutionEngine {
   }
 
   /**
+   * Thực thi một Node đơn lẻ độc lập (Run Individual Node)
+   */
+  public async executeNode(
+    graph: WorkflowGraphData,
+    nodeId: string,
+    onEvent: (event: WorkflowNodeEvent) => void
+  ): Promise<{ success: boolean; output?: NodeExecutionOutput; error?: string }> {
+    const workflowId = graph.id || `wf_node_${Date.now()}`;
+    const nodes = graph.nodes || [];
+    const edges = graph.edges || [];
+
+    const targetNode = nodes.find((n) => n.id === nodeId);
+    if (!targetNode) {
+      return { success: false, error: `Không tìm thấy node #${nodeId}` };
+    }
+
+    const tempDir = path.join(
+      app?.getPath?.('temp') || os.tmpdir(),
+      'vanhsub_workflow',
+      workflowId
+    );
+    fs.mkdirSync(tempDir, { recursive: true });
+    const exportDir = SettingsStore.get('exportDir') || path.join(os.homedir(), 'Downloads');
+
+    const nodeMap = new Map<string, (typeof nodes)[0]>();
+    for (const n of nodes) nodeMap.set(n.id, n);
+
+    const isCancelled = () => false;
+
+    // Thu thập resolvedInputs từ các node cha
+    const resolvedInputs: ResolvedInputs = {};
+    for (const edge of edges) {
+      if (edge.target === nodeId) {
+        const parentNode = nodeMap.get(edge.source);
+        if (parentNode) {
+          // Lấy outputData từ runtime trước đó nếu có
+          let parentOut: any = parentNode.data.runtime?.outputData;
+          // Nếu node cha là input tĩnh chưa chạy (text-prompt, style-lock, character-ref, load-image, load-video...), thực thi nhanh
+          if (
+            !parentOut &&
+            ['text-prompt', 'style-lock', 'character-ref', 'load-image', 'load-video', 'scene-ref', 'camera-path'].includes(
+              parentNode.data.nodeType
+            )
+          ) {
+            const parentCtx: ExecutionContext = {
+              workflowId,
+              nodeId: parentNode.id,
+              tempDir,
+              exportDir,
+              onProgress: () => {},
+              isCancelled,
+            };
+            try {
+              parentOut = await this.executeSingleNode(parentNode, {}, parentCtx);
+            } catch {}
+          }
+
+          if (parentOut) {
+            if (edge.targetHandle) {
+              const val = edge.sourceHandle ? parentOut[edge.sourceHandle] : parentOut;
+              resolvedInputs[edge.targetHandle] = val;
+            }
+            // Tự động kế thừa projectId từ node cha nếu có
+            if (parentOut.projectId && !resolvedInputs['projectId']) {
+              resolvedInputs['projectId'] = parentOut.projectId;
+            }
+          }
+        }
+      }
+    }
+
+    const startTime = Date.now();
+    onEvent({
+      workflowId,
+      nodeId,
+      status: 'running',
+      progress: 10,
+    });
+
+    const ctx: ExecutionContext = {
+      workflowId,
+      nodeId,
+      tempDir,
+      exportDir,
+      onProgress: (percent: number) => {
+        onEvent({
+          workflowId,
+          nodeId,
+          status: 'running',
+          progress: percent,
+        });
+      },
+      isCancelled,
+    };
+
+    try {
+      const output = await this.executeSingleNode(targetNode, resolvedInputs, ctx);
+      const durationMs = Date.now() - startTime;
+      onEvent({
+        workflowId,
+        nodeId,
+        status: 'success',
+        progress: 100,
+        thumbnailUrl:
+          output.last_frame ||
+          output.lastFrameUrl ||
+          output.thumbnailUrl ||
+          output.image ||
+          output.image_out ||
+          output.face_image,
+        outputUrl: output.video || output.video_out || output.outputUrl || output.exportedPath,
+        outputData: output,
+        durationMs,
+      });
+      return { success: true, output };
+    } catch (err: any) {
+      const durationMs = Date.now() - startTime;
+      onEvent({
+        workflowId,
+        nodeId,
+        status: 'failed',
+        error: err?.message || String(err),
+        durationMs,
+      });
+      return { success: false, error: err?.message || String(err) };
+    }
+  }
+
+  /**
    * Xử lý thực thi cho từng loại node cụ thể
    */
   private async executeSingleNode(
@@ -416,6 +556,27 @@ export class WorkflowExecutionEngine {
         if (!prompt) {
           prompt = config.prompt || '';
         }
+        // Fallback thông minh: Nếu node video chưa có prompt riêng, lấy prompt từ node ảnh/kịch bản đầu vào
+        if (!prompt) {
+          for (const val of Object.values(inputs)) {
+            if (typeof val === 'string' && val.length > 5 && !val.includes('/') && !val.includes('\\')) {
+              prompt = val;
+              break;
+            } else if (val && typeof val === 'object') {
+              if (val.prompt) {
+                prompt = String(val.prompt);
+                break;
+              }
+              if (val.text) {
+                prompt = String(val.text);
+                break;
+              }
+            }
+          }
+        }
+        if (!prompt) {
+          prompt = 'Smooth cinematic animation, fluid dynamic motion, expressive character performance, 4k render';
+        }
 
         // Tự động append Character lock vào prompt nếu có
         const charInput = inputs['character'] || (inputs['prompt'] && inputs['prompt'].character_locked ? inputs['prompt'] : null);
@@ -461,23 +622,29 @@ export class WorkflowExecutionEngine {
         const modelVariant = config.modelVariant || 'veo-3.1-generate-preview';
         const outputCount = Number(config.outputCount || 1);
 
-        const result = await adapter.generateVideo(
-          {
-            prompt,
-            initFrameUrl,
-            durationSeconds,
-            aspectRatio,
-            seed,
-            modelVariant,
-            outputCount,
-          },
-          ctx
-        );
+        const targetProjectId = inputs['projectId'] || inputs['project_id'] || config.projectId;
+
+        const result = await WorkflowExecutionEngine.withBrowserMutex(async () => {
+          return adapter.generateVideo(
+            {
+              prompt,
+              initFrameUrl,
+              durationSeconds,
+              aspectRatio,
+              seed,
+              modelVariant,
+              outputCount,
+              projectId: targetProjectId,
+            },
+            ctx
+          );
+        });
 
         return {
           video: result.videoUrl,
           last_frame: result.lastFrameUrl,
           duration: result.durationSeconds,
+          projectId: result.projectId || targetProjectId,
         };
       }
 
@@ -744,11 +911,16 @@ export class WorkflowExecutionEngine {
         const aspectRatio = config.aspectRatio || '16:9';
         const imageEngine = config.imageEngine || 'banana-pro';
         const outputCount = Number(config.outputCount || 1);
-        const imgRes = await adapter.generateImage!({ prompt, aspectRatio, imageEngine, outputCount }, ctx);
+        const targetProjectId = inputs['projectId'] || inputs['project_id'] || config.projectId;
+
+        const imgRes = await WorkflowExecutionEngine.withBrowserMutex(async () => {
+          return adapter.generateImage!({ prompt, aspectRatio, imageEngine, outputCount, projectId: targetProjectId }, ctx);
+        });
         return {
           image: imgRes.imageUrl,
           sourceUrl: imgRes.imageUrl,
           prompt,
+          projectId: imgRes.projectId || targetProjectId,
         };
       }
 

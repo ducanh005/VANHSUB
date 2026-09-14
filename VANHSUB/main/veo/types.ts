@@ -11,6 +11,7 @@ export type VeoSessionStatus =
   | 'unauthenticated'
   | 'rate_limited'
   | 'captcha_required'
+  | 'out_of_credits'
   | 'unknown';
 
 export interface VeoSessionValidationResult {
@@ -36,6 +37,8 @@ export interface VeoStatusPayload {
   hasSession: boolean;
   sessionStatus: VeoSessionStatus;
   email?: string;
+  credits?: number | null;
+  creditsCheckedAt?: number;
   lastChecked?: number;
   antiSpam: AntiSpamStatus;
 }

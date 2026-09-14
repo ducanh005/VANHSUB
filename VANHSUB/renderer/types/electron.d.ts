@@ -236,8 +236,10 @@ export interface VanhsubAPI {
     status: () => Promise<{
       mode: 'free_session' | 'api_key' | 'simulation';
       hasSession: boolean;
-      sessionStatus: 'active' | 'expired' | 'unauthenticated' | 'rate_limited' | 'captcha_required' | 'unknown';
+      sessionStatus: 'active' | 'expired' | 'unauthenticated' | 'rate_limited' | 'captcha_required' | 'out_of_credits' | 'unknown';
       email?: string;
+      credits?: number | null;
+      creditsCheckedAt?: number;
       lastChecked?: number;
       antiSpam: {
         allowed: boolean;
@@ -250,7 +252,7 @@ export interface VanhsubAPI {
     }>;
     validate: () => Promise<{
       valid: boolean;
-      status: 'active' | 'expired' | 'unauthenticated' | 'rate_limited' | 'captcha_required' | 'unknown';
+      status: 'active' | 'expired' | 'unauthenticated' | 'rate_limited' | 'captcha_required' | 'out_of_credits' | 'unknown';
       detail: string;
       email?: string;
       quotaRemaining?: string;
@@ -276,6 +278,10 @@ export interface VanhsubAPI {
       }>;
     }>;
     setMode: (mode: 'free_session' | 'api_key' | 'simulation') => Promise<{ ok: boolean }>;
+    getCredits: (maxAgeMs?: number) => Promise<number | null>;
+    showLobbyDebug: () => Promise<boolean>;
+    hideLobbyOffscreen: () => Promise<boolean>;
+    isLobbyDebug: () => Promise<boolean>;
   };
   export: {
     start: (
@@ -349,6 +355,7 @@ export interface VanhsubAPI {
   };
   workflow: {
     run: (graph: any) => Promise<{ success: boolean; outputs: Record<string, any>; error?: string }>;
+    runNode: (graph: any, nodeId: string) => Promise<{ success: boolean; output?: any; error?: string }>;
     cancel: (workflowId: string) => Promise<boolean>;
     compareFrames: (frameA: string, frameB: string, config?: any) => Promise<{
       passed: boolean;

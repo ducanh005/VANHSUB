@@ -481,7 +481,9 @@ const SETTING_KEYS: Array<keyof AppSettings> = [
   'veoAccountEmail',
   'veoSessionStatus',
   'veoLastChecked',
-  'veoCooldownSeconds'
+  'veoCooldownSeconds',
+  'veoFlowCredits',
+  'veoFlowCreditsCheckedAt',
 ]
 
 ipcMain.handle('settings:get', async (_event, key: keyof AppSettings) => {
@@ -738,6 +740,22 @@ ipcMain.handle('veo:get-anti-spam-status', async () => {
 ipcMain.handle('veo:set-mode', async (_event, mode: any) => {
   GoogleVeoSessionManager.getInstance().setMode(mode)
   return { ok: true }
+})
+
+ipcMain.handle('veo:get-credits', async (_event, maxAgeMs?: number) => {
+  return GoogleVeoSessionManager.getInstance().getCachedOrFreshCredits(maxAgeMs);
+})
+
+ipcMain.handle('veo:show-lobby-debug', async () => {
+  return GoogleVeoSessionManager.getInstance().showLobbyForDebug();
+})
+
+ipcMain.handle('veo:hide-lobby-offscreen', async () => {
+  return GoogleVeoSessionManager.getInstance().hideLobbyOffscreen();
+})
+
+ipcMain.handle('veo:is-lobby-debug', async () => {
+  return GoogleVeoSessionManager.getInstance().isLobbyDebug();
 })
 
 // =========================================================================

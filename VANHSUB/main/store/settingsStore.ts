@@ -71,12 +71,16 @@ export interface AppSettings {
   veoSessionAuthToken: string;
   /** Email tài khoản Google đăng nhập hiển thị */
   veoAccountEmail: string;
-  /** Trạng thái session: active | expired | unauthenticated | rate_limited | captcha_required | unknown */
-  veoSessionStatus: 'active' | 'expired' | 'unauthenticated' | 'rate_limited' | 'captcha_required' | 'unknown';
+  /** Trạng thái session: active | expired | unauthenticated | rate_limited | captcha_required | out_of_credits | unknown */
+  veoSessionStatus: 'active' | 'expired' | 'unauthenticated' | 'rate_limited' | 'captcha_required' | 'out_of_credits' | 'unknown';
   /** Thời điểm kiểm tra trạng thái session lần cuối (timestamp ms) */
   veoLastChecked: number;
   /** Thời gian hồi chiêu chống spam (giây, mặc định 45) */
   veoCooldownSeconds: number;
+  /** Số credit Google Flow gần nhất đọc được (hoặc null nếu chưa xác định) */
+  veoFlowCredits: number | null;
+  /** Thời điểm kiểm tra credit Google Flow lần cuối (timestamp ms) */
+  veoFlowCreditsCheckedAt: number;
 }
 
 // Lazy singleton — cùng pattern với taskStore.ts để tránh lỗi
@@ -130,6 +134,8 @@ function getStore(): Store<AppSettings> {
         veoSessionStatus: 'unauthenticated',
         veoLastChecked: 0,
         veoCooldownSeconds: 8,
+        veoFlowCredits: null,
+        veoFlowCreditsCheckedAt: 0,
       },
     });
   }

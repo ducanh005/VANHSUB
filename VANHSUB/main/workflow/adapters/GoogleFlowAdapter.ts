@@ -115,6 +115,7 @@ export class GoogleFlowAdapter implements ModelAdapter {
           videoUrl: result.videoPath,
           lastFrameUrl: outLastFramePath,
           durationSeconds: duration,
+          projectId: result.projectId,
         };
       } catch (err: any) {
         if (ctx.isCancelled() || err?.message?.includes('hủy')) {
@@ -182,7 +183,7 @@ export class GoogleFlowAdapter implements ModelAdapter {
     params: VideoGenParams,
     outPath: string,
     ctx: ExecutionContext
-  ): Promise<{ videoPath: string }> {
+  ): Promise<{ videoPath: string; projectId?: string }> {
     const sessionMgr = GoogleVeoSessionManager.getInstance();
     const duration = Math.max(3, Math.min(10, Math.round(params.durationSeconds || 5)));
 
@@ -204,6 +205,7 @@ export class GoogleFlowAdapter implements ModelAdapter {
           durationSeconds: params.durationSeconds,
           modelVariant: params.modelVariant,
           outputCount: params.outputCount || 1,
+          projectId: params.projectId,
         },
         (percent, msg) => {
           ctx.onProgress(Math.max(8, Math.min(82, percent)));
@@ -222,14 +224,18 @@ export class GoogleFlowAdapter implements ModelAdapter {
         const b64 = browserResult.base64Data.replace(/^data:[^;]+;base64,/, '');
         const fs = require('fs');
         fs.writeFileSync(outPath, Buffer.from(b64, 'base64'));
-        return { videoPath: outPath };
+        return { videoPath: outPath, projectId: browserResult.projectId || params.projectId };
       }
 
       if (browserResult?.videoUrl) {
         console.log('[Google Flow] ✅ Tải video thật từ Google Veo...');
         ctx.onProgress(85);
         await this.downloadFile(browserResult.videoUrl, outPath, 5, 60000);
-        return { videoPath: outPath };
+        return { videoPath: outPath, projectId: browserResult.projectId || params.projectId };
+      }
+
+      if (browserResult?.error === 'out_of_credits' || SettingsStore.get('veoSessionStatus') === 'out_of_credits') {
+        throw new Error('[Google Flow] Tài khoản Google của bạn đã HẾT CREDIT (tín dụng) trên Google Flow.');
       }
     } catch (browserErr: any) {
       if (ctx.isCancelled() || browserErr?.message?.includes('hủy')) {
@@ -732,7 +738,7 @@ export class GoogleFlowAdapter implements ModelAdapter {
    * Sinh ảnh Keyframe AI bám sát 100% Prompt người dùng
    * Hỗ trợ Sảnh Google Flow (Web Session) và Banana Pro API
    */
-  async generateImage(params: import('./types').ImageGenParams, ctx: ExecutionContext): Promise<{ imageUrl: string }> {
+  async generateImage(params: import('./types').ImageGenParams, ctx: ExecutionContext): Promise<{ imageUrl: string; projectId?: string }> {
     const veoMode = SettingsStore.get('veoMode') || 'free_session';
     const fileName = `imagen_${Date.now()}_${Math.random().toString(36).slice(2, 7)}.jpg`;
     const outImagePath = path.join(ctx.tempDir, fileName);
@@ -768,6 +774,7 @@ export class GoogleFlowAdapter implements ModelAdapter {
             prompt: params.prompt,
             aspectRatio: params.aspectRatio,
             outputCount: params.outputCount || 1,
+            projectId: params.projectId,
           },
           (percent, msg) => {
             ctx.onProgress(Math.max(10, Math.min(85, percent)));
@@ -786,7 +793,7 @@ export class GoogleFlowAdapter implements ModelAdapter {
           const b64 = result.base64Data.replace(/^data:[^;]+;base64,/, '');
           fs.writeFileSync(outImagePath, Buffer.from(b64, 'base64'));
           ctx.onProgress(100);
-          return { imageUrl: outImagePath };
+          return { imageUrl: outImagePath, projectId: result.projectId || params.projectId };
         }
 
         if (result?.imageUrl) {
@@ -794,7 +801,11 @@ export class GoogleFlowAdapter implements ModelAdapter {
           ctx.onProgress(90);
           await this.downloadFile(result.imageUrl, outImagePath, 5, 30000);
           ctx.onProgress(100);
-          return { imageUrl: outImagePath };
+          return { imageUrl: outImagePath, projectId: result.projectId || params.projectId };
+        }
+
+        if (result?.error === 'out_of_credits' || SettingsStore.get('veoSessionStatus') === 'out_of_credits') {
+          throw new Error('[Google Flow] Tài khoản Google của bạn đã HẾT CREDIT (tín dụng) trên Google Flow.');
         }
 
         throw new Error('[Google Flow] Không nhận được ảnh từ Google Flow sau thời gian chờ.');

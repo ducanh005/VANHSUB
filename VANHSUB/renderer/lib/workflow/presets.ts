@@ -405,6 +405,7 @@ export const WORKFLOW_PRESETS: WorkflowPreset[] = [
             category: 'model',
             label: 'Veo 3.1 - Shot 1 (Hook F5)',
             config: {
+              prompt: 'Bob hitting F5 repeatedly with frantic crazed energy, his eyes twitching, subtle comical camera shake as he stares at the computer screen waiting for views, funny amateur crude MS Paint animation.',
               modelVariant: 'veo-3.1-lite',
               qualityPreset: 'lite',
               durationSeconds: 5,
@@ -452,6 +453,7 @@ export const WORKFLOW_PRESETS: WorkflowPreset[] = [
             category: 'model',
             label: 'Veo 3.1 - Shot 2 (Ảo Tưởng Nút Vàng)',
             config: {
+              prompt: 'Bob proudly hoisting the giant shiny golden YouTube play button plaque over his head, laughing triumphantly as crudely drawn dollar bills rain down, absurd victory dance, funny amateur crude MS Paint animation.',
               modelVariant: 'veo-3.1-lite',
               qualityPreset: 'lite',
               durationSeconds: 5,
@@ -499,6 +501,7 @@ export const WORKFLOW_PRESETS: WorkflowPreset[] = [
             category: 'model',
             label: 'Veo 3.1 - Shot 3 (Cú Tát Thực Tế)',
             config: {
+              prompt: 'Slow push-in on Bob in bed staring blankly at his smartphone screen displaying "4 VIEWS", jaw dropping lower in disbelief, tiny comical blue cartoon tear rolling down, funny amateur crude MS Paint animation.',
               modelVariant: 'veo-3.1-lite',
               qualityPreset: 'lite',
               durationSeconds: 5,

@@ -25,6 +25,20 @@ export function registerWorkflowIpc(): void {
     });
   });
 
+  ipcMain.handle('workflow:runNode', async (event, graph: WorkflowGraphData, nodeId: string) => {
+    const webContents = event.sender;
+
+    return engine.executeNode(graph, nodeId, (nodeEvent: WorkflowNodeEvent) => {
+      try {
+        if (!webContents.isDestroyed()) {
+          webContents.send('workflow:node-event', nodeEvent);
+        }
+      } catch (err) {
+        console.error('Lỗi khi gửi sự kiện workflow:node-event:', err);
+      }
+    });
+  });
+
   ipcMain.handle('workflow:cancel', async (_event, workflowId: string) => {
     engine.cancel(workflowId);
     return true;

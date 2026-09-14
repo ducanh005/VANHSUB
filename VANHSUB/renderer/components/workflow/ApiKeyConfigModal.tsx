@@ -50,7 +50,7 @@ export default function ApiKeyConfigModal({
 
   // Google Veo Free Session State
   const [sessionStatus, setSessionStatus] = useState<
-    'active' | 'expired' | 'unauthenticated' | 'rate_limited' | 'captcha_required' | 'unknown'
+    'active' | 'expired' | 'unauthenticated' | 'rate_limited' | 'captcha_required' | 'out_of_credits' | 'unknown'
   >('unknown');
   const [hasSession, setHasSession] = useState(false);
   const [accountEmail, setAccountEmail] = useState<string | undefined>();
@@ -68,6 +68,10 @@ export default function ApiKeyConfigModal({
   const [showManualCookieInput, setShowManualCookieInput] = useState(false);
   const [manualCookieValue, setManualCookieValue] = useState('');
   const [isSavingCookie, setIsSavingCookie] = useState(false);
+
+  // Lobby Debug State
+  const [isLobbyDebug, setIsLobbyDebug] = useState(false);
+  const [isTogglingLobbyDebug, setIsTogglingLobbyDebug] = useState(false);
 
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -99,6 +103,11 @@ export default function ApiKeyConfigModal({
           setRemainingCooldown(statusRes.antiSpam.remainingCooldownSec || 0);
           setAntiSpamLocked(Boolean(statusRes.antiSpam.isLocked));
         }
+      }
+
+      if (typeof window !== 'undefined' && window.vanhsub?.veo?.isLobbyDebug) {
+        const debugVisible = await window.vanhsub.veo.isLobbyDebug();
+        setIsLobbyDebug(Boolean(debugVisible));
       }
     } catch (err) {
       console.error('Lỗi khi nạp trạng thái Veo:', err);
@@ -220,6 +229,29 @@ export default function ApiKeyConfigModal({
       }
     } catch (err: any) {
       toast.error('Lỗi xóa session: ' + (err?.message || err));
+    }
+  };
+
+  const handleToggleLobbyDebug = async () => {
+    setIsTogglingLobbyDebug(true);
+    try {
+      if (isLobbyDebug) {
+        if (typeof window !== 'undefined' && window.vanhsub?.veo?.hideLobbyOffscreen) {
+          await window.vanhsub.veo.hideLobbyOffscreen();
+          setIsLobbyDebug(false);
+          toast.info('Đã ẩn cửa sổ Flow ra ngoài vùng màn hình (-3000, -3000).');
+        }
+      } else {
+        if (typeof window !== 'undefined' && window.vanhsub?.veo?.showLobbyDebug) {
+          await window.vanhsub.veo.showLobbyDebug();
+          setIsLobbyDebug(true);
+          toast.success('Đã hiện cửa sổ Flow trên màn hình để debug (100, 100).');
+        }
+      }
+    } catch (err: any) {
+      toast.error('Lỗi khi đổi trạng thái hiển thị cửa sổ Flow: ' + (err?.message || err));
+    } finally {
+      setIsTogglingLobbyDebug(false);
     }
   };
 
@@ -394,6 +426,8 @@ export default function ApiKeyConfigModal({
                 className={`p-4 rounded-xl border flex flex-col gap-3 transition-colors ${
                   sessionStatus === 'active'
                     ? 'bg-emerald-950/30 border-emerald-800/80 text-emerald-200'
+                    : sessionStatus === 'out_of_credits'
+                    ? 'bg-rose-950/30 border-rose-800/80 text-rose-200'
                     : sessionStatus === 'expired'
                     ? 'bg-rose-950/30 border-rose-800/80 text-rose-200'
                     : sessionStatus === 'rate_limited'
@@ -407,7 +441,7 @@ export default function ApiKeyConfigModal({
                   <div className="flex items-start gap-3">
                     {sessionStatus === 'active' ? (
                       <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
-                    ) : sessionStatus === 'expired' ? (
+                    ) : sessionStatus === 'out_of_credits' || sessionStatus === 'expired' ? (
                       <AlertCircle className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
                     ) : (
                       <Globe className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
@@ -417,6 +451,8 @@ export default function ApiKeyConfigModal({
                         <span>
                           {sessionStatus === 'active'
                             ? 'Session Sảnh Google Veo Đang Hoạt Động (Sẵn sàng)'
+                            : sessionStatus === 'out_of_credits'
+                            ? 'Tài Khoản Đã Hết Tín Dụng Google Flow'
                             : sessionStatus === 'expired'
                             ? 'Session Đã Hết Hạn hoặc Đã Đăng Xuất'
                             : sessionStatus === 'rate_limited'
@@ -429,6 +465,8 @@ export default function ApiKeyConfigModal({
                       <p className="text-xs opacity-90 mt-0.5 leading-relaxed">
                         {sessionStatus === 'active'
                           ? 'Hệ thống đã nhận diện phiên làm việc hợp lệ. Video sẽ được tạo bằng credit miễn phí từ Google Labs.'
+                          : sessionStatus === 'out_of_credits'
+                          ? 'Tài khoản Google của bạn đã dùng hết credit Google Flow miễn phí. Bạn có thể đổi tài khoản khác trên Sảnh.'
                           : sessionStatus === 'expired'
                           ? 'Google đã ngắt phiên đăng nhập. Vui lòng bấm "Mở Sảnh Google" bên dưới để đăng nhập lại chỉ trong 5 giây!'
                           : 'Đăng nhập tài khoản Google vào sảnh để app tự động bắt session cookie và sử dụng credit Veo miễn phí.'}
@@ -500,6 +538,31 @@ export default function ApiKeyConfigModal({
                     className="text-xs text-slate-400 hover:text-slate-200 px-2 py-1.5 rounded-lg hover:bg-slate-800/60 transition-colors"
                   >
                     {showManualCookieInput ? 'Ẩn ô dán cookie' : 'Dán Cookie thủ công'}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleToggleLobbyDebug}
+                    disabled={isTogglingLobbyDebug}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors cursor-pointer disabled:opacity-50 ${
+                      isLobbyDebug
+                        ? 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border-amber-500/40'
+                        : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+                    }`}
+                    title={
+                      isLobbyDebug
+                        ? 'Đưa cửa sổ Google Flow ra ngoài vùng màn hình (Offscreen: -3000, -3000)'
+                        : 'Đưa cửa sổ Google Flow về màn hình chính (100, 100) để theo dõi trực tiếp quá trình automation'
+                    }
+                  >
+                    {isTogglingLobbyDebug ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : isLobbyDebug ? (
+                      <EyeOff className="w-3.5 h-3.5 text-amber-400" />
+                    ) : (
+                      <Eye className="w-3.5 h-3.5 text-slate-400" />
+                    )}
+                    <span>{isLobbyDebug ? 'Ẩn cửa sổ Flow' : 'Hiện cửa sổ Flow để debug'}</span>
                   </button>
 
                   {hasSession && (

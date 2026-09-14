@@ -35,6 +35,9 @@ import {
   Building,
   Key,
   Settings,
+  Undo2,
+  Redo2,
+  FolderKanban,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -47,6 +50,7 @@ import SceneBibleModal from './SceneBibleModal';
 import MasterTimeline from './MasterTimeline';
 import StoryboardDirectorStudio from './StoryboardDirectorStudio';
 import ApiKeyConfigModal from './ApiKeyConfigModal';
+import WorkflowManagerModal from './WorkflowManagerModal';
 import { WORKFLOW_PRESETS } from '../../lib/workflow/presets';
 import { NODE_DEFINITIONS } from '../../lib/workflow/nodeRegistry';
 import { calculateGraphCreditEstimate } from '../../lib/workflow/creditCalculator';
@@ -118,7 +122,13 @@ function FlowCanvasInner({
   const savedWorkflows = useWorkflowStore((s) => s.savedWorkflows);
   const saveCurrentWorkflow = useWorkflowStore((s) => s.saveCurrentWorkflow);
   const loadSavedWorkflow = useWorkflowStore((s) => s.loadSavedWorkflow);
+  const takeSnapshot = useWorkflowStore((s) => s.takeSnapshot);
+  const undo = useWorkflowStore((s) => s.undo);
+  const redo = useWorkflowStore((s) => s.redo);
+  const canUndo = useWorkflowStore((s) => s.canUndo);
+  const canRedo = useWorkflowStore((s) => s.canRedo);
 
+  const [showWorkflowManager, setShowWorkflowManager] = useState(false);
   const [showLibrary, setShowLibrary] = useState(true);
   const [showInspector, setShowInspector] = useState(true);
   const [isRunning, setIsRunning] = useState(false);
@@ -239,6 +249,51 @@ function FlowCanvasInner({
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isZenMode, onToggleZenMode]);
+
+  // Phím tắt Canvas: Ctrl+Z (Undo) và Ctrl+Y / Ctrl+Shift+Z (Redo)
+  // Tuyệt đối không can thiệp khi đang gõ chữ trong input, textarea hoặc contenteditable
+  useEffect(() => {
+    const handleCanvasShortcuts = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.isContentEditable ||
+          target.getAttribute('contenteditable') === 'true')
+      ) {
+        return;
+      }
+
+      // Ctrl+Z hoặc Meta+Z (Undo)
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        const state = useWorkflowStore.getState();
+        if (state.canUndo) {
+          state.undo();
+          toast.info('Đã hoàn tác (Undo)');
+        }
+        return;
+      }
+
+      // Ctrl+Y hoặc Meta+Y hoặc Ctrl+Shift+Z (Redo)
+      if (
+        (e.ctrlKey || e.metaKey) &&
+        (e.key.toLowerCase() === 'y' || (e.key.toLowerCase() === 'z' && e.shiftKey))
+      ) {
+        e.preventDefault();
+        const state = useWorkflowStore.getState();
+        if (state.canRedo) {
+          state.redo();
+          toast.info('Đã làm lại (Redo)');
+        }
+        return;
+      }
+    };
+
+    window.addEventListener('keydown', handleCanvasShortcuts);
+    return () => window.removeEventListener('keydown', handleCanvasShortcuts);
+  }, []);
 
   // Lắng nghe sự kiện thực thi node từ Electron backend realtime
   useEffect(() => {
@@ -454,6 +509,15 @@ function FlowCanvasInner({
                 ))}
               </optgroup>
             </select>
+
+            <button
+              onClick={() => setShowWorkflowManager(true)}
+              title="Quản lý danh sách Workflow đã lưu & Thùng rác (Xoá, Khôi phục)"
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-800 text-xs font-medium text-slate-300 hover:text-white transition-colors cursor-pointer shrink-0"
+            >
+              <FolderKanban className="w-3.5 h-3.5 text-indigo-400" />
+              <span className="hidden md:inline">Quản lý</span>
+            </button>
           </div>
 
           <div className="h-5 w-[1px] bg-slate-800 hidden sm:block" />
@@ -551,6 +615,44 @@ function FlowCanvasInner({
             <Download className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">Xuất JSON</span>
           </button>
+
+          {/* Canvas Undo / Redo */}
+          <div className="flex items-center bg-slate-900/80 p-0.5 rounded-lg border border-slate-800">
+            <button
+              onClick={() => {
+                if (canUndo) {
+                  undo();
+                  toast.info('Đã hoàn tác (Undo)');
+                }
+              }}
+              disabled={!canUndo}
+              title="Hoàn tác thay đổi canvas (Ctrl+Z)"
+              className={`p-1.5 rounded-md transition-colors ${
+                canUndo
+                  ? 'text-slate-200 hover:bg-slate-800 hover:text-white cursor-pointer'
+                  : 'text-slate-600 cursor-not-allowed opacity-40'
+              }`}
+            >
+              <Undo2 className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={() => {
+                if (canRedo) {
+                  redo();
+                  toast.info('Đã làm lại (Redo)');
+                }
+              }}
+              disabled={!canRedo}
+              title="Làm lại thay đổi canvas (Ctrl+Y hoặc Ctrl+Shift+Z)"
+              className={`p-1.5 rounded-md transition-colors ${
+                canRedo
+                  ? 'text-slate-200 hover:bg-slate-800 hover:text-white cursor-pointer'
+                  : 'text-slate-600 cursor-not-allowed opacity-40'
+              }`}
+            >
+              <Redo2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
 
           <button
             onClick={clearCanvas}
@@ -779,6 +881,7 @@ function FlowCanvasInner({
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
             onConnect={onConnect}
+            onNodeDragStop={() => takeSnapshot()}
             onNodeClick={(_, node) => setSelectedNodeId(node.id)}
             onPaneClick={() => setSelectedNodeId(null)}
             onDragOver={onDragOver}
@@ -1069,6 +1172,12 @@ function FlowCanvasInner({
           checkVeoStatus();
         }}
         onKeyUpdated={() => checkVeoStatus()}
+      />
+
+      {/* Quản lý danh sách Workflow & Thùng rác (Xoá mềm, Khôi phục, Xoá vĩnh viễn) */}
+      <WorkflowManagerModal
+        isOpen={showWorkflowManager}
+        onClose={() => setShowWorkflowManager(false)}
       />
     </div>
   );

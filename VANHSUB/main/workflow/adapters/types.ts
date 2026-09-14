@@ -11,6 +11,7 @@ export interface VideoGenParams {
   fps?: number;
   modelVariant?: string;
   outputCount?: number;
+  projectId?: string;
 }
 
 export interface VideoGenResult {
@@ -19,6 +20,7 @@ export interface VideoGenResult {
   durationSeconds: number;
   width?: number;
   height?: number;
+  projectId?: string;
 }
 
 export interface ImageGenParams {
@@ -29,6 +31,7 @@ export interface ImageGenParams {
   cfgScale?: number;
   imageEngine?: string;
   outputCount?: number;
+  projectId?: string;
 }
 
 export interface DirectorPromptParams {
@@ -47,6 +50,6 @@ export interface DirectorPromptResult {
 export interface ModelAdapter {
   provider: string;
   generateVideo(params: VideoGenParams, ctx: ExecutionContext): Promise<VideoGenResult>;
-  generateImage?(params: ImageGenParams, ctx: ExecutionContext): Promise<{ imageUrl: string }>;
+  generateImage?(params: ImageGenParams, ctx: ExecutionContext): Promise<{ imageUrl: string; projectId?: string }>;
   directPrompt?(params: DirectorPromptParams, ctx: ExecutionContext): Promise<DirectorPromptResult>;
 }
