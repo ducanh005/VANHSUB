@@ -6,6 +6,9 @@ import type {
 } from '../types';
 import { FlowSmartWait } from '../FlowSmartWait';
 import { FlowElementFinder } from '../FlowElementFinder';
+import { FlowPageStateDetector } from '../FlowPageStateDetector';
+import { FlowOverlayDetector } from '../FlowOverlayDetector';
+import { FlowRecoveryManager } from '../FlowRecoveryManager';
 
 /**
  * Helper an toàn để execute JS trên BrowserWindow
@@ -562,19 +565,32 @@ export const ConfigureOptionsState: FlowAutomationState = {
   async verify(ctx: FlowStateContext): Promise<VerifyResult> {
     const verifySettingsJs = `
       (function() {
+        let storageOk = false;
+        let mode = 'IMAGE';
+        let outputCount = 1;
+        let aspectRatio = 'LANDSCAPE';
         try {
           const raw = localStorage.getItem('flow-prompt-box-settings');
           if (raw) {
             const parsed = JSON.parse(raw);
-            return {
-              ok: parsed.mode === 'IMAGE',
-              mode: parsed.mode,
-              outputCount: parsed.Qp || parsed.outputCount || 1,
-              aspectRatio: parsed.aspectRatio || 'LANDSCAPE',
-            };
+            mode = parsed.mode || 'IMAGE';
+            outputCount = parsed.Qp || parsed.outputCount || 1;
+            aspectRatio = parsed.aspectRatio || 'LANDSCAPE';
+            storageOk = (mode === 'IMAGE');
           }
         } catch (e) {}
-        return { ok: true, mode: 'IMAGE', outputCount: 1, aspectRatio: 'LANDSCAPE' };
+
+        const modeTabActive = Boolean(
+          document.querySelector('mat-button-toggle[value="IMAGE"].mat-button-toggle-checked, button[role="tab"][aria-selected="true"]')
+        );
+
+        return {
+          ok: storageOk || modeTabActive,
+          mode,
+          outputCount,
+          aspectRatio,
+          modeTabActive
+        };
       })()
     `;
     const res = await safeExecuteJs<any>(ctx.win, verifySettingsJs, 2000);
@@ -585,8 +601,9 @@ export const ConfigureOptionsState: FlowAutomationState = {
         mode: res?.mode || 'IMAGE',
         outputCount: res?.outputCount || ctx.outputCount || 1,
         aspectRatio: res?.aspectRatio || ctx.aspectRatio || '16:9',
+        modeTabActive: Boolean(res?.modeTabActive),
       },
-      reason: ok ? undefined : 'Thiết lập mode trong LocalStorage không phải IMAGE',
+      reason: ok ? undefined : 'Thiết lập mode trong LocalStorage/DOM không khớp IMAGE',
     };
   },
 

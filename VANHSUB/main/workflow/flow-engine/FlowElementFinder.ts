@@ -547,6 +547,84 @@ export class FlowElementFinder {
   /**
    * Cấu hình chuẩn định nghĩa nút Cài đặt/Tùy chọn sinh (Settings Trigger Button)
    */
+  /**
+   * Cấu hình chuẩn định nghĩa chuyển đổi Mode Tab (Image / Video)
+   */
+  static getModeTabSpec(mode: 'image' | 'video' = 'image'): ElementSearchSpec {
+    const isImg = mode === 'image';
+    return {
+      name: `MODE_TAB_${mode.toUpperCase()}`,
+      confidenceThreshold: 65,
+      requireStable: true,
+      stabilityMs: 150,
+      unobscuredCheck: true,
+      rules: [
+        {
+          strategy: 'ACCESSIBILITY',
+          baseConfidence: 95,
+          selectors: isImg
+            ? [
+                'button[role="tab"][aria-label*="Image" i]',
+                'button[role="tab"][aria-label*="Ảnh" i]',
+                'button[aria-label*="Image mode" i]',
+                'button[aria-label*="Tạo ảnh" i]',
+                'mat-button-toggle[aria-label*="Image" i]',
+                'mat-button-toggle[aria-label*="Ảnh" i]',
+              ]
+            : [
+                'button[role="tab"][aria-label*="Video" i]',
+                'button[role="tab"][aria-label*="Phim" i]',
+                'button[aria-label*="Video mode" i]',
+                'button[aria-label*="Tạo video" i]',
+                'mat-button-toggle[aria-label*="Video" i]',
+              ],
+          description: `Tìm tab chuyển mode ${mode} theo ARIA role và label`,
+        },
+        {
+          strategy: 'STRICT_COMPONENT',
+          baseConfidence: 88,
+          selectors: isImg
+            ? [
+                'flow-prompt-box mat-button-toggle[value="IMAGE"]',
+                'flow-prompt-box mat-button-toggle[value="image"]',
+                'button.mode-toggle-image',
+                'mat-button-toggle.mode-image',
+                'button[data-mode="image"]',
+              ]
+            : [
+                'flow-prompt-box mat-button-toggle[value="VIDEO"]',
+                'flow-prompt-box mat-button-toggle[value="video"]',
+                'button.mode-toggle-video',
+                'mat-button-toggle.mode-video',
+                'button[data-mode="video"]',
+              ],
+          description: `Tìm tab ${mode} theo component toggle đặc thù của Flow`,
+        },
+        {
+          strategy: 'CONTEXTUAL',
+          baseConfidence: 78,
+          selectors: [
+            'flow-prompt-box [role="tablist"] button',
+            'flow-prompt-box mat-button-toggle-group mat-button-toggle',
+            '.prompt-box-container [role="tab"]',
+          ],
+          description: 'Tìm trong danh sách tab của prompt box',
+        },
+        {
+          strategy: 'TEXT_MATCH',
+          baseConfidence: 68,
+          selectors: isImg
+            ? ['text:Image', 'text:Ảnh', 'text:Tạo ảnh']
+            : ['text:Video', 'text:Tạo video', 'text:Phim'],
+          description: `Tìm theo nhãn text của tab ${mode}`,
+        },
+      ],
+    };
+  }
+
+  /**
+   * Cấu hình chuẩn định nghĩa nút Cài đặt/Tùy chọn sinh (Settings Trigger Button)
+   */
   static getSettingsTriggerSpec(): ElementSearchSpec {
     return {
       name: 'SETTINGS_TRIGGER_BUTTON',
@@ -564,6 +642,8 @@ export class FlowElementFinder {
             'button[aria-label*="Tùy chọn" i]',
             'button[aria-label*="Options" i]',
             'button[aria-label*="Tune" i]',
+            'flow-prompt-box button[aria-label*="Cài đặt" i]',
+            'flow-prompt-box button[aria-label*="Settings" i]',
           ],
           description: 'Tìm theo ARIA label nút cài đặt',
         },
@@ -573,7 +653,9 @@ export class FlowElementFinder {
           selectors: [
             'button.settings-trigger-button',
             'flow-settings-button button',
+            'flow-prompt-box button.settings-trigger-button',
             'button.options-button',
+            'flow-prompt-box button:has(mat-icon[fonticon*="tune"])',
           ],
           description: 'Tìm theo component selector cài đặt của Flow',
         },
@@ -583,6 +665,7 @@ export class FlowElementFinder {
           selectors: [
             'flow-prompt-box button:has(mat-icon)',
             'flow-base-prompt-box button.settings-btn',
+            '.prompt-box-container button.options-btn',
           ],
           description: 'Tìm nút icon trong prompt box container',
         },
@@ -593,6 +676,7 @@ export class FlowElementFinder {
             'text:Cài đặt',
             'text:Settings',
             'text:Tùy chọn',
+            'text:Tune',
           ],
           description: 'Tìm theo nhãn text',
         },
@@ -615,9 +699,10 @@ export class FlowElementFinder {
           baseConfidence: 95,
           selectors: [
             `button[aria-label*="${ratio}" i]`,
+            `mat-button-toggle[aria-label*="${ratio}" i]`,
             `mat-option[aria-label*="${ratio}" i]`,
-            `button[aria-label*="Tỉ lệ" i]`,
-            `button[aria-label*="Aspect ratio" i]`,
+            `button[aria-label*="Tỉ lệ ${ratio}" i]`,
+            `button[aria-label*="Aspect ratio ${ratio}" i]`,
           ],
           description: `Tìm theo ARIA label tỉ lệ ${ratio}`,
         },
@@ -625,21 +710,25 @@ export class FlowElementFinder {
           strategy: 'STRICT_COMPONENT',
           baseConfidence: 88,
           selectors: [
-            'mat-select[aria-label*="Tỉ lệ" i]',
+            `mat-button-toggle[value*="${ratio}"]`,
+            `mat-button-toggle[value*="${ratio.replace(':', '_')}"]`,
             'button.aspect-ratio-btn',
             'button.ratio-button',
+            'flow-aspect-ratio-selector mat-button-toggle',
           ],
-          description: 'Tìm theo component selector dropdown / button tỉ lệ',
+          description: 'Tìm theo component selector toggle / dropdown tỉ lệ',
         },
         {
           strategy: 'CONTEXTUAL',
           baseConfidence: 78,
           selectors: [
+            '.cdk-overlay-pane mat-button-toggle',
+            'mat-button-toggle-group mat-button-toggle',
             'flow-prompt-box mat-select',
-            '.aspect-ratio-selector',
+            '.aspect-ratio-selector mat-button-toggle',
             'mat-option',
           ],
-          description: 'Tìm theo mat-select hoặc options trong menu',
+          description: 'Tìm theo mat-button-toggle trong overlay hoặc prompt box',
         },
         {
           strategy: 'TEXT_MATCH',
@@ -649,8 +738,127 @@ export class FlowElementFinder {
             'text:16:9',
             'text:9:16',
             'text:1:1',
+            'text:4:3',
+            'text:3:4',
           ],
           description: `Tìm theo chuỗi tỉ lệ text ${ratio}`,
+        },
+      ],
+    };
+  }
+
+  /**
+   * Cấu hình chuẩn định nghĩa tuỳ chọn Số lượng đầu ra (Output Count Option)
+   */
+  static getOutputCountSpec(count: number = 1): ElementSearchSpec {
+    const countNum = Math.max(1, Math.min(4, Math.round(Number(count) || 1)));
+    return {
+      name: `OUTPUT_COUNT_${countNum}`,
+      confidenceThreshold: 65,
+      requireStable: false,
+      unobscuredCheck: true,
+      rules: [
+        {
+          strategy: 'ACCESSIBILITY',
+          baseConfidence: 95,
+          selectors: [
+            `button[aria-label*="${countNum} image" i]`,
+            `button[aria-label*="${countNum} ảnh" i]`,
+            `mat-button-toggle[aria-label*="${countNum}" i]`,
+            `button[aria-label*="x${countNum}" i]`,
+            `button[aria-label*="Count ${countNum}" i]`,
+          ],
+          description: `Tìm theo ARIA label số lượng ảnh ${countNum}`,
+        },
+        {
+          strategy: 'STRICT_COMPONENT',
+          baseConfidence: 88,
+          selectors: [
+            `mat-button-toggle[value="${countNum}"]`,
+            `button.output-count-${countNum}`,
+            `flow-output-count-selector mat-button-toggle`,
+            `.count-toggle-${countNum}`,
+          ],
+          description: `Tìm theo component selector số lượng ${countNum}`,
+        },
+        {
+          strategy: 'CONTEXTUAL',
+          baseConfidence: 78,
+          selectors: [
+            '.cdk-overlay-pane mat-button-toggle-group button',
+            '.cdk-overlay-pane mat-button-toggle',
+            'mat-button-toggle-group mat-button-toggle',
+            '.output-count-group button',
+          ],
+          description: 'Tìm theo toggle button trong overlay pane',
+        },
+        {
+          strategy: 'TEXT_MATCH',
+          baseConfidence: 68,
+          selectors: [
+            `text:x${countNum}`,
+            `text:${countNum}`,
+          ],
+          description: `Tìm theo nhãn text x${countNum}`,
+        },
+      ],
+    };
+  }
+
+  /**
+   * Cấu hình chuẩn định nghĩa nút Đóng overlay/panel/dialog (Close Overlay Button)
+   */
+  static getCloseOverlaySpec(): ElementSearchSpec {
+    return {
+      name: 'CLOSE_OVERLAY_BUTTON',
+      confidenceThreshold: 65,
+      requireStable: true,
+      stabilityMs: 100,
+      unobscuredCheck: true,
+      rules: [
+        {
+          strategy: 'ACCESSIBILITY',
+          baseConfidence: 95,
+          selectors: [
+            'button[aria-label*="Đóng" i]',
+            'button[aria-label*="Close" i]',
+            'button[aria-label*="Dismiss" i]',
+            'button[aria-label*="Thoát" i]',
+          ],
+          description: 'Tìm nút đóng theo ARIA label',
+        },
+        {
+          strategy: 'STRICT_COMPONENT',
+          baseConfidence: 88,
+          selectors: [
+            'button.close-button',
+            'button.mat-mdc-dialog-close',
+            'button.dialog-close-btn',
+            'button.lightbox-close',
+            'flow-media-viewer button.close-btn',
+          ],
+          description: 'Tìm theo component class đóng dialog/overlay',
+        },
+        {
+          strategy: 'CONTEXTUAL',
+          baseConfidence: 78,
+          selectors: [
+            '[role="dialog"] button:has(mat-icon)',
+            '.cdk-overlay-pane button:has(mat-icon)',
+            'flow-media-viewer button',
+          ],
+          description: 'Tìm nút icon trong hộp thoại hoặc overlay',
+        },
+        {
+          strategy: 'TEXT_MATCH',
+          baseConfidence: 68,
+          selectors: [
+            'text:Đóng',
+            'text:Close',
+            'text:Hủy',
+            'text:Cancel',
+          ],
+          description: 'Tìm theo nhãn text đóng/hủy',
         },
       ],
     };
@@ -712,4 +920,5 @@ export class FlowElementFinder {
     };
   }
 }
+
 

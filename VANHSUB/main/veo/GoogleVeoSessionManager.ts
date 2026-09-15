@@ -5,6 +5,8 @@ import { GoogleVeoAntiSpamGuard } from './GoogleVeoAntiSpamGuard';
 import {
   FlowStateMachine,
   FlowImageGenerationStatePipeline,
+  FlowElementFinder,
+  FlowSmartWait,
   type FlowStateContext,
 } from '../workflow/flow-engine';
 import type {
@@ -79,10 +81,10 @@ export class GoogleVeoSessionManager {
       const storedCookie = SettingsStore.get('veoSessionCookie')?.trim();
       if (!storedCookie) return 0;
 
-      // Kiểm tra xem partition đã có auth cookies chưa
+      // Kiểm tra xem partition đã có đầy đủ auth cookies chưa
       const existing = await targetSes.cookies.get({ domain: '.google.com' });
       const hasAuth = existing.some((c: any) => GOOGLE_AUTH_COOKIE_NAMES.includes(c.name));
-      if (hasAuth) {
+      if (hasAuth && existing.length >= 25) {
         return existing.length;
       }
 
@@ -97,30 +99,43 @@ export class GoogleVeoSessionManager {
         const value = part.slice(eqIdx + 1).trim();
         if (!name || !value) continue;
 
+        const isHost = name.startsWith('__Host-');
+        const isSecure = true; // Google cookies chạy qua HTTPS, bắt buộc cho SameSite=no_restriction
+        const isHttpOnly = ['SID', 'HSID', 'SSID', 'APISID', 'SAPISID'].includes(name) || name.includes('SID');
+
+        // Nạp cho .google.com
         try {
-          await targetSes.cookies.set({
+          const cookieDetail: any = {
             url: 'https://google.com',
             name,
             value,
-            domain: '.google.com',
             path: '/',
-            secure: name.startsWith('__Secure-') || name.startsWith('__Host-'),
-            httpOnly: ['SID', 'HSID', 'SSID', 'APISID', 'SAPISID'].includes(name) || name.includes('SID'),
+            secure: isSecure,
+            httpOnly: isHttpOnly,
             sameSite: 'no_restriction',
-          });
+          };
+          if (!isHost) {
+            cookieDetail.domain = '.google.com';
+          }
+          await targetSes.cookies.set(cookieDetail);
           count++;
         } catch {}
 
+        // Nạp riêng cho flow.google.com
         try {
-          await targetSes.cookies.set({
+          const flowCookieDetail: any = {
             url: 'https://flow.google.com',
             name,
             value,
-            domain: '.google.com',
             path: '/',
-            secure: true,
+            secure: isSecure,
+            httpOnly: isHttpOnly,
             sameSite: 'no_restriction',
-          });
+          };
+          if (!isHost) {
+            flowCookieDetail.domain = '.google.com';
+          }
+          await targetSes.cookies.set(flowCookieDetail);
         } catch {}
       }
 
@@ -1048,67 +1063,43 @@ export class GoogleVeoSessionManager {
 
     onProgress?.(16, 'Đang tìm và nhấn nút Tạo dự án mới...');
 
-    // Tìm và nhấn nút New Project (Tuyệt đối không click flow-project-card)
-    const clickNewProjJs = `
-      (function() {
-        function isVisible(el) {
-          if (!el) return false;
-          const rect = el.getBoundingClientRect();
-          if (!rect || rect.width <= 0 || rect.height <= 0) return false;
-          const style = window.getComputedStyle(el);
-          return style.display !== 'none' && style.visibility !== 'hidden';
-        }
-
-        const buttons = Array.from(document.querySelectorAll(
-          'button.new-project-button, button.mdc-fab, [aria-label*="New project" i], [aria-label*="Dự án mới" i], button[extended], button'
-        )).filter(el => {
-          if (!isVisible(el)) return false;
-          const txt = (el.innerText || el.textContent || el.getAttribute('aria-label') || '').toLowerCase();
-          const cls = (el.className || '').toLowerCase();
-          return cls.includes('new-project-button') || txt.includes('dự án mới') || txt.includes('new project');
-        });
-
-        const btn = buttons[0];
-        if (btn) {
-          const rect = btn.getBoundingClientRect();
-          btn.click();
-          return JSON.stringify({
-            ok: true,
-            coords: { x: Math.round(rect.x + rect.width / 2), y: Math.round(rect.y + rect.height / 2) }
-          });
-        }
-        return JSON.stringify({ ok: false });
-      })()
-    `;
-
+    // Tìm và nhấn nút New Project qua FlowElementFinder (Tuyệt đối không click flow-project-card)
     let clickSucceeded = false;
     for (let attempt = 0; attempt < 12; attempt++) {
       if (isCancelled?.()) return false;
 
-      const clickRes = await this.safeExecuteJs<any>(targetWin, clickNewProjJs, 2500);
-      if (clickRes?.ok) {
-        clickSucceeded = true;
-        console.log(`[Google Flow Browser] ✅ Đã click nút New Project (lần thử ${attempt + 1}):`, clickRes);
-        if (clickRes.coords && !targetWin.isDestroyed()) {
+      const finderRes = await FlowElementFinder.find(targetWin, FlowElementFinder.getNewProjectButtonSpec());
+      if (finderRes.found && finderRes.selectedCandidate) {
+        const cand = finderRes.selectedCandidate;
+        const clickX = Math.round(cand.rect.x + cand.rect.width / 2);
+        const clickY = Math.round(cand.rect.y + cand.rect.height / 2);
+        console.log(
+          `[Google Flow Browser] ✅ Đã tìm thấy nút New Project qua FlowElementFinder (Strategy: ${cand.strategy}, Confidence: ${cand.confidence}/100, Coords: (${clickX}, ${clickY}), lần thử ${attempt + 1})`
+        );
+
+        if (!targetWin.isDestroyed()) {
           try {
             targetWin.webContents.sendInputEvent({
               type: 'mouseDown',
-              x: clickRes.coords.x,
-              y: clickRes.coords.y,
+              x: clickX,
+              y: clickY,
               button: 'left',
               clickCount: 1,
             });
-            await new Promise((r) => setTimeout(r, 40));
+            await new Promise((r) => setTimeout(r, 50));
             targetWin.webContents.sendInputEvent({
               type: 'mouseUp',
-              x: clickRes.coords.x,
-              y: clickRes.coords.y,
+              x: clickX,
+              y: clickY,
               button: 'left',
               clickCount: 1,
             });
-          } catch {}
+            clickSucceeded = true;
+            break;
+          } catch (e: any) {
+            console.warn('[Google Flow Browser] Lỗi khi gửi sendInputEvent cho nút New Project:', e?.message || e);
+          }
         }
-        break;
       }
       await new Promise((r) => setTimeout(r, 800));
     }
@@ -1233,125 +1224,121 @@ export class GoogleVeoSessionManager {
       else duration = 10;
     }
 
-    const configJs = `
-      (async function() {
-        function isVisible(el) {
-          if (!el) return false;
-          const rect = el.getBoundingClientRect();
-          if (!rect || rect.width <= 0 || rect.height <= 0) return false;
-          const style = window.getComputedStyle(el);
-          return style.display !== 'none' && style.visibility !== 'hidden';
-        }
-
-        const mode = ${JSON.stringify(mode)};
-        const targetCount = ${count};
-        const targetAspect = ${JSON.stringify(aspect)};
-        const targetDuration = ${duration};
-        const imageEngine = ${JSON.stringify(options.imageEngine || 'nano-banana')};
-        const modelVariant = ${JSON.stringify(options.modelVariant || 'omni-flash')};
-
-        console.log('[Google Flow Settings] Đang áp dụng thiết lập:', { mode, targetCount, targetAspect, targetDuration });
-
-        // 1. Đồng bộ LocalStorage flow-prompt-box-settings
-        try {
-          const raw = localStorage.getItem('flow-prompt-box-settings');
-          const settings = raw ? JSON.parse(raw) : {};
-          settings.mode = mode.toUpperCase();
-          settings.Qp = targetCount;
-          if (mode === 'video') {
-            settings.AB = targetDuration;
-            settings.aspectRatio = targetAspect === '9:16' ? 'PORTRAIT' : 'LANDSCAPE';
-          } else {
-            if (targetAspect === '9:16') settings.aspectRatio = 'PORTRAIT';
-            else if (targetAspect === '1:1') settings.aspectRatio = 'SQUARE';
-            else if (targetAspect === '4:3') settings.aspectRatio = 'FOUR_THREE';
-            else if (targetAspect === '3:4') settings.aspectRatio = 'THREE_FOUR';
-            else settings.aspectRatio = 'LANDSCAPE';
-          }
-          localStorage.setItem('flow-prompt-box-settings', JSON.stringify(settings));
-          window.dispatchEvent(new StorageEvent('storage', {
-            key: 'flow-prompt-box-settings',
-            newValue: JSON.stringify(settings)
-          }));
-        } catch (e) {}
-
-        // 2. Chuyển đổi mode (Image / Video) trực tiếp trên prompt box nếu cần
-        const promptBox = document.querySelector('flow-prompt-box, flow-base-prompt-box, flow-creative-agent-prompt-box, .prompt-box-container, .base-prompt-box') || document;
-        const allPromptButtons = Array.from(promptBox.querySelectorAll('button, mat-button-toggle, [role="tab"], .mat-button-toggle-button')).filter(isVisible);
-
-        if (mode === 'image') {
-          const imgBtn = allPromptButtons.find(b => {
-            const label = (b.getAttribute('aria-label') || b.textContent || b.innerText || '').toLowerCase();
-            return label === 'image' || label.includes('image mode') || label.includes('tạo ảnh');
-          });
-          if (imgBtn) imgBtn.click();
-        } else {
-          const vidBtn = allPromptButtons.find(b => {
-            const label = (b.getAttribute('aria-label') || b.textContent || b.innerText || '').toLowerCase();
-            return label === 'video' || label.includes('video mode') || label.includes('tạo video');
-          });
-          if (vidBtn) vidBtn.click();
-        }
-
-        // 3. Mở Popover Settings của Prompt Box (button.settings-trigger-button)
-        const triggerBtn = promptBox.querySelector('button.settings-trigger-button') ||
-          allPromptButtons.find(b => b.classList.contains('settings-trigger-button') || (b.getAttribute('aria-label') || '').toLowerCase().includes('cài đặt'));
-
-        if (triggerBtn && isVisible(triggerBtn)) {
-          triggerBtn.click();
-          await new Promise(r => setTimeout(r, 450));
-
-          const overlay = document.querySelector('.cdk-overlay-pane');
-          if (overlay) {
-            const allToggles = Array.from(overlay.querySelectorAll('button, mat-button-toggle, .mat-button-toggle-button, [role="radio"], [role="tab"]')).filter(isVisible);
-
-            // A. Thiết lập Duration (chỉ có trong Video mode)
-            if (mode === 'video') {
-              const durBtn = allToggles.find(b => {
-                const t = (b.innerText || b.textContent || '').trim().toLowerCase();
-                return t === targetDuration + ' giây' || t === targetDuration + 's' || t === targetDuration + ' sec' || t === '' + targetDuration;
-              });
-              if (durBtn) {
-                durBtn.click();
-                console.log('[Google Flow Settings] ✅ Đã chọn duration:', targetDuration + 's');
-                await new Promise(r => setTimeout(r, 100));
-              }
-            }
-
-            // B. Thiết lập Output Count
-            const countBtn = allToggles.find(b => {
-              const t = (b.innerText || b.textContent || '').trim().toLowerCase();
-              return t === 'x' + targetCount || t === '' + targetCount;
-            });
-            if (countBtn) {
-              countBtn.click();
-              console.log('[Google Flow Settings] ✅ Đã chọn count:', 'x' + targetCount);
-              await new Promise(r => setTimeout(r, 100));
-            }
-
-            // C. Thiết lập Tỉ lệ Aspect Ratio
-            const aspectBtn = allToggles.find(b => {
-              const t = (b.innerText || b.textContent || '').trim().toLowerCase();
-              return t.includes(targetAspect);
-            });
-            if (aspectBtn) {
-              aspectBtn.click();
-              console.log('[Google Flow Settings] ✅ Đã chọn aspectRatio:', targetAspect);
-              await new Promise(r => setTimeout(r, 100));
-            }
-
-            // Đóng popover bằng phím Escape
-            document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', keyCode: 27 }));
-            await new Promise(r => setTimeout(r, 200));
-          }
-        }
-
-        return 'settings_applied';
-      })()
-    `;
-
     console.log(`[Google Flow Browser] ⚙️ Đang áp dụng cấu hình Google Flow cho ${mode}: count=${count}, aspect=${aspect}${mode === 'video' ? `, duration=${duration}s` : ''}...`);
-    await this.safeExecuteJs(win, configJs, 5000);
+
+    // 1. Đồng bộ LocalStorage flow-prompt-box-settings làm lớp nền Idempotent redundancy
+    try {
+      await win.webContents.executeJavaScript(`
+        (function() {
+          try {
+            const raw = localStorage.getItem('flow-prompt-box-settings');
+            const settings = raw ? JSON.parse(raw) : {};
+            settings.mode = ${JSON.stringify(mode.toUpperCase())};
+            settings.Qp = ${count};
+            const targetAspect = ${JSON.stringify(aspect)};
+            if (${JSON.stringify(mode)} === 'video') {
+              settings.AB = ${duration};
+              settings.aspectRatio = targetAspect === '9:16' ? 'PORTRAIT' : 'LANDSCAPE';
+            } else {
+              if (targetAspect === '9:16') settings.aspectRatio = 'PORTRAIT';
+              else if (targetAspect === '1:1') settings.aspectRatio = 'SQUARE';
+              else if (targetAspect === '4:3') settings.aspectRatio = 'FOUR_THREE';
+              else if (targetAspect === '3:4') settings.aspectRatio = 'THREE_FOUR';
+              else settings.aspectRatio = 'LANDSCAPE';
+            }
+            localStorage.setItem('flow-prompt-box-settings', JSON.stringify(settings));
+            window.dispatchEvent(new StorageEvent('storage', {
+              key: 'flow-prompt-box-settings',
+              newValue: JSON.stringify(settings)
+            }));
+            return true;
+          } catch (e) {
+            return false;
+          }
+        })()
+      `, true).catch(() => {});
+    } catch {}
+
+    // 2. Chuyển đổi Mode Tab (Image / Video) bằng FlowElementFinder
+    try {
+      const modeFinder = await FlowElementFinder.find(win, FlowElementFinder.getModeTabSpec(mode));
+      if (modeFinder.found && modeFinder.selectedCandidate) {
+        const c = modeFinder.selectedCandidate;
+        const x = Math.round(c.rect.x + c.rect.width / 2);
+        const y = Math.round(c.rect.y + c.rect.height / 2);
+        console.log(`[Google Flow Settings] 🔘 Đã định vị Mode Tab [${mode}] qua FlowElementFinder (${c.strategy}, conf: ${c.confidence}/100) tại (${x}, ${y})`);
+        win.webContents.sendInputEvent({ type: 'mouseDown', x, y, button: 'left', clickCount: 1 });
+        await new Promise((r) => setTimeout(r, 40));
+        win.webContents.sendInputEvent({ type: 'mouseUp', x, y, button: 'left', clickCount: 1 });
+        await new Promise((r) => setTimeout(r, 200));
+      }
+    } catch (e: any) {
+      console.warn('[Google Flow Settings] Gặp sự cố khi định vị Mode Tab:', e?.message || e);
+    }
+
+    // 3. Mở Settings Popover bằng FlowElementFinder
+    let popoverOpened = false;
+    try {
+      const triggerFinder = await FlowElementFinder.find(win, FlowElementFinder.getSettingsTriggerSpec());
+      if (triggerFinder.found && triggerFinder.selectedCandidate) {
+        const c = triggerFinder.selectedCandidate;
+        const x = Math.round(c.rect.x + c.rect.width / 2);
+        const y = Math.round(c.rect.y + c.rect.height / 2);
+        console.log(`[Google Flow Settings] ⚙️ Đã định vị Settings Trigger qua FlowElementFinder (${c.strategy}, conf: ${c.confidence}/100) tại (${x}, ${y})`);
+        win.webContents.sendInputEvent({ type: 'mouseDown', x, y, button: 'left', clickCount: 1 });
+        await new Promise((r) => setTimeout(r, 40));
+        win.webContents.sendInputEvent({ type: 'mouseUp', x, y, button: 'left', clickCount: 1 });
+        popoverOpened = true;
+        await new Promise((r) => setTimeout(r, 450));
+      }
+    } catch (e: any) {
+      console.warn('[Google Flow Settings] Gặp sự cố khi định vị Settings Trigger:', e?.message || e);
+    }
+
+    // 4. Nếu popover mở, tương tác với Aspect Ratio và Output Count
+    if (popoverOpened) {
+      // A. Chọn Aspect Ratio qua FlowElementFinder
+      try {
+        const aspectFinder = await FlowElementFinder.find(win, FlowElementFinder.getAspectRatioSpec(aspect));
+        if (aspectFinder.found && aspectFinder.selectedCandidate) {
+          const c = aspectFinder.selectedCandidate;
+          const x = Math.round(c.rect.x + c.rect.width / 2);
+          const y = Math.round(c.rect.y + c.rect.height / 2);
+          console.log(`[Google Flow Settings] 📐 Đã định vị Aspect Ratio [${aspect}] qua FlowElementFinder (${c.strategy}, conf: ${c.confidence}/100) tại (${x}, ${y})`);
+          win.webContents.sendInputEvent({ type: 'mouseDown', x, y, button: 'left', clickCount: 1 });
+          await new Promise((r) => setTimeout(r, 40));
+          win.webContents.sendInputEvent({ type: 'mouseUp', x, y, button: 'left', clickCount: 1 });
+          await new Promise((r) => setTimeout(r, 150));
+        }
+      } catch (e: any) {
+        console.warn('[Google Flow Settings] Gặp sự cố khi định vị Aspect Ratio:', e?.message || e);
+      }
+
+      // B. Chọn Output Count qua FlowElementFinder
+      try {
+        const countFinder = await FlowElementFinder.find(win, FlowElementFinder.getOutputCountSpec(count));
+        if (countFinder.found && countFinder.selectedCandidate) {
+          const c = countFinder.selectedCandidate;
+          const x = Math.round(c.rect.x + c.rect.width / 2);
+          const y = Math.round(c.rect.y + c.rect.height / 2);
+          console.log(`[Google Flow Settings] 🔢 Đã định vị Output Count [x${count}] qua FlowElementFinder (${c.strategy}, conf: ${c.confidence}/100) tại (${x}, ${y})`);
+          win.webContents.sendInputEvent({ type: 'mouseDown', x, y, button: 'left', clickCount: 1 });
+          await new Promise((r) => setTimeout(r, 40));
+          win.webContents.sendInputEvent({ type: 'mouseUp', x, y, button: 'left', clickCount: 1 });
+          await new Promise((r) => setTimeout(r, 150));
+        }
+      } catch (e: any) {
+        console.warn('[Google Flow Settings] Gặp sự cố khi định vị Output Count:', e?.message || e);
+      }
+
+      // C. Đóng popover bằng phím Escape
+      try {
+        win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
+        await new Promise((r) => setTimeout(r, 40));
+        win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' });
+        await new Promise((r) => setTimeout(r, 200));
+      } catch {}
+    }
   }
 
   /**
@@ -2466,6 +2453,21 @@ export class GoogleVeoSessionManager {
         await new Promise((r) => setTimeout(r, 50));
         await win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' });
       } catch {}
+
+      // Thử tìm nút đóng qua FlowElementFinder nếu Escape chưa đóng được
+      try {
+        const closeFinder = await FlowElementFinder.find(win, FlowElementFinder.getCloseOverlaySpec());
+        if (closeFinder.found && closeFinder.selectedCandidate) {
+          const c = closeFinder.selectedCandidate;
+          const cx = Math.round(c.rect.x + c.rect.width / 2);
+          const cy = Math.round(c.rect.y + c.rect.height / 2);
+          console.log(`[Google Flow Browser] 🧹 Đã tìm thấy nút đóng overlay qua FlowElementFinder (${c.strategy}, conf: ${c.confidence}/100) tại (${cx}, ${cy})`);
+          win.webContents.sendInputEvent({ type: 'mouseDown', x: cx, y: cy, button: 'left', clickCount: 1 });
+          await new Promise((r) => setTimeout(r, 40));
+          win.webContents.sendInputEvent({ type: 'mouseUp', x: cx, y: cy, button: 'left', clickCount: 1 });
+        }
+      } catch {}
+
       for (let i = 0; i < 15; i++) {
         await new Promise((r) => setTimeout(r, 100));
         const stillOverlay = await this.safeExecuteJs<boolean>(win, checkOverlayJs, 500);
