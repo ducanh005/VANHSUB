@@ -65,7 +65,79 @@ export class GoogleVeoSessionManager {
   }
 
   /**
-   * Khởi động và tự động đồng bộ cookie từ phân vùng Electron khi app chạy
+   * Khôi phục cookie từ SettingsStore vào partition Electron nếu partition đang thiếu auth cookie
+   */
+  public async restoreCookiesToPartition(ses?: any): Promise<number> {
+    try {
+      let targetSes = ses;
+      if (!targetSes) {
+        const electron = require('electron');
+        targetSes = electron?.session?.fromPartition('persist:google_veo');
+      }
+      if (!targetSes) return 0;
+
+      const storedCookie = SettingsStore.get('veoSessionCookie')?.trim();
+      if (!storedCookie) return 0;
+
+      // Kiểm tra xem partition đã có auth cookies chưa
+      const existing = await targetSes.cookies.get({ domain: '.google.com' });
+      const hasAuth = existing.some((c: any) => GOOGLE_AUTH_COOKIE_NAMES.includes(c.name));
+      if (hasAuth) {
+        return existing.length;
+      }
+
+      console.log('[GoogleVeoSessionManager] 🔄 Đang nạp lại cookie từ SettingsStore vào phân vùng persist:google_veo...');
+      const parts = storedCookie.split(';').map((p) => p.trim()).filter(Boolean);
+      let count = 0;
+
+      for (const part of parts) {
+        const eqIdx = part.indexOf('=');
+        if (eqIdx <= 0) continue;
+        const name = part.slice(0, eqIdx).trim();
+        const value = part.slice(eqIdx + 1).trim();
+        if (!name || !value) continue;
+
+        try {
+          await targetSes.cookies.set({
+            url: 'https://google.com',
+            name,
+            value,
+            domain: '.google.com',
+            path: '/',
+            secure: name.startsWith('__Secure-') || name.startsWith('__Host-'),
+            httpOnly: ['SID', 'HSID', 'SSID', 'APISID', 'SAPISID'].includes(name) || name.includes('SID'),
+            sameSite: 'no_restriction',
+          });
+          count++;
+        } catch {}
+
+        try {
+          await targetSes.cookies.set({
+            url: 'https://flow.google.com',
+            name,
+            value,
+            domain: '.google.com',
+            path: '/',
+            secure: true,
+            sameSite: 'no_restriction',
+          });
+        } catch {}
+      }
+
+      if (typeof targetSes.cookies.flushStore === 'function') {
+        await targetSes.cookies.flushStore();
+      }
+
+      console.log(`[GoogleVeoSessionManager] ✅ Đã nạp thành công ${count} cookies vào phân vùng Electron.`);
+      return count;
+    } catch (e) {
+      console.warn('[GoogleVeoSessionManager] Lỗi khi nạp cookie vào partition:', e);
+      return 0;
+    }
+  }
+
+  /**
+   * Khởi động và tự động đồng bộ cookie hai chiều giữa SettingsStore và phân vùng Electron
    */
   async init(): Promise<void> {
     try {
@@ -73,6 +145,10 @@ export class GoogleVeoSessionManager {
       const session = electron?.session;
       if (session?.fromPartition) {
         const ses = session.fromPartition('persist:google_veo');
+        // 1. Phục hồi cookie từ SettingsStore nếu phân vùng Electron đang trống
+        await this.restoreCookiesToPartition(ses);
+
+        // 2. Đồng bộ cookie mới nhất từ phân vùng
         await this.syncCookiesFromPartition(ses);
 
         ses.cookies.on('changed', async (_event: any, cookie: any, _cause: any, removed: boolean) => {
@@ -274,6 +350,9 @@ export class GoogleVeoSessionManager {
       // vì validateSession() có thể hang nếu mạng chậm và không có ai await nó đúng cách
       this.syncCookiesFromPartition(ses).catch(() => {});
     });
+
+    // Đảm bảo nạp đầy đủ cookie xác thực từ SettingsStore vào partition trước khi mở trang Flow
+    await this.restoreCookiesToPartition(ses);
 
     try {
       await this.lobbyWindow.loadURL(GOOGLE_FLOW_LOBBY_URL);

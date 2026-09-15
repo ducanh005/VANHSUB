@@ -40,7 +40,7 @@ async function safeExecuteJs<T = any>(win: any, jsCode: string, timeoutMs = 5000
  */
 export const OpenFlowState: FlowAutomationState = {
   name: 'OPEN_FLOW',
-  timeoutMs: 15000,
+  timeoutMs: 35000,
 
   async enter(ctx: FlowStateContext): Promise<void> {
     ctx.onProgress?.(5, 'Đang chuẩn bị Sảnh Google Flow...');
@@ -59,14 +59,21 @@ export const OpenFlowState: FlowAutomationState = {
     if (!ctx.win || ctx.win.isDestroyed()) return { ok: false, reason: 'Cửa sổ lobbyWindow đã bị đóng' };
     const currentUrl = ctx.win.webContents?.getURL?.() || '';
     const isAtFlow = currentUrl.toLowerCase().includes('flow.google.com');
+    const isAboutLanding = currentUrl.toLowerCase().includes('flow.google.com/about');
+    const ok = isAtFlow && !isAboutLanding;
     return {
-      ok: isAtFlow,
+      ok,
       criteria: {
         currentUrl,
         isAtFlow,
+        isAboutLanding,
         title: ctx.win.getTitle?.() || '',
       },
-      reason: isAtFlow ? undefined : `URL hiện tại không thuộc flow.google.com: ${currentUrl}`,
+      reason: !isAtFlow
+        ? `URL hiện tại không thuộc flow.google.com: ${currentUrl}`
+        : isAboutLanding
+        ? 'LobbyWindow đang ở trang giới thiệu /about (chưa xác thực phiên hoặc cookie hết hạn)'
+        : undefined,
     };
   },
 
@@ -86,28 +93,22 @@ export const WaitForPageReadyState: FlowAutomationState = {
   },
 
   async execute(ctx: FlowStateContext): Promise<ActionResult> {
-    const startWait = Date.now();
-    await FlowSmartWait.pollUntil(
+    const res = await FlowSmartWait.pollUntil(
       async () => {
-        if (!ctx.win || ctx.win.isDestroyed()) return true;
-        const isLoading = ctx.win.webContents?.isLoading?.();
-        if (isLoading) return false;
-        const readyState = await safeExecuteJs<string>(ctx.win, 'document.readyState', 1000);
-        return readyState === 'complete' || readyState === 'interactive';
+        const readyState = await safeExecuteJs<string>(ctx.win, 'document.readyState', 2000);
+        return readyState === 'complete';
       },
       {
-        timeoutMs: 9000,
-        initialIntervalMs: 50,
-        maxIntervalMs: 400,
+        timeoutMs: 8000,
+        initialIntervalMs: 100,
         isCancelled: ctx.isCancelled,
-        tag: 'PAGE_READY',
+        tag: 'WAIT_PAGE_READY',
       }
     );
-    const durationMs = Date.now() - startWait;
-    return { ok: true, data: { earlyExitMs: durationMs } };
+    return { ok: res.ok, error: res.error, errorDetail: res.errorDetail };
   },
 
-  async verify(ctx: FlowStateContext, res: ActionResult): Promise<VerifyResult> {
+  async verify(ctx: FlowStateContext): Promise<VerifyResult> {
     const readyState = await safeExecuteJs<string>(ctx.win, 'document.readyState', 2000);
     const isReady = readyState === 'complete' || readyState === 'interactive';
     return {
@@ -115,7 +116,6 @@ export const WaitForPageReadyState: FlowAutomationState = {
       criteria: {
         readyState: readyState || 'unknown',
         isInteractive: isReady,
-        smartWaitEarlyExitMs: res.data?.earlyExitMs ?? 0,
       },
       reason: isReady ? undefined : `document.readyState chưa đạt chuẩn: ${readyState}`,
     };
@@ -143,24 +143,29 @@ export const VerifySessionState: FlowAutomationState = {
     if (currentUrl.includes('accounts.google.com') || currentUrl.includes('servicelogin')) {
       return { ok: false, error: 'session_expired', errorDetail: 'Cần đăng nhập tài khoản Google trên Sảnh Flow trước.' };
     }
+    if (currentUrl.includes('flow.google.com/about')) {
+      return { ok: false, error: 'session_expired', errorDetail: 'Google Flow chuyển hướng về trang /about do phiên làm việc chưa đăng nhập hoặc cookie hết hạn.' };
+    }
     return { ok: true };
   },
 
   async verify(ctx: FlowStateContext): Promise<VerifyResult> {
     const currentUrl = (ctx.win.webContents?.getURL?.() || '').toLowerCase();
     const notInLogin = !currentUrl.includes('accounts.google.com') && !currentUrl.includes('servicelogin');
+    const notInAbout = !currentUrl.includes('flow.google.com/about');
     const isFlow = currentUrl.includes('flow.google.com');
     const status = ctx.sessionMgr.getStatus();
-    const ok = notInLogin && isFlow;
+    const ok = notInLogin && notInAbout && isFlow;
     return {
       ok,
       criteria: {
         sessionStatus: status.sessionStatus,
         hasActiveSession: status.hasSession,
         notInLoginFlow: notInLogin,
+        notInAboutLanding: notInAbout,
         antiSpamAllowed: status.antiSpam?.allowed,
       },
-      reason: ok ? undefined : 'Phiên đăng nhập không hợp lệ hoặc đang ở trang login của Google',
+      reason: ok ? undefined : 'Phiên đăng nhập không hợp lệ, đang ở trang login hoặc landing page /about',
     };
   },
 
