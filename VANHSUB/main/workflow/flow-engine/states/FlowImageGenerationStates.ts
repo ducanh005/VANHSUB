@@ -93,19 +93,23 @@ export const WaitForPageReadyState: FlowAutomationState = {
   },
 
   async execute(ctx: FlowStateContext): Promise<ActionResult> {
-    const res = await FlowSmartWait.pollUntil(
-      async () => {
-        const readyState = await safeExecuteJs<string>(ctx.win, 'document.readyState', 2000);
-        return readyState === 'complete';
-      },
-      {
-        timeoutMs: 8000,
-        initialIntervalMs: 100,
-        isCancelled: ctx.isCancelled,
-        tag: 'WAIT_PAGE_READY',
-      }
-    );
-    return { ok: res.ok, error: res.error, errorDetail: res.errorDetail };
+    try {
+      await FlowSmartWait.pollUntil(
+        async () => {
+          const readyState = await safeExecuteJs<string>(ctx.win, 'document.readyState', 2000);
+          return readyState === 'complete';
+        },
+        {
+          timeoutMs: 8000,
+          initialIntervalMs: 100,
+          isCancelled: ctx.isCancelled,
+          tag: 'WAIT_PAGE_READY',
+        }
+      );
+      return { ok: true };
+    } catch (err: any) {
+      return { ok: false, error: 'page_ready_timeout', errorDetail: err?.message };
+    }
   },
 
   async verify(ctx: FlowStateContext): Promise<VerifyResult> {
@@ -288,32 +292,39 @@ export const FindEditorState: FlowAutomationState = {
   async enter(): Promise<void> {},
 
   async execute(ctx: FlowStateContext): Promise<ActionResult> {
-    const findBoxJs = `
-      (function() {
-        const box = document.querySelector(
-          'flow-prompt-box, flow-base-prompt-box, flow-creative-agent-prompt-box, .prompt-box-container, .base-prompt-box'
-        );
-        return Boolean(box);
-      })()
-    `;
-    const found = await safeExecuteJs<boolean>(ctx.win, findBoxJs, 3000);
-    return { ok: Boolean(found) };
+    const findRes = await FlowElementFinder.find(ctx.win, FlowElementFinder.getEditorContainerSpec());
+    if (!findRes.found || !findRes.selectedCandidate) {
+      return {
+        ok: false,
+        error: findRes.error || 'editor_not_found',
+        errorDetail: findRes.errorDetail || 'Không tìm thấy khung chứa prompt editor đạt độ tin cậy.',
+      };
+    }
+    return {
+      ok: true,
+      data: {
+        candidate: findRes.selectedCandidate,
+        tried: findRes.candidatesTried,
+        strategy: findRes.selectedCandidate.strategy,
+        confidence: findRes.selectedCandidate.confidence,
+        selector: findRes.selectedCandidate.selector,
+      },
+    };
   },
 
-  async verify(ctx: FlowStateContext): Promise<VerifyResult> {
-    const isPresent = await safeExecuteJs<boolean>(
-      ctx.win,
-      `Boolean(document.querySelector('flow-prompt-box, flow-base-prompt-box, flow-creative-agent-prompt-box, .prompt-box-container, .base-prompt-box'))`,
-      2000
-    );
-    const ok = Boolean(isPresent);
+  async verify(ctx: FlowStateContext, actionRes: ActionResult): Promise<VerifyResult> {
+    const candidate = actionRes.data?.candidate;
+    const ok = Boolean(candidate && candidate.confidence >= 65);
     return {
       ok,
       criteria: {
         editorContainerFound: ok,
-        selector: 'flow-prompt-box, flow-creative-agent-prompt-box',
+        strategy: candidate?.strategy || 'none',
+        selector: candidate?.selector || 'none',
+        confidence: candidate?.confidence || 0,
+        candidatesTried: actionRes.data?.tried || 0,
       },
-      reason: ok ? undefined : 'Không tìm thấy khung chứa prompt editor trên DOM',
+      reason: ok ? undefined : 'Không tìm thấy khung chứa prompt editor trên DOM đạt chuẩn an toàn',
     };
   },
 

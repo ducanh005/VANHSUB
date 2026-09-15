@@ -12,7 +12,8 @@ export type FinderStrategy =
   | 'ACCESSIBILITY'     // role + aria-label (95 - 100)
   | 'STRICT_COMPONENT'  // component tag / css class đặc thù (85 - 90)
   | 'CONTEXTUAL'        // cấu trúc quan hệ cha-con (75 - 80)
-  | 'TEXT_MATCH';       // nội dung văn bản (65 - 70)
+  | 'TEXT_MATCH'        // nội dung văn bản (65 - 70)
+  | 'COORDINATE_FALLBACK'; // toạ độ fallback khai báo tường minh (50)
 
 export interface StrategyRule {
   strategy: FinderStrategy;
@@ -28,6 +29,8 @@ export interface ElementSearchSpec {
   requireStable?: boolean;      // Mặc định true
   stabilityMs?: number;         // Mặc định 200ms
   unobscuredCheck?: boolean;    // Mặc định true
+  fallbackCoordinates?: { x: number; y: number; description?: string };
+  allowCoordinateFallback?: boolean; // Khai báo tường minh khi dùng fallback toạ độ (mặc định false)
 }
 
 export interface CandidateResult {
@@ -83,7 +86,16 @@ export class FlowElementFinder {
             }
 
             try {
-              const els = Array.from(document.querySelectorAll(\`${selector}\`));
+              let els = [];
+              const sel = ${JSON.stringify(selector)};
+              if (sel.startsWith('text:')) {
+                const targetText = sel.slice(5).trim().toLowerCase();
+                const candidates = Array.from(document.querySelectorAll('button, a, div, span, [role="button"], mat-option, [role="option"]'));
+                els = candidates.filter(el => (el.innerText || el.textContent || '').trim().toLowerCase().includes(targetText));
+              } else {
+                els = Array.from(document.querySelectorAll(sel));
+              }
+
               const valid = els.filter(isVisible);
               if (valid.length === 0) return null;
 
@@ -143,6 +155,27 @@ export class FlowElementFinder {
       if (qualifying.length > 0) {
         break;
       }
+    }
+
+    // Fallback toạ độ tường minh: chỉ được xét khi không có candidate nào đạt và allowCoordinateFallback = true
+    if (allCandidates.length === 0 && spec.fallbackCoordinates && spec.allowCoordinateFallback) {
+      candidatesTried++;
+      const fb = spec.fallbackCoordinates;
+      allCandidates.push({
+        selector: `coordinate:(${fb.x},${fb.y})`,
+        strategy: 'COORDINATE_FALLBACK',
+        confidence: 50, // Toạ độ fallback luôn có confidence thấp (50 < 65)
+        rect: {
+          x: fb.x,
+          y: fb.y,
+          width: 24,
+          height: 24,
+          top: fb.y,
+          left: fb.x,
+        },
+        label: fb.description || 'Explicit Coordinate Fallback',
+        tagName: 'COORDINATE',
+      });
     }
 
     if (allCandidates.length === 0) {
@@ -327,7 +360,356 @@ export class FlowElementFinder {
           ],
           description: 'Tìm textarea trong khung soạn thảo',
         },
+        {
+          strategy: 'TEXT_MATCH',
+          baseConfidence: 68,
+          selectors: [
+            'textarea[placeholder*="Mô tả" i]',
+            'textarea[placeholder*="prompt" i]',
+          ],
+          description: 'Tìm textarea theo placeholder',
+        },
+      ],
+    };
+  }
+
+  /**
+   * Cấu hình chuẩn định nghĩa khung chứa prompt editor (Prompt Box Container)
+   */
+  static getEditorContainerSpec(): ElementSearchSpec {
+    return {
+      name: 'EDITOR_CONTAINER',
+      confidenceThreshold: 65,
+      requireStable: false,
+      unobscuredCheck: false,
+      rules: [
+        {
+          strategy: 'ACCESSIBILITY',
+          baseConfidence: 95,
+          selectors: [
+            'flow-prompt-box[role="region"]',
+            '[aria-label*="Prompt" i]',
+            '[aria-label*="Hộp nhắc" i]',
+          ],
+          description: 'Tìm theo ARIA role region hoặc prompt box label',
+        },
+        {
+          strategy: 'STRICT_COMPONENT',
+          baseConfidence: 90,
+          selectors: [
+            'flow-prompt-box',
+            'flow-base-prompt-box',
+            'flow-creative-agent-prompt-box',
+          ],
+          description: 'Tìm theo thẻ Custom Component của Flow',
+        },
+        {
+          strategy: 'CONTEXTUAL',
+          baseConfidence: 80,
+          selectors: [
+            '.prompt-box-container',
+            '.base-prompt-box',
+            'div:has(> flow-rich-text-editor)',
+            'div:has(> .prosemirror-editor)',
+          ],
+          description: 'Tìm theo container bao ngoài editor',
+        },
+        {
+          strategy: 'TEXT_MATCH',
+          baseConfidence: 68,
+          selectors: [
+            '.prompt-box',
+            '.flow-editor-box',
+          ],
+          description: 'Tìm theo css class chung',
+        },
+      ],
+    };
+  }
+
+  /**
+   * Cấu hình chuẩn định nghĩa nút dọn dẹp canvas (Clear Canvas Button)
+   */
+  static getClearCanvasSpec(): ElementSearchSpec {
+    return {
+      name: 'CLEAR_CANVAS_BUTTON',
+      confidenceThreshold: 65,
+      requireStable: true,
+      stabilityMs: 150,
+      unobscuredCheck: true,
+      rules: [
+        {
+          strategy: 'ACCESSIBILITY',
+          baseConfidence: 95,
+          selectors: [
+            'flow-prompt-box button[aria-label*="Xóa" i]',
+            'flow-prompt-box button[aria-label*="Clear" i]',
+            'button[aria-label*="Xóa lời nhắc" i]',
+            'button[aria-label*="Clear prompt" i]',
+            'button[aria-label*="Xóa" i]',
+            'button[aria-label*="Clear" i]',
+          ],
+          description: 'Tìm nút xóa/clear theo ARIA label',
+        },
+        {
+          strategy: 'STRICT_COMPONENT',
+          baseConfidence: 88,
+          selectors: [
+            'flow-prompt-box button.clear-button',
+            'button.clear-btn',
+            '.clear-canvas-btn',
+            'button.reset-prompt-btn',
+          ],
+          description: 'Tìm theo component selector nội bộ của nút clear',
+        },
+        {
+          strategy: 'CONTEXTUAL',
+          baseConfidence: 78,
+          selectors: [
+            'flow-prompt-box button:has(mat-icon)',
+            'flow-base-prompt-box button.clear-btn',
+          ],
+          description: 'Tìm nút icon bên trong prompt box',
+        },
+        {
+          strategy: 'TEXT_MATCH',
+          baseConfidence: 68,
+          selectors: [
+            'text:Xóa tất cả',
+            'text:Clear all',
+            'text:Xóa',
+            'text:Clear',
+          ],
+          description: 'Tìm theo text label của nút',
+        },
+      ],
+    };
+  }
+
+  /**
+   * Cấu hình chuẩn định nghĩa nút Tạo dự án mới (New Project Button)
+   */
+  static getNewProjectButtonSpec(): ElementSearchSpec {
+    return {
+      name: 'NEW_PROJECT_BUTTON',
+      confidenceThreshold: 65,
+      requireStable: true,
+      stabilityMs: 200,
+      unobscuredCheck: true,
+      rules: [
+        {
+          strategy: 'ACCESSIBILITY',
+          baseConfidence: 95,
+          selectors: [
+            'button[aria-label*="Tạo dự án mới" i]',
+            'button[aria-label*="New project" i]',
+            'button[aria-label*="Create project" i]',
+            'button[aria-label*="Tạo dự án" i]',
+          ],
+          description: 'Tìm theo ARIA label của nút New Project',
+        },
+        {
+          strategy: 'STRICT_COMPONENT',
+          baseConfidence: 88,
+          selectors: [
+            'flow-lobby-header button.new-project-btn',
+            'button.create-project-btn',
+            'button.new-project-button',
+            'flow-project-list button:first-child',
+          ],
+          description: 'Tìm theo component header / list selector của Flow',
+        },
+        {
+          strategy: 'CONTEXTUAL',
+          baseConfidence: 78,
+          selectors: [
+            'flow-lobby-header button',
+            'flow-lobby button:has(mat-icon)',
+            'header button[type="button"]',
+          ],
+          description: 'Tìm theo vị trí header trên trang sảnh Flow',
+        },
+        {
+          strategy: 'TEXT_MATCH',
+          baseConfidence: 68,
+          selectors: [
+            'text:Tạo dự án mới',
+            'text:Dự án mới',
+            'text:New project',
+            'text:Create project',
+          ],
+          description: 'Tìm nút theo text hiển thị',
+        },
+      ],
+    };
+  }
+
+  /**
+   * Cấu hình chuẩn định nghĩa nút Cài đặt/Tùy chọn sinh (Settings Trigger Button)
+   */
+  static getSettingsTriggerSpec(): ElementSearchSpec {
+    return {
+      name: 'SETTINGS_TRIGGER_BUTTON',
+      confidenceThreshold: 65,
+      requireStable: true,
+      stabilityMs: 150,
+      unobscuredCheck: true,
+      rules: [
+        {
+          strategy: 'ACCESSIBILITY',
+          baseConfidence: 95,
+          selectors: [
+            'button[aria-label*="Cài đặt" i]',
+            'button[aria-label*="Settings" i]',
+            'button[aria-label*="Tùy chọn" i]',
+            'button[aria-label*="Options" i]',
+            'button[aria-label*="Tune" i]',
+          ],
+          description: 'Tìm theo ARIA label nút cài đặt',
+        },
+        {
+          strategy: 'STRICT_COMPONENT',
+          baseConfidence: 88,
+          selectors: [
+            'button.settings-trigger-button',
+            'flow-settings-button button',
+            'button.options-button',
+          ],
+          description: 'Tìm theo component selector cài đặt của Flow',
+        },
+        {
+          strategy: 'CONTEXTUAL',
+          baseConfidence: 78,
+          selectors: [
+            'flow-prompt-box button:has(mat-icon)',
+            'flow-base-prompt-box button.settings-btn',
+          ],
+          description: 'Tìm nút icon trong prompt box container',
+        },
+        {
+          strategy: 'TEXT_MATCH',
+          baseConfidence: 68,
+          selectors: [
+            'text:Cài đặt',
+            'text:Settings',
+            'text:Tùy chọn',
+          ],
+          description: 'Tìm theo nhãn text',
+        },
+      ],
+    };
+  }
+
+  /**
+   * Cấu hình chuẩn định nghĩa tuỳ chọn Tỉ lệ khung hình (Aspect Ratio Option)
+   */
+  static getAspectRatioSpec(ratio: string = '16:9'): ElementSearchSpec {
+    return {
+      name: `ASPECT_RATIO_${ratio.replace(':', '_')}`,
+      confidenceThreshold: 65,
+      requireStable: false,
+      unobscuredCheck: true,
+      rules: [
+        {
+          strategy: 'ACCESSIBILITY',
+          baseConfidence: 95,
+          selectors: [
+            `button[aria-label*="${ratio}" i]`,
+            `mat-option[aria-label*="${ratio}" i]`,
+            `button[aria-label*="Tỉ lệ" i]`,
+            `button[aria-label*="Aspect ratio" i]`,
+          ],
+          description: `Tìm theo ARIA label tỉ lệ ${ratio}`,
+        },
+        {
+          strategy: 'STRICT_COMPONENT',
+          baseConfidence: 88,
+          selectors: [
+            'mat-select[aria-label*="Tỉ lệ" i]',
+            'button.aspect-ratio-btn',
+            'button.ratio-button',
+          ],
+          description: 'Tìm theo component selector dropdown / button tỉ lệ',
+        },
+        {
+          strategy: 'CONTEXTUAL',
+          baseConfidence: 78,
+          selectors: [
+            'flow-prompt-box mat-select',
+            '.aspect-ratio-selector',
+            'mat-option',
+          ],
+          description: 'Tìm theo mat-select hoặc options trong menu',
+        },
+        {
+          strategy: 'TEXT_MATCH',
+          baseConfidence: 68,
+          selectors: [
+            `text:${ratio}`,
+            'text:16:9',
+            'text:9:16',
+            'text:1:1',
+          ],
+          description: `Tìm theo chuỗi tỉ lệ text ${ratio}`,
+        },
+      ],
+    };
+  }
+
+  /**
+   * Cấu hình chuẩn định nghĩa tuỳ chọn Mô hình (Model Selector)
+   */
+  static getModelSelectorSpec(modelName: string = 'Imagen'): ElementSearchSpec {
+    return {
+      name: `MODEL_SELECTOR_${modelName.toUpperCase()}`,
+      confidenceThreshold: 65,
+      requireStable: false,
+      unobscuredCheck: true,
+      rules: [
+        {
+          strategy: 'ACCESSIBILITY',
+          baseConfidence: 95,
+          selectors: [
+            `button[aria-label*="${modelName}" i]`,
+            `button[aria-label*="Mô hình" i]`,
+            `button[aria-label*="Model" i]`,
+            `mat-select[aria-label*="Model" i]`,
+          ],
+          description: `Tìm theo ARIA label mô hình ${modelName}`,
+        },
+        {
+          strategy: 'STRICT_COMPONENT',
+          baseConfidence: 88,
+          selectors: [
+            'flow-model-selector button',
+            'button.model-selector-btn',
+            'button.model-picker-button',
+          ],
+          description: 'Tìm theo component model selector của Flow',
+        },
+        {
+          strategy: 'CONTEXTUAL',
+          baseConfidence: 78,
+          selectors: [
+            'flow-prompt-box flow-model-selector',
+            '.model-picker',
+            'mat-option',
+          ],
+          description: 'Tìm model picker trong prompt box',
+        },
+        {
+          strategy: 'TEXT_MATCH',
+          baseConfidence: 68,
+          selectors: [
+            `text:${modelName}`,
+            'text:Imagen',
+            'text:Nano',
+            'text:Veo',
+          ],
+          description: `Tìm theo tên text của model ${modelName}`,
+        },
       ],
     };
   }
 }
+

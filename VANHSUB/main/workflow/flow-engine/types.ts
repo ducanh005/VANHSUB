@@ -59,6 +59,9 @@ export interface FlowStateContext {
   capturedMediaUrl: string | null;
   capturedBase64: string | null;
   generateClickedAt: number;
+  idempotencyDetectedAt?: number;
+  foundButton?: any;
+  nativeClicksCount?: number;
   netFilterAttached: boolean;
   onResponseStartedHandler?: (details: any) => void;
 
