@@ -4,6 +4,8 @@ import type {
   ActionResult,
   VerifyResult,
 } from '../types';
+import { FlowSmartWait } from '../FlowSmartWait';
+import { FlowElementFinder } from '../FlowElementFinder';
 
 /**
  * Helper an toàn để execute JS trên BrowserWindow
@@ -84,18 +86,28 @@ export const WaitForPageReadyState: FlowAutomationState = {
   },
 
   async execute(ctx: FlowStateContext): Promise<ActionResult> {
-    for (let i = 0; i < 20; i++) {
-      if (ctx.isCancelled?.()) return { ok: false, error: 'cancelled' };
-      const isLoading = ctx.win.webContents?.isLoading?.();
-      if (!isLoading) {
-        break;
+    const startWait = Date.now();
+    await FlowSmartWait.pollUntil(
+      async () => {
+        if (!ctx.win || ctx.win.isDestroyed()) return true;
+        const isLoading = ctx.win.webContents?.isLoading?.();
+        if (isLoading) return false;
+        const readyState = await safeExecuteJs<string>(ctx.win, 'document.readyState', 1000);
+        return readyState === 'complete' || readyState === 'interactive';
+      },
+      {
+        timeoutMs: 9000,
+        initialIntervalMs: 50,
+        maxIntervalMs: 400,
+        isCancelled: ctx.isCancelled,
+        tag: 'PAGE_READY',
       }
-      await new Promise((r) => setTimeout(r, 300));
-    }
-    return { ok: true };
+    );
+    const durationMs = Date.now() - startWait;
+    return { ok: true, data: { earlyExitMs: durationMs } };
   },
 
-  async verify(ctx: FlowStateContext): Promise<VerifyResult> {
+  async verify(ctx: FlowStateContext, res: ActionResult): Promise<VerifyResult> {
     const readyState = await safeExecuteJs<string>(ctx.win, 'document.readyState', 2000);
     const isReady = readyState === 'complete' || readyState === 'interactive';
     return {
@@ -103,6 +115,7 @@ export const WaitForPageReadyState: FlowAutomationState = {
       criteria: {
         readyState: readyState || 'unknown',
         isInteractive: isReady,
+        smartWaitEarlyExitMs: res.data?.earlyExitMs ?? 0,
       },
       reason: isReady ? undefined : `document.readyState chưa đạt chuẩn: ${readyState}`,
     };
@@ -313,39 +326,43 @@ export const FindPromptInputState: FlowAutomationState = {
   async enter(): Promise<void> {},
 
   async execute(ctx: FlowStateContext): Promise<ActionResult> {
-    // Focus vào ô soạn thảo
-    const focusEditorJs = `
+    const findRes = await FlowElementFinder.find(ctx.win, FlowElementFinder.getPromptInputSpec());
+    if (!findRes.found || !findRes.selectedCandidate) {
+      return {
+        ok: false,
+        error: findRes.error || 'prompt_input_not_found',
+        errorDetail: findRes.errorDetail || 'Không tìm thấy ô nhập prompt đạt độ tin cậy an toàn.',
+      };
+    }
+
+    const candidate = findRes.selectedCandidate;
+    const focusJs = `
       (function() {
-        const promptBox = document.querySelector(
-          'flow-prompt-box, flow-base-prompt-box, flow-creative-agent-prompt-box, .prompt-box-container, .base-prompt-box'
-        ) || document;
-        const selectors = [
-          'flow-rich-text-editor .ProseMirror',
-          '.prosemirror-editor .ProseMirror',
-          '.ProseMirror',
-          '[contenteditable="true"]',
-          'textarea:not(.g-recaptcha-response)',
-          'input[type="text"]'
-        ];
-        for (const sel of selectors) {
-          const el = promptBox.querySelector(sel) || document.querySelector(sel);
-          if (el && (el.isContentEditable || el.tagName === 'TEXTAREA' || el.tagName === 'INPUT')) {
-            el.focus();
-            const rect = el.getBoundingClientRect();
-            return {
-              ok: true,
-              coords: rect ? { x: Math.round(rect.x + rect.width / 2), y: Math.round(rect.y + rect.height / 2) } : null
-            };
-          }
+        const el = document.querySelector(${JSON.stringify(candidate.selector)});
+        if (el) {
+          el.focus();
+          return true;
         }
-        return { ok: false };
+        return false;
       })()
     `;
-    const res = await safeExecuteJs<any>(ctx.win, focusEditorJs, 2500);
-    return { ok: Boolean(res?.ok), data: res };
+    await safeExecuteJs(ctx.win, focusJs, 1500);
+
+    return {
+      ok: true,
+      data: {
+        strategy: candidate.strategy,
+        confidence: candidate.confidence,
+        selector: candidate.selector,
+        coords: {
+          x: Math.round(candidate.rect.x + candidate.rect.width / 2),
+          y: Math.round(candidate.rect.y + candidate.rect.height / 2),
+        },
+      },
+    };
   },
 
-  async verify(ctx: FlowStateContext): Promise<VerifyResult> {
+  async verify(ctx: FlowStateContext, res: ActionResult): Promise<VerifyResult> {
     const checkFocusJs = `
       (function() {
         const el = document.activeElement;
@@ -358,14 +375,17 @@ export const FindPromptInputState: FlowAutomationState = {
         };
       })()
     `;
-    const res = await safeExecuteJs<any>(ctx.win, checkFocusJs, 2000);
-    const ok = Boolean(res?.ok);
+    const checkRes = await safeExecuteJs<any>(ctx.win, checkFocusJs, 2000);
+    const ok = Boolean(checkRes?.ok);
     return {
       ok,
       criteria: {
         activeElementIsEditable: ok,
-        tagName: res?.tagName || 'none',
-        isContentEditable: Boolean(res?.isContentEditable),
+        tagName: checkRes?.tagName || 'none',
+        isContentEditable: Boolean(checkRes?.isContentEditable),
+        finderStrategy: res.data?.strategy || 'none',
+        confidenceScore: res.data?.confidence ?? 0,
+        selectedSelector: res.data?.selector || '',
       },
       reason: ok ? undefined : 'Active element hiện tại không phải ô nhập liệu văn bản',
     };
@@ -661,86 +681,81 @@ export const FindGenerateButtonState: FlowAutomationState = {
   async enter(): Promise<void> {},
 
   async execute(ctx: FlowStateContext): Promise<ActionResult> {
-    const scanBtnJs = `
-      (function() {
-        function isVisible(el) {
-          if (!el) return false;
-          const rect = el.getBoundingClientRect();
-          if (!rect || rect.width <= 0 || rect.height <= 0) return false;
-          const style = window.getComputedStyle(el);
-          return style.display !== 'none' && style.visibility !== 'hidden';
-        }
+    const startWait = Date.now();
+    let findRes = await FlowElementFinder.find(ctx.win, FlowElementFinder.getGenerateButtonSpec());
 
-        const genBtnSelectors = [
-          'button.generate-icon-button',
-          'flow-generate-icon-button button',
-          'button[aria-label*="Bắt đầu tạo" i]',
-          'button[aria-label*="Start generation" i]',
-          'button[aria-label*="Tạo ảnh" i]',
-          'button[aria-label*="Tạo video" i]',
-          'button[aria-label*="Generate" i]',
-          'button[aria-label*="tạo" i]',
-          'button[type="submit"]',
-          'flow-generate-button button',
-          'button.submit-button'
-        ];
+    // Nếu chưa thấy ngay, dùng Adaptive Polling chờ với FlowSmartWait
+    if (!findRes.found) {
+      try {
+        findRes = await FlowSmartWait.pollUntil<any>(
+          async () => {
+            if (!ctx.win || ctx.win.isDestroyed()) return null;
 
-        const allButtons = Array.from(document.querySelectorAll(genBtnSelectors.join(', ')));
-        const valid = allButtons.filter(b => {
-          if (!isVisible(b)) return false;
-          if (b.classList.contains('agent-action-button') ||
-              b.classList.contains('settings-trigger-button') ||
-              b.classList.contains('add-menu-trigger') ||
-              b.classList.contains('header-action') ||
-              b.classList.contains('suggestion-card')) {
-            return false;
+            // Kiểm tra fallback: Nếu phát hiện spinner đang chạy -> Chuyển sang WAIT_FOR_GENERATION
+            const checkGenJs = `
+              Boolean(document.querySelector(
+                'flow-loading-indicator, flow-progress-bar, mat-progress-spinner, mat-spinner, .generation-in-progress, flow-card[state="generating"], .loading-spinner, flow-generating-card, flow-border-glow.loop'
+              ))
+            `;
+            const isGenerating = await safeExecuteJs<boolean>(ctx.win, checkGenJs, 1000);
+            if (isGenerating) {
+              return { isGenerating: true };
+            }
+
+            const res = await FlowElementFinder.find(ctx.win, FlowElementFinder.getGenerateButtonSpec());
+            return res.found ? res : null;
+          },
+          {
+            timeoutMs: 12000,
+            initialIntervalMs: 80,
+            maxIntervalMs: 500,
+            isCancelled: ctx.isCancelled,
+            tag: 'FIND_GEN_BTN',
           }
-          return true;
-        });
-
-        if (valid.length > 0) {
-          const btn = valid[0];
-          const rect = btn.getBoundingClientRect();
-          return {
-            found: true,
-            label: (btn.getAttribute('aria-label') || btn.innerText || '').trim(),
-            className: btn.className,
-            rect: { x: Math.round(rect.x), y: Math.round(rect.y), w: Math.round(rect.width), h: Math.round(rect.height) }
-          };
-        }
-        return { found: false };
-      })()
-    `;
-
-    for (let attempt = 0; attempt < 25; attempt++) {
-      const res = await safeExecuteJs<any>(ctx.win, scanBtnJs, 2000);
-      if (res?.found) {
-        return { ok: true, data: res };
-      }
-      // Fallback: Kiểm tra xem có đang trong quá trình sinh ảnh không
-      const checkGenJs = `
-        Boolean(document.querySelector(
-          'flow-loading-indicator, flow-progress-bar, mat-progress-spinner, mat-spinner, .generation-in-progress, flow-card[state="generating"], .loading-spinner, flow-generating-card, flow-border-glow.loop'
-        ))
-      `;
-      const isGenerating = await safeExecuteJs<boolean>(ctx.win, checkGenJs, 1000);
-      if (isGenerating) {
-        console.warn(
-          `[FlowStateMachine] [${ctx.taskId}#${ctx.generationAttemptId}] ⚠️ FIND_GENERATE_BUTTON: Phát hiện tiến trình sinh đang chạy thay vì nút bấm! Kích hoạt Idempotency fallback...`
         );
-        return {
-          ok: true,
-          skipToState: 'WAIT_FOR_GENERATION',
-          data: { decision: 'ALREADY_GENERATING_FALLBACK', found: false },
-        };
+      } catch (e) {
+        // Hết thời gian chờ thích ứng
       }
-      await new Promise((r) => setTimeout(r, 300));
     }
 
+    if ((findRes as any)?.isGenerating) {
+      console.warn(
+        `[FlowStateMachine] [${ctx.taskId}#${ctx.generationAttemptId}] ⚠️ FIND_GENERATE_BUTTON: Phát hiện tiến trình sinh đang chạy! Kích hoạt Idempotency fallback...`
+      );
+      return {
+        ok: true,
+        skipToState: 'WAIT_FOR_GENERATION',
+        data: { decision: 'ALREADY_GENERATING_FALLBACK', found: false },
+      };
+    }
+
+    if (!findRes?.found || !findRes.selectedCandidate) {
+      return {
+        ok: false,
+        error: findRes?.error || 'generate_button_not_found',
+        errorDetail: findRes?.errorDetail || 'Không tìm thấy nút Generate trên UI Google Flow sau adaptive search.',
+      };
+    }
+
+    const candidate = findRes.selectedCandidate;
+    ctx.foundButton = candidate;
+    const durationMs = Date.now() - startWait;
+
     return {
-      ok: false,
-      error: 'generate_button_not_found',
-      errorDetail: 'Không tìm thấy nút Generate trên giao diện Google Flow sau 25 lần quét.',
+      ok: true,
+      data: {
+        found: true,
+        strategy: candidate.strategy,
+        confidence: candidate.confidence,
+        selector: candidate.selector,
+        label: candidate.label || '',
+        rect: candidate.rect,
+        isStable: Boolean(candidate.isStable),
+        deltas: candidate.stability?.deltas || { dx: 0, dy: 0, dw: 0, dh: 0 },
+        unobscured: Boolean(candidate.unobscured),
+        className: (candidate.className || '').slice(0, 50),
+        earlyExitMs: durationMs,
+      },
     };
   },
 
@@ -750,11 +765,16 @@ export const FindGenerateButtonState: FlowAutomationState = {
       ok: found,
       criteria: {
         buttonFound: found,
-        label: res.data?.label || '',
+        finderStrategy: res.data?.strategy || 'none',
+        confidenceScore: res.data?.confidence ?? 0,
+        selectedSelector: res.data?.selector || '',
+        boundingStability: res.data?.isStable ? 'STABLE' : 'UNSTABLE',
+        deltas: res.data?.deltas || null,
+        unobscured: res.data?.unobscured ?? false,
         rect: res.data?.rect || null,
-        className: (res.data?.className || '').slice(0, 50),
+        smartWaitEarlyExitMs: res.data?.earlyExitMs ?? 0,
       },
-      reason: found ? undefined : 'Không tìm thấy nút Generate trên UI Google Flow',
+      reason: found ? undefined : 'Không tìm thấy nút Generate đạt chuẩn ổn định và tin cậy trên UI',
     };
   },
 
@@ -772,17 +792,16 @@ export const VerifyGenerateButtonState: FlowAutomationState = {
   async enter(): Promise<void> {},
 
   async execute(ctx: FlowStateContext): Promise<ActionResult> {
+    const selector = ctx.foundButton?.selector || 'button.generate-icon-button, flow-generate-icon-button button';
     const verifyBtnJs = `
       (function() {
-        const btn = document.querySelector(
-          'button.generate-icon-button, flow-generate-icon-button button, button[aria-label*="Bắt đầu tạo" i], button[aria-label*="Start generation" i], button[aria-label*="tạo" i], button[aria-label*="generate" i], button[type="submit"]'
-        );
+        const btn = document.querySelector(${JSON.stringify(selector)});
         if (!btn) return { ok: false, error: 'no_btn' };
         const rect = btn.getBoundingClientRect();
         const isVisible = rect && rect.width > 0 && rect.height > 0;
         const isEnabled = !btn.disabled && btn.getAttribute('aria-disabled') !== 'true';
         return {
-          ok: isVisible,
+          ok: isVisible && isEnabled,
           visible: isVisible,
           enabled: isEnabled,
           disabledAttr: btn.disabled,
@@ -792,15 +811,24 @@ export const VerifyGenerateButtonState: FlowAutomationState = {
       })()
     `;
 
-    for (let attempt = 0; attempt < 15; attempt++) {
-      const res = await safeExecuteJs<any>(ctx.win, verifyBtnJs, 2000);
-      if (res?.visible) {
-        return { ok: true, data: res };
-      }
-      await new Promise((r) => setTimeout(r, 300));
+    try {
+      const res = await FlowSmartWait.pollUntil<any>(
+        async () => {
+          const status = await safeExecuteJs<any>(ctx.win, verifyBtnJs, 1500);
+          return status?.visible ? status : null;
+        },
+        {
+          timeoutMs: 6000,
+          initialIntervalMs: 50,
+          maxIntervalMs: 300,
+          isCancelled: ctx.isCancelled,
+          tag: 'VERIFY_GEN_BTN',
+        }
+      );
+      return { ok: true, data: res };
+    } catch {
+      return { ok: false, error: 'button_not_ready', errorDetail: 'Nút Generate không sẵn sàng hoặc bị che khuất sau adaptive polling.' };
     }
-
-    return { ok: false, error: 'button_not_ready', errorDetail: 'Nút Generate không sẵn sàng hoặc bị che khuất.' };
   },
 
   async verify(ctx: FlowStateContext, res: ActionResult): Promise<VerifyResult> {
@@ -1004,28 +1032,39 @@ export const ClickGenerateState: FlowAutomationState = {
       })()
     `;
 
-    let clickInfo: any = null;
-    for (let attempt = 0; attempt < 10; attempt++) {
-      clickInfo = await safeExecuteJs<any>(ctx.win, freshCoordJs, 2500);
-      if (clickInfo?.ok && clickInfo.coords) {
-        break;
+    const clickInfo = await FlowSmartWait.pollUntil<any>(
+      async () => {
+        const info = await safeExecuteJs<any>(ctx.win, freshCoordJs, 1500);
+        return info?.ok && info.coords ? info : null;
+      },
+      {
+        timeoutMs: 4000,
+        initialIntervalMs: 50,
+        maxIntervalMs: 200,
+        isCancelled: ctx.isCancelled,
+        tag: 'CLICK_GEN_COORDS',
       }
-      await new Promise((r) => setTimeout(r, 200));
-    }
+    ).catch(() => null);
 
     if (!clickInfo?.ok || !clickInfo.coords) {
       return {
         ok: false,
         error: 'click_prep_failed',
-        errorDetail: clickInfo?.error || 'Không thể tính toạ độ nút Generate tức thời.',
+        errorDetail: clickInfo?.error || 'Không thể tính toạ độ nút Generate tức thời sau adaptive polling.',
       };
     }
+
+    // Kiểm tra che phủ tức thời tại toạ độ click
+    const unobscuredCheck = await FlowSmartWait.checkElementUnobscured(ctx.win, {
+      x: clickInfo.coords.x,
+      y: clickInfo.coords.y,
+    });
 
     // Gửi click chuột native ngay lập tức tại toạ độ vừa tính tức thời
     if (!ctx.win.isDestroyed()) {
       try {
         console.log(
-          `[FlowStateMachine] [${ctx.taskId}#${ctx.generationAttemptId}] 🖱️ Gửi click chuột native tại toạ độ TỨC THỜI (fresh getBoundingClientRect): (${clickInfo.coords.x}, ${clickInfo.coords.y})`
+          `[FlowStateMachine] [${ctx.taskId}#${ctx.generationAttemptId}] 🖱️ Gửi click chuột native tại toạ độ TỨC THỜI (fresh getBoundingClientRect): (${clickInfo.coords.x}, ${clickInfo.coords.y}) | Unobscured: ${unobscuredCheck.unobscured}`
         );
         ctx.win.webContents.sendInputEvent({
           type: 'mouseDown',
@@ -1050,7 +1089,7 @@ export const ClickGenerateState: FlowAutomationState = {
     ctx.generateClickedAt = Date.now();
     ctx.nativeClicksCount = (ctx.nativeClicksCount || 0) + 1;
     ctx.generationState = 'STARTING';
-    return { ok: true, data: clickInfo };
+    return { ok: true, data: { ...clickInfo, unobscured: unobscuredCheck.unobscured } };
   },
 
   async verify(ctx: FlowStateContext, res: ActionResult): Promise<VerifyResult> {
@@ -1061,6 +1100,7 @@ export const ClickGenerateState: FlowAutomationState = {
         nativeClickDispatched: ok,
         nativeClicksCount: ctx.nativeClicksCount || 1,
         coordinates: res.data?.coords || null,
+        unobscuredAtClick: res.data?.unobscured ?? true,
         clickedAt: ctx.generateClickedAt,
       },
       reason: ok ? undefined : 'Chưa ghi nhận thời điểm click native',
