@@ -76,13 +76,19 @@ export interface FlowStateContext {
   };
 }
 
+export interface VerifyResult {
+  ok: boolean;
+  criteria?: Record<string, any>;
+  reason?: string;
+}
+
 export interface FlowAutomationState {
   readonly name: string;
   readonly timeoutMs: number;
 
   enter(ctx: FlowStateContext): Promise<void>;
   execute(ctx: FlowStateContext): Promise<ActionResult>;
-  verify(ctx: FlowStateContext, actionRes: ActionResult): Promise<boolean>;
+  verify(ctx: FlowStateContext, actionRes: ActionResult): Promise<boolean | VerifyResult>;
   exit(ctx: FlowStateContext): Promise<void>;
 }
 

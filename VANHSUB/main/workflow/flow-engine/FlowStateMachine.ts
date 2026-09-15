@@ -76,7 +76,36 @@ export class FlowStateMachine {
             );
           }
 
-          // 3. XỬ LÝ IDEMPOTENCY JUMP (NẾU ĐƯỢC YÊU CẦU)
+          // 3. VERIFY-AFTER-ACTION (BẮT BUỘC)
+          console.log(`[FlowStateMachine] [${ctx.taskId}#${ctx.generationAttemptId}] 🔍 VERIFY [${state.name}]...`);
+          const rawVerify = await this.withTimeout(
+            state.verify(ctx, actionRes),
+            state.timeoutMs,
+            `${state.name} verify`
+          );
+
+          const isOk = typeof rawVerify === 'boolean' ? rawVerify : Boolean(rawVerify?.ok);
+          const criteria = typeof rawVerify === 'object' && rawVerify ? rawVerify.criteria : undefined;
+
+          if (!isOk) {
+            const failReason = typeof rawVerify === 'object' ? rawVerify?.reason : undefined;
+            throw new Error(
+              `[VERIFY_FAILED] Kiểm tra trạng thái UI sau hành động tại [${state.name}] không đạt yêu cầu! ${failReason ? `Chi tiết: ${failReason}` : ''}`
+            );
+          }
+
+          if (criteria) {
+            console.log(
+              `[FlowStateMachine] [${ctx.taskId}#${ctx.generationAttemptId}] ✅ VERIFY [${state.name}]: ĐẠT CHUẨN ->`,
+              JSON.stringify(criteria)
+            );
+          } else {
+            console.log(
+              `[FlowStateMachine] [${ctx.taskId}#${ctx.generationAttemptId}] ✅ VERIFY [${state.name}]: ĐẠT CHUẨN`
+            );
+          }
+
+          // 4. XỬ LÝ IDEMPOTENCY JUMP (NẾU ĐƯỢC YÊU CẦU)
           if (actionRes.skipToState) {
             const targetName = actionRes.skipToState;
             const targetIdx = this.states.findIndex((s) => s.name === targetName);
@@ -86,7 +115,7 @@ export class FlowStateMachine {
               );
               stateRecord.exitedAt = Date.now();
               stateRecord.durationMs = stateRecord.exitedAt - stateRecord.enteredAt;
-              stateRecord.metadata = { skippedTo: targetName };
+              stateRecord.metadata = { skippedTo: targetName, criteria };
               ctx.stateHistory.push(stateRecord);
 
               // Đánh dấu các state bị bỏ qua trong lịch sử
@@ -105,23 +134,6 @@ export class FlowStateMachine {
               continue;
             }
           }
-
-          // 4. VERIFY-AFTER-ACTION (BẮT BUỘC)
-          console.log(`[FlowStateMachine] [${ctx.taskId}#${ctx.generationAttemptId}] 🔍 VERIFY [${state.name}]...`);
-          const verified = await this.withTimeout(
-            state.verify(ctx, actionRes),
-            state.timeoutMs,
-            `${state.name} verify`
-          );
-
-          if (!verified) {
-            throw new Error(
-              `[VERIFY_FAILED] Kiểm tra trạng thái UI sau hành động tại [${state.name}] không đạt yêu cầu!`
-            );
-          }
-          console.log(
-            `[FlowStateMachine] [${ctx.taskId}#${ctx.generationAttemptId}] ✅ VERIFY [${state.name}]: ĐẠT CHUẨN`
-          );
 
           // 5. EXIT
           await this.withTimeout(state.exit(ctx), state.timeoutMs, `${state.name} exit`);

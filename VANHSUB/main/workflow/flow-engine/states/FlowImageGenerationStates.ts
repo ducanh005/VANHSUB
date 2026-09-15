@@ -2,6 +2,7 @@ import type {
   FlowAutomationState,
   FlowStateContext,
   ActionResult,
+  VerifyResult,
 } from '../types';
 
 /**
@@ -52,10 +53,19 @@ export const OpenFlowState: FlowAutomationState = {
     return { ok: true };
   },
 
-  async verify(ctx: FlowStateContext): Promise<boolean> {
-    if (!ctx.win || ctx.win.isDestroyed()) return false;
-    const url = (ctx.win.webContents?.getURL?.() || '').toLowerCase();
-    return url.includes('flow.google.com');
+  async verify(ctx: FlowStateContext): Promise<VerifyResult> {
+    if (!ctx.win || ctx.win.isDestroyed()) return { ok: false, reason: 'Cửa sổ lobbyWindow đã bị đóng' };
+    const currentUrl = ctx.win.webContents?.getURL?.() || '';
+    const isAtFlow = currentUrl.toLowerCase().includes('flow.google.com');
+    return {
+      ok: isAtFlow,
+      criteria: {
+        currentUrl,
+        isAtFlow,
+        title: ctx.win.getTitle?.() || '',
+      },
+      reason: isAtFlow ? undefined : `URL hiện tại không thuộc flow.google.com: ${currentUrl}`,
+    };
   },
 
   async exit(): Promise<void> {},
@@ -85,9 +95,17 @@ export const WaitForPageReadyState: FlowAutomationState = {
     return { ok: true };
   },
 
-  async verify(ctx: FlowStateContext): Promise<boolean> {
+  async verify(ctx: FlowStateContext): Promise<VerifyResult> {
     const readyState = await safeExecuteJs<string>(ctx.win, 'document.readyState', 2000);
-    return readyState === 'complete' || readyState === 'interactive';
+    const isReady = readyState === 'complete' || readyState === 'interactive';
+    return {
+      ok: isReady,
+      criteria: {
+        readyState: readyState || 'unknown',
+        isInteractive: isReady,
+      },
+      reason: isReady ? undefined : `document.readyState chưa đạt chuẩn: ${readyState}`,
+    };
   },
 
   async exit(): Promise<void> {},
@@ -115,9 +133,22 @@ export const VerifySessionState: FlowAutomationState = {
     return { ok: true };
   },
 
-  async verify(ctx: FlowStateContext): Promise<boolean> {
+  async verify(ctx: FlowStateContext): Promise<VerifyResult> {
     const currentUrl = (ctx.win.webContents?.getURL?.() || '').toLowerCase();
-    return !currentUrl.includes('accounts.google.com') && currentUrl.includes('flow.google.com');
+    const notInLogin = !currentUrl.includes('accounts.google.com') && !currentUrl.includes('servicelogin');
+    const isFlow = currentUrl.includes('flow.google.com');
+    const status = ctx.sessionMgr.getStatus();
+    const ok = notInLogin && isFlow;
+    return {
+      ok,
+      criteria: {
+        sessionStatus: status.sessionStatus,
+        hasActiveSession: status.hasSession,
+        notInLoginFlow: notInLogin,
+        antiSpamAllowed: status.antiSpam?.allowed,
+      },
+      reason: ok ? undefined : 'Phiên đăng nhập không hợp lệ hoặc đang ở trang login của Google',
+    };
   },
 
   async exit(): Promise<void> {},
@@ -153,9 +184,18 @@ export const EnsureProjectContextState: FlowAutomationState = {
     return { ok: true, data: { projectId: ctx.activeProjectId } };
   },
 
-  async verify(ctx: FlowStateContext): Promise<boolean> {
+  async verify(ctx: FlowStateContext): Promise<VerifyResult> {
     const currentUrl = ctx.win.webContents?.getURL?.() || '';
-    return currentUrl.includes('/project/');
+    const inProject = currentUrl.includes('/project/');
+    return {
+      ok: inProject,
+      criteria: {
+        activeProjectId: ctx.activeProjectId || 'unknown',
+        urlMatchesProject: inProject,
+        currentUrl,
+      },
+      reason: inProject ? undefined : `URL không nằm trong workspace dự án: ${currentUrl}`,
+    };
   },
 
   async exit(): Promise<void> {},
@@ -186,18 +226,34 @@ export const CleanCanvasState: FlowAutomationState = {
     return { ok: true };
   },
 
-  async verify(ctx: FlowStateContext): Promise<boolean> {
+  async verify(ctx: FlowStateContext): Promise<VerifyResult> {
     const checkPromptJs = `
       (function() {
-        const promptBox = document.querySelector('flow-prompt-box, flow-base-prompt-box, .prompt-box-container');
-        const promptEl = promptBox ? promptBox.querySelector('.ProseMirror, [contenteditable="true"], textarea') : null;
-        if (!promptEl) return false;
+        const promptBox = document.querySelector('flow-prompt-box, flow-base-prompt-box, flow-creative-agent-prompt-box, .prompt-box-container, .base-prompt-box') || document;
+        const promptEl = promptBox ? promptBox.querySelector('.ProseMirror, [contenteditable="true"], textarea:not(.g-recaptcha-response), input[type="text"]') : null;
+        if (!promptEl) return { ok: false, reason: 'no_prompt_el' };
         const rect = promptEl.getBoundingClientRect();
-        return rect && rect.width > 0 && rect.height > 0;
+        const text = (promptEl.innerText || promptEl.textContent || promptEl.value || '').trim();
+        return {
+          ok: rect && rect.width > 0 && rect.height > 0,
+          canFocus: rect && rect.width > 0,
+          textLen: text.length,
+          coords: { x: Math.round(rect.x + rect.width / 2), y: Math.round(rect.y + rect.height / 2) }
+        };
       })()
     `;
-    const promptReady = await safeExecuteJs<boolean>(ctx.win, checkPromptJs, 3000);
-    return Boolean(promptReady);
+    const res = await safeExecuteJs<any>(ctx.win, checkPromptJs, 3000);
+    const ok = Boolean(res?.ok);
+    return {
+      ok,
+      criteria: {
+        promptReady: ok,
+        canFocus: Boolean(res?.canFocus),
+        textLen: res?.textLen ?? 0,
+        coords: res?.coords || null,
+      },
+      reason: ok ? undefined : 'Ô soạn thảo prompt chưa sẵn sàng hoặc không thể focus',
+    };
   },
 
   async exit(): Promise<void> {},
@@ -226,13 +282,21 @@ export const FindEditorState: FlowAutomationState = {
     return { ok: Boolean(found) };
   },
 
-  async verify(ctx: FlowStateContext): Promise<boolean> {
+  async verify(ctx: FlowStateContext): Promise<VerifyResult> {
     const isPresent = await safeExecuteJs<boolean>(
       ctx.win,
-      `Boolean(document.querySelector('flow-prompt-box, flow-base-prompt-box, .prompt-box-container'))`,
+      `Boolean(document.querySelector('flow-prompt-box, flow-base-prompt-box, flow-creative-agent-prompt-box, .prompt-box-container, .base-prompt-box'))`,
       2000
     );
-    return Boolean(isPresent);
+    const ok = Boolean(isPresent);
+    return {
+      ok,
+      criteria: {
+        editorContainerFound: ok,
+        selector: 'flow-prompt-box, flow-creative-agent-prompt-box',
+      },
+      reason: ok ? undefined : 'Không tìm thấy khung chứa prompt editor trên DOM',
+    };
   },
 
   async exit(): Promise<void> {},
@@ -281,13 +345,30 @@ export const FindPromptInputState: FlowAutomationState = {
     return { ok: Boolean(res?.ok), data: res };
   },
 
-  async verify(ctx: FlowStateContext): Promise<boolean> {
-    const isFocused = await safeExecuteJs<boolean>(
-      ctx.win,
-      `Boolean(document.activeElement && (document.activeElement.isContentEditable || document.activeElement.tagName === 'TEXTAREA' || document.activeElement.classList.contains('ProseMirror')))`,
-      2000
-    );
-    return Boolean(isFocused);
+  async verify(ctx: FlowStateContext): Promise<VerifyResult> {
+    const checkFocusJs = `
+      (function() {
+        const el = document.activeElement;
+        if (!el) return { ok: false };
+        const isEditable = el.isContentEditable || el.tagName === 'TEXTAREA' || el.tagName === 'INPUT';
+        return {
+          ok: isEditable,
+          tagName: el.tagName,
+          isContentEditable: Boolean(el.isContentEditable)
+        };
+      })()
+    `;
+    const res = await safeExecuteJs<any>(ctx.win, checkFocusJs, 2000);
+    const ok = Boolean(res?.ok);
+    return {
+      ok,
+      criteria: {
+        activeElementIsEditable: ok,
+        tagName: res?.tagName || 'none',
+        isContentEditable: Boolean(res?.isContentEditable),
+      },
+      reason: ok ? undefined : 'Active element hiện tại không phải ô nhập liệu văn bản',
+    };
   },
 
   async exit(): Promise<void> {},
@@ -384,7 +465,7 @@ export const EnterPromptState: FlowAutomationState = {
     return { ok: Boolean(fillRes?.ok) };
   },
 
-  async verify(ctx: FlowStateContext): Promise<boolean> {
+  async verify(ctx: FlowStateContext): Promise<VerifyResult> {
     // BẮT BUỘC: Đọc lại text từ editor để đảm bảo prompt thực sự đã được điền
     const readPromptJs = `
       (function() {
@@ -392,12 +473,30 @@ export const EnterPromptState: FlowAutomationState = {
           'flow-prompt-box, flow-base-prompt-box, flow-creative-agent-prompt-box, .prompt-box-container, .base-prompt-box'
         ) || document;
         const promptEl = promptBox.querySelector('.ProseMirror, [contenteditable="true"], textarea:not(.g-recaptcha-response), input[type="text"]');
-        const text = promptEl ? (promptEl.innerText || promptEl.textContent || promptEl.value || '').trim() : '';
-        return text.length;
+        if (!promptEl) return { ok: false, reason: 'no_prompt_el' };
+        const text = (promptEl.innerText || promptEl.textContent || promptEl.value || '').trim();
+        const isFocused = document.activeElement === promptEl || promptEl.contains(document.activeElement);
+        return {
+          ok: text.length > 0,
+          textLength: text.length,
+          sample: text.slice(0, 45) + (text.length > 45 ? '...' : ''),
+          isFocused,
+          tagName: promptEl.tagName
+        };
       })()
     `;
-    const textLen = (await safeExecuteJs<number>(ctx.win, readPromptJs, 2000)) || 0;
-    return textLen > 0;
+    const res = await safeExecuteJs<any>(ctx.win, readPromptJs, 2000);
+    const ok = Boolean(res?.ok && res.textLength > 0);
+    return {
+      ok,
+      criteria: {
+        textLength: res?.textLength || 0,
+        sample: res?.sample || '',
+        isFocused: Boolean(res?.isFocused),
+        elementTag: res?.tagName || 'none',
+      },
+      reason: ok ? undefined : 'Nội dung prompt đọc lại từ DOM đang rỗng hoặc không tìm thấy ô nhập',
+    };
   },
 
   async exit(): Promise<void> {},
@@ -424,21 +523,35 @@ export const ConfigureOptionsState: FlowAutomationState = {
     return { ok: true };
   },
 
-  async verify(ctx: FlowStateContext): Promise<boolean> {
+  async verify(ctx: FlowStateContext): Promise<VerifyResult> {
     const verifySettingsJs = `
       (function() {
         try {
           const raw = localStorage.getItem('flow-prompt-box-settings');
           if (raw) {
             const parsed = JSON.parse(raw);
-            return parsed.mode === 'IMAGE';
+            return {
+              ok: parsed.mode === 'IMAGE',
+              mode: parsed.mode,
+              outputCount: parsed.Qp || parsed.outputCount || 1,
+              aspectRatio: parsed.aspectRatio || 'LANDSCAPE',
+            };
           }
         } catch (e) {}
-        return true;
+        return { ok: true, mode: 'IMAGE', outputCount: 1, aspectRatio: 'LANDSCAPE' };
       })()
     `;
-    const verified = await safeExecuteJs<boolean>(ctx.win, verifySettingsJs, 2000);
-    return Boolean(verified);
+    const res = await safeExecuteJs<any>(ctx.win, verifySettingsJs, 2000);
+    const ok = Boolean(res?.ok);
+    return {
+      ok,
+      criteria: {
+        mode: res?.mode || 'IMAGE',
+        outputCount: res?.outputCount || ctx.outputCount || 1,
+        aspectRatio: res?.aspectRatio || ctx.aspectRatio || '16:9',
+      },
+      reason: ok ? undefined : 'Thiết lập mode trong LocalStorage không phải IMAGE',
+    };
   },
 
   async exit(): Promise<void> {},
@@ -479,8 +592,9 @@ export const CaptureBaselineState: FlowAutomationState = {
     const netFilter = { urls: ['*://*/*'] };
 
     ctx.onResponseStartedHandler = (details: any) => {
-      if (!ctx.generateClickedAt || Date.now() < ctx.generateClickedAt) return;
-      const elapsed = Date.now() - ctx.generateClickedAt;
+      const refTime = ctx.generateClickedAt || ctx.idempotencyDetectedAt;
+      if (!refTime || Date.now() < refTime) return;
+      const elapsed = Date.now() - refTime;
       if (elapsed < 5000) return; // Time Gate ảnh tối thiểu 5s
 
       const url = details.url || '';
@@ -521,8 +635,16 @@ export const CaptureBaselineState: FlowAutomationState = {
     return { ok: true, data: { baselineCount: baselineList.length } };
   },
 
-  async verify(ctx: FlowStateContext): Promise<boolean> {
-    return ctx.netFilterAttached && ctx.baselineUrls instanceof Set;
+  async verify(ctx: FlowStateContext): Promise<VerifyResult> {
+    const ok = Boolean(ctx.netFilterAttached && ctx.baselineUrls instanceof Set);
+    return {
+      ok,
+      criteria: {
+        baselineSnapshotCount: ctx.baselineUrls?.size ?? 0,
+        netFilterAttached: ctx.netFilterAttached,
+      },
+      reason: ok ? undefined : 'Chưa gắn được network listener hoặc baseline snapshot rỗng',
+    };
   },
 
   async exit(): Promise<void> {},
@@ -595,6 +717,23 @@ export const FindGenerateButtonState: FlowAutomationState = {
       if (res?.found) {
         return { ok: true, data: res };
       }
+      // Fallback: Kiểm tra xem có đang trong quá trình sinh ảnh không
+      const checkGenJs = `
+        Boolean(document.querySelector(
+          'flow-loading-indicator, flow-progress-bar, mat-progress-spinner, mat-spinner, .generation-in-progress, flow-card[state="generating"], .loading-spinner, flow-generating-card, flow-border-glow.loop'
+        ))
+      `;
+      const isGenerating = await safeExecuteJs<boolean>(ctx.win, checkGenJs, 1000);
+      if (isGenerating) {
+        console.warn(
+          `[FlowStateMachine] [${ctx.taskId}#${ctx.generationAttemptId}] ⚠️ FIND_GENERATE_BUTTON: Phát hiện tiến trình sinh đang chạy thay vì nút bấm! Kích hoạt Idempotency fallback...`
+        );
+        return {
+          ok: true,
+          skipToState: 'WAIT_FOR_GENERATION',
+          data: { decision: 'ALREADY_GENERATING_FALLBACK', found: false },
+        };
+      }
       await new Promise((r) => setTimeout(r, 300));
     }
 
@@ -605,8 +744,18 @@ export const FindGenerateButtonState: FlowAutomationState = {
     };
   },
 
-  async verify(ctx: FlowStateContext, res: ActionResult): Promise<boolean> {
-    return Boolean(res.ok && res.data?.found);
+  async verify(ctx: FlowStateContext, res: ActionResult): Promise<VerifyResult> {
+    const found = Boolean(res.ok && res.data?.found);
+    return {
+      ok: found,
+      criteria: {
+        buttonFound: found,
+        label: res.data?.label || '',
+        rect: res.data?.rect || null,
+        className: (res.data?.className || '').slice(0, 50),
+      },
+      reason: found ? undefined : 'Không tìm thấy nút Generate trên UI Google Flow',
+    };
   },
 
   async exit(): Promise<void> {},
@@ -637,7 +786,8 @@ export const VerifyGenerateButtonState: FlowAutomationState = {
           visible: isVisible,
           enabled: isEnabled,
           disabledAttr: btn.disabled,
-          ariaDisabled: btn.getAttribute('aria-disabled')
+          ariaDisabled: btn.getAttribute('aria-disabled'),
+          rect: { x: Math.round(rect.x), y: Math.round(rect.y), w: Math.round(rect.width), h: Math.round(rect.height) }
         };
       })()
     `;
@@ -653,8 +803,18 @@ export const VerifyGenerateButtonState: FlowAutomationState = {
     return { ok: false, error: 'button_not_ready', errorDetail: 'Nút Generate không sẵn sàng hoặc bị che khuất.' };
   },
 
-  async verify(ctx: FlowStateContext, res: ActionResult): Promise<boolean> {
-    return Boolean(res.ok && res.data?.visible);
+  async verify(ctx: FlowStateContext, res: ActionResult): Promise<VerifyResult> {
+    const isVisible = Boolean(res.ok && res.data?.visible);
+    return {
+      ok: isVisible,
+      criteria: {
+        isVisible,
+        isEnabled: Boolean(res.data?.enabled),
+        ariaDisabled: res.data?.ariaDisabled || 'false',
+        rect: res.data?.rect || null,
+      },
+      reason: isVisible ? undefined : 'Nút Generate bị ẩn hoặc không thể tương tác',
+    };
   },
 
   async exit(): Promise<void> {},
@@ -673,42 +833,84 @@ export const CheckIdempotencyBeforeGenerateState: FlowAutomationState = {
   async execute(ctx: FlowStateContext): Promise<ActionResult> {
     const checkStateJs = `
       (function() {
-        const promptBox = document.querySelector('flow-prompt-box, flow-base-prompt-box, .prompt-box-container');
-        const promptEl = promptBox ? promptBox.querySelector('.ProseMirror, [contenteditable="true"], textarea') : null;
+        const promptBox = document.querySelector('flow-prompt-box, flow-base-prompt-box, flow-creative-agent-prompt-box, .prompt-box-container, .base-prompt-box') || document;
+        const promptEl = promptBox.querySelector('.ProseMirror, [contenteditable="true"], textarea:not(.g-recaptcha-response), input[type="text"]');
         const currentText = promptEl ? (promptEl.innerText || promptEl.textContent || promptEl.value || '').trim() : '';
 
+        // 1. Quét các chỉ báo spinner, progress bar, border glow đang thực sự chạy
         const hasSpinner = Boolean(document.querySelector(
-          'flow-loading-indicator, flow-progress-bar, mat-progress-spinner, mat-spinner, .generation-in-progress, [role="progressbar"], flow-card[state="generating"], .loading-spinner'
+          'flow-loading-indicator, flow-progress-bar, mat-progress-spinner, mat-spinner, .generation-in-progress, flow-card[state="generating"], .loading-spinner, flow-generating-card, flow-border-glow.loop'
         ));
 
-        const btnDisabled = Boolean(document.querySelector(
-          'flow-generate-icon-button button[disabled], button.generate-icon-button[disabled], button[aria-disabled="true"]'
-        ));
+        // 2. Quét trạng thái nút Generate: disabled hoặc đã bị ẩn khỏi DOM
+        const genBtn = document.querySelector(
+          'button.generate-icon-button, flow-generate-icon-button button, button[aria-label*="Bắt đầu tạo" i], button[aria-label*="Start generation" i], button[aria-label*="Tạo ảnh" i], button[aria-label*="Generate" i], button[type="submit"]'
+        );
+        const hasGenBtn = Boolean(genBtn);
+        const btnDisabled = genBtn ? (genBtn.disabled || genBtn.getAttribute('aria-disabled') === 'true' || genBtn.classList.contains('mat-mdc-button-disabled')) : false;
+
+        // 3. Quét các card đang sinh trên giao diện
+        const cards = Array.from(document.querySelectorAll('flow-media-card, flow-image-card, flow-card, flow-chat-item'));
+        const hasGeneratingCard = cards.some(c => {
+          const state = c.getAttribute('state') || '';
+          const cls = c.className || '';
+          return state.includes('generating') || cls.includes('generating') || Boolean(c.querySelector('mat-progress-spinner, [role="progressbar"], flow-loading-indicator'));
+        });
 
         return {
           isCleared: currentText.length === 0,
+          textLen: currentText.length,
           hasSpinner,
+          hasGeneratingCard,
+          hasGenBtn,
           btnDisabled
         };
       })()
     `;
     const status = await safeExecuteJs<any>(ctx.win, checkStateJs, 2500);
 
-    // Nếu đã có spinner hoặc nút đang ở trạng thái disabled sinh -> Chuyển thẳng sang WAIT_FOR_GENERATION!
-    if (status?.hasSpinner || (status?.isCleared && status?.btnDisabled)) {
+    const isAlreadyGenerating = Boolean(
+      status?.hasSpinner ||
+      status?.hasGeneratingCard ||
+      (status?.isCleared && status?.btnDisabled)
+    );
+
+    // Nếu đã có spinner hoặc card đang tạo hoặc nút bị disabled/biến mất -> Chuyển thẳng sang WAIT_FOR_GENERATION!
+    if (isAlreadyGenerating) {
       console.warn(
-        `[FlowStateMachine] [${ctx.taskId}#${ctx.generationAttemptId}] ⚠️ IDEMPOTENCY: Google Flow đã bắt đầu sinh từ trước! Bỏ qua CLICK_GENERATE để chống trùng lặp!`
+        `[FlowStateMachine] [${ctx.taskId}#${ctx.generationAttemptId}] ⚠️ IDEMPOTENCY: Google Flow đã bắt đầu sinh từ trước! Bỏ qua CLICK_GENERATE để chống trùng lặp! Tiêu chí phát hiện:`,
+        status
       );
       ctx.generationState = 'GENERATING';
-      return { ok: true, skipToState: 'WAIT_FOR_GENERATION' };
+      ctx.idempotencyDetectedAt = Date.now();
+      return {
+        ok: true,
+        skipToState: 'WAIT_FOR_GENERATION',
+        data: { ...status, decision: 'ALREADY_GENERATING_SKIP_CLICK' },
+      };
     }
 
     ctx.generationState = 'READY';
-    return { ok: true };
+    return {
+      ok: true,
+      data: { ...status, decision: 'SAFE_TO_GENERATE' },
+    };
   },
 
-  async verify(): Promise<boolean> {
-    return true;
+  async verify(ctx: FlowStateContext, res: ActionResult): Promise<VerifyResult> {
+    const data = res.data || {};
+    return {
+      ok: true,
+      criteria: {
+        textLen: data.textLen ?? 0,
+        isCleared: Boolean(data.isCleared),
+        hasSpinner: Boolean(data.hasSpinner),
+        hasGeneratingCard: Boolean(data.hasGeneratingCard),
+        hasGenBtn: Boolean(data.hasGenBtn),
+        btnDisabled: Boolean(data.btnDisabled),
+        decision: data.decision || 'SAFE_TO_GENERATE',
+      },
+    };
   },
 
   async exit(): Promise<void> {},
@@ -846,12 +1048,23 @@ export const ClickGenerateState: FlowAutomationState = {
     }
 
     ctx.generateClickedAt = Date.now();
+    ctx.nativeClicksCount = (ctx.nativeClicksCount || 0) + 1;
     ctx.generationState = 'STARTING';
     return { ok: true, data: clickInfo };
   },
 
-  async verify(ctx: FlowStateContext): Promise<boolean> {
-    return ctx.generateClickedAt > 0;
+  async verify(ctx: FlowStateContext, res: ActionResult): Promise<VerifyResult> {
+    const ok = ctx.generateClickedAt > 0;
+    return {
+      ok,
+      criteria: {
+        nativeClickDispatched: ok,
+        nativeClicksCount: ctx.nativeClicksCount || 1,
+        coordinates: res.data?.coords || null,
+        clickedAt: ctx.generateClickedAt,
+      },
+      reason: ok ? undefined : 'Chưa ghi nhận thời điểm click native',
+    };
   },
 
   async exit(): Promise<void> {},
@@ -899,9 +1112,11 @@ export const VerifyGenerationStartedState: FlowAutomationState = {
     `;
 
     let started = false;
+    let lastStatus: any = null;
     for (let i = 0; i < 15; i++) {
       await new Promise((r) => setTimeout(r, 300));
       const status = await safeExecuteJs<any>(ctx.win, checkStartedJs, 1500);
+      lastStatus = status;
       if (status?.isCleared || status?.hasSpinner || status?.btnDisabled) {
         started = true;
         console.log(
@@ -925,17 +1140,27 @@ export const VerifyGenerationStartedState: FlowAutomationState = {
       await new Promise((r) => setTimeout(r, 1200));
 
       const recheck = await safeExecuteJs<any>(ctx.win, checkStartedJs, 1500);
+      lastStatus = recheck;
       if (recheck?.isCleared || recheck?.hasSpinner || recheck?.btnDisabled) {
         started = true;
       }
     }
 
     ctx.generationState = started ? 'GENERATING' : 'STARTING';
-    return { ok: started };
+    return { ok: started, data: lastStatus };
   },
 
-  async verify(ctx: FlowStateContext, res: ActionResult): Promise<boolean> {
-    return Boolean(res.ok);
+  async verify(ctx: FlowStateContext, res: ActionResult): Promise<VerifyResult> {
+    const ok = Boolean(res.ok);
+    return {
+      ok,
+      criteria: {
+        generationStarted: ok,
+        generationState: ctx.generationState,
+        signalStatus: res.data || 'cleared_or_spinner_detected',
+      },
+      reason: ok ? undefined : 'Google Flow không phản hồi tín hiệu bắt đầu sinh (prompt không xóa, không có spinner)',
+    };
   },
 
   async exit(): Promise<void> {},
@@ -1004,7 +1229,8 @@ export const WaitForGenerationState: FlowAutomationState = {
         return { ok: false, error: 'agent_error', errorDetail: agentStatus };
       }
 
-      const elapsedSinceClick = Date.now() - ctx.generateClickedAt;
+      const refTime = ctx.generateClickedAt || (ctx.idempotencyDetectedAt ? ctx.idempotencyDetectedAt - 5000 : 0);
+      const elapsedSinceClick = refTime ? Date.now() - refTime : 6000;
       const minImageTimeGate = 4000; // Tối thiểu 4s mới chấp nhận ảnh thật
 
       const domResult = await safeExecuteJs<any>(ctx.win, pollDomImageJs, 3000);
@@ -1014,12 +1240,12 @@ export const WaitForGenerationState: FlowAutomationState = {
 
       if (foundUrl) {
         ctx.capturedMediaUrl = foundUrl;
-        return { ok: true, data: { imageUrl: foundUrl } };
+        return { ok: true, data: { imageUrl: foundUrl, elapsedSec: Math.round(elapsedSinceClick / 1000) } };
       }
 
       if (domResult?.type === 'blob' && domResult?.base64Data && elapsedSinceClick >= minImageTimeGate) {
         ctx.capturedBase64 = domResult.base64Data;
-        return { ok: true, data: { base64Data: domResult.base64Data } };
+        return { ok: true, data: { base64Data: domResult.base64Data, elapsedSec: Math.round(elapsedSinceClick / 1000) } };
       }
 
       await new Promise((r) => setTimeout(r, pollIntervalMs));
@@ -1031,8 +1257,18 @@ export const WaitForGenerationState: FlowAutomationState = {
     return { ok: false, error: 'generation_timeout', errorDetail: 'Quá thời gian chờ ảnh từ Google Flow.' };
   },
 
-  async verify(ctx: FlowStateContext, res: ActionResult): Promise<boolean> {
-    return Boolean(res.ok && (ctx.capturedMediaUrl || ctx.capturedBase64));
+  async verify(ctx: FlowStateContext, res: ActionResult): Promise<VerifyResult> {
+    const hasMedia = Boolean(res.ok && (ctx.capturedMediaUrl || ctx.capturedBase64));
+    return {
+      ok: hasMedia,
+      criteria: {
+        mediaCaptured: hasMedia,
+        mediaType: ctx.capturedMediaUrl ? 'URL' : 'BASE64',
+        urlPreview: ctx.capturedMediaUrl ? ctx.capturedMediaUrl.slice(0, 70) + '...' : undefined,
+        base64Length: ctx.capturedBase64 ? ctx.capturedBase64.length : undefined,
+      },
+      reason: hasMedia ? undefined : 'Không thu thập được ảnh kết quả hợp lệ sau thời gian chờ',
+    };
   },
 
   async exit(): Promise<void> {},
@@ -1057,8 +1293,19 @@ export const VerifyGenerationCompletedState: FlowAutomationState = {
     return { ok: true };
   },
 
-  async verify(ctx: FlowStateContext): Promise<boolean> {
-    return ctx.generationState === 'COMPLETED';
+  async verify(ctx: FlowStateContext): Promise<VerifyResult> {
+    const isCompleted = ctx.generationState === 'COMPLETED';
+    const hasMedia = Boolean(ctx.capturedMediaUrl || ctx.capturedBase64);
+    const ok = isCompleted && hasMedia;
+    return {
+      ok,
+      criteria: {
+        generationState: ctx.generationState,
+        hasResultUrl: Boolean(ctx.capturedMediaUrl),
+        hasResultBase64: Boolean(ctx.capturedBase64),
+      },
+      reason: ok ? undefined : 'Trạng thái thế hệ không phải COMPLETED hoặc dữ liệu ảnh rỗng',
+    };
   },
 
   async exit(): Promise<void> {},
@@ -1121,8 +1368,18 @@ export const ExtractOutputState: FlowAutomationState = {
     return { ok: true, data: ctx.result };
   },
 
-  async verify(ctx: FlowStateContext): Promise<boolean> {
-    return Boolean(ctx.result?.imageUrl || ctx.result?.base64Data);
+  async verify(ctx: FlowStateContext): Promise<VerifyResult> {
+    const hasOutput = Boolean(ctx.result?.imageUrl || ctx.result?.base64Data);
+    return {
+      ok: hasOutput,
+      criteria: {
+        outputExtracted: hasOutput,
+        hasImageUrl: Boolean(ctx.result?.imageUrl),
+        base64Length: ctx.result?.base64Data ? ctx.result.base64Data.length : 0,
+        projectId: ctx.result?.projectId || ctx.activeProjectId || 'unknown',
+      },
+      reason: hasOutput ? undefined : 'Không trích xuất được ImageUrl hoặc Base64 từ kết quả sinh',
+    };
   },
 
   async exit(): Promise<void> {},
@@ -1142,9 +1399,9 @@ export const FlowImageGenerationStatePipeline: FlowAutomationState[] = [
   EnterPromptState,
   ConfigureOptionsState,
   CaptureBaselineState,
+  CheckIdempotencyBeforeGenerateState,
   FindGenerateButtonState,
   VerifyGenerateButtonState,
-  CheckIdempotencyBeforeGenerateState,
   ClickGenerateState,
   VerifyGenerationStartedState,
   WaitForGenerationState,
