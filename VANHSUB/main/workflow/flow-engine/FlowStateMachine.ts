@@ -26,6 +26,7 @@ export class FlowStateMachine {
    */
   public async run(ctx: FlowStateContext): Promise<FlowAutomationResult> {
     const overallStartTime = Date.now();
+    ctx.stateHistory = ctx.stateHistory || [];
     console.log(
       `[FlowStateMachine] 🚀 Khởi chạy State Machine cho tác vụ ${ctx.mode.toUpperCase()}: taskId=${ctx.taskId}, attempt=${ctx.generationAttemptId}`
     );

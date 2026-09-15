@@ -87,6 +87,15 @@ export class FlowElementFinder {
               const valid = els.filter(isVisible);
               if (valid.length === 0) return null;
 
+              // Ưu tiên phần tử nằm trọn vẹn trong viewport nhìn thấy được
+              valid.sort((a, b) => {
+                const ra = a.getBoundingClientRect();
+                const rb = b.getBoundingClientRect();
+                const aInView = (ra.left >= 0 && ra.right <= window.innerWidth && ra.top >= 0 && ra.bottom <= window.innerHeight) ? 1 : 0;
+                const bInView = (rb.left >= 0 && rb.right <= window.innerWidth && rb.top >= 0 && rb.bottom <= window.innerHeight) ? 1 : 0;
+                return bInView - aInView;
+              });
+
               const target = valid[0];
               const rect = target.getBoundingClientRect();
               return {
@@ -234,7 +243,9 @@ export class FlowElementFinder {
           strategy: 'ACCESSIBILITY',
           baseConfidence: 95,
           selectors: [
+            'flow-prompt-box button[aria-label*="Bắt đầu tạo" i]',
             'button[aria-label*="Bắt đầu tạo" i]',
+            'flow-prompt-box button[aria-label*="Start generation" i]',
             'button[aria-label*="Start generation" i]',
             'button[aria-label*="Tạo ảnh" i]',
             'button[aria-label*="Generate image" i]',
@@ -246,6 +257,8 @@ export class FlowElementFinder {
           strategy: 'STRICT_COMPONENT',
           baseConfidence: 88,
           selectors: [
+            'flow-prompt-box button.mat-mdc-icon-button',
+            'flow-prompt-box button.mdc-icon-button',
             'button.generate-icon-button',
             'flow-generate-icon-button button',
             'flow-generate-button button',
@@ -256,6 +269,7 @@ export class FlowElementFinder {
           strategy: 'CONTEXTUAL',
           baseConfidence: 78,
           selectors: [
+            'flow-prompt-box button:has(mat-icon)',
             'flow-prompt-box button[type="submit"]',
             'flow-base-prompt-box button[type="submit"]',
             '.prompt-box-container button[type="submit"]',

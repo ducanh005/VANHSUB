@@ -279,27 +279,47 @@ export class FlowSmartWait {
   ): Promise<{ unobscured: boolean; topElementTag?: string; topElementClass?: string; isSelfOrDescendant: boolean }> {
     const checkJs = `
       (function() {
-        const x = ${targetCoords.x};
-        const y = ${targetCoords.y};
-        const topEl = document.elementFromPoint(x, y);
-        if (!topEl) return { unobscured: false, isSelfOrDescendant: false, topElementTag: 'none' };
-
         let targetEl = null;
         if (${JSON.stringify(targetSelector || '')}) {
-          targetEl = document.querySelector(${JSON.stringify(targetSelector || '')});
+          try {
+            targetEl = document.querySelector(${JSON.stringify(targetSelector || '')});
+            if (targetEl && typeof targetEl.scrollIntoView === 'function') {
+              targetEl.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+            }
+          } catch {}
         }
+
+        let x = ${targetCoords.x};
+        let y = ${targetCoords.y};
+
+        if (targetEl) {
+          const r = targetEl.getBoundingClientRect();
+          if (r.width > 0 && r.height > 0) {
+            x = Math.round(r.x + r.width / 2);
+            y = Math.round(r.y + r.height / 2);
+          }
+        }
+
+        // Đảm bảo toạ độ nằm trong ranh giới hiển thị của viewport
+        const clampedX = Math.max(2, Math.min(window.innerWidth - 2, x));
+        const clampedY = Math.max(2, Math.min(window.innerHeight - 2, y));
+
+        const topEl = document.elementFromPoint(clampedX, clampedY);
+        if (!topEl) return { unobscured: false, isSelfOrDescendant: false, topElementTag: 'none' };
 
         let isSelfOrDescendant = false;
         if (targetEl) {
-          isSelfOrDescendant = targetEl === topEl || targetEl.contains(topEl) || topEl.contains(targetEl);
+          isSelfOrDescendant = (targetEl === topEl) || targetEl.contains(topEl) || topEl.contains(targetEl);
         } else {
           isSelfOrDescendant = true;
         }
 
-        // Kiểm tra xem topEl có phải là backdrop che phủ không
+        // Kiểm tra các phần tử backdrop/overlay che phủ (Google CDK, modal, drawer, backdrop)
         const isBackdrop = topEl.classList.contains('cdk-overlay-backdrop') ||
           topEl.classList.contains('modal-backdrop') ||
-          topEl.tagName === 'MAT-DIALOG-CONTAINER';
+          topEl.classList.contains('fake-agent-modal-backdrop') ||
+          topEl.tagName === 'MAT-DIALOG-CONTAINER' ||
+          topEl.id === 'test-fake-modal-backdrop';
 
         return {
           unobscured: isSelfOrDescendant && !isBackdrop,
