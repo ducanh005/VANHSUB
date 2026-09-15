@@ -45,8 +45,9 @@ export class GoogleFlowVideoAdapter implements NodeAdapter {
     }
 
     const aspectRatio = nodeConfig.aspectRatio || context.inputs?.aspectRatio || '16:9';
-    const durationSeconds = nodeConfig.durationSeconds || context.inputs?.durationSeconds || 5;
-    const modelVariant = nodeConfig.modelVariant || context.inputs?.modelVariant || 'veo-3.1-quality';
+    const rawDur = Number(nodeConfig.durationSeconds || context.inputs?.durationSeconds || 4);
+    const durationSeconds = rawDur <= 5 ? 4 : rawDur <= 7 ? 6 : rawDur <= 9 ? 8 : 10;
+    const modelVariant = nodeConfig.modelVariant || context.inputs?.modelVariant || 'omni-flash';
     const outputCount = nodeConfig.outputCount || 1;
 
     let retryCount = 0;

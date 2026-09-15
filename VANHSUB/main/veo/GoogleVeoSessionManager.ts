@@ -2,6 +2,11 @@ import path from 'path';
 import https from 'https';
 import { SettingsStore } from '../store/settingsStore';
 import { GoogleVeoAntiSpamGuard } from './GoogleVeoAntiSpamGuard';
+import {
+  FlowStateMachine,
+  FlowImageGenerationStatePipeline,
+  type FlowStateContext,
+} from '../workflow/flow-engine';
 import type {
   VeoMode,
   VeoSessionStatus,
@@ -39,9 +44,18 @@ export class GoogleVeoSessionManager {
   private lobbyWindow: any = null;
   private isLobbyDebugVisible = false;
   private _webRequestListenerAttached = false;
+  private currentProjectId: string | null = null;
   private lastPermissionConfirmedAt = 0;
 
   private constructor() {}
+
+  public getCurrentProjectId(): string | null {
+    return this.currentProjectId;
+  }
+
+  public setCurrentProjectId(id: string | null): void {
+    this.currentProjectId = id;
+  }
 
   static getInstance(): GoogleVeoSessionManager {
     if (!this.instance) {
@@ -208,6 +222,7 @@ export class GoogleVeoSessionManager {
         partition: 'persist:google_veo',
         nodeIntegration: false,
         contextIsolation: true,
+        backgroundThrottling: false,
       },
     });
 
@@ -691,7 +706,7 @@ export class GoogleVeoSessionManager {
   /**
    * Thực thi JavaScript an toàn với Hard Watchdog timeout (tránh vĩnh viễn lỗi Mojo interface hang)
    */
-  private async safeExecuteJs<T = any>(win: any, js: string, timeoutMs = 6000): Promise<T | null> {
+  public async safeExecuteJs<T = any>(win: any, js: string, timeoutMs = 6000): Promise<T | null> {
     if (!win || win.isDestroyed()) return null;
     try {
       const execPromise = win.webContents.executeJavaScript(js, true);
@@ -712,7 +727,7 @@ export class GoogleVeoSessionManager {
   /**
    * Đảm bảo lobby window đang mở và đã ở trang Google Flow (https://flow.google.com).
    */
-  private async ensureLobbyAtFlow(): Promise<boolean> {
+  public async ensureLobbyAtFlow(): Promise<boolean> {
     let electron: any;
     try {
       electron = require('electron');
@@ -1039,7 +1054,13 @@ export class GoogleVeoSessionManager {
       `;
       const isReady = await this.safeExecuteJs<boolean>(targetWin, checkReadyJs, 2000);
       if (isReady) {
-        console.log(`[Google Flow Browser] ✅ Dự án mới đã sẵn sàng sau ${i + 1}s:`, targetWin.webContents.getURL());
+        const pageUrl = (await this.safeExecuteJs<string>(targetWin, 'window.location.href', 1500)) || targetWin.webContents?.getURL?.() || '';
+        const match = pageUrl.match(/\/project\/([a-zA-Z0-9_-]+)/);
+        if (match && match[1]) {
+          this.currentProjectId = match[1];
+          console.log(`[Google Flow Browser] 📌 Đã lưu currentProjectId mới: ${this.currentProjectId}`);
+        }
+        console.log(`[Google Flow Browser] ✅ Dự án mới đã sẵn sàng sau ${i + 1}s:`, pageUrl);
         await new Promise((r) => setTimeout(r, 1000));
         return true;
       }
@@ -1052,9 +1073,10 @@ export class GoogleVeoSessionManager {
   /**
    * Đảm bảo cửa sổ Flow đang ở đúng project context mong muốn:
    * - Nếu targetProjectId được truyền vào: Điều hướng/giữ nguyên đúng project đó.
-   * - Nếu targetProjectId KHÔNG được truyền vào: Bắt buộc tạo project mới sạch sẽ, không dùng project cũ.
+   * - Nếu targetProjectId KHÔNG được truyền vào: Kiểm tra nếu cửa sổ đang ở trong một project hoặc có currentProjectId hợp lệ, tái sử dụng project đó.
+   * - Chỉ tạo project mới khi hoàn toàn chưa có dự án nào đang mở.
    */
-  private async ensureProjectContext(
+  public async ensureProjectContext(
     win: any,
     targetProjectId?: string,
     onProgress?: (pct: number, msg: string) => void,
@@ -1062,17 +1084,24 @@ export class GoogleVeoSessionManager {
   ): Promise<boolean> {
     if (!win || win.isDestroyed()) return false;
 
-    const currentUrl = win.webContents?.getURL?.() || '';
+    const href = (await this.safeExecuteJs<string>(win, 'window.location.href', 2000)) || '';
+    const currentUrl = href || win.webContents?.getURL?.() || '';
 
-    // Trường hợp 1: Có targetProjectId cụ thể (tiếp nối chuỗi thao tác cùng dự án)
-    if (targetProjectId) {
-      if (currentUrl.includes(`/project/${targetProjectId}`)) {
-        console.log(`[Google Flow Browser] Đã ở đúng project được chỉ định: ${targetProjectId}`);
+    // Quyết định projectId hiệu lực:
+    // 1. Ưu tiên targetProjectId nếu được truyền cụ thể
+    // 2. Nếu không có targetProjectId nhưng lobbyWindow đang ở trong một project hợp lệ hoặc có currentProjectId:
+    //    tái sử dụng project đó thay vì thoát ra tạo mới!
+    const activeId = targetProjectId || this.currentProjectId || (currentUrl.match(/\/project\/([a-zA-Z0-9_-]+)/)?.[1]);
+
+    if (activeId) {
+      this.currentProjectId = activeId;
+      if (currentUrl.includes(`/project/${activeId}`)) {
+        console.log(`[Google Flow Browser] Đã ở đúng project được chỉ định: ${activeId}`);
         return true;
       }
-      onProgress?.(15, `Đang mở dự án ${targetProjectId}...`);
+      onProgress?.(15, `Đang mở dự án ${activeId}...`);
       try {
-        await win.loadURL(`https://flow.google.com/project/${targetProjectId}`);
+        await win.loadURL(`https://flow.google.com/project/${activeId}`);
         for (let i = 0; i < 20; i++) {
           if (isCancelled?.()) return false;
           await new Promise((r) => setTimeout(r, 1000));
@@ -1082,7 +1111,7 @@ export class GoogleVeoSessionManager {
             2000
           );
           if (ready) {
-            console.log(`[Google Flow Browser] Đã tải xong project ${targetProjectId} sau ${i + 1}s.`);
+            console.log(`[Google Flow Browser] Đã tải xong project ${activeId} sau ${i + 1}s.`);
             return true;
           }
         }
@@ -1090,8 +1119,160 @@ export class GoogleVeoSessionManager {
       return false;
     }
 
-    // Trường hợp 2: KHÔNG có targetProjectId -> Bắt buộc tạo project mới hoàn toàn
+    // Trường hợp hoàn toàn chưa có project context nào -> Bắt buộc tạo project mới
     return await this.createNewProject(win, onProgress, isCancelled);
+  }
+
+  /**
+   * Đồng bộ và thiết lập các thông số (Aspect Ratio, Output Count, Duration, Model)
+   * trực tiếp vào Google Flow DOM (Prompt Box Settings Overlay, Settings Panel và LocalStorage).
+   * Đảm bảo tính nhất quán 1:1 giữa cấu hình Node trong Workflow và kết quả sinh thực tế trên Google Flow.
+   */
+  public async configureGoogleFlowSettings(
+    win: any,
+    mode: 'image' | 'video',
+    options: {
+      outputCount?: number;
+      aspectRatio?: string;
+      durationSeconds?: number;
+      modelVariant?: string;
+      imageEngine?: string;
+    }
+  ): Promise<void> {
+    if (!win || win.isDestroyed()) return;
+
+    const count = Math.max(1, Math.min(4, Math.round(Number(options.outputCount || 1))));
+    const aspect = (options.aspectRatio || '16:9').trim();
+
+    // Chuẩn hóa thời lượng video theo 4 mức chuẩn của Google Flow Veo: 4, 6, 8, 10
+    let duration = 4;
+    if (mode === 'video') {
+      const rawDur = Number(options.durationSeconds || 4);
+      if (rawDur <= 5) duration = 4;
+      else if (rawDur <= 7) duration = 6;
+      else if (rawDur <= 9) duration = 8;
+      else duration = 10;
+    }
+
+    const configJs = `
+      (async function() {
+        function isVisible(el) {
+          if (!el) return false;
+          const rect = el.getBoundingClientRect();
+          if (!rect || rect.width <= 0 || rect.height <= 0) return false;
+          const style = window.getComputedStyle(el);
+          return style.display !== 'none' && style.visibility !== 'hidden';
+        }
+
+        const mode = ${JSON.stringify(mode)};
+        const targetCount = ${count};
+        const targetAspect = ${JSON.stringify(aspect)};
+        const targetDuration = ${duration};
+        const imageEngine = ${JSON.stringify(options.imageEngine || 'nano-banana')};
+        const modelVariant = ${JSON.stringify(options.modelVariant || 'omni-flash')};
+
+        console.log('[Google Flow Settings] Đang áp dụng thiết lập:', { mode, targetCount, targetAspect, targetDuration });
+
+        // 1. Đồng bộ LocalStorage flow-prompt-box-settings
+        try {
+          const raw = localStorage.getItem('flow-prompt-box-settings');
+          const settings = raw ? JSON.parse(raw) : {};
+          settings.mode = mode.toUpperCase();
+          settings.Qp = targetCount;
+          if (mode === 'video') {
+            settings.AB = targetDuration;
+            settings.aspectRatio = targetAspect === '9:16' ? 'PORTRAIT' : 'LANDSCAPE';
+          } else {
+            if (targetAspect === '9:16') settings.aspectRatio = 'PORTRAIT';
+            else if (targetAspect === '1:1') settings.aspectRatio = 'SQUARE';
+            else if (targetAspect === '4:3') settings.aspectRatio = 'FOUR_THREE';
+            else if (targetAspect === '3:4') settings.aspectRatio = 'THREE_FOUR';
+            else settings.aspectRatio = 'LANDSCAPE';
+          }
+          localStorage.setItem('flow-prompt-box-settings', JSON.stringify(settings));
+          window.dispatchEvent(new StorageEvent('storage', {
+            key: 'flow-prompt-box-settings',
+            newValue: JSON.stringify(settings)
+          }));
+        } catch (e) {}
+
+        // 2. Chuyển đổi mode (Image / Video) trực tiếp trên prompt box nếu cần
+        const promptBox = document.querySelector('flow-prompt-box, flow-base-prompt-box, flow-creative-agent-prompt-box, .prompt-box-container, .base-prompt-box') || document;
+        const allPromptButtons = Array.from(promptBox.querySelectorAll('button, mat-button-toggle, [role="tab"], .mat-button-toggle-button')).filter(isVisible);
+
+        if (mode === 'image') {
+          const imgBtn = allPromptButtons.find(b => {
+            const label = (b.getAttribute('aria-label') || b.textContent || b.innerText || '').toLowerCase();
+            return label === 'image' || label.includes('image mode') || label.includes('tạo ảnh');
+          });
+          if (imgBtn) imgBtn.click();
+        } else {
+          const vidBtn = allPromptButtons.find(b => {
+            const label = (b.getAttribute('aria-label') || b.textContent || b.innerText || '').toLowerCase();
+            return label === 'video' || label.includes('video mode') || label.includes('tạo video');
+          });
+          if (vidBtn) vidBtn.click();
+        }
+
+        // 3. Mở Popover Settings của Prompt Box (button.settings-trigger-button)
+        const triggerBtn = promptBox.querySelector('button.settings-trigger-button') ||
+          allPromptButtons.find(b => b.classList.contains('settings-trigger-button') || (b.getAttribute('aria-label') || '').toLowerCase().includes('cài đặt'));
+
+        if (triggerBtn && isVisible(triggerBtn)) {
+          triggerBtn.click();
+          await new Promise(r => setTimeout(r, 450));
+
+          const overlay = document.querySelector('.cdk-overlay-pane');
+          if (overlay) {
+            const allToggles = Array.from(overlay.querySelectorAll('button, mat-button-toggle, .mat-button-toggle-button, [role="radio"], [role="tab"]')).filter(isVisible);
+
+            // A. Thiết lập Duration (chỉ có trong Video mode)
+            if (mode === 'video') {
+              const durBtn = allToggles.find(b => {
+                const t = (b.innerText || b.textContent || '').trim().toLowerCase();
+                return t === targetDuration + ' giây' || t === targetDuration + 's' || t === targetDuration + ' sec' || t === '' + targetDuration;
+              });
+              if (durBtn) {
+                durBtn.click();
+                console.log('[Google Flow Settings] ✅ Đã chọn duration:', targetDuration + 's');
+                await new Promise(r => setTimeout(r, 100));
+              }
+            }
+
+            // B. Thiết lập Output Count
+            const countBtn = allToggles.find(b => {
+              const t = (b.innerText || b.textContent || '').trim().toLowerCase();
+              return t === 'x' + targetCount || t === '' + targetCount;
+            });
+            if (countBtn) {
+              countBtn.click();
+              console.log('[Google Flow Settings] ✅ Đã chọn count:', 'x' + targetCount);
+              await new Promise(r => setTimeout(r, 100));
+            }
+
+            // C. Thiết lập Tỉ lệ Aspect Ratio
+            const aspectBtn = allToggles.find(b => {
+              const t = (b.innerText || b.textContent || '').trim().toLowerCase();
+              return t.includes(targetAspect);
+            });
+            if (aspectBtn) {
+              aspectBtn.click();
+              console.log('[Google Flow Settings] ✅ Đã chọn aspectRatio:', targetAspect);
+              await new Promise(r => setTimeout(r, 100));
+            }
+
+            // Đóng popover bằng phím Escape
+            document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', keyCode: 27 }));
+            await new Promise(r => setTimeout(r, 200));
+          }
+        }
+
+        return 'settings_applied';
+      })()
+    `;
+
+    console.log(`[Google Flow Browser] ⚙️ Đang áp dụng cấu hình Google Flow cho ${mode}: count=${count}, aspect=${aspect}${mode === 'video' ? `, duration=${duration}s` : ''}...`);
+    await this.safeExecuteJs(win, configJs, 5000);
   }
 
   /**
@@ -1101,6 +1282,7 @@ export class GoogleVeoSessionManager {
   async generateVideoViaBrowserContext(
     params: {
       prompt: string;
+      initFrameUrl?: string;
       aspectRatio?: string;
       durationSeconds?: number;
       modelVariant?: string;
@@ -1171,70 +1353,145 @@ export class GoogleVeoSessionManager {
 
       onProgress?.(12, 'Đang chuẩn bị workspace Google Flow cho video...');
 
-      // BƯỚC 1: Đảm bảo đúng Project Context (Dự án mới nếu không có projectId cụ thể)
+      // BƯỚC 1: Đảm bảo đúng Project Context (tiếp nối project của ảnh nếu cùng session hoặc có targetProjectId)
       const projectReady = await this.ensureProjectContext(win, params.projectId, onProgress, isCancelled);
       if (!projectReady) {
         console.warn('[Google Flow Browser] Không thể mở hoặc tạo dự án video trên Google Flow.');
         return null;
       }
 
+      // Bước 1.2: Dọn dẹp overlay cũ nếu có trước khi chọn card ảnh
+      await this.ensureCleanCanvasReady(win, 'video', onProgress, isCancelled);
+
       if (isCancelled?.()) return null;
 
-      // Thiết lập Mode VIDEO và Output Count (mặc định x1 để tránh tạo trùng)
-      const switchModeToVideoJs = `
-        (function() {
-          function isElementVisible(el) {
+      // BƯỚC 1.5: XỬ LÝ KHUNG HÌNH THAM CHIẾU (IMAGE-TO-VIDEO CHAINING)
+      onProgress?.(18, 'Đang liên kết ảnh tham chiếu cho video...');
+      const selectImageCardJs = `
+        (async function() {
+          function isVisible(el) {
             if (!el) return false;
             const rect = el.getBoundingClientRect();
             if (!rect || rect.width <= 0 || rect.height <= 0) return false;
             const style = window.getComputedStyle(el);
-            if (style.display === 'none' || style.visibility === 'hidden') return false;
-            if (el.offsetParent === null && style.position !== 'fixed') return false;
-            return true;
+            return style.display !== 'none' && style.visibility !== 'hidden';
           }
 
-          const targetCount = ${params.outputCount || 1};
-          try {
-            const raw = localStorage.getItem('flow-prompt-box-settings');
-            const settings = raw ? JSON.parse(raw) : {};
-            settings.mode = 'VIDEO';
-            settings.Qp = targetCount;
-            localStorage.setItem('flow-prompt-box-settings', JSON.stringify(settings));
-            window.dispatchEvent(new StorageEvent('storage', {
-              key: 'flow-prompt-box-settings',
-              newValue: JSON.stringify(settings)
-            }));
-          } catch (e) {}
+          // 1. Kiểm tra xem ô prompt box đã có chip ảnh đính kèm chưa
+          const promptBox = document.querySelector('flow-prompt-box, flow-base-prompt-box, .prompt-box-container');
+          const existingChip = promptBox ? promptBox.querySelector('flow-image-ingredient-chip, .chip-container, .chip-image-wrapper, mat-chip') : null;
+          if (existingChip) {
+            return 'already_has_image_chip';
+          }
 
-          const allButtons = Array.from(document.querySelectorAll(
-            'button, mat-button-toggle, [role="tab"], .mat-button-toggle-button, [aria-label*="Output count" i] button'
-          )).filter(isElementVisible);
-
-          const countBtn = allButtons.find(b => {
-            const t = (b.innerText || b.textContent || '').trim().toLowerCase();
-            return t === 'x' + targetCount || t === 'x1';
-          });
-          if (countBtn) countBtn.click();
-
-          const vidBtn = allButtons.find(b => {
-            const label = (b.getAttribute('aria-label') || b.textContent || b.innerText || '').toLowerCase();
-            return (
-              label === 'video' ||
-              label.includes('video mode') ||
-              label.includes('tạo video')
+          // 2. Tìm thẻ ảnh (flow-image-tile) trên canvas của project
+          const imageCards = Array.from(document.querySelectorAll('flow-image-tile')).filter(isVisible);
+          if (imageCards.length > 0) {
+            const targetCard = imageCards[imageCards.length - 1];
+            
+            // Tìm nút menu (Tuỳ chọn khác) trên tile ảnh
+            const menuBtn = targetCard.querySelector(
+              'button[aria-label*="Tuỳ chọn khác" i], button[aria-label*="More" i], .mat-mdc-menu-trigger'
             );
-          });
-          if (vidBtn) {
-            vidBtn.click();
-            return 'clicked_vid_btn';
+            if (menuBtn) {
+              menuBtn.click();
+              await new Promise(r => setTimeout(r, 450));
+              
+              // Tìm mục "Tạo ảnh động" (motion_blur / animate) hoặc "Thêm vào câu lệnh" trong menu vừa mở
+              const menuItems = Array.from(document.querySelectorAll('.cdk-overlay-container [role="menuitem"], .mat-mdc-menu-item'));
+              const animItem = menuItems.find(el => {
+                const t = (el.innerText || el.textContent || '').toLowerCase();
+                return t.includes('tạo ảnh động') || t.includes('motion') || t.includes('animate');
+              }) || menuItems.find(el => {
+                const t = (el.innerText || el.textContent || '').toLowerCase();
+                return t.includes('thêm vào câu lệnh') || t.includes('add to prompt');
+              });
+
+              if (animItem) {
+                animItem.click();
+                await new Promise(r => setTimeout(r, 500));
+                return 'clicked_menu_tao_anh_dong';
+              }
+            }
+
+            // Fallback: click nút animate trực tiếp nếu có
+            const btns = Array.from(targetCard.querySelectorAll('button, [role="button"]'));
+            const animBtn = btns.find(b => {
+              const t = (b.getAttribute('aria-label') || b.innerText || b.textContent || '').toLowerCase();
+              return t.includes('tạo video') || t.includes('animate') || t.includes('tạo ảnh động');
+            });
+            if (animBtn) {
+              animBtn.click();
+              await new Promise(r => setTimeout(r, 500));
+              return 'clicked_card_animate';
+            }
           }
-          return 'storage_updated';
+
+          // 3. Fallback: mở menu Add của prompt box để chọn ảnh
+          if (promptBox) {
+            const addBtn = promptBox.querySelector('button[aria-label*="Thêm thành phần" i], button.add-menu-trigger');
+            if (addBtn && isVisible(addBtn)) {
+              addBtn.click();
+              await new Promise(r => setTimeout(r, 450));
+              const addItems = Array.from(document.querySelectorAll('.cdk-overlay-container [role="menuitem"], .mat-mdc-menu-item'));
+              const imgItem = addItems.find(el => {
+                const t = (el.innerText || el.textContent || '').toLowerCase();
+                return t.includes('hình ảnh') || t.includes('image') || t.includes('thêm vào câu lệnh');
+              });
+              if (imgItem) {
+                imgItem.click();
+                await new Promise(r => setTimeout(r, 500));
+                return 'clicked_add_menu_image';
+              }
+              document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', keyCode: 27 }));
+            }
+          }
+
+          return 'no_image_card';
         })()
       `;
-      await this.safeExecuteJs(win, switchModeToVideoJs, 2000);
 
-      // Bước bắt buộc: Dọn sạch canvas và xác nhận ô prompt sẵn sàng trước khi điền
-      await this.ensureCleanCanvasReady(win, 'video', onProgress, isCancelled);
+      const cardRes = await this.safeExecuteJs<string>(win, selectImageCardJs, 6000);
+      console.log('[Google Flow Browser] 🎬 Kết quả liên kết card ảnh Image-to-Video:', cardRes);
+
+      // Kiểm tra xem chip ảnh đã xuất hiện trong prompt box chưa
+      const checkChipJs = `Boolean(document.querySelector('flow-image-ingredient-chip, flow-prompt-box .chip-container, flow-prompt-box .chip-image-wrapper, flow-prompt-box mat-chip'))`;
+      let hasChip = await this.safeExecuteJs<boolean>(win, checkChipJs, 2000);
+
+      // B. Nếu chưa có chip trên canvas nhưng có file ảnh cục bộ (initFrameUrl bên ngoài): Dán ảnh qua Clipboard
+      if (!hasChip && params.initFrameUrl) {
+        try {
+          let localImgPath = params.initFrameUrl;
+          if (localImgPath.startsWith('file://')) {
+            localImgPath = localImgPath.replace(/^file:\/\/\/?/, '');
+          }
+          const fs = require('fs');
+          if (fs.existsSync(localImgPath)) {
+            const natImg = electron.nativeImage.createFromPath(localImgPath);
+            if (!natImg.isEmpty()) {
+              console.log('[Google Flow Browser] 🖼️ Nạp ảnh initFrameUrl vào Clipboard và Paste vào Prompt Box...');
+              electron.clipboard.writeImage(natImg);
+              win.focus();
+              win.webContents.paste();
+              await new Promise((r) => setTimeout(r, 1200));
+              hasChip = await this.safeExecuteJs<boolean>(win, checkChipJs, 2000);
+            }
+          }
+        } catch (pasteErr) {
+          console.warn('[Google Flow Browser] Thử paste initFrameUrl warning:', pasteErr);
+        }
+      }
+
+      console.log('[Google Flow Browser] 📌 Trạng thái gắn chip ảnh trong prompt box:', hasChip);
+
+      // BƯỚC 2: Thiết lập Mode VIDEO, Duration, Aspect Ratio và Output Count trong Google Flow
+      onProgress?.(22, 'Đang đồng bộ thiết lập video (thời lượng, tỉ lệ, số lượng)...');
+      await this.configureGoogleFlowSettings(win, 'video', {
+        outputCount: params.outputCount || 1,
+        aspectRatio: params.aspectRatio || '16:9',
+        durationSeconds: params.durationSeconds || 4,
+        modelVariant: params.modelVariant || 'omni-flash',
+      });
 
       if (isCancelled?.()) return null;
 
@@ -1395,15 +1652,15 @@ export class GoogleVeoSessionManager {
               return true;
             }
 
-            // Tìm nút Submit / Generate đang thực sự hiển thị trên DOM (loại trừ các nút helper)
+            // Tìm nút Submit / Generate VIDEO đang thực sự hiển thị trên DOM (loại trừ các nút helper)
             const genBtnSelectors = [
               'flow-generate-icon-button button',
               'button.generate-icon-button',
               'button[type="submit"]',
+              'button[aria-label*="Tạo video" i]',
+              'button[aria-label*="Generate video" i]',
               'button[aria-label*="Bắt đầu tạo" i]',
               'button[aria-label*="Start generation" i]',
-              'button[aria-label*="Tạo video" i]',
-              'button[aria-label*="Tạo ảnh" i]',
               'button[aria-label="Generate" i]',
               'flow-generate-button button',
               'button.submit-button'
@@ -1422,6 +1679,11 @@ export class GoogleVeoSessionManager {
                     el.classList.contains('suggestion-card')) {
                   return false;
                 }
+                const label = (el.getAttribute('aria-label') || el.innerText || el.textContent || '').toLowerCase();
+                // TUYỆT ĐỐI KHÔNG CHẤP NHẬN NÚT TẠO ẢNH TRONG LƯỢT SINH VIDEO
+                if (label.includes('tạo ảnh') || label.includes('generate image')) {
+                  return false;
+                }
                 return true;
               });
               if (candidates.length === 0 && scope !== document) {
@@ -1434,26 +1696,43 @@ export class GoogleVeoSessionManager {
                       el.classList.contains('suggestion-card')) {
                     return false;
                   }
+                  const label = (el.getAttribute('aria-label') || el.innerText || el.textContent || '').toLowerCase();
+                  if (label.includes('tạo ảnh') || label.includes('generate image')) {
+                    return false;
+                  }
                   return true;
                 });
               }
               if (candidates.length > 0) {
-                const target = candidates.find(b =>
-                  b.classList.contains('generate-icon-button') ||
-                  b.getAttribute('type') === 'submit' ||
-                  (b.getAttribute('aria-label') || '').toLowerCase().includes('bắt đầu tạo') ||
-                  (b.getAttribute('aria-label') || '').toLowerCase().includes('tạo video') ||
-                  (b.getAttribute('aria-label') || '').toLowerCase().includes('tạo ảnh')
-                ) || candidates[0];
+                const target = candidates.find(b => {
+                  const lbl = (b.getAttribute('aria-label') || b.innerText || b.textContent || '').toLowerCase();
+                  if (lbl.includes('tạo ảnh') || lbl.includes('generate image')) return false;
+                  return (
+                    lbl.includes('tạo video') ||
+                    lbl.includes('generate video') ||
+                    lbl.includes('bắt đầu tạo') ||
+                    lbl.includes('start generation') ||
+                    b.classList.contains('generate-icon-button') ||
+                    b.getAttribute('type') === 'submit'
+                  );
+                }) || candidates[0];
 
-                const rect = target.getBoundingClientRect();
-                if (rect && rect.width > 0 && rect.height > 0) {
-                  genBtn = target;
-                  btnCoords = {
-                    x: Math.round(rect.x + rect.width / 2),
-                    y: Math.round(rect.y + rect.height / 2)
-                  };
-                  break;
+                if (target) {
+                  const targetLabel = (target.getAttribute('aria-label') || target.innerText || target.textContent || '').toLowerCase();
+                  if (targetLabel.includes('tạo ảnh') || targetLabel.includes('generate image')) {
+                    await new Promise(r => setTimeout(r, 200));
+                    continue;
+                  }
+
+                  const rect = target.getBoundingClientRect();
+                  if (rect && rect.width > 0 && rect.height > 0) {
+                    genBtn = target;
+                    btnCoords = {
+                      x: Math.round(rect.x + rect.width / 2),
+                      y: Math.round(rect.y + rect.height / 2)
+                    };
+                    break;
+                  }
                 }
               }
               await new Promise(r => setTimeout(r, 200));
@@ -1470,6 +1749,7 @@ export class GoogleVeoSessionManager {
                 method: 'click_gen_button',
                 insertedText: textAfterInsert.slice(0, 80),
                 buttonFound: true,
+                btnText: (genBtn.getAttribute('aria-label') || genBtn.innerText || genBtn.textContent || '').trim(),
                 btnCoords
               });
             }
@@ -1677,6 +1957,11 @@ export class GoogleVeoSessionManager {
             const match = currentUrl.match(/\/project\/([a-zA-Z0-9_-]+)/);
             if (match && match[1]) projectId = match[1];
           } catch {}
+          if (projectId) {
+            this.currentProjectId = projectId;
+          } else if (this.currentProjectId) {
+            projectId = this.currentProjectId;
+          }
 
           return { videoUrl: capturedVideoUrl, projectId };
         }
@@ -1691,6 +1976,11 @@ export class GoogleVeoSessionManager {
               const match = currentUrl.match(/\/project\/([a-zA-Z0-9_-]+)/);
               if (match && match[1]) projectId = match[1];
             } catch {}
+            if (projectId) {
+              this.currentProjectId = projectId;
+            } else if (this.currentProjectId) {
+              projectId = this.currentProjectId;
+            }
 
             onProgress?.(90, 'Đã nhận được video từ Google Flow!');
             console.log('[Google Flow Browser] ✅ Tìm thấy video HTTP qua DOM (sau ' + Math.round(elapsedSinceClick / 1000) + 's):', domResult.videoUrl);
@@ -1709,6 +1999,11 @@ export class GoogleVeoSessionManager {
                 const match = currentUrl.match(/\/project\/([a-zA-Z0-9_-]+)/);
                 if (match && match[1]) projectId = match[1];
               } catch {}
+              if (projectId) {
+                this.currentProjectId = projectId;
+              } else if (this.currentProjectId) {
+                projectId = this.currentProjectId;
+              }
               return { videoUrl: capturedVideoUrl, projectId };
             }
           }
@@ -1752,645 +2047,85 @@ export class GoogleVeoSessionManager {
   }
 
   /**
-   * Sinh ảnh trực tiếp trên trình duyệt Google Flow (Electron context)
-   * Đảm bảo ảnh được tạo ngay trong project của Google Flow và xuất hiện trong lịch sử web flow.
+   * Sinh ảnh trực tiếp trên trình duyệt Google Flow thông qua State Machine Engine.
+   * Chạy qua chuỗi State Machine chuẩn:
+   * OPEN_FLOW -> WAIT_FOR_PAGE_READY -> VERIFY_SESSION -> ENSURE_PROJECT_CONTEXT
+   * -> CLEAN_CANVAS -> FIND_EDITOR -> FIND_PROMPT_INPUT -> ENTER_PROMPT
+   * -> CONFIGURE_OPTIONS -> CAPTURE_BASELINE -> FIND_GENERATE_BUTTON
+   * -> VERIFY_GENERATE_BUTTON -> CHECK_IDEMPOTENCY_BEFORE_GENERATE -> CLICK_GENERATE
+   * -> VERIFY_GENERATION_STARTED -> WAIT_FOR_GENERATION -> VERIFY_GENERATION_COMPLETED
+   * -> EXTRACT_OUTPUT
+   *
+   * Đảm bảo:
+   * 1. Mỗi state có enter(), execute(), verify() chặt chẽ.
+   * 2. Bắt buộc tính lại getBoundingClientRect() tức thời ngay trước khi gửi sendInputEvent.
+   * 3. Idempotency Guard: phát hiện nếu generation đã chạy thì không click lại, chuyển thẳng sang chờ kết quả.
    */
   async generateImageViaBrowserContext(
     params: {
       prompt: string;
       aspectRatio?: string;
       outputCount?: number;
+      imageEngine?: string;
       projectId?: string;
+      taskId?: string;
+      generationAttemptId?: string;
     },
     onProgress?: (pct: number, msg?: string) => void,
     isCancelled?: () => boolean
   ): Promise<{ imageUrl?: string; base64Data?: string; projectId?: string; error?: 'out_of_credits' | 'timeout' | 'button_not_found' | 'agent_error' | string; errorDetail?: string; } | null> {
-    onProgress?.(5, 'Đang chuẩn bị Sảnh Google Flow...');
+    const taskId = params.taskId || `task_img_${Date.now()}`;
+    const generationAttemptId = params.generationAttemptId || `att_${Math.random().toString(36).slice(2, 7)}`;
 
+    // Đảm bảo lobby window sẵn sàng trước khi nạp context
     const ready = await this.ensureLobbyAtFlow();
     if (!ready) {
       console.warn('[Google Flow Browser] Sảnh Google Flow chưa sẵn sàng.');
       return null;
     }
 
-    const win = this.lobbyWindow;
-    if (!win || win.isDestroyed()) return null;
-
-    let electron: any;
-    try {
-      electron = require('electron');
-    } catch {
-      return null;
-    }
-
-    // Network listener để bắt URL ảnh mới
-    let capturedImageUrl: string | null = null;
-    let generateClickedAt = 0;
-    const baselineUrlsSet = new Set<string>();
-    const ses = electron.session.fromPartition('persist:google_veo');
-    const netFilter = { urls: ['*://*/*'] };
-
-    const onResponseStartedHandler = (details: any) => {
-      // Chỉ chấp nhận response có thời điểm xảy ra SAU khi bấm nút Generate của lượt này
-      if (!generateClickedAt || Date.now() < generateClickedAt) return;
-      const elapsed = Date.now() - generateClickedAt;
-      // Google Flow mất tối thiểu 5s-10s để render ảnh mới, bỏ qua thumbnail cũ tải ngay trong 5s đầu
-      if (elapsed < 5000) return;
-
-      const url = details.url || '';
-      // Bỏ qua mọi response thuộc danh sách media đã có trước khi click Generate
-      if (baselineUrlsSet.has(url)) return;
-
-      const headers = details.responseHeaders || {};
-      const ct = (headers['content-type']?.[0] || headers['Content-Type']?.[0] || '').toLowerCase();
-
-      const isStatic =
-        url.includes('gstatic.com') ||
-        url.includes('/banners/') ||
-        url.includes('/asb/') ||
-        url.includes('flow.google.com/asb') ||
-        url.includes('landing_page') ||
-        url.includes('favicon') ||
-        url.includes('/avatar') ||
-        url.includes('/a/ACg8') ||
-        url.includes('/icons/') ||
-        url.includes('fonts.');
-
-      const isRealFlowImage =
-        url.includes('flow-content.google') ||
-        (url.includes('googleusercontent.com') && !url.includes('=s') && !url.includes('/a/'));
-
-      if (
-        isRealFlowImage &&
-        (ct.includes('image/png') || ct.includes('image/jpeg') || ct.includes('image/webp')) &&
-        !url.includes('blank') &&
-        !isStatic &&
-        details.statusCode >= 200 &&
-        details.statusCode < 300
-      ) {
-        console.log('[Google Flow Network] 🖼️ Bắt được luồng ảnh Flow mới thật:', url.slice(0, 100));
-        capturedImageUrl = url;
-      }
+    const fsm = new FlowStateMachine(FlowImageGenerationStatePipeline);
+    const ctx: FlowStateContext = {
+      taskId,
+      generationAttemptId,
+      mode: 'image',
+      win: this.lobbyWindow,
+      sessionMgr: this,
+      prompt: params.prompt,
+      aspectRatio: params.aspectRatio || '16:9',
+      outputCount: params.outputCount || 1,
+      imageEngine: params.imageEngine || 'nano-banana',
+      targetProjectId: params.projectId,
+      onProgress,
+      isCancelled,
+      generationState: 'IDLE',
+      baselineUrls: new Set(),
+      capturedMediaUrl: null,
+      capturedBase64: null,
+      generateClickedAt: 0,
+      netFilterAttached: false,
+      stateHistory: [],
     };
 
-    try {
-      ses.webRequest.onResponseStarted(netFilter, onResponseStartedHandler);
+    const res = await fsm.run(ctx);
 
-      const promptClean = (params.prompt || '').trim();
-      const promptJson = JSON.stringify(promptClean);
-
-      onProgress?.(12, 'Đang chuẩn bị workspace Google Flow cho ảnh...');
-
-      // BƯỚC 1: Đảm bảo đúng Project Context (Dự án mới nếu không có projectId cụ thể)
-      const projectReady = await this.ensureProjectContext(win, params.projectId, onProgress, isCancelled);
-      if (!projectReady) {
-        console.warn('[Google Flow Browser] Không thể mở hoặc tạo dự án ảnh trên Google Flow.');
-        return null;
-      }
-
-      if (isCancelled?.()) return null;
-
-      // Chuyển Mode sang IMAGE và thiết lập Output Count (mặc định x1) trong Google Flow
-      const switchModeToImageJs = `
-        (function() {
-          function isElementVisible(el) {
-            if (!el) return false;
-            const rect = el.getBoundingClientRect();
-            if (!rect || rect.width <= 0 || rect.height <= 0) return false;
-            const style = window.getComputedStyle(el);
-            if (style.display === 'none' || style.visibility === 'hidden') return false;
-            if (el.offsetParent === null && style.position !== 'fixed') return false;
-            return true;
-          }
-
-          const targetCount = 1;
-          try {
-            const raw = localStorage.getItem('flow-prompt-box-settings');
-            const settings = raw ? JSON.parse(raw) : {};
-            settings.mode = 'IMAGE';
-            settings.Qp = targetCount;
-            localStorage.setItem('flow-prompt-box-settings', JSON.stringify(settings));
-            window.dispatchEvent(new StorageEvent('storage', {
-              key: 'flow-prompt-box-settings',
-              newValue: JSON.stringify(settings)
-            }));
-          } catch (e) {}
-
-          const allButtons = Array.from(document.querySelectorAll(
-            'button, mat-button-toggle, [role="tab"], .mat-button-toggle-button, [aria-label*="Output count" i] button'
-          )).filter(isElementVisible);
-
-          const countBtn = allButtons.find(b => {
-            const t = (b.innerText || b.textContent || '').trim().toLowerCase();
-            return t === 'x' + targetCount || t === 'x1';
-          });
-          if (countBtn) countBtn.click();
-
-          const imgBtn = allButtons.find(b => {
-            const label = (b.getAttribute('aria-label') || b.textContent || b.innerText || '').toLowerCase();
-            return label === 'image' || label.includes('image mode') || label.includes('tạo ảnh');
-          });
-          if (imgBtn) {
-            imgBtn.click();
-            return 'clicked_img_btn';
-          }
-          return 'storage_updated';
-        })()
-      `;
-      await this.safeExecuteJs(win, switchModeToImageJs, 2000);
-
-      // Bước bắt buộc: Dọn sạch canvas và xác nhận ô prompt sẵn sàng trước khi điền
-      await this.ensureCleanCanvasReady(win, 'image', onProgress, isCancelled);
-
-      if (isCancelled?.()) return null;
-
-      // Chụp snapshot baseline các URL ảnh/card hiện có trên trang để loại trừ 100% ảnh cũ
-      const captureBaselineJs = `
-        (function() {
-          const urls = new Set();
-          document.querySelectorAll('img, video, a[href*="flow-content"]').forEach(el => {
-            const s = el.currentSrc || el.src || el.href;
-            if (s && !s.includes('gstatic') && !s.includes('/icons/') && !s.includes('/avatar')) urls.add(s);
-          });
-          document.querySelectorAll('flow-media-card, flow-image-card, flow-card, flow-chat-view, .media-card, img').forEach(el => {
-            el.setAttribute('data-flow-existing', 'true');
-          });
-          return Array.from(urls);
-        })()
-      `;
-      const baselineUrlsList = (await this.safeExecuteJs<string[]>(win, captureBaselineJs, 3000)) || [];
-      for (const u of baselineUrlsList) baselineUrlsSet.add(u);
-      console.log(`[Google Flow Browser] 📋 Đã ghi nhận baseline ảnh: ${baselineUrlsList.length} media URLs có sẵn.`);
-
-      // === BƯỚC 3: Focus ô soạn thảo, dán prompt và click Generate ===
-      onProgress?.(25, 'Đang nộp prompt sinh ảnh vào Google Flow...');
-
-      if (!win.isDestroyed()) {
-        try {
-          if (win.isMinimized()) win.restore();
-          win.show();
-          win.focus();
-          if (!this.isLobbyDebugVisible) {
-            win.setPosition(OFFSCREEN_X, OFFSCREEN_Y);
-          }
-          console.log('[Google Flow Browser] Vị trí cửa sổ sau show/focus (Image):', win.getPosition());
-        } catch {}
-      }
-
-      // 1. Focus vào ô soạn thảo
-      const focusEditorJs = `
-        (function() {
-          const promptBox = document.querySelector(
-            'flow-prompt-box, flow-base-prompt-box, flow-creative-agent-prompt-box, .prompt-box-container, .base-prompt-box'
-          ) || document;
-          const selectors = [
-            'flow-rich-text-editor .ProseMirror',
-            '.prosemirror-editor .ProseMirror',
-            '.ProseMirror',
-            '[contenteditable="true"]',
-            'textarea:not(.g-recaptcha-response)',
-            'input[type="text"]'
-          ];
-          for (const sel of selectors) {
-            const el = promptBox.querySelector(sel) || document.querySelector(sel);
-            if (el && (el.isContentEditable || el.tagName === 'TEXTAREA' || el.tagName === 'INPUT')) {
-              el.focus();
-              const selObj = window.getSelection();
-              const range = document.createRange();
-              range.selectNodeContents(el);
-              selObj.removeAllRanges();
-              selObj.addRange(range);
-              return true;
-            }
-          }
-          return false;
-        })()
-      `;
-      await this.safeExecuteJs(win, focusEditorJs, 2500);
-
-      // 2. Ghi prompt vào Clipboard và paste native
-      try {
-        electron.clipboard.writeText(promptClean);
-        win.focus();
-        win.webContents.paste();
-      } catch (e) {
-        console.warn('[Google Flow Browser] Clipboard paste error:', e);
-      }
-
-      await new Promise((r) => setTimeout(r, 400));
-
-      // 3. Hoàn tất điền và bấm nút Tạo ảnh
-      const fillPromptJs = `
-        (async function() {
-          try {
-            const promptBox = document.querySelector(
-              'flow-prompt-box, flow-base-prompt-box, flow-creative-agent-prompt-box, .prompt-box-container, .base-prompt-box'
-            ) || document;
-
-            const selectors = [
-              'flow-rich-text-editor .ProseMirror',
-              '.prosemirror-editor .ProseMirror',
-              '.ProseMirror',
-              '[contenteditable="true"]',
-              'textarea:not(.g-recaptcha-response)',
-              'input[type="text"]'
-            ];
-
-            let promptEl = null;
-            for (let i = 0; i < 20; i++) {
-              for (const sel of selectors) {
-                const el = promptBox.querySelector(sel) || document.querySelector(sel);
-                if (el && (el.isContentEditable || el.tagName === 'TEXTAREA' || el.tagName === 'INPUT')) {
-                  promptEl = el;
-                  break;
-                }
-              }
-              if (promptEl) break;
-              await new Promise(r => setTimeout(r, 300));
-            }
-
-            if (!promptEl) {
-              return JSON.stringify({
-                ok: false,
-                error: 'no_prompt_input',
-                url: window.location.href,
-                htmlSnippet: document.body.innerText.slice(0, 300)
-              });
-            }
-
-            promptEl.focus();
-
-            try {
-              const sel = window.getSelection();
-              const range = document.createRange();
-              range.selectNodeContents(promptEl);
-              sel.removeAllRanges();
-              sel.addRange(range);
-              document.execCommand('delete', false, null);
-              document.execCommand('insertText', false, ${promptJson});
-              promptEl.dispatchEvent(new Event('input', { bubbles: true }));
-              promptEl.dispatchEvent(new Event('change', { bubbles: true }));
-            } catch (e) {}
-
-            if (promptEl.tagName === 'TEXTAREA' || promptEl.tagName === 'INPUT') {
-              promptEl.value = ${promptJson};
-              promptEl.dispatchEvent(new Event('input', { bubbles: true }));
-              promptEl.dispatchEvent(new Event('change', { bubbles: true }));
-            }
-
-            await new Promise(r => setTimeout(r, 300));
-            let textAfterInsert = (promptEl.innerText || promptEl.textContent || promptEl.value || '').trim();
-            if (!textAfterInsert && promptEl.isContentEditable) {
-              promptEl.innerHTML = '<p>' + ${JSON.stringify(promptClean)} + '</p>';
-              promptEl.dispatchEvent(new Event('input', { bubbles: true }));
-              await new Promise(r => setTimeout(r, 200));
-              textAfterInsert = (promptEl.innerText || promptEl.textContent || promptEl.value || '').trim();
-            }
-
-            function isElementVisible(el) {
-              if (!el) return false;
-              const rect = el.getBoundingClientRect();
-              if (!rect || rect.width <= 0 || rect.height <= 0) return false;
-              const style = window.getComputedStyle(el);
-              if (style.display === 'none' || style.visibility === 'hidden') return false;
-              if (el.offsetParent === null && style.position !== 'fixed') return false;
-              return true;
-            }
-
-            const genBtnSelectors = [
-              'flow-generate-icon-button button',
-              'button.generate-icon-button',
-              'button[type="submit"]',
-              'button[aria-label*="Bắt đầu tạo" i]',
-              'button[aria-label*="Start generation" i]',
-              'button[aria-label*="Tạo ảnh" i]',
-              'button[aria-label*="Tạo video" i]',
-              'button[aria-label="Generate" i]',
-              'flow-generate-button button',
-              'button.submit-button'
-            ];
-
-            let genBtn = null;
-            let btnCoords = null;
-            for (let i = 0; i < 20; i++) {
-              const scope = promptBox || document;
-              let candidates = Array.from(scope.querySelectorAll(genBtnSelectors.join(', '))).filter(el => {
-                if (!isElementVisible(el)) return false;
-                if (el.classList.contains('agent-action-button') ||
-                    el.classList.contains('settings-trigger-button') ||
-                    el.classList.contains('add-menu-trigger') ||
-                    el.classList.contains('header-action') ||
-                    el.classList.contains('suggestion-card')) {
-                  return false;
-                }
-                return true;
-              });
-              if (candidates.length === 0 && scope !== document) {
-                candidates = Array.from(document.querySelectorAll(genBtnSelectors.join(', '))).filter(el => {
-                  if (!isElementVisible(el)) return false;
-                  if (el.classList.contains('agent-action-button') ||
-                      el.classList.contains('settings-trigger-button') ||
-                      el.classList.contains('add-menu-trigger') ||
-                      el.classList.contains('header-action') ||
-                      el.classList.contains('suggestion-card')) {
-                    return false;
-                  }
-                  return true;
-                });
-              }
-              if (candidates.length > 0) {
-                const target = candidates.find(b =>
-                  b.classList.contains('generate-icon-button') ||
-                  b.getAttribute('type') === 'submit' ||
-                  (b.getAttribute('aria-label') || '').toLowerCase().includes('bắt đầu tạo') ||
-                  (b.getAttribute('aria-label') || '').toLowerCase().includes('tạo ảnh') ||
-                  (b.getAttribute('aria-label') || '').toLowerCase().includes('tạo video')
-                ) || candidates[0];
-
-                const rect = target.getBoundingClientRect();
-                if (rect && rect.width > 0 && rect.height > 0) {
-                  genBtn = target;
-                  btnCoords = {
-                    x: Math.round(rect.x + rect.width / 2),
-                    y: Math.round(rect.y + rect.height / 2)
-                  };
-                  break;
-                }
-              }
-              await new Promise(r => setTimeout(r, 200));
-            }
-
-            if (genBtn && btnCoords) {
-              genBtn.disabled = false;
-              genBtn.removeAttribute('disabled');
-              genBtn.setAttribute('aria-disabled', 'false');
-
-              genBtn.click();
-              return JSON.stringify({
-                ok: true,
-                method: 'click_gen_button',
-                insertedText: textAfterInsert.slice(0, 80),
-                buttonFound: true,
-                btnCoords
-              });
-            }
-
-            // Fallback: dispatch phím Enter
-            promptEl.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true }));
-
-            const debugSnippet = promptBox ? (promptBox.outerHTML || '').slice(0, 500) : '';
-
-            return JSON.stringify({
-              ok: true,
-              method: 'enter_key',
-              insertedText: textAfterInsert.slice(0, 80),
-              buttonFound: false,
-              btnCoords: null,
-              debugSnippet
-            });
-          } catch (e) {
-            return JSON.stringify({ ok: false, error: String(e?.message || e) });
-          }
-        })()
-      `;
-      const fillResult = await this.safeExecuteJs<any>(win, fillPromptJs, 9000);
-      console.log('[Google Flow Browser] Kết quả điền prompt ảnh:', fillResult);
-
-      if (!fillResult?.ok || !fillResult?.buttonFound || !fillResult?.btnCoords) {
-        console.warn('[Google Flow Browser] ❌ Không thể tìm thấy nút Tạo ảnh:', fillResult?.error || 'gen_btn_not_found');
-        return null;
-      }
-
-      // Gửi click chuột thật qua webContents.sendInputEvent tại đúng toạ độ btnCoords
-      if (!win.isDestroyed()) {
-        try {
-          console.log('[Google Flow Browser] 🖱️ Gửi click chuột thật tới nút Tạo ảnh:', fillResult.btnCoords);
-          win.webContents.sendInputEvent({
-            type: 'mouseDown',
-            x: fillResult.btnCoords.x,
-            y: fillResult.btnCoords.y,
-            button: 'left',
-            clickCount: 1,
-          });
-          await new Promise((r) => setTimeout(r, 50));
-          win.webContents.sendInputEvent({
-            type: 'mouseUp',
-            x: fillResult.btnCoords.x,
-            y: fillResult.btnCoords.y,
-            button: 'left',
-            clickCount: 1,
-          });
-        } catch (clickErr: any) {
-          console.warn('[Google Flow Browser] Native mouse click warning:', clickErr?.message);
-        }
-      }
-
-      // Đánh dấu chính xác thời điểm bấm nút Generate của lượt hiện tại
-      generateClickedAt = Date.now();
-
-      // Đợi 300ms và tự động xác nhận quyền của Tác nhân nếu có
-      await new Promise((r) => setTimeout(r, 300));
-      const agentCheckInit = await this.autoConfirmAgentPermission(win);
-      if (agentCheckInit.startsWith('agent_error:')) {
-        console.error('[Google Flow Browser] 🛑 Dừng tác vụ vì Tác nhân Google Flow báo lỗi:', agentCheckInit);
-        return { error: 'agent_error', errorDetail: agentCheckInit };
-      }
-
-      if (isCancelled?.()) return null;
-
-      // Xác nhận phản hồi ban đầu của Flow (Image)
-      const checkImageStartedJs = `
-        (function() {
-          const promptBox = document.querySelector('flow-prompt-box, flow-base-prompt-box, flow-creative-agent-prompt-box, .prompt-box-container');
-          const promptEl = promptBox ? promptBox.querySelector('.ProseMirror, [contenteditable="true"], textarea') : null;
-          const currentText = promptEl ? (promptEl.innerText || promptEl.textContent || promptEl.value || '').trim() : '';
-
-          const hasSpinner = Boolean(document.querySelector(
-            'flow-loading-indicator, flow-progress-bar, mat-progress-spinner, mat-spinner, .generation-in-progress, [role="progressbar"], flow-card[state="generating"], .loading-spinner'
-          ));
-
-          const btnDisabled = Boolean(document.querySelector(
-            'flow-generate-icon-button button[disabled], button.generate-icon-button[disabled], button[aria-disabled="true"]'
-          ));
-
-          return JSON.stringify({
-            isCleared: currentText.length === 0,
-            hasSpinner,
-            btnDisabled,
-            textLen: currentText.length
-          });
-        })()
-      `;
-
-      let startedStatus: any = null;
-      for (let i = 0; i < 15; i++) {
-        await new Promise((r) => setTimeout(r, 200));
-        startedStatus = await this.safeExecuteJs<any>(win, checkImageStartedJs, 1500);
-        if (startedStatus?.isCleared || startedStatus?.hasSpinner) break;
-      }
-      console.log('[Google Flow Browser] Xác nhận phản hồi ban đầu của Flow (Image):', startedStatus);
-
-      if (startedStatus && !startedStatus.isCleared && !startedStatus.hasSpinner && !startedStatus.btnDisabled && !win.isDestroyed()) {
-        console.log('[Google Flow Browser] ⚠️ Flow chưa nhận lệnh ảnh (text còn nguyên, chưa loading), kích hoạt bổ trợ Enter native...');
-        try {
-          await win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Enter' });
-          await new Promise((r) => setTimeout(r, 60));
-          await win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Enter' });
-        } catch {}
-        await new Promise((r) => setTimeout(r, 1500));
-      }
-
-      if (isCancelled?.()) return null;
-
-      // Bước 4: Polling chờ ảnh (tối đa 90s, mỗi 2s)
-      onProgress?.(35, 'Đang chờ Google Flow tạo ảnh...');
-
-      const pollDomImageJs = `
-        (async function() {
-          const baselineList = ${JSON.stringify(baselineUrlsList)};
-          const baselineSet = new Set(baselineList);
-          try {
-            const imgs = Array.from(document.querySelectorAll(
-              'flow-media-card img, flow-image-card img, .media-card img, .project-canvas img, flow-canvas img, [role="img"] img'
-            ));
-            for (const img of imgs) {
-              // Bỏ qua ảnh thuộc card đã tồn tại từ trước khi submit
-              if (img.closest('[data-flow-existing="true"]')) continue;
-
-              const src = img.currentSrc || img.src;
-              if (!src || src.includes('gstatic.com') || src.includes('/banners/') || src.includes('favicon') || src.includes('avatar') || src.includes('/icons/')) continue;
-              // Bỏ qua nếu src đã nằm trong snapshot baseline
-              if (baselineSet.has(src)) continue;
-
-              if (src.startsWith('http') && (src.includes('googleusercontent.com') || src.includes('flow-content.google') || src.includes('blob:'))) {
-                return JSON.stringify({ type: 'http', imageUrl: src });
-              }
-
-              if (src.startsWith('blob:')) {
-                try {
-                  const resp = await fetch(src);
-                  const blob = await resp.blob();
-                  if (blob.size > 3000) {
-                    const b64 = await new Promise((resolve) => {
-                      const reader = new FileReader();
-                      reader.onloadend = () => resolve(reader.result);
-                      reader.readAsDataURL(blob);
-                    });
-                    return JSON.stringify({ type: 'blob', base64Data: b64 });
-                  }
-                } catch (e) {}
-              }
-            }
-          } catch (e) {}
-          return null;
-        })()
-      `;
-
-      const maxWaitSeconds = 90;
-      const pollIntervalMs = 2000;
-      const maxAttempts = Math.floor((maxWaitSeconds * 1000) / pollIntervalMs);
-
-      for (let attempt = 0; attempt < maxAttempts; attempt++) {
-        if (win.isDestroyed()) break;
-        if (isCancelled?.()) {
-          console.log('[Google Flow Browser] Tác vụ đã bị người dùng hủy bỏ.');
-          return null;
-        }
-
-        // Tự động kiểm tra quyền hoặc phát hiện lỗi Tác nhân
-        const agentStatus = await this.autoConfirmAgentPermission(win);
-        if (agentStatus.startsWith('agent_error:')) {
-          console.error('[Google Flow Browser] 🛑 Dừng tác vụ vì Tác nhân Google Flow báo lỗi:', agentStatus);
-          return { error: 'agent_error', errorDetail: agentStatus };
-        }
-
-        const elapsedSinceClick = Date.now() - generateClickedAt;
-        const minImageTimeGate = 5000; // Tối thiểu 5s mới chấp nhận ảnh thật
-
-        const domResult = await this.safeExecuteJs<any>(win, pollDomImageJs, 3000);
-        const foundUrl = (elapsedSinceClick >= minImageTimeGate && capturedImageUrl) ||
-          (elapsedSinceClick >= minImageTimeGate && domResult?.type === 'http' ? domResult.imageUrl : null);
-
-        if (foundUrl) {
-          onProgress?.(90, 'Đã nhận được ảnh từ Google Flow, đang trích xuất dữ liệu ảnh...');
-          console.log('[Google Flow Browser] ✅ Bắt được ảnh thành công (sau ' + Math.round(elapsedSinceClick / 1000) + 's):', foundUrl);
-
-          let base64Data: string | undefined;
-          try {
-            const toBase64Js = `
-              (async function() {
-                try {
-                  const resp = await fetch(${JSON.stringify(foundUrl)});
-                  const blob = await resp.blob();
-                  return await new Promise((resolve) => {
-                    const reader = new FileReader();
-                    reader.onloadend = () => resolve(reader.result);
-                    reader.readAsDataURL(blob);
-                  });
-                } catch (e) {
-                  return null;
-                }
-              })()
-            `;
-            base64Data = (await this.safeExecuteJs<string>(win, toBase64Js, 10000)) || undefined;
-          } catch {}
-
-          let projectId: string | undefined;
-          try {
-            const currentUrl = win.webContents?.getURL?.() || '';
-            const match = currentUrl.match(/\/project\/([a-zA-Z0-9_-]+)/);
-            if (match && match[1]) projectId = match[1];
-          } catch {}
-
-          return { imageUrl: foundUrl, base64Data, projectId };
-        }
-
-        if (domResult?.type === 'blob' && domResult?.base64Data && elapsedSinceClick >= minImageTimeGate) {
-          onProgress?.(90, 'Đã trích xuất ảnh Blob từ Google Flow!');
-          let projectId: string | undefined;
-          try {
-            const currentUrl = win.webContents?.getURL?.() || '';
-            const match = currentUrl.match(/\/project\/([a-zA-Z0-9_-]+)/);
-            if (match && match[1]) projectId = match[1];
-          } catch {}
-          return { base64Data: domResult.base64Data, projectId };
-        }
-
-        await new Promise((r) => setTimeout(r, pollIntervalMs));
-        const elapsed = (attempt + 1) * (pollIntervalMs / 1000);
-        const pct = Math.min(85, Math.round(35 + (elapsed / maxWaitSeconds) * 50));
-        onProgress?.(pct, `Google Flow đang xử lý ảnh (${Math.round(elapsed)}s / ${maxWaitSeconds}s)...`);
-      }
-
-      console.warn('[Google Flow Browser] Quá thời gian chờ ảnh từ Google Flow.');
-
-      const outOfCreditsJs = `
-        (function() {
-          const text = (document.body.innerText || '').toLowerCase();
-          return (
-            text.includes('hết tín dụng') ||
-            text.includes('không đủ tín dụng') ||
-            text.includes('insufficient credit') ||
-            text.includes('out of credits') ||
-            text.includes('you have run out')
-          );
-        })()
-      `;
-      const outOfCredits = await this.safeExecuteJs<boolean>(win, outOfCreditsJs, 2000);
-      if (outOfCredits) {
-        console.warn('[Google Flow Browser] Tài khoản đã hết credit Google Flow.');
+    if (!res.ok) {
+      if (res.error === 'out_of_credits') {
         SettingsStore.set('veoSessionStatus', 'out_of_credits');
         SettingsStore.set('veoFlowCredits', 0);
         SettingsStore.set('veoFlowCreditsCheckedAt', Date.now());
-        return { error: 'out_of_credits' };
       }
-
-      return null;
-    } finally {
-      try {
-        ses.webRequest.onResponseStarted(netFilter, null as any);
-      } catch {}
+      return {
+        error: (res.error as any) || 'unknown_failure',
+        errorDetail: res.errorDetail,
+      };
     }
+
+    return {
+      imageUrl: res.imageUrl,
+      base64Data: res.base64Data,
+      projectId: res.projectId,
+    };
   }
 
   /**
@@ -2398,7 +2133,7 @@ export class GoogleVeoSessionManager {
    * Giúp workflow tự động chạy tiếp mà không cần người dùng phải bấm tay vào tab tác nhân.
    * Đồng thời phát hiện sớm nếu Tác nhân báo lỗi ("Tác nhân đã gặp lỗi. Hãy thử lại.") để dừng ngay, không bị treo.
    */
-  private async autoConfirmAgentPermission(win: any): Promise<string> {
+  public async autoConfirmAgentPermission(win: any): Promise<string> {
     if (!win || win.isDestroyed()) return 'none';
 
     // Cooldown 4 giây giữa các lần click xác nhận thành công
@@ -2611,7 +2346,7 @@ export class GoogleVeoSessionManager {
    * 3. Xác nhận lại rằng ô prompt (ProseMirror/contenteditable) đang thực sự trống, có nút Generate và có thể focus được.
    * 4. Nếu sau bước dọn dẹp vẫn không sẵn sàng, thử tạo New Project sạch sẽ làm dự phòng (tuyệt đối không click flow-project-card).
    */
-  private async ensureCleanCanvasReady(
+  public async ensureCleanCanvasReady(
     win: any,
     mode: 'image' | 'video',
     onProgress?: (percent: number, msg: string) => void,
@@ -2717,25 +2452,19 @@ export class GoogleVeoSessionManager {
           } catch (e) {}
         }
 
-        // Chờ canvas ổn định: hết animation loop glow, hết spinner và nút Generate đã hiển thị trong DOM
-        for (let i = 0; i < 15; i++) {
-          const isBusy = Boolean(document.querySelector('flow-border-glow.loop, .generation-in-progress, flow-card[state="generating"], mat-progress-spinner'));
-          const genBtn = document.querySelector('flow-generate-icon-button button, button.generate-icon-button, button[type="submit"], [aria-label*="Bắt đầu tạo" i]');
-          const hasBtn = Boolean(genBtn && isVisible(genBtn));
-          if (!isBusy && hasBtn) break;
-          await new Promise(r => setTimeout(r, 150));
-        }
+        // Kiểm tra nhanh sự hiện diện của ô prompt và nút Generate
+        const genBtn = document.querySelector(
+          'flow-generate-icon-button button, button.generate-icon-button, button[type="submit"], [aria-label*="tạo" i], [aria-label*="generate" i]'
+        );
+        const hasGenBtn = Boolean(genBtn && isVisible(genBtn));
 
         promptEl.focus();
         currentText = (promptEl.innerText || promptEl.textContent || promptEl.value || '').trim();
-
         const rect = promptEl.getBoundingClientRect();
         const canFocus = rect && rect.width > 0 && rect.height > 0;
-        const genBtn = document.querySelector('flow-generate-icon-button button, button.generate-icon-button, button[type="submit"], [aria-label*="Bắt đầu tạo" i]');
-        const hasGenBtn = Boolean(genBtn && isVisible(genBtn));
 
         return {
-          ready: canFocus && currentText.length === 0 && hasGenBtn,
+          ready: Boolean(canFocus),
           hasPrompt: true,
           hasGenBtn,
           coords: canFocus ? { x: Math.round(rect.x + rect.width / 2), y: Math.round(rect.y + rect.height / 2) } : null,
@@ -2744,15 +2473,10 @@ export class GoogleVeoSessionManager {
       })()
     `;
 
-    let cleanResult = await this.safeExecuteJs<any>(win, cleanAndCheckPromptJs, 4000);
-    // Nếu kết quả bị null do timeout nhỏ, retry lại 1 lần
-    if (!cleanResult) {
-      await new Promise((r) => setTimeout(r, 500));
-      cleanResult = await this.safeExecuteJs<any>(win, cleanAndCheckPromptJs, 3000);
-    }
+    let cleanResult = await this.safeExecuteJs<any>(win, cleanAndCheckPromptJs, 3000);
     console.log('[Google Flow Browser] Trạng thái dọn dẹp canvas:', cleanResult);
 
-    // Nếu ô prompt đã sẵn sàng và trống, click chuột thật vào ô prompt để bảo đảm tiêu điểm OS
+    // Nếu ô prompt đã sẵn sàng, click chuột thật vào ô prompt để bảo đảm tiêu điểm OS
     if (cleanResult?.ready && cleanResult?.coords && !win.isDestroyed()) {
       try {
         if (win.isMinimized()) win.restore();
@@ -2781,50 +2505,18 @@ export class GoogleVeoSessionManager {
       return true;
     }
 
-    // 3. Phương án dự phòng: Nếu sau khi dọn dẹp ô prompt vẫn không sẵn sàng,
-    // thử click vào nút "Bắt đầu phiên mới" (New session) nếu đang trong project, hoặc tạo New Project mới sạch sẽ
-    console.warn('[Google Flow Browser] ⚠️ Ô prompt chưa sẵn sàng sau khi dọn dẹp, kích hoạt phương án dự phòng (reset canvas/mở dự án mới)...');
-    onProgress?.(15, 'Đang đặt lại canvas và chuẩn bị dự án mới...');
-
-    const clickNewSessionJs = `
-      (function() {
-        function isElementVisible(el) {
-          if (!el) return false;
-          const rect = el.getBoundingClientRect();
-          if (!rect || rect.width <= 0 || rect.height <= 0) return false;
-          const style = window.getComputedStyle(el);
-          return style.display !== 'none' && style.visibility !== 'hidden';
-        }
-
-        if (window.location.href.includes('/project/')) {
-          const newSessionBtn = document.querySelector('button[aria-label*="Bắt đầu phiên mới" i], button[aria-label*="New session" i]');
-          if (newSessionBtn && isElementVisible(newSessionBtn)) {
-            newSessionBtn.click();
-            return 'clicked_new_session_btn';
-          }
-        }
-        return 'no_btn_found';
-      })()
-    `;
-
-    const sessionRes = await this.safeExecuteJs<string>(win, clickNewSessionJs, 2500);
-    console.log('[Google Flow Browser] Kết quả click New Session dự phòng:', sessionRes);
-
-    if (sessionRes === 'clicked_new_session_btn') {
-      await new Promise((r) => setTimeout(r, 2000));
-      const recheck = await this.safeExecuteJs<any>(win, cleanAndCheckPromptJs, 3000);
-      if (recheck?.ready) {
-        console.log('[Google Flow Browser] Canvas đã sẵn sàng sau khi reset session mới.');
-        return true;
-      }
+    // 3. Nếu đang trong một project hợp lệ: TUYỆT ĐỐI KHÔNG TẠO MỚI ĐỂ TRÁNH MẤT PROJECT & ẢNH ĐANG CÓ
+    const currentUrl = win.webContents?.getURL?.() || '';
+    if (currentUrl.includes('/project/')) {
+      console.log('[Google Flow Browser] Đang ở trong project, bảo toàn project context.');
+      return true;
     }
 
-    // Nếu vẫn chưa được hoặc không có nút New Session: Tạo hẳn một dự án mới hoàn toàn
-    console.log('[Google Flow Browser] Đang tạo dự án mới sạch sẽ làm phương án dự phòng...');
+    // Chỉ tạo new project khi chưa mở project nào (đang ở ngoài flow.google.com trang chủ)
+    console.log('[Google Flow Browser] Chưa ở trong project nào, đang tạo dự án mới...');
     const newProjOk = await this.createNewProject(win, onProgress, isCancelled);
     if (!newProjOk) return false;
 
-    // Kiểm tra lại lần cuối sau khi tạo new project
     const finalCheck = await this.safeExecuteJs<any>(win, cleanAndCheckPromptJs, 3000);
     return Boolean(finalCheck?.ready);
   }

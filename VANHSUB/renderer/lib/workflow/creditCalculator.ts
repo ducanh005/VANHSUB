@@ -16,8 +16,8 @@ export function calculateNodeCreditEstimate(nodeType?: string, config?: any): Cr
   }
 
   if (nodeType === 'google-flow-video') {
-    const duration = Math.max(1, Number(config?.durationSeconds || 5));
-    const variant = String(config?.modelVariant || 'veo-3.1-quality');
+    const duration = Math.max(1, Number(config?.durationSeconds || 4));
+    const variant = String(config?.modelVariant || 'omni-flash');
     const qualityPreset = config?.qualityPreset || 'quality';
 
     let baseCreditsPerSec = 3;

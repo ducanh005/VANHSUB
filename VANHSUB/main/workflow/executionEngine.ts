@@ -9,6 +9,7 @@ import { VideoProcessor } from './videoProcessor';
 import { TaskStore } from '../store/taskStore';
 import { SettingsStore } from '../store/settingsStore';
 import { GoogleVeoAntiSpamGuard } from '../veo/GoogleVeoAntiSpamGuard';
+import { GoogleVeoSessionManager } from '../veo/GoogleVeoSessionManager';
 import { GoogleFlowBrowserMutex } from './dispatcher/GoogleFlowBrowserMutex';
 
 export interface WorkflowGraphData {
@@ -213,6 +214,11 @@ export class WorkflowExecutionEngine {
                 resolvedInputs['projectId'] = parentOut.projectId;
               }
             }
+          }
+
+          if (!resolvedInputs['projectId']) {
+            const curPid = GoogleVeoSessionManager.getInstance().getCurrentProjectId();
+            if (curPid) resolvedInputs['projectId'] = curPid;
           }
 
           // Last-frame chaining injection tự động
@@ -433,6 +439,11 @@ export class WorkflowExecutionEngine {
       }
     }
 
+    if (!resolvedInputs['projectId']) {
+      const curPid = GoogleVeoSessionManager.getInstance().getCurrentProjectId();
+      if (curPid) resolvedInputs['projectId'] = curPid;
+    }
+
     const startTime = Date.now();
     onEvent({
       workflowId,
@@ -615,14 +626,15 @@ export class WorkflowExecutionEngine {
           }
         }
 
-        const initFrameUrl = inputs['init_frame'] || config.initFrameUrl;
-        const durationSeconds = Number(config.durationSeconds || 5);
+        const initFrameUrl = inputs['init_frame'] || inputs['image'] || inputs['sourceUrl'] || inputs['initFrameUrl'] || config.initFrameUrl;
+        const rawDuration = Number(config.durationSeconds || 4);
+        const durationSeconds = rawDuration <= 5 ? 4 : rawDuration <= 7 ? 6 : rawDuration <= 9 ? 8 : 10;
         const aspectRatio = config.aspectRatio || '16:9';
         const seed = config.seed ? Number(config.seed) : undefined;
-        const modelVariant = config.modelVariant || 'veo-3.1-generate-preview';
+        const modelVariant = config.modelVariant || 'omni-flash';
         const outputCount = Number(config.outputCount || 1);
 
-        const targetProjectId = inputs['projectId'] || inputs['project_id'] || config.projectId;
+        const targetProjectId = inputs['projectId'] || inputs['project_id'] || config.projectId || GoogleVeoSessionManager.getInstance().getCurrentProjectId() || undefined;
 
         const result = await WorkflowExecutionEngine.withBrowserMutex(async () => {
           return adapter.generateVideo(
@@ -911,7 +923,7 @@ export class WorkflowExecutionEngine {
         const aspectRatio = config.aspectRatio || '16:9';
         const imageEngine = config.imageEngine || 'banana-pro';
         const outputCount = Number(config.outputCount || 1);
-        const targetProjectId = inputs['projectId'] || inputs['project_id'] || config.projectId;
+        const targetProjectId = inputs['projectId'] || inputs['project_id'] || config.projectId || GoogleVeoSessionManager.getInstance().getCurrentProjectId() || undefined;
 
         const imgRes = await WorkflowExecutionEngine.withBrowserMutex(async () => {
           return adapter.generateImage!({ prompt, aspectRatio, imageEngine, outputCount, projectId: targetProjectId }, ctx);

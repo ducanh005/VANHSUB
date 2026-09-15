@@ -69,7 +69,8 @@ export class GoogleFlowAdapter implements ModelAdapter {
    */
   async generateVideo(params: VideoGenParams, ctx: ExecutionContext): Promise<VideoGenResult> {
     const veoMode = SettingsStore.get('veoMode') || 'free_session';
-    const duration = Math.max(3, Math.min(10, Math.round(params.durationSeconds || 5)));
+    const rawDur = Number(params.durationSeconds || 4);
+    const duration = rawDur <= 5 ? 4 : rawDur <= 7 ? 6 : rawDur <= 9 ? 8 : 10;
     const videoFileName = `veo_${Date.now()}_${Math.random().toString(36).slice(2, 7)}.mp4`;
     const lastFrameFileName = `lastframe_${Date.now()}_${Math.random().toString(36).slice(2, 7)}.jpg`;
 
@@ -185,7 +186,8 @@ export class GoogleFlowAdapter implements ModelAdapter {
     ctx: ExecutionContext
   ): Promise<{ videoPath: string; projectId?: string }> {
     const sessionMgr = GoogleVeoSessionManager.getInstance();
-    const duration = Math.max(3, Math.min(10, Math.round(params.durationSeconds || 5)));
+    const rawDur = Number(params.durationSeconds || 4);
+    const duration = rawDur <= 5 ? 4 : rawDur <= 7 ? 6 : rawDur <= 9 ? 8 : 10;
 
     // Kiểm tra nhanh: có session không (cookie hoặc electron partition)?
     const cookie = await sessionMgr.getEffectiveCookieString();
@@ -201,8 +203,9 @@ export class GoogleFlowAdapter implements ModelAdapter {
       const browserResult = await sessionMgr.generateVideoViaBrowserContext(
         {
           prompt: params.prompt,
+          initFrameUrl: params.initFrameUrl,
           aspectRatio: params.aspectRatio,
-          durationSeconds: params.durationSeconds,
+          durationSeconds: duration,
           modelVariant: params.modelVariant,
           outputCount: params.outputCount || 1,
           projectId: params.projectId,
@@ -774,6 +777,7 @@ export class GoogleFlowAdapter implements ModelAdapter {
             prompt: params.prompt,
             aspectRatio: params.aspectRatio,
             outputCount: params.outputCount || 1,
+            imageEngine: params.imageEngine,
             projectId: params.projectId,
           },
           (percent, msg) => {

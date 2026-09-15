@@ -53,6 +53,7 @@ export class GoogleFlowImageAdapter implements NodeAdapter {
 
     const aspectRatio = nodeConfig.aspectRatio || context.inputs?.aspectRatio || '16:9';
     const outputCount = nodeConfig.outputCount || 1;
+    const imageEngine = nodeConfig.imageEngine || context.inputs?.imageEngine || 'nano-banana';
 
     let retryCount = 0;
     const startTime = Date.now();
@@ -78,7 +79,10 @@ export class GoogleFlowImageAdapter implements NodeAdapter {
                 prompt: prompt.trim(),
                 aspectRatio,
                 outputCount,
+                imageEngine,
                 projectId: targetProjectId,
+                taskId: context.nodeId,
+                generationAttemptId: `${context.iteration}_${retryCount}`,
               },
               (percent, msg) => {
                 context.onProgress?.(percent, msg);
