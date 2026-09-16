@@ -759,6 +759,25 @@ ipcMain.handle('veo:is-lobby-debug', async () => {
 })
 
 // =========================================================================
+// GOOGLE FLOW DIAGNOSTIC & DEBUG BUNDLES (PHASE 8 - STEP 4)
+// =========================================================================
+
+ipcMain.handle('flow:export-debug-bundle', async (_event, options?: any) => {
+  const { FlowDebugBundleExporter } = await import('./workflow/flow-engine/FlowDebugBundleExporter');
+  return FlowDebugBundleExporter.getInstance().exportBundle(options);
+});
+
+ipcMain.handle('flow:list-debug-bundles', async () => {
+  const { FlowDebugBundleExporter } = await import('./workflow/flow-engine/FlowDebugBundleExporter');
+  return FlowDebugBundleExporter.getInstance().listBundles();
+});
+
+ipcMain.handle('flow:delete-debug-bundle', async (_event, bundleId: string) => {
+  const { FlowDebugBundleExporter } = await import('./workflow/flow-engine/FlowDebugBundleExporter');
+  return FlowDebugBundleExporter.getInstance().deleteBundle(bundleId);
+});
+
+// =========================================================================
 // GIỌNG ĐỌC CLONE TỪ FILE MẪU (voice sample)
 // =========================================================================
 
