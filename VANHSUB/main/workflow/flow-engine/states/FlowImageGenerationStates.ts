@@ -430,7 +430,27 @@ export const EnterPromptState: FlowAutomationState = {
     const promptClean = (ctx.prompt || '').trim();
     const promptJson = JSON.stringify(promptClean);
 
-    // 1. Native paste qua clipboard
+    // 1. Focus ProseMirror và chọn nội dung trước khi paste
+    await safeExecuteJs(
+      ctx.win,
+      `(function() {
+        const promptBox = document.querySelector(
+          'flow-prompt-box, flow-base-prompt-box, .prompt-box-container, .base-prompt-box'
+        ) || document;
+        const promptEl = promptBox.querySelector('.ProseMirror, [contenteditable="true"]');
+        if (promptEl) {
+          promptEl.focus();
+          const sel = window.getSelection();
+          const range = document.createRange();
+          range.selectNodeContents(promptEl);
+          sel.removeAllRanges();
+          sel.addRange(range);
+        }
+      })()`,
+      1000
+    );
+
+    // 2. Native paste qua clipboard
     try {
       electron.clipboard.writeText(promptClean);
       ctx.win.focus();
@@ -438,9 +458,33 @@ export const EnterPromptState: FlowAutomationState = {
     } catch (e) {
       console.warn('[FlowStateMachine] Clipboard paste warning:', e);
     }
-    await new Promise((r) => setTimeout(r, 300));
+    await new Promise((r) => setTimeout(r, 200));
 
-    // 2. DOM insertText gia cố
+    // 3. Dispatch ClipboardEvent paste với DataTransfer (kích hoạt ProseMirror transaction 100% chuẩn xác cho Google Flow)
+    const pasteEventJs = `
+      (function() {
+        const promptBox = document.querySelector(
+          'flow-prompt-box, flow-base-prompt-box, .prompt-box-container, .base-prompt-box'
+        ) || document;
+        const promptEl = promptBox.querySelector('.ProseMirror, [contenteditable="true"]');
+        if (!promptEl) return { ok: false };
+        promptEl.focus();
+        const text = ${promptJson};
+        const dt = new DataTransfer();
+        dt.setData('text/plain', text);
+        const pasteEv = new ClipboardEvent('paste', {
+          bubbles: true,
+          cancelable: true,
+          clipboardData: dt
+        });
+        promptEl.dispatchEvent(pasteEv);
+        return { ok: true, textLen: (promptEl.innerText || '').trim().length };
+      })()
+    `;
+    await safeExecuteJs<any>(ctx.win, pasteEventJs, 2000);
+    await new Promise((r) => setTimeout(r, 200));
+
+    // 4. DOM insertText gia cố nếu text vẫn chưa vào
     const fillPromptJs = `
       (async function() {
         const promptBox = document.querySelector(
@@ -727,7 +771,7 @@ export const FindGenerateButtonState: FlowAutomationState = {
             // Kiểm tra fallback: Nếu phát hiện spinner đang chạy -> Chuyển sang WAIT_FOR_GENERATION
             const checkGenJs = `
               Boolean(document.querySelector(
-                'flow-loading-indicator, flow-progress-bar, mat-progress-spinner, mat-spinner, .generation-in-progress, flow-card[state="generating"], .loading-spinner, flow-generating-card, flow-border-glow.loop'
+                'flow-loading-indicator, flow-progress-bar, mat-progress-spinner, mat-spinner, .generation-in-progress, flow-card[state="generating"], .loading-spinner, flow-generating-card'
               ))
             `;
             const isGenerating = await safeExecuteJs<boolean>(ctx.win, checkGenJs, 1000);
@@ -898,10 +942,17 @@ export const CheckIdempotencyBeforeGenerateState: FlowAutomationState = {
         const promptEl = promptBox.querySelector('.ProseMirror, [contenteditable="true"], textarea:not(.g-recaptcha-response), input[type="text"]');
         const currentText = promptEl ? (promptEl.innerText || promptEl.textContent || promptEl.value || '').trim() : '';
 
-        // 1. Quét các chỉ báo spinner, progress bar, border glow đang thực sự chạy
-        const hasSpinner = Boolean(document.querySelector(
-          'flow-loading-indicator, flow-progress-bar, mat-progress-spinner, mat-spinner, .generation-in-progress, flow-card[state="generating"], .loading-spinner, flow-generating-card, flow-border-glow.loop'
-        ));
+        // 1. Quét các chỉ báo spinner, progress bar thực sự đang chạy (loại trừ border glow trang trí của prompt box)
+        function isVisible(el) {
+          if (!el) return false;
+          const r = el.getBoundingClientRect();
+          return r.width > 0 && r.height > 0;
+        }
+
+        const spinners = Array.from(document.querySelectorAll(
+          'flow-loading-indicator, flow-progress-bar, mat-progress-spinner, mat-spinner, .generation-in-progress, .loading-spinner, flow-generating-card'
+        )).filter(isVisible);
+        const hasSpinner = spinners.length > 0;
 
         // 2. Quét trạng thái nút Generate: disabled hoặc đã bị ẩn khỏi DOM
         const genBtn = document.querySelector(
@@ -930,13 +981,15 @@ export const CheckIdempotencyBeforeGenerateState: FlowAutomationState = {
     `;
     const status = await safeExecuteJs<any>(ctx.win, checkStateJs, 2500);
 
+    // Chỉ coi là đã sinh khi:
+    // 1. Có card sinh đang chạy trên canvas (hasGeneratingCard) HOẶC
+    // 2. Prompt đã được gửi (isCleared) VÀ có spinner thật HOẶC nút đã bị disabled sau khi gửi
     const isAlreadyGenerating = Boolean(
-      status?.hasSpinner ||
       status?.hasGeneratingCard ||
-      (status?.isCleared && status?.btnDisabled)
+      (status?.isCleared && (status?.hasSpinner || status?.btnDisabled))
     );
 
-    // Nếu đã có spinner hoặc card đang tạo hoặc nút bị disabled/biến mất -> Chuyển thẳng sang WAIT_FOR_GENERATION!
+    // Nếu đã có card đang tạo hoặc prompt đã được gửi và đang sinh -> Chuyển thẳng sang WAIT_FOR_GENERATION!
     if (isAlreadyGenerating) {
       console.warn(
         `[FlowStateMachine] [${ctx.taskId}#${ctx.generationAttemptId}] ⚠️ IDEMPOTENCY: Google Flow đã bắt đầu sinh từ trước! Bỏ qua CLICK_GENERATE để chống trùng lặp! Tiêu chí phát hiện:`,
@@ -985,12 +1038,35 @@ export const ClickGenerateState: FlowAutomationState = {
   name: 'CLICK_GENERATE',
   timeoutMs: 12000,
 
-  async enter(): Promise<void> {},
+  async enter(ctx: FlowStateContext): Promise<void> {
+    // 1. PREPARE IDEMPOTENCY MARKER: Ghi nhận cảnh báo nếu đã có marker từ trước
+    if (ctx.generateClickedAt > 0 || ctx.generationState === 'STARTING' || ctx.generationState === 'GENERATING') {
+      console.warn(
+        `[FlowStateMachine] [${ctx.taskId}#${ctx.generationAttemptId}] 🛡️ IDEMPOTENCY PRE-CHECK: Generate đã được đánh dấu khởi động trước đó (clickedAt: ${ctx.generateClickedAt}, state: ${ctx.generationState}).`
+      );
+    }
+  },
 
   async execute(ctx: FlowStateContext): Promise<ActionResult> {
-    // YÊU CẦU BẮT BUỘC: Tính lại fresh getBoundingClientRect() tức thì ngay trong khối thực thi này!
+    // 1. NGUYÊN TẮC ZERO DUPLICATE CLICK: Nếu đã từng click Generate hoặc state đã là STARTING/GENERATING -> Bỏ qua click ngay lập tức!
+    if (ctx.generateClickedAt > 0 || ctx.generationState === 'STARTING' || ctx.generationState === 'GENERATING') {
+      console.warn(
+        `[FlowStateMachine] [${ctx.taskId}#${ctx.generationAttemptId}] 🛡️ IDEMPOTENCY RESUME: Bỏ qua CLICK_GENERATE vì generation đã được kích hoạt trước đó (clickedAt: ${ctx.generateClickedAt}, state: ${ctx.generationState})!`
+      );
+      return {
+        ok: true,
+        skipToState: 'WAIT_FOR_GENERATION',
+        data: { skipped: true, reason: 'already_clicked', clickedAt: ctx.generateClickedAt },
+      };
+    }
+
+    // 2. VERIFY GENERATE BUTTON: BẮT BUỘC scope tìm kiếm bên trong container 'flow-prompt-box'
+    // Tuyệt đối không quét toàn trang (document-wide) để tránh bắt nhầm nút ngoài prompt box
     const freshCoordJs = `
       (function() {
+        const container = document.querySelector('flow-prompt-box');
+        if (!container) return { ok: false, error: 'prompt_box_not_found' };
+
         function isVisible(el) {
           if (!el) return false;
           const rect = el.getBoundingClientRect();
@@ -1013,7 +1089,8 @@ export const ClickGenerateState: FlowAutomationState = {
           'button.submit-button'
         ];
 
-        const allButtons = Array.from(document.querySelectorAll(genBtnSelectors.join(', ')));
+        // Tìm kiếm có phạm vi (container-scoped search bên trong flow-prompt-box)
+        const allButtons = Array.from(container.querySelectorAll(genBtnSelectors.join(', ')));
         const valid = allButtons.filter(b => {
           if (!isVisible(b)) return false;
           if (b.classList.contains('agent-action-button') ||
@@ -1038,12 +1115,7 @@ export const ClickGenerateState: FlowAutomationState = {
           target.classList.remove('mat-mdc-button-disabled');
         }
 
-        // Kích hoạt click JS dự phòng
-        try {
-          target.click();
-        } catch (e) {}
-
-        // TÍNH LẠI TOẠ ĐỘ TỨC THỜI NGAY TRƯỚC SỰ KIỆN CLICK CHUỘT THẬT (TRÁNH TRÔI DẠT TOẠ ĐỘ)
+        // TÍNH TOẠ ĐỘ TỨC THỜI (KHÔNG GỌI target.click() Ở ĐÂY ĐỂ TRÁNH CLICK SỚM)
         const rect = target.getBoundingClientRect();
         if (!rect || rect.width <= 0 || rect.height <= 0) {
           return { ok: false, error: 'btn_zero_rect' };
@@ -1083,7 +1155,7 @@ export const ClickGenerateState: FlowAutomationState = {
       return {
         ok: false,
         error: 'click_prep_failed',
-        errorDetail: clickInfo?.error || 'Không thể tính toạ độ nút Generate tức thời sau adaptive polling.',
+        errorDetail: clickInfo?.error || 'Không thể tính toạ độ nút Generate trong flow-prompt-box.',
       };
     }
 
@@ -1093,11 +1165,17 @@ export const ClickGenerateState: FlowAutomationState = {
       y: clickInfo.coords.y,
     });
 
-    // Gửi click chuột native ngay lập tức tại toạ độ vừa tính tức thời
+    // 3. RECORD GENERATION TRANSACTION MARKER NGAY TRƯỚC CLICK
+    // Đảm bảo nếu quá trình gửi input bị lỗi kết nối hoặc crash sau đó, hệ thống ĐÃ BIẾT Generate đã được kích hoạt
+    ctx.generateClickedAt = Date.now();
+    ctx.generationState = 'STARTING';
+    ctx.nativeClicksCount = (ctx.nativeClicksCount || 0) + 1;
+
+    // 4. CLICK GENERATE (Gửi sự kiện chuột native thật tại toạ độ tức thời)
     if (!ctx.win.isDestroyed()) {
       try {
         console.log(
-          `[FlowStateMachine] [${ctx.taskId}#${ctx.generationAttemptId}] 🖱️ Gửi click chuột native tại toạ độ TỨC THỜI (fresh getBoundingClientRect): (${clickInfo.coords.x}, ${clickInfo.coords.y}) | Unobscured: ${unobscuredCheck.unobscured}`
+          `[FlowStateMachine] [${ctx.taskId}#${ctx.generationAttemptId}] 🖱️ Gửi click chuột native tại toạ độ TỨC THỜI (flow-prompt-box scope): (${clickInfo.coords.x}, ${clickInfo.coords.y}) | Unobscured: ${unobscuredCheck.unobscured}`
         );
         ctx.win.webContents.sendInputEvent({
           type: 'mouseDown',
@@ -1114,18 +1192,40 @@ export const ClickGenerateState: FlowAutomationState = {
           button: 'left',
           clickCount: 1,
         });
+
+        // Kích hoạt DOM click bổ trợ trên đúng nút Generate bên trong flow-prompt-box
+        await safeExecuteJs(
+          ctx.win,
+          `(function() {
+            try {
+              const box = document.querySelector('flow-prompt-box');
+              if (box) {
+                const b = box.querySelector('button.generate-icon-button, flow-generate-icon-button button, button[type="submit"]');
+                if (b) b.click();
+              }
+            } catch {}
+          })()`,
+          1000
+        );
       } catch (err: any) {
         console.warn('[FlowStateMachine] sendInputEvent warning:', err?.message);
       }
     }
 
-    ctx.generateClickedAt = Date.now();
-    ctx.nativeClicksCount = (ctx.nativeClicksCount || 0) + 1;
-    ctx.generationState = 'STARTING';
     return { ok: true, data: { ...clickInfo, unobscured: unobscuredCheck.unobscured } };
   },
 
   async verify(ctx: FlowStateContext, res: ActionResult): Promise<VerifyResult> {
+    if (res.data?.skipped) {
+      return {
+        ok: true,
+        criteria: {
+          skipped: true,
+          reason: res.data.reason,
+          clickedAt: ctx.generateClickedAt,
+        },
+      };
+    }
     const ok = ctx.generateClickedAt > 0;
     return {
       ok,
