@@ -16,3 +16,4 @@ export * from './states/FlowImageGenerationStates';
 export * from './states/FlowVideoGenerationStates';
 export * from './FlowMediaVerifier';
 export * from './FlowDebugBundleExporter';
+export * from './FlowSelectorMemory';

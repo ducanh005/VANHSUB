@@ -20,6 +20,7 @@ export interface StrategyRule {
   baseConfidence: number;
   selectors: string[];
   description: string;
+  containerSelector?: string; // Giới hạn phạm vi tìm kiếm bên trong container cha cụ thể (ngăn ngừa document-wide rò rỉ)
 }
 
 export interface ElementSearchSpec {
@@ -44,6 +45,7 @@ export interface CandidateResult {
   isStable?: boolean;
   unobscured?: boolean;
   stability?: StabilityResult;
+  containerSelector?: string;
 }
 
 export interface ElementFinderResult {
@@ -56,6 +58,93 @@ export interface ElementFinderResult {
 }
 
 export class FlowElementFinder {
+  /**
+   * Quét và thăm dò nhanh một selector đơn lẻ trên DOM
+   */
+  public static async probeSelector(
+    win: any,
+    selector: string,
+    containerSelector?: string | null
+  ): Promise<{
+    tagName: string;
+    className: string;
+    label: string;
+    rect: ElementRect;
+  } | null> {
+    if (!win || !win.webContents) return null;
+
+    const scanJs = `
+      (function() {
+        function isVisible(el) {
+          if (!el) return false;
+          const rect = el.getBoundingClientRect();
+          if (!rect || rect.width <= 0 || rect.height <= 0) return false;
+          const style = window.getComputedStyle(el);
+          return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0';
+        }
+
+        try {
+          let root = document;
+          const cSel = ${JSON.stringify(containerSelector || null)};
+          if (cSel) {
+            const containerEl = document.querySelector(cSel);
+            if (!containerEl || !isVisible(containerEl)) {
+              return null;
+            }
+            root = containerEl;
+          }
+
+          let els = [];
+          const sel = ${JSON.stringify(selector)};
+          if (sel.startsWith('text:')) {
+            const targetText = sel.slice(5).trim().toLowerCase();
+            const candidates = Array.from(root.querySelectorAll('button, a, div, span, [role="button"], mat-option, [role="option"], mat-button-toggle, .mat-button-toggle-button'));
+            els = candidates.filter(el => {
+              const txt = (el.innerText || el.textContent || '').trim().toLowerCase();
+              if (targetText.length <= 2) {
+                return txt === targetText || txt === ('x' + targetText) || txt === (targetText + 'x');
+              }
+              return txt.includes(targetText);
+            });
+          } else {
+            els = Array.from(root.querySelectorAll(sel));
+          }
+
+          const valid = els.filter(isVisible);
+          if (valid.length === 0) return null;
+
+          valid.sort((a, b) => {
+            const ra = a.getBoundingClientRect();
+            const rb = b.getBoundingClientRect();
+            const aInView = (ra.left >= 0 && ra.right <= window.innerWidth && ra.top >= 0 && ra.bottom <= window.innerHeight) ? 1 : 0;
+            const bInView = (rb.left >= 0 && rb.right <= window.innerWidth && rb.top >= 0 && rb.bottom <= window.innerHeight) ? 1 : 0;
+            return bInView - aInView;
+          });
+
+          const target = valid[0];
+          const rect = target.getBoundingClientRect();
+          return {
+            tagName: target.tagName,
+            className: target.className,
+            label: (target.getAttribute('aria-label') || target.innerText || target.textContent || '').trim(),
+            rect: {
+              x: Math.round(rect.x),
+              y: Math.round(rect.y),
+              width: Math.round(rect.width),
+              height: Math.round(rect.height),
+              top: Math.round(rect.top),
+              left: Math.round(rect.left)
+            }
+          };
+        } catch (e) {
+          return null;
+        }
+      })()
+    `;
+
+    return await win.webContents.executeJavaScript(scanJs, true).catch(() => null);
+  }
+
   /**
    * Tìm kiếm phần tử theo thông số spec với chấm điểm tin cậy
    */
@@ -71,69 +160,97 @@ export class FlowElementFinder {
     const allCandidates: CandidateResult[] = [];
     let candidatesTried = 0;
 
+    // 0. FAST-PATH SHORT CIRCUIT: Kiểm tra Selector Memory đã học trước đó (Phase 9 - Step 1)
+    try {
+      const { FlowSelectorMemory } = await import('./FlowSelectorMemory');
+      const memory = FlowSelectorMemory.getInstance();
+      const remembered = memory.getRemembered(spec.name);
+
+      if (remembered) {
+        candidatesTried++;
+        const elData = await FlowElementFinder.probeSelector(win, remembered.selector, remembered.containerSelector);
+        if (elData && elData.rect) {
+          let confidence = remembered.confidence;
+          if (elData.label && elData.label.length > 0) confidence = Math.min(100, confidence + 5);
+          if (elData.rect.width > 20 && elData.rect.height > 20) confidence = Math.min(100, confidence + 2);
+
+          let isStable = true;
+          let stabilityRes: any = undefined;
+          if (requireStable) {
+            stabilityRes = await FlowSmartWait.waitForElementStable(win, remembered.selector, {
+              stabilityMs,
+              timeoutMs: 1500,
+              tolerancePx: 1,
+              containerSelector: remembered.containerSelector,
+            });
+            isStable = stabilityRes.stable;
+          }
+
+          let isUnobscured = true;
+          if (unobscuredCheck && isStable) {
+            const targetRect = stabilityRes?.rect || elData.rect;
+            const clickCenter = {
+              x: Math.round(targetRect.x + targetRect.width / 2),
+              y: Math.round(targetRect.y + targetRect.height / 2),
+            };
+            const unobscuredRes = await FlowSmartWait.checkElementUnobscured(
+              win,
+              clickCenter,
+              remembered.selector,
+              remembered.containerSelector
+            );
+            isUnobscured = unobscuredRes.unobscured;
+          }
+
+          if (isStable && isUnobscured && confidence >= threshold) {
+            const candidate: CandidateResult = {
+              selector: remembered.selector,
+              strategy: remembered.strategy,
+              confidence,
+              rect: stabilityRes?.rect || elData.rect,
+              label: elData.label,
+              className: elData.className,
+              tagName: elData.tagName,
+              isStable: true,
+              unobscured: true,
+              stability: stabilityRes,
+              containerSelector: remembered.containerSelector,
+            };
+
+            await memory.recordSuccess(
+              spec.name,
+              remembered.selector,
+              remembered.strategy,
+              confidence,
+              remembered.containerSelector
+            );
+
+            return {
+              found: true,
+              selectedCandidate: candidate,
+              candidatesTried,
+              allCandidates: [candidate],
+            };
+          }
+        }
+
+        // Selector đã nhớ không còn thỏa mãn, ghi nhận 1 failure để kích hoạt re-learn
+        await memory.recordFailure(spec.name);
+      }
+    } catch {}
+
     // Quét theo thứ tự ưu tiên của các chiến lược (Strategy Rules)
     for (const rule of spec.rules) {
+      const containerSel = rule.containerSelector || null;
+
       for (const selector of rule.selectors) {
         candidatesTried++;
-        const scanJs = `
-          (function() {
-            function isVisible(el) {
-              if (!el) return false;
-              const rect = el.getBoundingClientRect();
-              if (!rect || rect.width <= 0 || rect.height <= 0) return false;
-              const style = window.getComputedStyle(el);
-              return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0';
-            }
-
-            try {
-              let els = [];
-              const sel = ${JSON.stringify(selector)};
-              if (sel.startsWith('text:')) {
-                const targetText = sel.slice(5).trim().toLowerCase();
-                const candidates = Array.from(document.querySelectorAll('button, a, div, span, [role="button"], mat-option, [role="option"]'));
-                els = candidates.filter(el => (el.innerText || el.textContent || '').trim().toLowerCase().includes(targetText));
-              } else {
-                els = Array.from(document.querySelectorAll(sel));
-              }
-
-              const valid = els.filter(isVisible);
-              if (valid.length === 0) return null;
-
-              // Ưu tiên phần tử nằm trọn vẹn trong viewport nhìn thấy được
-              valid.sort((a, b) => {
-                const ra = a.getBoundingClientRect();
-                const rb = b.getBoundingClientRect();
-                const aInView = (ra.left >= 0 && ra.right <= window.innerWidth && ra.top >= 0 && ra.bottom <= window.innerHeight) ? 1 : 0;
-                const bInView = (rb.left >= 0 && rb.right <= window.innerWidth && rb.top >= 0 && rb.bottom <= window.innerHeight) ? 1 : 0;
-                return bInView - aInView;
-              });
-
-              const target = valid[0];
-              const rect = target.getBoundingClientRect();
-              return {
-                tagName: target.tagName,
-                className: target.className,
-                label: (target.getAttribute('aria-label') || target.innerText || target.textContent || '').trim(),
-                rect: {
-                  x: Math.round(rect.x),
-                  y: Math.round(rect.y),
-                  width: Math.round(rect.width),
-                  height: Math.round(rect.height),
-                  top: Math.round(rect.top),
-                  left: Math.round(rect.left)
-                }
-              };
-            } catch (e) {
-              return null;
-            }
-          })()
-        `;
-
-        const elData = await win.webContents.executeJavaScript(scanJs, true).catch(() => null);
+        const elData = await FlowElementFinder.probeSelector(win, selector, containerSel);
         if (elData && elData.rect) {
           // Tính điểm tin cậy (Confidence Score)
           let confidence = rule.baseConfidence;
-          if (elData.label && elData.label.length > 0) confidence = Math.min(100, confidence + 5);
+          const isShortText = rule.strategy === 'TEXT_MATCH' && selector.startsWith('text:') && selector.slice(5).trim().length <= 2;
+          if (!isShortText && elData.label && elData.label.length > 0) confidence = Math.min(100, confidence + 5);
           if (elData.rect.width > 20 && elData.rect.height > 20) confidence = Math.min(100, confidence + 2);
 
           const candidate: CandidateResult = {
@@ -144,6 +261,7 @@ export class FlowElementFinder {
             label: elData.label,
             className: elData.className,
             tagName: elData.tagName,
+            containerSelector: rule.containerSelector,
           };
 
           allCandidates.push(candidate);
@@ -211,6 +329,7 @@ export class FlowElementFinder {
         stabilityMs,
         timeoutMs: 3000,
         tolerancePx: 1,
+        containerSelector: bestCandidate.containerSelector,
       });
 
       bestCandidate.stability = stabilityRes;
@@ -238,7 +357,12 @@ export class FlowElementFinder {
         x: Math.round(bestCandidate.rect.x + bestCandidate.rect.width / 2),
         y: Math.round(bestCandidate.rect.y + bestCandidate.rect.height / 2),
       };
-      const unobscuredRes = await FlowSmartWait.checkElementUnobscured(win, clickCenter, bestCandidate.selector);
+      const unobscuredRes = await FlowSmartWait.checkElementUnobscured(
+        win,
+        clickCenter,
+        bestCandidate.selector,
+        bestCandidate.containerSelector
+      );
       bestCandidate.unobscured = unobscuredRes.unobscured;
 
       if (!unobscuredRes.unobscured) {
@@ -252,6 +376,18 @@ export class FlowElementFinder {
         };
       }
     }
+
+    // Ghi nhận selector thành công vào Selector Memory (Phase 9 - Step 1)
+    try {
+      const { FlowSelectorMemory } = await import('./FlowSelectorMemory');
+      await FlowSelectorMemory.getInstance().recordSuccess(
+        spec.name,
+        bestCandidate.selector,
+        bestCandidate.strategy,
+        bestCandidate.confidence,
+        bestCandidate.containerSelector
+      );
+    } catch {}
 
     return {
       found: true,
@@ -465,22 +601,35 @@ export class FlowElementFinder {
         {
           strategy: 'CONTEXTUAL',
           baseConfidence: 78,
+          containerSelector: 'flow-prompt-box, flow-base-prompt-box, .prompt-box-container',
           selectors: [
-            'flow-prompt-box button:has(mat-icon)',
-            'flow-base-prompt-box button.clear-btn',
+            'button:has(mat-icon[fonticon*="clear"])',
+            'button.clear-btn',
+            'button:has(mat-icon)',
           ],
-          description: 'Tìm nút icon bên trong prompt box',
+          description: 'Tìm nút clear icon bên trong prompt box (Container-Scoped)',
         },
         {
           strategy: 'TEXT_MATCH',
           baseConfidence: 68,
+          containerSelector: 'flow-prompt-box, flow-base-prompt-box, .prompt-box-container',
           selectors: [
             'text:Xóa tất cả',
             'text:Clear all',
+            'text:Xóa lời nhắc',
+            'text:Clear prompt',
+          ],
+          description: 'Tìm theo text label đầy đủ của nút clear (Container-Scoped)',
+        },
+        {
+          strategy: 'TEXT_MATCH',
+          baseConfidence: 55, // Short text: hạ xuống 55 < 65
+          containerSelector: 'flow-prompt-box, flow-base-prompt-box, .prompt-box-container',
+          selectors: [
             'text:Xóa',
             'text:Clear',
           ],
-          description: 'Tìm theo text label của nút',
+          description: 'Tìm theo text ngắn (Confidence 55 < 65: Ngăn ngừa false-click)',
         },
       ],
     };
@@ -490,6 +639,7 @@ export class FlowElementFinder {
    * Cấu hình chuẩn định nghĩa nút Tạo dự án mới (New Project Button)
    */
   static getNewProjectButtonSpec(): ElementSearchSpec {
+    const containerScope = 'flow-lobby-header, flow-lobby, header, .lobby-container';
     return {
       name: 'NEW_PROJECT_BUTTON',
       confidenceThreshold: 65,
@@ -522,23 +672,25 @@ export class FlowElementFinder {
         {
           strategy: 'CONTEXTUAL',
           baseConfidence: 78,
+          containerSelector: containerScope,
           selectors: [
-            'flow-lobby-header button',
-            'flow-lobby button:has(mat-icon)',
+            'button.new-project-button',
+            'button:has(mat-icon)',
             'header button[type="button"]',
           ],
-          description: 'Tìm theo vị trí header trên trang sảnh Flow',
+          description: 'Tìm theo vị trí header trên trang sảnh Flow (Container-Scoped)',
         },
         {
           strategy: 'TEXT_MATCH',
           baseConfidence: 68,
+          containerSelector: containerScope,
           selectors: [
             'text:Tạo dự án mới',
             'text:Dự án mới',
             'text:New project',
             'text:Create project',
           ],
-          description: 'Tìm nút theo text hiển thị',
+          description: 'Tìm nút theo text đầy đủ (Container-Scoped)',
         },
       ],
     };
@@ -550,8 +702,12 @@ export class FlowElementFinder {
   /**
    * Cấu hình chuẩn định nghĩa chuyển đổi Mode Tab (Image / Video)
    */
+  /**
+   * Cấu hình chuẩn định nghĩa chuyển đổi Mode Tab (Image / Video)
+   */
   static getModeTabSpec(mode: 'image' | 'video' = 'image'): ElementSearchSpec {
     const isImg = mode === 'image';
+    const containerScope = 'flow-prompt-box, flow-base-prompt-box, .prompt-box-container';
     return {
       name: `MODE_TAB_${mode.toUpperCase()}`,
       confidenceThreshold: 65,
@@ -603,20 +759,31 @@ export class FlowElementFinder {
         {
           strategy: 'CONTEXTUAL',
           baseConfidence: 78,
+          containerSelector: containerScope,
           selectors: [
-            'flow-prompt-box [role="tablist"] button',
-            'flow-prompt-box mat-button-toggle-group mat-button-toggle',
-            '.prompt-box-container [role="tab"]',
+            '[role="tablist"] button',
+            'mat-button-toggle-group mat-button-toggle',
+            '[role="tab"]',
           ],
-          description: 'Tìm trong danh sách tab của prompt box',
+          description: 'Tìm trong danh sách tab của prompt box (Container-Scoped)',
         },
         {
           strategy: 'TEXT_MATCH',
           baseConfidence: 68,
+          containerSelector: containerScope,
           selectors: isImg
-            ? ['text:Image', 'text:Ảnh', 'text:Tạo ảnh']
-            : ['text:Video', 'text:Tạo video', 'text:Phim'],
-          description: `Tìm theo nhãn text của tab ${mode}`,
+            ? ['text:Image mode', 'text:Tạo ảnh']
+            : ['text:Video mode', 'text:Tạo video'],
+          description: `Tìm theo nhãn text đầy đủ của tab ${mode} (Container-Scoped)`,
+        },
+        {
+          strategy: 'TEXT_MATCH',
+          baseConfidence: 55, // Ngắn 1-2 từ/ký tự: dưới ngưỡng an toàn 65 để chống click nhầm
+          containerSelector: containerScope,
+          selectors: isImg
+            ? ['text:Image', 'text:Ảnh']
+            : ['text:Video', 'text:Phim'],
+          description: `Text ngắn của tab ${mode} (Confidence 55 < 65: Ngăn ngừa false-click khi không có context)`,
         },
       ],
     };
@@ -626,6 +793,7 @@ export class FlowElementFinder {
    * Cấu hình chuẩn định nghĩa nút Cài đặt/Tùy chọn sinh (Settings Trigger Button)
    */
   static getSettingsTriggerSpec(): ElementSearchSpec {
+    const containerScope = 'flow-prompt-box, flow-base-prompt-box, .prompt-box-container';
     return {
       name: 'SETTINGS_TRIGGER_BUTTON',
       confidenceThreshold: 65,
@@ -636,49 +804,62 @@ export class FlowElementFinder {
         {
           strategy: 'ACCESSIBILITY',
           baseConfidence: 95,
+          containerSelector: containerScope,
           selectors: [
+            'button[aria-label*="Điều kiện kích hoạt" i]',
             'button[aria-label*="Cài đặt" i]',
             'button[aria-label*="Settings" i]',
             'button[aria-label*="Tùy chọn" i]',
             'button[aria-label*="Options" i]',
             'button[aria-label*="Tune" i]',
-            'flow-prompt-box button[aria-label*="Cài đặt" i]',
-            'flow-prompt-box button[aria-label*="Settings" i]',
           ],
-          description: 'Tìm theo ARIA label nút cài đặt',
+          description: 'Tìm theo ARIA label nút cài đặt (Container-Scoped)',
         },
         {
           strategy: 'STRICT_COMPONENT',
           baseConfidence: 88,
+          containerSelector: containerScope,
           selectors: [
             'button.settings-trigger-button',
             'flow-settings-button button',
-            'flow-prompt-box button.settings-trigger-button',
             'button.options-button',
-            'flow-prompt-box button:has(mat-icon[fonticon*="tune"])',
+            'button:has(mat-icon[fonticon*="tune"])',
+            'button:has(mat-icon[fonticon*="crop"])',
           ],
-          description: 'Tìm theo component selector cài đặt của Flow',
+          description: 'Tìm theo component selector cài đặt của Flow (Container-Scoped)',
         },
         {
           strategy: 'CONTEXTUAL',
           baseConfidence: 78,
+          containerSelector: containerScope,
           selectors: [
-            'flow-prompt-box button:has(mat-icon)',
-            'flow-base-prompt-box button.settings-btn',
-            '.prompt-box-container button.options-btn',
+            'button:has(mat-icon[fonticon*="tune"])',
+            'button:has(mat-icon[fonticon*="crop"])',
+            'button:has(mat-icon)',
+            'button.settings-btn',
+            'button.options-btn',
           ],
-          description: 'Tìm nút icon trong prompt box container',
+          description: 'Tìm nút icon trong prompt box container (Container-Scoped)',
         },
         {
           strategy: 'TEXT_MATCH',
           baseConfidence: 68,
+          containerSelector: containerScope,
           selectors: [
             'text:Cài đặt',
             'text:Settings',
             'text:Tùy chọn',
+          ],
+          description: 'Tìm theo nhãn text đầy đủ (Container-Scoped)',
+        },
+        {
+          strategy: 'TEXT_MATCH',
+          baseConfidence: 55, // Short text: hạ xuống 55 < 65
+          containerSelector: containerScope,
+          selectors: [
             'text:Tune',
           ],
-          description: 'Tìm theo nhãn text',
+          description: 'Tìm theo text ngắn (Confidence 55 < 65: Ngăn ngừa false-click)',
         },
       ],
     };
@@ -688,8 +869,10 @@ export class FlowElementFinder {
    * Cấu hình chuẩn định nghĩa tuỳ chọn Tỉ lệ khung hình (Aspect Ratio Option)
    */
   static getAspectRatioSpec(ratio: string = '16:9'): ElementSearchSpec {
+    const containerScope = '.cdk-overlay-pane, flow-aspect-ratio-selector';
+    const ratioClean = ratio.replace(':', '_');
     return {
-      name: `ASPECT_RATIO_${ratio.replace(':', '_')}`,
+      name: `ASPECT_RATIO_${ratioClean}`,
       confidenceThreshold: 65,
       requireStable: false,
       unobscuredCheck: true,
@@ -697,51 +880,53 @@ export class FlowElementFinder {
         {
           strategy: 'ACCESSIBILITY',
           baseConfidence: 95,
+          containerSelector: containerScope,
           selectors: [
             `button[aria-label*="${ratio}" i]`,
             `mat-button-toggle[aria-label*="${ratio}" i]`,
             `mat-option[aria-label*="${ratio}" i]`,
             `button[aria-label*="Tỉ lệ ${ratio}" i]`,
             `button[aria-label*="Aspect ratio ${ratio}" i]`,
+            `button:has(mat-icon[fonticon*="crop_${ratioClean}"])`,
+            `mat-button-toggle:has(mat-icon[fonticon*="crop_${ratioClean}"])`,
           ],
-          description: `Tìm theo ARIA label tỉ lệ ${ratio}`,
+          description: `Tìm theo ARIA label hoặc crop icon tỉ lệ ${ratio} (Container-Scoped)`,
         },
         {
           strategy: 'STRICT_COMPONENT',
           baseConfidence: 88,
+          containerSelector: containerScope,
           selectors: [
             `mat-button-toggle[value*="${ratio}"]`,
-            `mat-button-toggle[value*="${ratio.replace(':', '_')}"]`,
+            `mat-button-toggle[value*="${ratioClean}"]`,
+            `mat-button-toggle:has(mat-icon[fonticon*="crop_${ratioClean}"])`,
+            `mat-button-toggle-group:nth-of-type(2) mat-button-toggle`,
             'button.aspect-ratio-btn',
             'button.ratio-button',
             'flow-aspect-ratio-selector mat-button-toggle',
           ],
-          description: 'Tìm theo component selector toggle / dropdown tỉ lệ',
+          description: 'Tìm theo component selector toggle / dropdown tỉ lệ (Container-Scoped)',
         },
         {
           strategy: 'CONTEXTUAL',
           baseConfidence: 78,
+          containerSelector: containerScope,
           selectors: [
-            '.cdk-overlay-pane mat-button-toggle',
-            'mat-button-toggle-group mat-button-toggle',
-            'flow-prompt-box mat-select',
+            'mat-button-toggle:has(mat-icon[fonticon*="crop"])',
+            'mat-button-toggle-group:nth-of-type(2) mat-button-toggle',
             '.aspect-ratio-selector mat-button-toggle',
-            'mat-option',
           ],
-          description: 'Tìm theo mat-button-toggle trong overlay hoặc prompt box',
+          description: 'Tìm trong nhóm toggle tỉ lệ khung hình (Container-Scoped)',
         },
         {
           strategy: 'TEXT_MATCH',
           baseConfidence: 68,
+          containerSelector: containerScope,
           selectors: [
+            `text:crop_${ratioClean} ${ratio}`,
             `text:${ratio}`,
-            'text:16:9',
-            'text:9:16',
-            'text:1:1',
-            'text:4:3',
-            'text:3:4',
           ],
-          description: `Tìm theo chuỗi tỉ lệ text ${ratio}`,
+          description: `Tìm theo chuỗi tỉ lệ text ${ratio} (Container-Scoped)`,
         },
       ],
     };
@@ -752,6 +937,7 @@ export class FlowElementFinder {
    */
   static getOutputCountSpec(count: number = 1): ElementSearchSpec {
     const countNum = Math.max(1, Math.min(4, Math.round(Number(count) || 1)));
+    const containerScope = '.cdk-overlay-pane, flow-output-count-selector';
     return {
       name: `OUTPUT_COUNT_${countNum}`,
       confidenceThreshold: 65,
@@ -761,6 +947,7 @@ export class FlowElementFinder {
         {
           strategy: 'ACCESSIBILITY',
           baseConfidence: 95,
+          containerSelector: containerScope,
           selectors: [
             `button[aria-label*="${countNum} image" i]`,
             `button[aria-label*="${countNum} ảnh" i]`,
@@ -768,38 +955,51 @@ export class FlowElementFinder {
             `button[aria-label*="x${countNum}" i]`,
             `button[aria-label*="Count ${countNum}" i]`,
           ],
-          description: `Tìm theo ARIA label số lượng ảnh ${countNum}`,
+          description: `Tìm theo ARIA label số lượng ảnh ${countNum} (Container-Scoped)`,
         },
         {
           strategy: 'STRICT_COMPONENT',
           baseConfidence: 88,
+          containerSelector: containerScope,
           selectors: [
             `mat-button-toggle[value="${countNum}"]`,
             `button.output-count-${countNum}`,
             `flow-output-count-selector mat-button-toggle`,
             `.count-toggle-${countNum}`,
+            `mat-button-toggle-group:last-of-type mat-button-toggle`,
           ],
-          description: `Tìm theo component selector số lượng ${countNum}`,
+          description: `Tìm theo component selector số lượng ${countNum} (Container-Scoped)`,
         },
         {
           strategy: 'CONTEXTUAL',
           baseConfidence: 78,
+          containerSelector: containerScope,
           selectors: [
-            '.cdk-overlay-pane mat-button-toggle-group button',
-            '.cdk-overlay-pane mat-button-toggle',
-            'mat-button-toggle-group mat-button-toggle',
-            '.output-count-group button',
+            'mat-button-toggle-group:last-of-type mat-button-toggle',
+            '.output-count-group mat-button-toggle',
+            '.count-toggle-group mat-button-toggle',
           ],
-          description: 'Tìm theo toggle button trong overlay pane',
+          description: 'Tìm trong nhóm toggle số lượng ảnh (Container-Scoped)',
         },
         {
           strategy: 'TEXT_MATCH',
           baseConfidence: 68,
+          containerSelector: containerScope,
+          selectors: [
+            `text:${countNum} image`,
+            `text:${countNum} ảnh`,
+          ],
+          description: `Tìm theo nhãn text đầy đủ ${countNum} image/ảnh (Container-Scoped)`,
+        },
+        {
+          strategy: 'TEXT_MATCH',
+          baseConfidence: 48, // Hạ xuống 48 (+2 dimension bonus = 50 đúng theo kế hoạch < 65)
+          containerSelector: containerScope,
           selectors: [
             `text:x${countNum}`,
             `text:${countNum}`,
           ],
-          description: `Tìm theo nhãn text x${countNum}`,
+          description: `Text ngắn 1 ký tự x${countNum}/${countNum} (Confidence 50 < 65: Ngăn ngừa false-click)`,
         },
       ],
     };
