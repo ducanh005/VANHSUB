@@ -162,11 +162,37 @@ export default function SettingsPage() {
   const [tiktokStatusOk, setTiktokStatusOk] = useState(false);
   const tiktokPreviewRef = useRef<HTMLAudioElement | null>(null);
 
-  // Tự động lưu các setting dạng chọn (dropdown) ngay khi đổi — trước đây chỉ
-  // ghi xuống khi bấm "Lưu cài đặt" toàn cục, người dùng đổi ngôn ngữ OCR xong
-  // quét ngay thì app vẫn dùng giá trị cũ (lỗi "OCR vẫn nhận diện tiếng Việt")
   const [autoSavedFlash, setAutoSavedFlash] = useState(false);
   const autoSaveTimerRef = useRef<number | null>(null);
+
+  // Quản lý Bộ nhớ tạm & Dọn dẹp Ổ đĩa (Workflow Storage GC)
+  const [tempStats, setTempStats] = useState<{ totalSizeMb: number; folderCount: number; fileCount: number; tempDir: string } | null>(null);
+  const [isCleaningTemp, setIsCleaningTemp] = useState(false);
+  const [cleanTempMessage, setCleanTempMessage] = useState('');
+
+  const loadTempStats = async () => {
+    if (typeof window === 'undefined' || !window.vanhsub?.workflow?.getTempStorageStats) return;
+    try {
+      const stats = await window.vanhsub.workflow.getTempStorageStats();
+      setTempStats(stats);
+    } catch {}
+  };
+
+  const handleCleanTemp = async () => {
+    if (typeof window === 'undefined' || !window.vanhsub?.workflow?.cleanTempCache) return;
+    setIsCleaningTemp(true);
+    setCleanTempMessage('');
+    try {
+      const res = await window.vanhsub.workflow.cleanTempCache(0);
+      setCleanTempMessage(`Đã dọn dẹp ${res.deletedFolders} thư mục, giải phóng ${res.freedMb} MB!`);
+      await loadTempStats();
+      setTimeout(() => setCleanTempMessage(''), 4000);
+    } catch (err: any) {
+      setCleanTempMessage(`Lỗi: ${err?.message || err}`);
+    } finally {
+      setIsCleaningTemp(false);
+    }
+  };
 
   const autoSaveSetting = async (key: SettingKey, value: unknown) => {
     try {
@@ -238,6 +264,7 @@ export default function SettingsPage() {
       .catch((err) => console.error('Lỗi khi nạp cài đặt:', err));
 
     loadModelsList();
+    loadTempStats();
   }, []);
 
   const loadModelsList = async () => {
@@ -777,6 +804,70 @@ export default function SettingsPage() {
                 Model nào chưa có trên máy sẽ tự tải khi phiên âm đầu tiên (xem vị trí lưu ở khối bên dưới).
               </p>
             </div>
+          </div>
+        </div>
+
+        {/* Khối Quản lý Bộ nhớ tạm & Dọn dẹp Ổ đĩa */}
+        <div className="flex flex-col gap-4 rounded-3xl border border-slate-800 bg-slate-900/60 p-5">
+          <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+            <div className="flex items-center gap-2 text-sm font-bold text-white">
+              <HardDrive className="h-4 w-4 text-amber-400" />
+              <span>Bộ nhớ tạm &amp; Dọn dẹp Ổ đĩa (Storage GC)</span>
+            </div>
+            <button
+              type="button"
+              onClick={loadTempStats}
+              className="rounded-lg p-1 text-slate-400 hover:bg-slate-800 hover:text-white transition cursor-pointer"
+              title="Làm mới dung lượng"
+            >
+              <RefreshCw className="h-3.5 w-3.5" />
+            </button>
+          </div>
+
+          <div className="space-y-3">
+            <div className="flex items-center justify-between rounded-xl border border-slate-800 bg-slate-800/40 p-3">
+              <div>
+                <span className="block text-xs font-semibold text-slate-200">
+                  Dung lượng tạm đang chiếm dụng:
+                </span>
+                <span className="text-[11px] text-slate-400">
+                  Thư mục: <code className="font-mono text-slate-300 text-[10px]">{tempStats?.tempDir || '%TEMP%\\vanhsub_workflow'}</code>
+                </span>
+              </div>
+              <div className="text-right">
+                <span className="text-base font-bold text-amber-400">
+                  {tempStats ? `${tempStats.totalSizeMb} MB` : 'Đang tính...'}
+                </span>
+                <span className="block text-[10px] text-slate-400">
+                  {tempStats ? `${tempStats.folderCount} thư mục (${tempStats.fileCount} files)` : ''}
+                </span>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between gap-3 pt-1">
+              <p className="text-[11px] text-slate-400">
+                Hệ thống tự động dọn dẹp các tệp tạm cũ hơn 24 giờ. Bạn cũng có thể dọn dẹp ngay để giải phóng dung lượng ổ cứng.
+              </p>
+              <button
+                type="button"
+                disabled={isCleaningTemp}
+                onClick={handleCleanTemp}
+                className="inline-flex items-center gap-1.5 shrink-0 rounded-xl border border-amber-500/40 bg-amber-500/15 px-3.5 py-2 text-xs font-semibold text-amber-300 hover:bg-amber-500/25 transition cursor-pointer disabled:opacity-50"
+              >
+                {isCleaningTemp ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Trash2 className="h-3.5 w-3.5" />
+                )}
+                <span>{isCleaningTemp ? 'Đang dọn...' : 'Dọn dẹp ngay'}</span>
+              </button>
+            </div>
+
+            {cleanTempMessage && (
+              <p className="text-[11px] font-medium text-emerald-400">
+                {cleanTempMessage}
+              </p>
+            )}
           </div>
         </div>
 

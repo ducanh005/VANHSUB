@@ -191,17 +191,18 @@ export interface VanhsubAPI {
       voice?: string,
       speed?: number,
       voiceOverrides?: Record<string, string>,
-      engine?: 'viettts' | 'tiktok'
+      engine?: 'viettts' | 'tiktok' | 'edge'
     ) => Promise<boolean>;
     cancel: (id: string) => Promise<boolean>;
     regenerateLine: (id: string, lineIndex: number) => Promise<{ ok: boolean; error?: string }>;
     voices: () => Promise<string[]>;
+    getEdgeVoices: () => Promise<Array<{ id: string; name: string; gender: string; locale: string }>>;
     checkConnection: () => Promise<boolean>;
     preview: (
       text: string,
       voice?: string,
       speed?: number,
-      engine?: 'viettts' | 'tiktok'
+      engine?: 'viettts' | 'tiktok' | 'edge'
     ) => Promise<{ audioBase64: string; mimeType: string }>;
     voiceSamples: () => Promise<VoiceSampleInfo[]>;
     addVoiceSample: (
@@ -364,8 +365,10 @@ export interface VanhsubAPI {
       status: 'pass' | 'warn' | 'fail';
       details: string;
     }>;
-    concatClips: (clipPaths: string[], outPath?: string) => Promise<string>;
+    concatClips: (clipPaths: string[], outPath?: string, options?: { effect?: string; duration?: number }) => Promise<string>;
     getVideoDuration: (videoPath: string) => Promise<number>;
+    getTempStorageStats: () => Promise<{ tempDir: string; folderCount: number; fileCount: number; totalSizeBytes: number; totalSizeMb: number }>;
+    cleanTempCache: (maxAgeHours?: number) => Promise<{ freedBytes: number; freedMb: number; deletedFolders: number; deletedFiles: number; errors: string[] }>;
     onNodeEvent: (callback: (event: any) => void) => () => void;
   };
   bible: {

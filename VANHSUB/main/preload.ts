@@ -60,14 +60,15 @@ const vanhsub = {
       voice?: string,
       speed?: number,
       voiceOverrides?: Record<string, string>,
-      engine?: 'viettts' | 'tiktok'
+      engine?: 'viettts' | 'tiktok' | 'edge'
     ) => ipcRenderer.invoke('tts:start', id, voice, speed, voiceOverrides, engine),
     cancel: (id: string) => ipcRenderer.invoke('tts:cancel', id),
     regenerateLine: (id: string, lineIndex: number) =>
       ipcRenderer.invoke('tts:regenerateLine', id, lineIndex),
     voices: () => ipcRenderer.invoke('tts:voices'),
+    getEdgeVoices: () => ipcRenderer.invoke('tts:getEdgeVoices'),
     checkConnection: () => ipcRenderer.invoke('tts:check-connection'),
-    preview: (text: string, voice?: string, speed?: number, engine?: 'viettts' | 'tiktok') =>
+    preview: (text: string, voice?: string, speed?: number, engine?: 'viettts' | 'tiktok' | 'edge') =>
       ipcRenderer.invoke('tts:preview', text, voice, speed, engine),
     voiceSamples: () => ipcRenderer.invoke('tts:voice-samples'),
     addVoiceSample: (name: string) => ipcRenderer.invoke('tts:add-voice-sample', name),
@@ -156,6 +157,8 @@ const vanhsub = {
       ipcRenderer.invoke('workflow:concatClips', clipPaths, outPath),
     getVideoDuration: (videoPath: string) =>
       ipcRenderer.invoke('workflow:getVideoDuration', videoPath),
+    getTempStorageStats: () => ipcRenderer.invoke('workflow:getTempStorageStats'),
+    cleanTempCache: (maxAgeHours?: number) => ipcRenderer.invoke('workflow:cleanTempCache', maxAgeHours),
     onNodeEvent: (callback: (event: any) => void) => {
       const sub = (_event: any, data: any) => callback(data);
       ipcRenderer.on('workflow:node-event', sub);
