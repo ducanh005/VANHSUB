@@ -18,3 +18,4 @@ export * from './FlowMediaVerifier';
 export * from './FlowDebugBundleExporter';
 export * from './FlowSelectorMemory';
 export * from './FlowVisualFallback';
+export * from './FlowMemoryWatchdog';
