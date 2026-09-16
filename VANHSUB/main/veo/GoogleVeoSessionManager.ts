@@ -8,6 +8,7 @@ import {
   FlowImageGenerationStatePipeline,
   FlowElementFinder,
   FlowSmartWait,
+  FlowClipboardGuard,
   type FlowStateContext,
 } from '../workflow/flow-engine';
 import type {
@@ -1592,10 +1593,12 @@ export class GoogleVeoSessionManager {
             const natImg = electron.nativeImage.createFromPath(localImgPath);
             if (!natImg.isEmpty()) {
               console.log('[Google Flow Browser] 🖼️ Nạp ảnh initFrameUrl vào Clipboard và Paste vào Prompt Box...');
-              electron.clipboard.writeImage(natImg);
-              win.focus();
-              win.webContents.paste();
-              await new Promise((r) => setTimeout(r, 1200));
+              await FlowClipboardGuard.withPreservedClipboard(electron, async () => {
+                electron.clipboard.writeImage(natImg);
+                win.focus();
+                win.webContents.paste();
+                await new Promise((r) => setTimeout(r, 1200));
+              });
               hasChip = await this.safeExecuteJs<boolean>(win, checkChipJs, 2000);
             }
           }
@@ -1684,16 +1687,17 @@ export class GoogleVeoSessionManager {
       `;
       await this.safeExecuteJs(win, focusEditorJs, 2500);
 
-      // 2. Nạp prompt vào Clipboard và kích hoạt native paste qua WebContents
-      try {
-        electron.clipboard.writeText(promptClean);
-        win.focus();
-        win.webContents.paste();
-      } catch (e) {
-        console.warn('[Google Flow Browser] Clipboard paste error:', e);
-      }
-
-      await new Promise((r) => setTimeout(r, 400));
+      // 2. Nạp prompt vào Clipboard và kích hoạt native paste qua WebContents (bảo tồn clipboard người dùng)
+      await FlowClipboardGuard.withPreservedClipboard(electron, async () => {
+        try {
+          electron.clipboard.writeText(promptClean);
+          win.focus();
+          win.webContents.paste();
+        } catch (e) {
+          console.warn('[Google Flow Browser] Clipboard paste error:', e);
+        }
+        await new Promise((r) => setTimeout(r, 400));
+      });
 
       // 3. Thực thi đoạn mã hoàn tất việc điền và định vị nút Submit
       const fillPromptJs = `

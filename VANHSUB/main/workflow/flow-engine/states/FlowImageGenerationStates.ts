@@ -6,9 +6,9 @@ import type {
 } from '../types';
 import { FlowSmartWait } from '../FlowSmartWait';
 import { FlowElementFinder } from '../FlowElementFinder';
-import { FlowPageStateDetector } from '../FlowPageStateDetector';
 import { FlowOverlayDetector } from '../FlowOverlayDetector';
 import { FlowRecoveryManager } from '../FlowRecoveryManager';
+import { FlowClipboardGuard } from '../FlowClipboardGuard';
 
 /**
  * Helper an toàn để execute JS trên BrowserWindow
@@ -429,7 +429,12 @@ export const EnterPromptState: FlowAutomationState = {
   },
 
   async execute(ctx: FlowStateContext): Promise<ActionResult> {
-    const electron = require('electron');
+    let electron: any = null;
+    try {
+      electron = (ctx as any).electron || require('electron');
+    } catch {
+      electron = (ctx as any).electron || null;
+    }
     const promptClean = (ctx.prompt || '').trim();
     const promptJson = JSON.stringify(promptClean);
 
@@ -453,15 +458,19 @@ export const EnterPromptState: FlowAutomationState = {
       1000
     );
 
-    // 2. Native paste qua clipboard
-    try {
-      electron.clipboard.writeText(promptClean);
-      ctx.win.focus();
-      ctx.win.webContents.paste();
-    } catch (e) {
-      console.warn('[FlowStateMachine] Clipboard paste warning:', e);
+    // 2. Native paste qua clipboard với cơ chế bảo tồn clipboard OS (Snapshot -> Paste -> Restore)
+    if (electron && typeof electron === 'object' && electron.clipboard) {
+      await FlowClipboardGuard.withPreservedClipboard(electron, async () => {
+        try {
+          electron.clipboard.writeText(promptClean);
+          ctx.win.focus();
+          ctx.win.webContents.paste();
+        } catch (e) {
+          console.warn('[FlowStateMachine] Clipboard paste warning:', e);
+        }
+        await new Promise((r) => setTimeout(r, 200));
+      });
     }
-    await new Promise((r) => setTimeout(r, 200));
 
     // 3. Dispatch ClipboardEvent paste với DataTransfer (kích hoạt ProseMirror transaction 100% chuẩn xác cho Google Flow)
     const pasteEventJs = `

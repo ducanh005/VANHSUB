@@ -5,4 +5,5 @@ export * from './FlowElementFinder';
 export * from './FlowPageStateDetector';
 export * from './FlowOverlayDetector';
 export * from './FlowRecoveryManager';
+export * from './FlowClipboardGuard';
 export * from './states/FlowImageGenerationStates';
