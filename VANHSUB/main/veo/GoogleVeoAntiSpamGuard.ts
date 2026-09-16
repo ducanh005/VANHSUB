@@ -103,20 +103,9 @@ export class GoogleVeoAntiSpamGuard {
         options.onProgress(2, 'Đang xếp hàng chờ session Veo (Video trước đang xử lý)...');
       }
       await new Promise<void>((resolve, reject) => {
-        const watchdog = setTimeout(() => {
-          this.releaseLock();
-          resolve();
-        }, 12_000);
-
         this.queue.push({
-          resolve: () => {
-            clearTimeout(watchdog);
-            resolve();
-          },
-          reject: (err) => {
-            clearTimeout(watchdog);
-            reject(err);
-          },
+          resolve,
+          reject,
           isCancelled: options?.isCancelled,
         });
       });
