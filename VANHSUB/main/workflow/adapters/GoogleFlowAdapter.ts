@@ -9,6 +9,7 @@ import OpenAI from 'openai';
 import { SettingsStore } from '../../store/settingsStore';
 import { GoogleVeoSessionManager } from '../../veo/GoogleVeoSessionManager';
 import { GoogleVeoAntiSpamGuard } from '../../veo/GoogleVeoAntiSpamGuard';
+import { FlowMediaVerifier } from '../flow-engine/FlowMediaVerifier';
 import type { ExecutionContext } from '../types';
 import type { ModelAdapter, VideoGenParams, VideoGenResult } from './types';
 
@@ -225,8 +226,12 @@ export class GoogleFlowAdapter implements ModelAdapter {
         console.log('[Google Flow] ✅ Lưu video Blob từ Google Veo...');
         ctx.onProgress(85);
         const b64 = browserResult.base64Data.replace(/^data:[^;]+;base64,/, '');
-        const fs = require('fs');
-        fs.writeFileSync(outPath, Buffer.from(b64, 'base64'));
+        const buf = Buffer.from(b64, 'base64');
+        const verification = FlowMediaVerifier.verifyBuffer(buf, { expectedType: 'video' });
+        if (!verification.isValid) {
+          console.warn(`[Google Flow] ⚠️ Dữ liệu video base64 không đạt chuẩn (${verification.error}): ${verification.errorDetail}`);
+        }
+        fs.writeFileSync(outPath, buf);
         return { videoPath: outPath, projectId: browserResult.projectId || params.projectId };
       }
 
@@ -667,8 +672,19 @@ export class GoogleFlowAdapter implements ModelAdapter {
           file.on('finish', () => {
             clearTimeout(hardTimer);
             isFinished = true;
-            file.close();
-            resolve();
+            file.close(async () => {
+              try {
+                const ext = path.extname(dest).toLowerCase();
+                const expectedType = ext === '.mp4' || ext === '.webm' ? 'video' : 'image';
+                const verification = await FlowMediaVerifier.verifyFile(dest, { expectedType });
+                if (!verification.isValid) {
+                  console.warn(
+                    `[Google Flow] ⚠️ Tệp tải về không đạt chuẩn tính toàn vẹn (${verification.error}): ${verification.errorDetail}`
+                  );
+                }
+              } catch {}
+              resolve();
+            });
           });
           file.on('error', (err) => {
             clearTimeout(hardTimer);
