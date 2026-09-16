@@ -7,12 +7,14 @@
  */
 
 import { FlowSmartWait, ElementRect, StabilityResult } from './FlowSmartWait';
+import type { GeometricAnchorSpec } from './FlowVisualFallback';
 
 export type FinderStrategy =
   | 'ACCESSIBILITY'     // role + aria-label (95 - 100)
   | 'STRICT_COMPONENT'  // component tag / css class đặc thù (85 - 90)
   | 'CONTEXTUAL'        // cấu trúc quan hệ cha-con (75 - 80)
   | 'TEXT_MATCH'        // nội dung văn bản (65 - 70)
+  | 'VISUAL_ANCHOR'     // neo hình học / thị giác tương đối (70 - 75)
   | 'COORDINATE_FALLBACK'; // toạ độ fallback khai báo tường minh (50)
 
 export interface StrategyRule {
@@ -30,6 +32,7 @@ export interface ElementSearchSpec {
   requireStable?: boolean;      // Mặc định true
   stabilityMs?: number;         // Mặc định 200ms
   unobscuredCheck?: boolean;    // Mặc định true
+  visualAnchor?: GeometricAnchorSpec; // Neo hình học tương đối cứu cánh khi 4 tầng selector đều thất bại
   fallbackCoordinates?: { x: number; y: number; description?: string };
   allowCoordinateFallback?: boolean; // Khai báo tường minh khi dùng fallback toạ độ (mặc định false)
 }
@@ -107,7 +110,11 @@ export class FlowElementFinder {
               return txt.includes(targetText);
             });
           } else {
-            els = Array.from(root.querySelectorAll(sel));
+            try {
+              els = Array.from(root.querySelectorAll(sel));
+            } catch {
+              els = [];
+            }
           }
 
           const valid = els.filter(isVisible);
@@ -275,6 +282,23 @@ export class FlowElementFinder {
       }
     }
 
+    // 5. VISUAL FALLBACK & GEOMETRIC ANCHOR (Phase 9 - Step 2)
+    // Nếu các tầng 1-4 không tìm được ứng viên nào đạt ngưỡng confidence >= threshold,
+    // và spec có khai báo visualAnchor, kích hoạt bộ tìm kiếm neo hình học cứu cánh
+    const hasQualifyingCandidate = allCandidates.some((c) => c.confidence >= threshold);
+    if (!hasQualifyingCandidate && spec.visualAnchor) {
+      try {
+        const { FlowVisualFallback } = await import('./FlowVisualFallback');
+        const anchorCandidate = await FlowVisualFallback.resolveAnchor(win, spec.visualAnchor);
+        if (anchorCandidate) {
+          candidatesTried++;
+          allCandidates.push(anchorCandidate);
+        }
+      } catch {
+        // Visual fallback thất bại an toàn, tiếp tục kiểm tra các tầng sau
+      }
+    }
+
     // Fallback toạ độ tường minh: chỉ được xét khi không có candidate nào đạt và allowCoordinateFallback = true
     if (allCandidates.length === 0 && spec.fallbackCoordinates && spec.allowCoordinateFallback) {
       candidatesTried++;
@@ -377,16 +401,23 @@ export class FlowElementFinder {
       }
     }
 
-    // Ghi nhận selector thành công vào Selector Memory (Phase 9 - Step 1)
+    // Ghi nhận selector thành công vào Selector Memory (Phase 9 - Step 1 & 2)
     try {
       const { FlowSelectorMemory } = await import('./FlowSelectorMemory');
-      await FlowSelectorMemory.getInstance().recordSuccess(
-        spec.name,
-        bestCandidate.selector,
-        bestCandidate.strategy,
-        bestCandidate.confidence,
-        bestCandidate.containerSelector
-      );
+      // Nếu là VISUAL_ANCHOR và có derivedSelector tự nhiên, lưu derivedSelector để Fast-Path phiên sau dùng được
+      const selectorToSave =
+        (bestCandidate as any).derivedSelector ||
+        (bestCandidate.strategy !== 'VISUAL_ANCHOR' ? bestCandidate.selector : null);
+
+      if (selectorToSave) {
+        await FlowSelectorMemory.getInstance().recordSuccess(
+          spec.name,
+          selectorToSave,
+          bestCandidate.strategy,
+          bestCandidate.confidence,
+          bestCandidate.containerSelector
+        );
+      }
     } catch {}
 
     return {
@@ -407,6 +438,15 @@ export class FlowElementFinder {
       requireStable: true,
       stabilityMs: 200,
       unobscuredCheck: true,
+      visualAnchor: {
+        containerSelector: 'flow-prompt-box, flow-base-prompt-box, .prompt-box-container',
+        relativeX: 0.95,
+        relativeY: 0.50,
+        interactiveRole: 'button',
+        expectedTagNames: ['BUTTON', 'MAT-ICON', 'DIV'],
+        baseConfidence: 72,
+        description: 'Nút Generate ở góc phải prompt box',
+      },
       rules: [
         {
           strategy: 'ACCESSIBILITY',
@@ -466,6 +506,15 @@ export class FlowElementFinder {
       confidenceThreshold: 65,
       requireStable: false,
       unobscuredCheck: true,
+      visualAnchor: {
+        containerSelector: 'flow-prompt-box, flow-base-prompt-box, .prompt-box-container',
+        relativeX: 0.35,
+        relativeY: 0.45,
+        interactiveRole: 'input',
+        expectedTagNames: ['DIV', 'TEXTAREA', 'P'],
+        baseConfidence: 72,
+        description: 'Vùng soạn thảo prompt box',
+      },
       rules: [
         {
           strategy: 'STRICT_COMPONENT',
@@ -518,6 +567,13 @@ export class FlowElementFinder {
       confidenceThreshold: 65,
       requireStable: false,
       unobscuredCheck: false,
+      visualAnchor: {
+        relativeX: 0.50,
+        relativeY: 0.85,
+        expectedTagNames: ['FLOW-PROMPT-BOX', 'DIV', 'FLOW-BASE-PROMPT-BOX'],
+        baseConfidence: 70,
+        description: 'Khung prompt box ở cạnh dưới màn hình',
+      },
       rules: [
         {
           strategy: 'ACCESSIBILITY',
@@ -573,6 +629,15 @@ export class FlowElementFinder {
       requireStable: true,
       stabilityMs: 150,
       unobscuredCheck: true,
+      visualAnchor: {
+        containerSelector: 'flow-prompt-box, flow-base-prompt-box, .prompt-box-container',
+        relativeX: 0.88,
+        relativeY: 0.50,
+        interactiveRole: 'button',
+        expectedTagNames: ['BUTTON', 'MAT-ICON'],
+        baseConfidence: 70,
+        description: 'Nút Clear trong prompt box',
+      },
       rules: [
         {
           strategy: 'ACCESSIBILITY',
@@ -646,6 +711,15 @@ export class FlowElementFinder {
       requireStable: true,
       stabilityMs: 200,
       unobscuredCheck: true,
+      visualAnchor: {
+        containerSelector: containerScope,
+        relativeX: 0.90,
+        relativeY: 0.50,
+        interactiveRole: 'button',
+        expectedTagNames: ['BUTTON', 'MAT-ICON', 'DIV'],
+        baseConfidence: 70,
+        description: 'Nút New Project ở góc trên phải sảnh',
+      },
       rules: [
         {
           strategy: 'ACCESSIBILITY',

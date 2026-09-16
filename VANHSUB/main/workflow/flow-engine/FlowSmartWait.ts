@@ -20,6 +20,7 @@ export interface StabilityOptions {
   timeoutMs?: number;
   tolerancePx?: number;
   checkIntervalMs?: number;
+  containerSelector?: string;
 }
 
 export interface ElementRect {
@@ -49,17 +50,17 @@ export interface StabilityResult {
 
 export class FlowSmartWait {
   /**
-   * Thăm dò điều kiện với tần suất thích ứng (Adaptive Polling)
-   * Thoát ngay lập tức (zero wasted wait) khi fn() trả về giá trị truthy.
+   * Chờ có điều kiện với chu kỳ thích ứng (Adaptive Exponential Backoff Polling)
+   * Thoát ngay khi điều kiện thoả mãn, tránh sleep cứng.
    */
   static async pollUntil<T>(
     fn: () => Promise<T | null | undefined | false>,
     options?: PollOptions
   ): Promise<T> {
     const timeoutMs = options?.timeoutMs ?? 10000;
-    const initialInterval = options?.initialIntervalMs ?? 80;
-    const maxInterval = options?.maxIntervalMs ?? 800;
-    const backoff = options?.backoffFactor ?? 1.4;
+    const initialInterval = options?.initialIntervalMs ?? 100;
+    const maxInterval = options?.maxIntervalMs ?? 1000;
+    const backoff = options?.backoffFactor ?? 1.3;
     const tag = options?.tag ? `[${options.tag}] ` : '';
 
     const startTime = Date.now();
@@ -173,10 +174,32 @@ export class FlowSmartWait {
     const stabilityMs = options?.stabilityMs ?? 200;
     const tolerance = options?.tolerancePx ?? 1;
     const checkInterval = options?.checkIntervalMs ?? 60;
+    const cSel = options?.containerSelector || null;
 
     const measureJs = `
       (function() {
-        const el = document.querySelector(\`${selector}\`);
+        let root = document;
+        const cSel = ${JSON.stringify(cSel)};
+        if (cSel) {
+          const cont = document.querySelector(cSel);
+          if (cont) root = cont;
+        }
+        let el = null;
+        const sel = ${JSON.stringify(selector)};
+        if (sel.startsWith('text:')) {
+          const targetText = sel.slice(5).trim().toLowerCase();
+          const candidates = Array.from(root.querySelectorAll('button, a, div, span, [role="button"], mat-option, [role="option"], mat-button-toggle, .mat-button-toggle-button'));
+          el = candidates.find(e => {
+            const txt = (e.innerText || e.textContent || '').trim().toLowerCase();
+            return txt.includes(targetText);
+          });
+        } else {
+          try {
+            el = root.querySelector(sel);
+          } catch {
+            el = null;
+          }
+        }
         if (!el) return null;
         const rect = el.getBoundingClientRect();
         if (!rect || rect.width <= 0 || rect.height <= 0) return null;
@@ -275,14 +298,31 @@ export class FlowSmartWait {
   static async checkElementUnobscured(
     win: any,
     targetCoords: { x: number; y: number },
-    targetSelector?: string
+    targetSelector?: string,
+    containerSelector?: string
   ): Promise<{ unobscured: boolean; topElementTag?: string; topElementClass?: string; isSelfOrDescendant: boolean }> {
     const checkJs = `
       (function() {
+        let root = document;
+        const cSel = ${JSON.stringify(containerSelector || null)};
+        if (cSel) {
+          const cont = document.querySelector(cSel);
+          if (cont) root = cont;
+        }
         let targetEl = null;
-        if (${JSON.stringify(targetSelector || '')}) {
+        const sel = ${JSON.stringify(targetSelector || '')};
+        if (sel) {
           try {
-            targetEl = document.querySelector(${JSON.stringify(targetSelector || '')});
+            if (sel.startsWith('text:')) {
+              const targetText = sel.slice(5).trim().toLowerCase();
+              const candidates = Array.from(root.querySelectorAll('button, a, div, span, [role="button"], mat-option, [role="option"], mat-button-toggle, .mat-button-toggle-button'));
+              targetEl = candidates.find(e => {
+                const txt = (e.innerText || e.textContent || '').trim().toLowerCase();
+                return txt.includes(targetText);
+              });
+            } else {
+              targetEl = root.querySelector(sel);
+            }
             if (targetEl && typeof targetEl.scrollIntoView === 'function') {
               targetEl.scrollIntoView({ block: 'nearest', inline: 'nearest' });
             }
