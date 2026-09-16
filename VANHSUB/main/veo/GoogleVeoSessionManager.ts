@@ -2567,7 +2567,39 @@ export class GoogleVeoSessionManager {
 
         if (!promptEl) return { ready: false, hasPrompt: false, reason: 'no_prompt_el' };
 
-        // Xóa sạch nội dung cũ nếu còn sót lại từ lượt trước bằng range delete + input event
+        // A. Xóa bỏ triệt để các thẻ chip ảnh cũ (flow-image-ingredient-chip) còn sót lại từ lượt trước
+        let removedChipsCount = 0;
+        const chipContainer = promptBox || document;
+        const chipSelectors = [
+          'flow-image-ingredient-chip',
+          '.chip-container',
+          '.chip-image-wrapper',
+          'mat-chip-row',
+          'mat-chip'
+        ];
+        const chips = Array.from(chipContainer.querySelectorAll(chipSelectors.join(', ')));
+        for (const chip of chips) {
+          try {
+            // 1. Thử click nút xoá trên chip
+            const removeBtn = chip.querySelector(
+              'button[aria-label*="Xóa" i], button[aria-label*="Remove" i], button[aria-label*="Delete" i], button.remove-button, .mat-mdc-chip-remove, button'
+            );
+            if (removeBtn) {
+              removeBtn.click();
+              removedChipsCount++;
+            } else {
+              // 2. Fallback xoá node khỏi DOM và phát sự kiện
+              chip.remove();
+              removedChipsCount++;
+            }
+          } catch (e) {}
+        }
+        if (removedChipsCount > 0) {
+          promptBox?.dispatchEvent(new Event('input', { bubbles: true }));
+          promptBox?.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+
+        // B. Xóa sạch nội dung text cũ nếu còn sót lại từ lượt trước bằng DOM Range (không dùng clipboard OS)
         let currentText = (promptEl.innerText || promptEl.textContent || promptEl.value || '').trim();
         if (currentText.length > 0) {
           try {
@@ -2576,8 +2608,8 @@ export class GoogleVeoSessionManager {
               const sel = window.getSelection();
               const range = document.createRange();
               range.selectNodeContents(promptEl);
-              sel.removeAllRanges();
-              sel.addRange(range);
+              sel?.removeAllRanges();
+              sel?.addRange(range);
               document.execCommand('delete', false, null);
               promptEl.dispatchEvent(new Event('input', { bubbles: true }));
               promptEl.dispatchEvent(new Event('change', { bubbles: true }));
@@ -2588,6 +2620,11 @@ export class GoogleVeoSessionManager {
             }
           } catch (e) {}
         }
+
+        // C. Kiểm tra còn chip ảnh nào sót lại không
+        const remainingChips = Array.from(
+          chipContainer.querySelectorAll('flow-image-ingredient-chip, .chip-container, .chip-image-wrapper')
+        ).filter(isVisible);
 
         // Kiểm tra nhanh sự hiện diện của ô prompt và nút Generate
         const genBtn = document.querySelector(
@@ -2601,11 +2638,13 @@ export class GoogleVeoSessionManager {
         const canFocus = rect && rect.width > 0 && rect.height > 0;
 
         return {
-          ready: Boolean(canFocus),
+          ready: Boolean(canFocus && remainingChips.length === 0),
           hasPrompt: true,
           hasGenBtn,
           coords: canFocus ? { x: Math.round(rect.x + rect.width / 2), y: Math.round(rect.y + rect.height / 2) } : null,
-          textLen: currentText.length
+          textLen: currentText.length,
+          removedChipsCount,
+          remainingChipsCount: remainingChips.length
         };
       })()
     `;

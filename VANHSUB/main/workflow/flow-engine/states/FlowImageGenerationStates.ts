@@ -259,10 +259,12 @@ export const CleanCanvasState: FlowAutomationState = {
         if (!promptEl) return { ok: false, reason: 'no_prompt_el' };
         const rect = promptEl.getBoundingClientRect();
         const text = (promptEl.innerText || promptEl.textContent || promptEl.value || '').trim();
+        const chips = Array.from(promptBox.querySelectorAll('flow-image-ingredient-chip, .chip-container, .chip-image-wrapper'));
         return {
-          ok: rect && rect.width > 0 && rect.height > 0,
+          ok: rect && rect.width > 0 && rect.height > 0 && chips.length === 0,
           canFocus: rect && rect.width > 0,
           textLen: text.length,
+          chipsCount: chips.length,
           coords: { x: Math.round(rect.x + rect.width / 2), y: Math.round(rect.y + rect.height / 2) }
         };
       })()
@@ -275,9 +277,10 @@ export const CleanCanvasState: FlowAutomationState = {
         promptReady: ok,
         canFocus: Boolean(res?.canFocus),
         textLen: res?.textLen ?? 0,
+        chipsCount: res?.chipsCount ?? 0,
         coords: res?.coords || null,
       },
-      reason: ok ? undefined : 'Ô soạn thảo prompt chưa sẵn sàng hoặc không thể focus',
+      reason: ok ? undefined : (res?.chipsCount > 0 ? 'Vẫn còn sót chip ảnh cũ (flow-image-ingredient-chip) trong prompt box' : 'Ô soạn thảo prompt chưa sẵn sàng hoặc không thể focus'),
     };
   },
 
