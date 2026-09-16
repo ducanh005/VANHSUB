@@ -1,4 +1,4 @@
-﻿/**
+/**
  * FlowPageStateDetector: Bộ nhận diện trạng thái trang Google Flow
  * Phân loại trang: FLOW_HOME / FLOW_EDITOR / GENERATION_IN_PROGRESS / RESULT_PAGE / LOGIN_PAGE / ERROR_PAGE / UNKNOWN_PAGE
  * Đảm bảo automation KHÔNG thực hiện action nếu trạng thái trang không khớp kỳ vọng.
@@ -68,7 +68,7 @@ export class FlowPageStateDetector {
           
           // Kiểm tra ERROR_PAGE
           const isError = 
-            document.querySelector('.error-page, .error-container, [aria-label*="Lỗi" i], [aria-label*="Error" i]') ||
+            Boolean(document.querySelector('.error-page, .error-container, flow-error-banner, .error-banner, [aria-label*="Lỗi" i], [aria-label*="Error" i]')) ||
             bodyText.includes('something went wrong') ||
             bodyText.includes('đã xảy ra lỗi') ||
             bodyText.includes('hết tín dụng') ||
@@ -79,7 +79,7 @@ export class FlowPageStateDetector {
 
           // Kiểm tra GENERATION_IN_PROGRESS
           const isGenerating = Boolean(document.querySelector(
-            'flow-loading-indicator, flow-progress-bar, mat-progress-spinner, mat-spinner, .generation-in-progress, [role="progressbar"], flow-card[state="generating"], .loading-spinner, flow-generating-card, div[class*="generating"], flow-border-glow.loop'
+            'flow-loading-indicator, flow-progress-bar, mat-progress-spinner, mat-spinner, .generation-in-progress, [role="progressbar"], flow-card[state="generating"], .loading-spinner, flow-generating-card, div[class*="generating"]'
           ));
           if (isGenerating) {
             return { type: 'GENERATION_IN_PROGRESS', reason: 'active_spinner_detected' };
@@ -102,11 +102,12 @@ export class FlowPageStateDetector {
           }
 
           // Kiểm tra FLOW_HOME (Sảnh chính có danh sách project, nút New Project)
-          const isHome = 
-            window.location.href === 'https://flow.google.com/' ||
-            window.location.href === 'https://flow.google.com' ||
-            Boolean(document.querySelector('flow-lobby-header, flow-project-list, button[aria-label*="Tạo dự án" i], button[aria-label*="New project" i]'));
-          if (isHome) {
+          const pathname = window.location.pathname;
+          const isHomeUrl = (pathname === '/' || pathname === '') && !window.location.href.includes('/project/');
+          const hasLobbyElements = Boolean(document.querySelector(
+            'flow-lobby-header, flow-lobby, flow-project-list, button[aria-label*="Tạo dự án" i], button[aria-label*="New project" i]'
+          ));
+          if (isHomeUrl || hasLobbyElements) {
             return { type: 'FLOW_HOME', reason: 'flow_home_lobby_elements' };
           }
 

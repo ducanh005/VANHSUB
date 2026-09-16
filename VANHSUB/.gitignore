@@ -23,3 +23,10 @@ __pycache__/
 
 # scratch tests
 scratch/
+
+# Flow outputs & generated media runs
+flow_outputs/
+*.mp4
+*.mkv
+*.webm
+*.avi

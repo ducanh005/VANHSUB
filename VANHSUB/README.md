@@ -24,4 +24,5 @@ npm run build
 
 ## Lộ trình
 
-Chi tiết các phase và quyết định kỹ thuật nằm trong [`../ROADMAP.md`](../ROADMAP.md).
+- Chi tiết các phase tổng thể của ứng dụng nằm trong [`../ROADMAP.md`](../ROADMAP.md).
+- **Google Flow Browser Automation Engine (Kế hoạch tái cấu trúc 10 Phase)**: Chi tiết kiến trúc, tiến độ từng phase và các nguyên tắc bắt buộc nằm trong [`FLOW_ENGINE_README.md`](FLOW_ENGINE_README.md).

@@ -20,3 +20,4 @@ export * from './FlowSelectorMemory';
 export * from './FlowVisualFallback';
 export * from './FlowMemoryWatchdog';
 export * from './FlowStressRunner';
+export { GoogleFlowBrowserMutex } from '../dispatcher/GoogleFlowBrowserMutex';

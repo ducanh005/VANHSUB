@@ -1,4 +1,4 @@
-﻿/**
+/**
  * FlowOverlayDetector: Bộ phát hiện và xử lý Modal, Popup, Overlay và Panel Tác nhân che phủ giao diện
  * Tự động nhận diện các phần tử che chắn (Backdrop, Dialog, Agent Panel, Media Viewer)
  * và cung cấp cơ chế tự động giải phóng (Dismiss via Escape key hoặc click Close button).
@@ -201,7 +201,21 @@ export class FlowOverlayDetector {
     await win.webContents.executeJavaScript(clickCloseJs, true).catch(() => false);
     await new Promise((r) => setTimeout(r, 250));
 
-    // Bước 3: Gửi Escape lần 2 để chắc chắn
+    // Bước 3: Thử click backdrop nếu có
+    const clickBackdropJs = `
+      (function() {
+        const bd = document.querySelector('.cdk-overlay-backdrop-showing, .modal-backdrop, .overlay-backdrop');
+        if (bd) {
+          bd.click();
+          return true;
+        }
+        return false;
+      })()
+    `;
+    await win.webContents.executeJavaScript(clickBackdropJs, true).catch(() => false);
+    await new Promise((r) => setTimeout(r, 200));
+
+    // Bước 4: Gửi Escape lần 2 để chắc chắn
     try {
       win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
       win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' });

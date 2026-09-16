@@ -1329,7 +1329,7 @@ export class GoogleVeoSessionManager {
           await new Promise((r) => setTimeout(r, 1000));
           const ready = await this.safeExecuteJs<boolean>(
             win,
-            `Boolean(document.querySelector('.ProseMirror, [contenteditable="true"], .prompt-input'))`,
+            `Boolean(window.location.href.includes('/project/') && (document.querySelector('.ProseMirror, [contenteditable="true"], .prompt-input, flow-image-tile, flow-media-tile, flow-canvas, flow-prompt-box, .prompt-box-container') || document.querySelectorAll('button').length > 5))`,
             2000
           );
           if (ready) {
