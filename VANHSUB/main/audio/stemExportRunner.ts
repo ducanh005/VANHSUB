@@ -45,11 +45,14 @@ export class StemExportRunner {
         setStage(2 + Math.min(8, Math.round(p * 0.08)), 'Đang trích audio gốc (44.1kHz stereo)...');
       });
 
-      setStage(12, 'Kiểm tra môi trường Demucs...');
+      setStage(12, 'Kiểm tra môi trường tách giọng...');
       const demucs = await checkDemucs();
-      if (!demucs.ok) throw new Error(demucs.detail);
-
-      setStage(15, 'Đang tách lời thoại bằng AI (Demucs) — xấp xỉ thời lượng video...');
+      if (!demucs.ok) {
+        console.warn(`[Stems] ${demucs.detail} -> Sử dụng bộ lọc FFmpeg DSP nhanh...`);
+        setStage(15, 'Đang tách lời thoại bằng FFmpeg DSP (nhanh, offline)...');
+      } else {
+        setStage(15, 'Đang tách lời thoại bằng AI (Demucs)...');
+      }
       tempOutDir = path.join(os.tmpdir(), `vanhsub_stems_${Date.now()}`);
       const { noVocals, vocals } = await separateVocals(tempWav, tempOutDir);
 
