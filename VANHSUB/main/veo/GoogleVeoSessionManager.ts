@@ -2,6 +2,7 @@ import path from 'path';
 import https from 'https';
 import { SettingsStore } from '../store/settingsStore';
 import { GoogleVeoAntiSpamGuard } from './GoogleVeoAntiSpamGuard';
+import { GoogleFlowBrowserMutex } from '../workflow/dispatcher/GoogleFlowBrowserMutex';
 import {
   FlowStateMachine,
   FlowImageGenerationStatePipeline,
@@ -84,7 +85,7 @@ export class GoogleVeoSessionManager {
       // Kiểm tra xem partition đã có đầy đủ auth cookies chưa
       const existing = await targetSes.cookies.get({ domain: '.google.com' });
       const hasAuth = existing.some((c: any) => GOOGLE_AUTH_COOKIE_NAMES.includes(c.name));
-      if (hasAuth && existing.length >= 25) {
+      if (hasAuth) {
         return existing.length;
       }
 
@@ -855,13 +856,7 @@ export class GoogleVeoSessionManager {
 
     const currentUrl = (win.webContents.getURL() || '').toLowerCase();
 
-    // Nếu đang ở trang đăng nhập Google
-    if (currentUrl.includes('accounts.google.com') || currentUrl.includes('servicelogin')) {
-      console.warn('[Google Flow Browser] Cần đăng nhập tài khoản Google trên Sảnh Flow trước.');
-      return false;
-    }
-
-    // Nếu chưa ở flow.google.com → chuyển đến flow.google.com
+    // Nếu chưa ở flow.google.com → chuyển đến flow.google.com trước
     if (!currentUrl.includes('flow.google.com')) {
       console.log('[Google Flow Browser] Đang mở https://flow.google.com...');
       try {
@@ -874,6 +869,14 @@ export class GoogleVeoSessionManager {
         console.warn('[Google Flow Browser] Không thể load flow.google.com:', e);
         return false;
       }
+    }
+
+    const finalUrl = (win.webContents.getURL() || '').toLowerCase();
+
+    // Nếu sau khi mở flow.google.com mà bị chuyển hướng sang trang đăng nhập Google
+    if (finalUrl.includes('accounts.google.com') || finalUrl.includes('servicelogin')) {
+      console.warn('[Google Flow Browser] Cần đăng nhập tài khoản Google trên Sảnh Flow trước.');
+      return false;
     }
 
     return !win.isDestroyed();
@@ -1004,26 +1007,36 @@ export class GoogleVeoSessionManager {
       return cachedCredits;
     }
 
-    // 2. Ngược lại, gọi ensureLobbyAtFlow() để đảm bảo có window sẵn sàng
-    const ready = await this.ensureLobbyAtFlow();
-    if (!ready || !this.lobbyWindow || this.lobbyWindow.isDestroyed()) {
-      return cachedCredits ?? null;
-    }
-
-    // 3. Gọi readFlowCredits, lưu kết quả + timestamp mới vào SettingsStore, trả về kết quả
-    const freshCredits = await this.readFlowCredits(this.lobbyWindow);
-    if (freshCredits !== null) {
-      console.log(`[Google Flow Credits] Đã cập nhật số credit Google Flow: ${freshCredits}`);
-      SettingsStore.set('veoFlowCredits', freshCredits);
-      SettingsStore.set('veoFlowCreditsCheckedAt', Date.now());
-
-      if (freshCredits === 0) {
-        SettingsStore.set('veoSessionStatus', 'out_of_credits');
+    // 2. Ngược lại, truy cập lobbyWindow để đọc credit mới:
+    // BẮT BUỘC tuần tự hóa qua GoogleFlowBrowserMutex để không can thiệp workflow đang chạy
+    return await GoogleFlowBrowserMutex.getInstance().runExclusive(async () => {
+      // Kiểm tra lại cache lần 2 (double-checked locking) phòng trường hợp tác vụ trước vừa cập nhật
+      const freshCached = SettingsStore.get('veoFlowCredits');
+      const freshCheckedAt = Number(SettingsStore.get('veoFlowCreditsCheckedAt')) || 0;
+      if (freshCached !== null && typeof freshCached === 'number' && Date.now() - freshCheckedAt < maxAgeMs) {
+        return freshCached;
       }
-      return freshCredits;
-    }
 
-    return cachedCredits ?? null;
+      const ready = await this.ensureLobbyAtFlow();
+      if (!ready || !this.lobbyWindow || this.lobbyWindow.isDestroyed()) {
+        return freshCached ?? null;
+      }
+
+      // 3. Gọi readFlowCredits, lưu kết quả + timestamp mới vào SettingsStore, trả về kết quả
+      const freshCredits = await this.readFlowCredits(this.lobbyWindow);
+      if (freshCredits !== null) {
+        console.log(`[Google Flow Credits] Đã cập nhật số credit Google Flow: ${freshCredits}`);
+        SettingsStore.set('veoFlowCredits', freshCredits);
+        SettingsStore.set('veoFlowCreditsCheckedAt', Date.now());
+
+        if (freshCredits === 0) {
+          SettingsStore.set('veoSessionStatus', 'out_of_credits');
+        }
+        return freshCredits;
+      }
+
+      return freshCached ?? null;
+    }, 'credit_access');
   }
 
   /**
@@ -1079,6 +1092,13 @@ export class GoogleVeoSessionManager {
 
         if (!targetWin.isDestroyed()) {
           try {
+            targetWin.focus?.();
+            targetWin.webContents.sendInputEvent({
+              type: 'mouseMove',
+              x: clickX,
+              y: clickY,
+            });
+            await new Promise((r) => setTimeout(r, 40));
             targetWin.webContents.sendInputEvent({
               type: 'mouseDown',
               x: clickX,
@@ -1094,6 +1114,20 @@ export class GoogleVeoSessionManager {
               button: 'left',
               clickCount: 1,
             });
+
+            // Fallback kích hoạt DOM click trên đúng candidate của FlowElementFinder để Angular Material nhận diện
+            const selStr = JSON.stringify(cand.selector || 'button.new-project-button');
+            await this.safeExecuteJs(
+              targetWin,
+              `(function() {
+                try {
+                  const el = document.querySelector(${selStr}) || document.querySelector('button.new-project-button, button[aria-label*="Tạo dự án" i]');
+                  if (el) { el.click(); }
+                } catch {}
+              })()`,
+              2000
+            );
+
             clickSucceeded = true;
             break;
           } catch (e: any) {
@@ -1267,6 +1301,9 @@ export class GoogleVeoSessionManager {
         const x = Math.round(c.rect.x + c.rect.width / 2);
         const y = Math.round(c.rect.y + c.rect.height / 2);
         console.log(`[Google Flow Settings] 🔘 Đã định vị Mode Tab [${mode}] qua FlowElementFinder (${c.strategy}, conf: ${c.confidence}/100) tại (${x}, ${y})`);
+        win.focus?.();
+        win.webContents.sendInputEvent({ type: 'mouseMove', x, y });
+        await new Promise((r) => setTimeout(r, 40));
         win.webContents.sendInputEvent({ type: 'mouseDown', x, y, button: 'left', clickCount: 1 });
         await new Promise((r) => setTimeout(r, 40));
         win.webContents.sendInputEvent({ type: 'mouseUp', x, y, button: 'left', clickCount: 1 });
@@ -1285,6 +1322,9 @@ export class GoogleVeoSessionManager {
         const x = Math.round(c.rect.x + c.rect.width / 2);
         const y = Math.round(c.rect.y + c.rect.height / 2);
         console.log(`[Google Flow Settings] ⚙️ Đã định vị Settings Trigger qua FlowElementFinder (${c.strategy}, conf: ${c.confidence}/100) tại (${x}, ${y})`);
+        win.focus?.();
+        win.webContents.sendInputEvent({ type: 'mouseMove', x, y });
+        await new Promise((r) => setTimeout(r, 40));
         win.webContents.sendInputEvent({ type: 'mouseDown', x, y, button: 'left', clickCount: 1 });
         await new Promise((r) => setTimeout(r, 40));
         win.webContents.sendInputEvent({ type: 'mouseUp', x, y, button: 'left', clickCount: 1 });
@@ -1305,6 +1345,8 @@ export class GoogleVeoSessionManager {
           const x = Math.round(c.rect.x + c.rect.width / 2);
           const y = Math.round(c.rect.y + c.rect.height / 2);
           console.log(`[Google Flow Settings] 📐 Đã định vị Aspect Ratio [${aspect}] qua FlowElementFinder (${c.strategy}, conf: ${c.confidence}/100) tại (${x}, ${y})`);
+          win.webContents.sendInputEvent({ type: 'mouseMove', x, y });
+          await new Promise((r) => setTimeout(r, 30));
           win.webContents.sendInputEvent({ type: 'mouseDown', x, y, button: 'left', clickCount: 1 });
           await new Promise((r) => setTimeout(r, 40));
           win.webContents.sendInputEvent({ type: 'mouseUp', x, y, button: 'left', clickCount: 1 });
@@ -1322,6 +1364,8 @@ export class GoogleVeoSessionManager {
           const x = Math.round(c.rect.x + c.rect.width / 2);
           const y = Math.round(c.rect.y + c.rect.height / 2);
           console.log(`[Google Flow Settings] 🔢 Đã định vị Output Count [x${count}] qua FlowElementFinder (${c.strategy}, conf: ${c.confidence}/100) tại (${x}, ${y})`);
+          win.webContents.sendInputEvent({ type: 'mouseMove', x, y });
+          await new Promise((r) => setTimeout(r, 30));
           win.webContents.sendInputEvent({ type: 'mouseDown', x, y, button: 'left', clickCount: 1 });
           await new Promise((r) => setTimeout(r, 40));
           win.webContents.sendInputEvent({ type: 'mouseUp', x, y, button: 'left', clickCount: 1 });
@@ -1331,8 +1375,20 @@ export class GoogleVeoSessionManager {
         console.warn('[Google Flow Settings] Gặp sự cố khi định vị Output Count:', e?.message || e);
       }
 
-      // C. Đóng popover bằng phím Escape
+      // C. Đóng popover bằng cách click lại trigger button, backdrop hoặc Save button
       try {
+        await this.safeExecuteJs(
+          win,
+          `(function() {
+            const saveBtn = document.querySelector('button.settings-save-button') || Array.from(document.querySelectorAll('button')).find(b => (b.innerText || '').trim() === 'Lưu');
+            if (saveBtn) { saveBtn.click(); return 'clicked_save'; }
+            const bd = document.querySelector('.cdk-overlay-backdrop');
+            if (bd) { bd.click(); return 'clicked_backdrop'; }
+            const trigger = document.querySelector('flow-prompt-box button.settings-trigger-button, flow-prompt-box button[aria-label*="Điều kiện kích hoạt" i]');
+            if (trigger) { trigger.click(); return 'clicked_trigger'; }
+          })()`,
+          2000
+        );
         win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
         await new Promise((r) => setTimeout(r, 40));
         win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' });
@@ -2176,13 +2232,13 @@ export class GoogleVeoSessionManager {
     const res = await fsm.run(ctx);
 
     if (!res.ok) {
-      if (res.error === 'out_of_credits') {
+      if (res.error === 'out_of_credits' || res.classifiedErrorCode === 'OUT_OF_CREDITS') {
         SettingsStore.set('veoSessionStatus', 'out_of_credits');
         SettingsStore.set('veoFlowCredits', 0);
         SettingsStore.set('veoFlowCreditsCheckedAt', Date.now());
       }
       return {
-        error: (res.error as any) || 'unknown_failure',
+        error: (res.classifiedErrorCode as any) || (res.error as any) || 'unknown_failure',
         errorDetail: res.errorDetail,
       };
     }
