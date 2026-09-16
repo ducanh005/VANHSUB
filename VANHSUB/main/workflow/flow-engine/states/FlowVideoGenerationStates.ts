@@ -381,9 +381,19 @@ export const VideoHandleInitFrameState: FlowAutomationState = {
           const natImg = electron.nativeImage.createFromPath(ctx.initFrameUrl);
           if (!natImg.isEmpty()) {
             electron.clipboard.writeImage(natImg);
+            // Focus vào editor trước khi paste
+            await safeExecuteJs(
+              ctx.win,
+              `
+              (function() {
+                const el = document.querySelector('flow-prompt-box .ProseMirror, .prosemirror-editor, [contenteditable="true"]');
+                if (el) { el.focus(); }
+              })()
+            `
+            );
             ctx.win.focus();
             ctx.win.webContents.paste();
-            await new Promise((r) => setTimeout(r, 1000));
+            await new Promise((r) => setTimeout(r, 1500));
           }
         } catch (pasteErr) {
           console.warn('[FlowVideoState] Cảnh báo paste initFrameUrl:', pasteErr);
@@ -399,13 +409,20 @@ export const VideoHandleInitFrameState: FlowAutomationState = {
 
     const checkChipJs = `
       (function() {
-        const chip = document.querySelector('flow-image-ingredient-chip, flow-ingredient-chip, .chip-container, mat-chip-row');
+        const chip = document.querySelector('flow-image-ingredient-chip, flow-ingredient-chip, .chip-container, mat-chip-row, [data-ingredient-type], flow-chip');
         return !!chip;
       })()
     `;
-    const hasChip = await safeExecuteJs<boolean>(ctx.win, checkChipJs);
+    const hasChip = await FlowSmartWait.pollUntil(
+      async () => {
+        const res = await safeExecuteJs<boolean>(ctx.win, checkChipJs);
+        return res ? true : null;
+      },
+      { timeoutMs: 6000, initialIntervalMs: 400 }
+    ).catch(() => false);
+
     return {
-      ok: hasChip ?? true,
+      ok: !!hasChip,
       error: hasChip ? undefined : 'CHIP_NOT_FOUND',
       errorDetail: hasChip ? undefined : 'Ảnh đầu vào (initFrameUrl) chưa xuất hiện dạng thẻ chip',
     };
