@@ -11,5 +11,6 @@ export * from './FlowClipboardGuard';
 export * from './FlowTaskQueue';
 export * from './FlowCheckpointManager';
 export * from './FlowCrashResumeCoordinator';
+export * from './FlowDiagnosticManager';
 export * from './states/FlowImageGenerationStates';
 export * from './states/FlowVideoGenerationStates';
