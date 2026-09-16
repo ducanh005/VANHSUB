@@ -32,13 +32,30 @@ export class GoogleFlowBrowserMutex {
    * Chạy một task bên trong mutex lock độc quyền.
    * @param task Hàm bất đồng bộ cần thực thi
    * @param ownerId Tên hoặc ID của node/task để ghi log theo dõi
+   * @param timeoutMs Thời gian tối đa cho phép task chạy trước khi huỷ để tránh stall (tuỳ chọn)
    */
-  public async runExclusive<T>(task: () => Promise<T>, ownerId: string = 'anonymous'): Promise<T> {
+  public async runExclusive<T>(
+    task: () => Promise<T>,
+    ownerId: string = 'anonymous',
+    timeoutMs?: number
+  ): Promise<T> {
     const existingStore = this.storage.getStore();
 
     // 1. Kiểm tra Re-entrant: Nếu cùng một chuỗi async call đã giữ lock này, cho phép chạy tiếp ngay
     if (existingStore) {
-      return await task();
+      if (!timeoutMs) return await task();
+      let timer: NodeJS.Timeout | undefined;
+      return await Promise.race([
+        task(),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(
+            () => reject(new Error(`[Mutex] Task '${ownerId}' timed out sau ${timeoutMs}ms`)),
+            timeoutMs
+          );
+        }),
+      ]).finally(() => {
+        if (timer) clearTimeout(timer);
+      });
     }
 
     // 2. Xếp hàng đợi Promise (FIFO queue)
@@ -56,7 +73,21 @@ export class GoogleFlowBrowserMutex {
 
       // Thực thi task bên trong ngữ cảnh AsyncLocalStorage
       return await this.storage.run({ ownerId }, async () => {
-        return await task();
+        if (!timeoutMs) {
+          return await task();
+        }
+        let timer: NodeJS.Timeout | undefined;
+        return await Promise.race([
+          task(),
+          new Promise<never>((_, reject) => {
+            timer = setTimeout(
+              () => reject(new Error(`[Mutex] Task '${ownerId}' timed out sau ${timeoutMs}ms`)),
+              timeoutMs
+            );
+          }),
+        ]).finally(() => {
+          if (timer) clearTimeout(timer);
+        });
       });
     } finally {
       this.locked = false;
