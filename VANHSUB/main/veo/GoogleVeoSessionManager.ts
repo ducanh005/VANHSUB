@@ -50,6 +50,8 @@ export class GoogleVeoSessionManager {
   private _webRequestListenerAttached = false;
   private currentProjectId: string | null = null;
   private lastPermissionConfirmedAt = 0;
+  private isRecreatingLobby = false;
+  private recentCrashTimes: number[] = [];
 
   private constructor() {}
 
@@ -322,6 +324,9 @@ export class GoogleVeoSessionManager {
     // Thiết lập User-Agent cho webContents
     this.lobbyWindow.webContents.setUserAgent(CHROME_DESKTOP_UA);
 
+    // Gắn Crash Watchdog (AC-7)
+    this.attachCrashWatchdog(this.lobbyWindow);
+
     // Xóa cờ automation webdriver nếu có
     this.lobbyWindow.webContents.on('dom-ready', () => {
       this.lobbyWindow?.webContents?.executeJavaScript(`
@@ -379,6 +384,107 @@ export class GoogleVeoSessionManager {
         await this.lobbyWindow.loadURL(VIDEO_FX_FALLBACK_URL);
       } catch {}
     }
+  }
+
+  /**
+   * Gắn Chromium Watchdog vào lobbyWindow để tự động phát hiện và phục hồi khi renderer bị crash (AC-7)
+   */
+  private attachCrashWatchdog(win: any): void {
+    if (!win) return;
+
+    if (win.webContents && typeof win.webContents.on === 'function') {
+      win.webContents.on('render-process-gone', async (_event: any, details: any) => {
+        const reason = details?.reason || 'unknown';
+        const exitCode = details?.exitCode ?? -1;
+        console.error(
+          `[Google Flow Watchdog] 💥 Renderer Process Gone! Lý do: ${reason}, exitCode: ${exitCode}`
+        );
+
+        // Bỏ qua trường hợp tắt bình thường
+        if (reason === 'clean-exit') return;
+
+        // Kiểm tra crash loop (tối đa 3 lần trong 30 giây)
+        const now = Date.now();
+        this.recentCrashTimes = this.recentCrashTimes.filter((t) => now - t < 30000);
+        this.recentCrashTimes.push(now);
+
+        if (this.recentCrashTimes.length > 3) {
+          console.error(
+            '[Google Flow Watchdog] 🚨 CẢNH BÁO: Phát hiện vòng lặp renderer crash (>3 lần trong 30s). Tạm dừng tự động tái tạo để tránh vòng lặp vô hạn.'
+          );
+          return;
+        }
+
+        await this.handleRendererCrash(details);
+      });
+    }
+
+    if (typeof win.on === 'function') {
+      win.on('unresponsive', () => {
+        console.warn(
+          '[Google Flow Watchdog] ⚠️ lobbyWindow đang trong trạng thái Unresponsive (treo / phản hồi chậm)!'
+        );
+      });
+
+      win.on('responsive', () => {
+        console.log('[Google Flow Watchdog] 💚 lobbyWindow đã phản hồi bình thường trở lại.');
+      });
+    }
+  }
+
+  /**
+   * Xử lý khi Renderer Process bị crash hoặc cần phục hồi tự động (AC-7)
+   */
+  public async handleRendererCrash(details?: { reason?: string; exitCode?: number }): Promise<any> {
+    if (this.isRecreatingLobby) {
+      console.warn('[Google Flow Watchdog] Đang trong quá trình tái tạo lobbyWindow, bỏ qua sự kiện duplicate.');
+      return null;
+    }
+    this.isRecreatingLobby = true;
+    console.warn(
+      `[Google Flow Watchdog] Bắt đầu quy trình tự phục hồi & tái tạo lobbyWindow... (Lý do: ${details?.reason || 'manual/unspecified'})`
+    );
+
+    try {
+      if (this.lobbyWindow) {
+        try {
+          if (!this.lobbyWindow.isDestroyed()) {
+            this.lobbyWindow.destroy();
+          }
+        } catch (destroyErr) {
+          console.warn('[Google Flow Watchdog] Lỗi khi destroy cửa sổ hỏng:', destroyErr);
+        }
+        this.lobbyWindow = null;
+      }
+
+      await this.openLobbyWindow();
+      console.log('[Google Flow Watchdog] ✅ Tái tạo lobbyWindow thành công sau renderer crash!');
+      return this.lobbyWindow;
+    } catch (err) {
+      console.error('[Google Flow Watchdog] ❌ Thất bại khi tái tạo lobbyWindow sau crash:', err);
+      return null;
+    } finally {
+      this.isRecreatingLobby = false;
+    }
+  }
+
+  /**
+   * Yêu cầu tái tạo lại lobbyWindow (hữu ích khi crash hoặc phục hồi khẩn cấp)
+   */
+  public async recreateLobbyWindow(): Promise<any> {
+    return await this.handleRendererCrash({ reason: 'manual-recreate', exitCode: 0 });
+  }
+
+  public isLobbyRecreating(): boolean {
+    return this.isRecreatingLobby;
+  }
+
+  public getCrashCount(): number {
+    return this.recentCrashTimes.length;
+  }
+
+  public resetCrashHistory(): void {
+    this.recentCrashTimes = [];
   }
 
   /**
@@ -834,13 +940,24 @@ export class GoogleVeoSessionManager {
     const { BrowserWindow } = electron;
     if (!BrowserWindow) return false;
 
-    // Mở lobby window nếu chưa có
-    if (!this.lobbyWindow || this.lobbyWindow.isDestroyed()) {
-      try {
-        await this.openLobbyWindow();
-      } catch (e) {
-        console.warn('[Google Flow Browser] Không thể mở lobby window:', e);
-        return false;
+    // Mở lobby window nếu chưa có hoặc nếu renderer đã bị crash
+    const isRendererDead = Boolean(
+      this.lobbyWindow?.webContents?.isCrashed && this.lobbyWindow.webContents.isCrashed()
+    );
+
+    if (!this.lobbyWindow || this.lobbyWindow.isDestroyed() || isRendererDead) {
+      if (isRendererDead) {
+        console.warn(
+          '[Google Flow Browser] Phát hiện renderer của lobbyWindow bị crash trong ensureLobbyAtFlow, đang tái tạo...'
+        );
+        await this.handleRendererCrash({ reason: 'renderer-dead-in-ensure-lobby', exitCode: -1 });
+      } else {
+        try {
+          await this.openLobbyWindow();
+        } catch (e) {
+          console.warn('[Google Flow Browser] Không thể mở lobby window:', e);
+          return false;
+        }
       }
     }
 
