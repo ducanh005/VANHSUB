@@ -742,7 +742,12 @@ export class WorkflowExecutionEngine {
           throw new Error('Không có video hợp lệ nào được đưa vào node concat!');
         }
         const outPath = path.join(ctx.tempDir, `concat_${ctx.nodeId}_${Date.now()}.mp4`);
-        await VideoProcessor.concatVideos(list, outPath, ctx);
+        const transitionEffect = config.transitionEffect || config.effect || 'none';
+        const transitionDuration = Number(config.transitionDuration || config.duration || 0.5);
+        await VideoProcessor.concatVideos(list, outPath, ctx, {
+          effect: transitionEffect,
+          duration: transitionDuration,
+        });
         const dur = await VideoProcessor.getVideoDuration(outPath);
         return {
           video: outPath,

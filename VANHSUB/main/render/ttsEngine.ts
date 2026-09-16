@@ -4,10 +4,11 @@ import { OpenAI } from 'openai';
 import { SettingsStore } from '../store/settingsStore';
 import { VoiceSampleStore } from '../store/voiceSampleStore';
 import { getSharedTikTokProvider } from '../tts-providers/tiktok/sessionStores';
+import { EdgeTTSClient } from '../tts-providers/edge/EdgeTTSClient';
 import { CancelledError } from '../lib/cancel';
 
 /** Engine tạo audio cho lồng tiếng */
-export type TTSEngine = 'viettts' | 'tiktok';
+export type TTSEngine = 'viettts' | 'tiktok' | 'edge';
 
 interface TTSOptions {
   voice?: string;
@@ -116,8 +117,9 @@ async function generateAudioFromSample(
 
 /**
  * Gọi engine để tạo audio từ text.
- * - 'viettss'→'viettts': VietTTS local (voice clone qua /v1/tts hoặc voice built-in)
- * - 'tiktok': TikTok TTS (cần session đã lưu trong Cài đặt) — không hỗ trợ speed
+ * - 'viettts': VietTTS local (voice clone qua /v1/tts hoặc voice built-in)
+ * - 'tiktok': TikTok TTS (cần session đã lưu trong Cài đặt)
+ * - 'edge': Microsoft Edge TTS (miễn phí, không cần token/session, giọng Hoài My / Nam Minh)
  */
 async function generateAudio(
   text: string,
@@ -125,15 +127,32 @@ async function generateAudio(
   speed: number = 1.0,
   engine: TTSEngine = 'tiktok'
 ): Promise<Buffer> {
+  if (engine === 'edge') {
+    try {
+      const result = await EdgeTTSClient.getInstance().synthesize(text, voice, speed);
+      return result.audio;
+    } catch (err: any) {
+      console.error('[TTS] Edge TTS error:', err?.message || err);
+      throw new Error(`Edge TTS: ${err?.message || 'Lỗi không xác định'}`);
+    }
+  }
+
   if (engine === 'tiktok') {
     try {
       const result = await getSharedTikTokProvider().synthesize(text, voice);
       return result.audio;
-    } catch (err) {
-      console.error('TikTok TTS error:', err instanceof Error ? err.message : err);
-      throw new Error(
-        `TikTok TTS: ${err instanceof Error ? err.message : 'lỗi không xác định'}`,
+    } catch (err: any) {
+      console.warn(
+        `[TTS] TikTok TTS gặp lỗi ("${err?.message || err}"). Tự động chuyển sang Edge TTS tiếng Việt dự phòng...`
       );
+      try {
+        const fallback = await EdgeTTSClient.getInstance().synthesize(text, 'vi-VN-HoaiMyNeural', speed);
+        return fallback.audio;
+      } catch (fallbackErr: any) {
+        throw new Error(
+          `TikTok TTS lỗi (${err?.message || err}) và Edge TTS dự phòng cũng gặp lỗi (${fallbackErr?.message || fallbackErr})`
+        );
+      }
     }
   }
 
@@ -455,4 +474,11 @@ export async function checkVietTtsConnection(): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+/**
+ * Lấy danh sách giọng đọc Edge TTS tiếng Việt
+ */
+export function getEdgeVoices() {
+  return EdgeTTSClient.getInstance().getVoices();
 }

@@ -38,8 +38,8 @@ export interface Task {
   // TTS / Dubbing fields
   ttsVoice?: string;
   ttsSpeed?: number;
-  /** Engine tạo audio: 'viettts' (server local) hoặc 'tiktok' (TikTok TTS — cần session) */
-  ttsEngine?: 'viettts' | 'tiktok';
+  /** Engine tạo audio: 'viettts' (server local), 'tiktok' (TikTok TTS), hoặc 'edge' (Edge TTS miễn phí) */
+  ttsEngine?: 'viettts' | 'tiktok' | 'edge';
   ttsAudioDir?: string;
   /** Gán giọng riêng theo dòng phụ đề: key = số dòng SRT (chuỗi), value = tên giọng */
   ttsVoiceOverrides?: Record<string, string>;

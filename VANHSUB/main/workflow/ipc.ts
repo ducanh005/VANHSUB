@@ -6,6 +6,7 @@ import type { WorkflowNodeEvent } from './types';
 import { BibleStore, type CharacterProfile, type SceneProfile } from '../store/bibleStore';
 import { QcEngine, type QcConfig } from './qcEngine';
 import { VideoProcessor } from './videoProcessor';
+import { WorkflowStorageManager } from './WorkflowStorageManager';
 
 const engine = new WorkflowExecutionEngine();
 
@@ -53,10 +54,13 @@ export function registerWorkflowIpc(): void {
   );
 
   // Timeline Video Processing
-  ipcMain.handle('workflow:concatClips', async (_event, clipPaths: string[], outPath?: string) => {
-    const dest = outPath || path.join(os.tmpdir(), `master_timeline_${Date.now()}.mp4`);
-    return VideoProcessor.concatVideos(clipPaths, dest);
-  });
+  ipcMain.handle(
+    'workflow:concatClips',
+    async (_event, clipPaths: string[], outPath?: string, options?: { effect?: string; duration?: number }) => {
+      const dest = outPath || path.join(os.tmpdir(), `master_timeline_${Date.now()}.mp4`);
+      return VideoProcessor.concatVideos(clipPaths, dest, undefined, options);
+    }
+  );
 
   ipcMain.handle('workflow:getVideoDuration', async (_event, videoPath: string) => {
     return VideoProcessor.getVideoDuration(videoPath);
@@ -93,4 +97,16 @@ export function registerWorkflowIpc(): void {
   ipcMain.handle('bible:deleteScene', async (_event, id: string) => {
     return BibleStore.deleteScene(id);
   });
+
+  // Storage Garbage Collector
+  ipcMain.handle('workflow:getTempStorageStats', async () => {
+    return WorkflowStorageManager.getInstance().getStorageStats();
+  });
+
+  ipcMain.handle('workflow:cleanTempCache', async (_event, maxAgeHours?: number) => {
+    return WorkflowStorageManager.getInstance().cleanupOldTempFiles(maxAgeHours ?? 0);
+  });
+
+  // Khởi động dọn dẹp định kỳ
+  WorkflowStorageManager.getInstance().startPeriodicCleanup();
 }

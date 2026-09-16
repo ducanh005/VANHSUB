@@ -91,7 +91,8 @@ export class VideoProcessor {
   public static async concatVideos(
     inputPaths: string[],
     outputPath: string,
-    ctx?: ExecutionContext
+    ctx?: ExecutionContext,
+    options?: TransitionOptions
   ): Promise<string> {
     const validInputs = inputPaths.filter((p) => p && fs.existsSync(p));
     if (validInputs.length === 0) {
@@ -101,6 +102,55 @@ export class VideoProcessor {
     if (validInputs.length === 1) {
       fs.copyFileSync(validInputs[0], outputPath);
       return outputPath;
+    }
+
+    // Nếu có yêu cầu hiệu ứng chuyển cảnh và effect khác 'none'
+    const effect = options?.effect;
+    if (effect && effect !== 'none' && validInputs.length >= 2) {
+      const tempDir = path.dirname(outputPath);
+      let currentFile = validInputs[0];
+      const cleanupFiles: string[] = [];
+
+      try {
+        for (let i = 1; i < validInputs.length; i++) {
+          const nextFile = validInputs[i];
+          const stepOut = path.join(
+            tempDir,
+            `seq_trans_${Date.now()}_${i}_${Math.random().toString(36).slice(2, 6)}.mp4`
+          );
+          cleanupFiles.push(stepOut);
+
+          if (ctx?.onProgress) {
+            const stepPercent = Math.round((i / validInputs.length) * 90);
+            ctx.onProgress(stepPercent);
+          }
+
+          await this.applyTransition(currentFile, nextFile, stepOut, options, ctx);
+          currentFile = stepOut;
+        }
+
+        fs.copyFileSync(currentFile, outputPath);
+
+        // Dọn dẹp tệp tạm bước trung gian
+        for (const f of cleanupFiles) {
+          try {
+            if (fs.existsSync(f)) fs.unlinkSync(f);
+          } catch {}
+        }
+
+        return outputPath;
+      } catch (err: any) {
+        console.warn(
+          '[VideoProcessor] Lỗi ghép sequence có transition, chuyển về concat thông thường:',
+          err?.message
+        );
+        for (const f of cleanupFiles) {
+          try {
+            if (fs.existsSync(f)) fs.unlinkSync(f);
+          } catch {}
+        }
+        // Fallback về concat demuxer thông thường bên dưới
+      }
     }
 
     const tempDir = path.dirname(outputPath);

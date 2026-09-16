@@ -18,7 +18,7 @@ import { StemExportRunner } from './audio/stemExportRunner'
 import { TTSRunner } from './render/ttsRunner'
 import { DubbingRunner } from './render/dubbingRunner'
 import { OcrRunner } from './ocr/ocrRunner'
-import { checkVietTtsConnection, getAvailableVoices, previewTts } from './render/ttsEngine'
+import { checkVietTtsConnection, getAvailableVoices, previewTts, getEdgeVoices } from './render/ttsEngine'
 import { VoiceSampleStore } from './store/voiceSampleStore'
 import { extractAudioFromUrl } from './helpers/voiceFromUrl'
 import { inspectMediaUrl, downloadVideoFromUrl } from './helpers/videoDownloader'
@@ -615,6 +615,11 @@ ipcMain.handle('tts:regenerateLine', async (_event, id: string, lineIndex: numbe
 // Kiểm tra kết nối VietTTS
 ipcMain.handle('tts:check-connection', async () => {
   return checkVietTtsConnection()
+})
+
+// Lấy danh sách giọng đọc Edge TTS tiếng Việt miễn phí
+ipcMain.handle('tts:getEdgeVoices', async () => {
+  return getEdgeVoices()
 })
 
 // =========================================================================
