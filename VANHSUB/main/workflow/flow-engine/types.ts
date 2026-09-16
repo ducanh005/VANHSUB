@@ -28,6 +28,7 @@ export interface StateExecutionRecord {
   durationMs?: number;
   status: 'success' | 'failed' | 'skipped';
   error?: string;
+  retryCount?: number;
   metadata?: any;
 }
 
@@ -95,6 +96,42 @@ export interface FlowAutomationState {
   exit(ctx: FlowStateContext): Promise<void>;
 }
 
+export type ErrorCategory = 'RETRYABLE' | 'NON_RETRYABLE' | 'FATAL';
+
+export type FlowErrorCode =
+  | 'NETWORK_TRANSIENT'
+  | 'RATE_LIMIT_429'
+  | 'SERVER_ERROR_5XX'
+  | 'AGENT_TRANSIENT_ERROR'
+  | 'ELEMENT_TRANSIENT_BUSY'
+  | 'SESSION_EXPIRED'
+  | 'OUT_OF_CREDITS'
+  | 'PROMPT_POLICY_VIOLATION'
+  | 'ACCOUNT_SUSPENDED'
+  | 'INVALID_INPUT'
+  | 'USER_CANCELLED'
+  | 'BROWSER_WINDOW_DESTROYED'
+  | 'UNKNOWN_ERROR';
+
+export interface ClassifiedError {
+  category: ErrorCategory;
+  code: FlowErrorCode;
+  message: string;
+  originalError?: any;
+  canRetry: boolean;
+  suggestedAction: 'RETRY_WITH_BACKOFF' | 'ABORT_HALT' | 'REAUTH_REQUIRED';
+  recommendedDelayMs?: number;
+  details?: Record<string, any>;
+}
+
+export interface RetryConfig {
+  maxRetries: number;
+  baseDelayMs: number;
+  maxDelayMs: number;
+  backoffFactor: number;
+  jitterRatio: number;
+}
+
 export interface FlowAutomationResult {
   ok: boolean;
   generationState: GenerationState;
@@ -104,6 +141,42 @@ export interface FlowAutomationResult {
   projectId?: string;
   error?: string;
   errorDetail?: string;
+  classifiedErrorCode?: FlowErrorCode;
   stateHistory: StateExecutionRecord[];
   durationMs: number;
 }
+
+export type FlowTaskStatus = 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
+export type FlowTaskType = 'IMAGE' | 'VIDEO';
+
+export interface FlowTask {
+  id: string;
+  type: FlowTaskType;
+  prompt: string;
+  options?: {
+    model?: string;
+    aspectRatio?: string;
+    imageCount?: number;
+    referenceImages?: string[];
+    videoDuration?: number;
+    quality?: string;
+    [key: string]: any;
+  };
+  status: FlowTaskStatus;
+  priority?: number;
+  createdAt: number;
+  updatedAt: number;
+  startedAt?: number;
+  completedAt?: number;
+  failedAt?: number;
+  generationAttemptId: number;
+  maxRetries?: number;
+  retryCount?: number;
+  error?: string;
+  errorDetail?: string;
+  resultUrls?: string[];
+  localDownloadedFiles?: string[];
+  checkpointId?: string;
+  metadata?: Record<string, any>;
+}
+

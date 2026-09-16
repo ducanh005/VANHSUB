@@ -6,4 +6,5 @@ export * from './FlowPageStateDetector';
 export * from './FlowOverlayDetector';
 export * from './FlowRecoveryManager';
 export * from './FlowClipboardGuard';
+export * from './FlowTaskQueue';
 export * from './states/FlowImageGenerationStates';
