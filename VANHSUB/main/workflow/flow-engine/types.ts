@@ -180,3 +180,29 @@ export interface FlowTask {
   metadata?: Record<string, any>;
 }
 
+export type FlowCheckpointStage =
+  | 'INIT'
+  | 'PROJECT_CREATED'
+  | 'CANVAS_CLEANED'
+  | 'INPUTS_CONFIGURED'
+  | 'GENERATE_CLICKED'
+  | 'GENERATING'
+  | 'COMPLETED'
+  | 'FAILED';
+
+export interface FlowCheckpoint {
+  taskId: string;
+  stage: FlowCheckpointStage;
+  projectId?: string;
+  projectUrl?: string;
+  generationAttemptId: number;
+  baselineUrls?: string[];
+  timestamp: number;
+  prompt: string;
+  aspectRatio?: string;
+  mode?: FlowMode;
+  lastCompletedState?: string;
+  metadata?: Record<string, any>;
+}
+
+
