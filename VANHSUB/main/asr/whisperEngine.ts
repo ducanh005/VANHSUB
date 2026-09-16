@@ -21,8 +21,7 @@ const execFileAsync = promisify(execFile);
 export interface TranscribeOptions {
   /**
    * Tên model whisper cần dùng, vd: 'base', 'small', 'large-v3-turbo'.
-   * whisper.cpp hỗ trợ sẵn định dạng ggml (đa ngôn ngữ), gồm cả tiếng Việt —
-   * không cần model riêng như PhoWhisper.
+   * whisper.cpp hỗ trợ sẵn định dạng ggml đa ngôn ngữ chuẩn (bao gồm tiếng Việt).
    */
   modelName?: string;
 

@@ -6,6 +6,7 @@ import { GoogleFlowBrowserMutex } from '../workflow/dispatcher/GoogleFlowBrowser
 import {
   FlowStateMachine,
   FlowImageGenerationStatePipeline,
+  FlowVideoGenerationStatePipeline,
   FlowElementFinder,
   FlowSmartWait,
   FlowClipboardGuard,
@@ -45,7 +46,7 @@ export const OFFSCREEN_Y = -3000;
 
 export class GoogleVeoSessionManager {
   private static instance: GoogleVeoSessionManager | null = null;
-  private lobbyWindow: any = null;
+  public lobbyWindow: any = null;
   private isLobbyDebugVisible = false;
   private _webRequestListenerAttached = false;
   private currentProjectId: string | null = null;
@@ -1515,9 +1516,136 @@ export class GoogleVeoSessionManager {
     }
   }
 
+    /**
+   * Kích hoạt đọc và làm mới số dư Credit trong background (không block luồng chính).
+   */
+  public refreshCreditsInBackground(): void {
+    setTimeout(async () => {
+      try {
+        await this.getCachedOrFreshCredits(0);
+      } catch (e: any) {
+        console.warn('[Google Flow Credits] Lỗi làm mới credit background:', e?.message || e);
+      }
+    }, 2000);
+  }
+
   /**
-   * Sinh video qua tự động hóa giao diện Google Flow trên Electron BrowserWindow.
-   * Tất cả các bước đều có timeout ngắn để tuyệt đối không làm treo workflow.
+   * Tải video chất lượng gốc 720p trực tiếp từ Video Viewer trên Google Flow thông qua Electron will-download.
+   * Phương thức chuẩn xác nhất vượt qua giới hạn HTTP CDN authentication của Google.
+   */
+  public async downloadVideoViaViewer(win: any, destPath: string, timeoutMs = 60000): Promise<boolean> {
+    if (!win || win.isDestroyed()) return false;
+
+    // 1. Mở video viewer nếu đang ở canvas
+    await this.safeExecuteJs(
+      win,
+      `
+      (function() {
+        const isViewerOpen = Boolean(document.querySelector('button[aria-label*="Tải nội dung" i], button[aria-label*="Tải xuống" i], button[aria-label*="Download" i]'));
+        if (!isViewerOpen) {
+          const targetTile = document.querySelector('flow-video-tile:not([data-flow-existing])');
+          if (targetTile) {
+            targetTile.click();
+          } else {
+            const videoTiles = Array.from(document.querySelectorAll('flow-video-tile'));
+            if (videoTiles.length > 0) {
+              videoTiles[videoTiles.length - 1].click();
+            }
+          }
+        }
+      })()
+    `,
+      3000
+    );
+    await new Promise((r) => setTimeout(r, 2000));
+
+    // 2. Thiết lập will-download listener
+    const downloadPromise = new Promise<boolean>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(`Tải video quá hạn ${timeoutMs / 1000}s`)), timeoutMs);
+      win.webContents.session.once('will-download', (event: any, item: any) => {
+        console.log('[Google Flow Download] ⚡ Bắt được luồng tải video gốc:', item.getFilename(), `(${item.getTotalBytes()} bytes)`);
+        item.setSavePath(destPath);
+        item.once('done', (e: any, state: string) => {
+          clearTimeout(timer);
+          if (state === 'completed') {
+            resolve(true);
+          } else {
+            reject(new Error(`Tải video kết thúc với trạng thái: ${state}`));
+          }
+        });
+      });
+    });
+
+    // 3. Click nút Download -> chọn 720p (Kích thước gốc)
+    const clickRes = await this.safeExecuteJs<boolean>(
+      win,
+      `
+      (async function() {
+        const btn = document.querySelector('button[aria-label*="Tải nội dung" i], button[aria-label*="Tải xuống" i], button[aria-label*="Download" i]');
+        if (!btn) return false;
+        btn.click();
+        await new Promise(r => setTimeout(r, 600));
+        const items = Array.from(document.querySelectorAll('.cdk-overlay-container [role="menuitem"], .mat-mdc-menu-item, button'));
+        const targetOption = items.find(el => {
+          const t = (el.innerText || el.textContent || '').toLowerCase();
+          return t.includes('720p') || t.includes('kích thước gốc') || t.includes('original');
+        });
+        if (targetOption) {
+          targetOption.click();
+          return true;
+        }
+        return false;
+      })()
+    `,
+      4000
+    );
+
+    if (!clickRes) {
+      console.warn('[Google Flow Download] Không thể kích hoạt menu tải xuống 720p trong viewer.');
+      return false;
+    }
+
+    const downloaded = await downloadPromise.catch((err) => {
+      console.warn('[Google Flow Download] Lỗi tải video qua will-download:', err?.message || err);
+      return false;
+    });
+
+    // 4. Quay lại màn hình canvas chính và đánh dấu tất cả video tile hiện có
+    await this.safeExecuteJs(
+      win,
+      `
+      (function() {
+        const backBtn = document.querySelector('button[aria-label*="Xong" i], button[aria-label*="quay lại" i], button[aria-label*="back" i]');
+        if (backBtn) backBtn.click();
+        document.querySelectorAll('flow-video-tile').forEach(t => t.setAttribute('data-flow-existing', 'true'));
+      })()
+    `,
+      2500
+    );
+    await new Promise((r) => setTimeout(r, 1200));
+
+    // 5. Xác thực tính toàn vẹn của file
+    if (downloaded) {
+      try {
+        const { FlowMediaVerifier } = await import('../workflow/flow-engine/FlowMediaVerifier');
+        const verification = await FlowMediaVerifier.verifyFile(destPath, { expectedType: 'video' });
+        return verification.isValid;
+      } catch {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  /**
+   * Sinh video trực tiếp trên trình duyệt Google Flow thông qua FlowStateMachine 18 bước chuyên biệt.
+   * Kế thừa toàn bộ tính năng của Flow Engine:
+   * - 18 States chuyên biệt cho Video & Image-to-Video
+   * - Self-Healing Element Finder & Smart Wait
+   * - Idempotency Guard & State Verification
+   * - Chống trùng lặp qua data-flow-existing tagging
+   * - Khôi phục lỗi & Phân loại mã lỗi chuẩn
    */
   async generateVideoViaBrowserContext(
     params: {
@@ -1528,11 +1656,22 @@ export class GoogleVeoSessionManager {
       modelVariant?: string;
       outputCount?: number;
       projectId?: string;
+      taskId?: string;
+      generationAttemptId?: string;
     },
     onProgress?: (percent: number, msg?: string) => void,
     isCancelled?: () => boolean
-  ): Promise<{ videoUrl?: string; base64Data?: string; projectId?: string; error?: 'out_of_credits' | 'timeout' | 'button_not_found' | 'agent_error' | string; errorDetail?: string; } | null> {
-    onProgress?.(5, 'Đang chuẩn bị Sảnh Google Flow...');
+  ): Promise<{
+    videoUrl?: string;
+    base64Data?: string;
+    projectId?: string;
+    error?: 'out_of_credits' | 'timeout' | 'button_not_found' | 'agent_error' | string;
+    errorDetail?: string;
+  } | null> {
+    const taskId = params.taskId || `task_vid_${Date.now()}`;
+    const generationAttemptId = params.generationAttemptId || `att_${Math.random().toString(36).slice(2, 7)}`;
+
+    onProgress?.(5, 'Đang chuẩn bị Sảnh Google Flow cho Video...');
 
     const ready = await this.ensureLobbyAtFlow();
     if (!ready) {
@@ -1550,746 +1689,68 @@ export class GoogleVeoSessionManager {
       return null;
     }
 
-    // Gắn network listener tạm thời để bắt link video
-    let capturedVideoUrl: string | null = null;
-    let generateClickedAt = 0;
-    const baselineUrlsSet = new Set<string>();
-    const ses = electron.session.fromPartition('persist:google_veo');
-    const netFilter = { urls: ['*://*/*'] };
-
-    const onResponseStartedHandler = (details: any) => {
-      // Chỉ chấp nhận response có thời điểm xảy ra SAU khi bấm nút Generate của lượt này
-      if (!generateClickedAt || Date.now() < generateClickedAt) return;
-      const elapsed = Date.now() - generateClickedAt;
-      // Google Veo mất tối thiểu 12s-20s để render, bỏ qua các response thumbnail ban đầu
-      if (elapsed < 12000) return;
-
-      const url = details.url || '';
-      // Bỏ qua mọi response thuộc danh sách asset đã có trước đó
-      if (baselineUrlsSet.has(url)) return;
-
-      const headers = details.responseHeaders || {};
-      const ct = (headers['content-type']?.[0] || headers['Content-Type']?.[0] || '').toLowerCase();
-
-      // Bỏ qua các video banner quảng cáo tĩnh từ gstatic / webview
-      const isStaticBanner = url.includes('gstatic.com') || url.includes('/banners/') || url.includes('landing_page') || url.includes('favicon');
-
-      if (
-        (ct.includes('video/mp4') || ct.includes('video/webm') || url.includes('.mp4') || url.includes('googlevideo.com/videoplayback') || url.includes('flow-content.google/video/')) &&
-        !url.includes('blank') &&
-        !isStaticBanner &&
-        details.statusCode >= 200 && details.statusCode < 300
-      ) {
-        console.log('[Google Flow Network] 🎬 Bắt được luồng video Veo mới thật:', url.slice(0, 100));
-        capturedVideoUrl = url;
-      }
+    const fsm = new FlowStateMachine(FlowVideoGenerationStatePipeline);
+    const ctx: FlowStateContext = {
+      taskId,
+      generationAttemptId,
+      mode: 'video',
+      win,
+      sessionMgr: this,
+      prompt: params.prompt,
+      initFrameUrl: params.initFrameUrl,
+      aspectRatio: params.aspectRatio || '16:9',
+      durationSeconds: params.durationSeconds || 4,
+      outputCount: params.outputCount || 1,
+      modelVariant: params.modelVariant || 'omni-flash',
+      targetProjectId: params.projectId,
+      onProgress,
+      isCancelled,
+      generationState: 'IDLE',
+      baselineUrls: new Set(),
+      capturedMediaUrl: null,
+      capturedBase64: null,
+      generateClickedAt: 0,
+      netFilterAttached: false,
+      stateHistory: [],
     };
+    (ctx as any).electron = electron;
 
-    try {
-      ses.webRequest.onResponseStarted(netFilter, onResponseStartedHandler);
+    const res = await fsm.run(ctx);
 
-      const promptClean = (params.prompt || '').trim() || 'Cinematic animation, vibrant dynamic motion, beautiful render';
-      const promptJson = JSON.stringify(promptClean);
+    // Kích hoạt làm mới credit bất đồng bộ sau mỗi lượt sinh
+    this.refreshCreditsInBackground();
 
-      onProgress?.(12, 'Đang chuẩn bị workspace Google Flow cho video...');
-
-      // BƯỚC 1: Đảm bảo đúng Project Context (tiếp nối project của ảnh nếu cùng session hoặc có targetProjectId)
-      const projectReady = await this.ensureProjectContext(win, params.projectId, onProgress, isCancelled);
-      if (!projectReady) {
-        console.warn('[Google Flow Browser] Không thể mở hoặc tạo dự án video trên Google Flow.');
-        return null;
-      }
-
-      // Bước 1.2: Dọn dẹp overlay cũ nếu có trước khi chọn card ảnh
-      await this.ensureCleanCanvasReady(win, 'video', onProgress, isCancelled);
-
-      if (isCancelled?.()) return null;
-
-      // BƯỚC 1.5: XỬ LÝ KHUNG HÌNH THAM CHIẾU (IMAGE-TO-VIDEO CHAINING)
-      onProgress?.(18, 'Đang liên kết ảnh tham chiếu cho video...');
-      const selectImageCardJs = `
-        (async function() {
-          function isVisible(el) {
-            if (!el) return false;
-            const rect = el.getBoundingClientRect();
-            if (!rect || rect.width <= 0 || rect.height <= 0) return false;
-            const style = window.getComputedStyle(el);
-            return style.display !== 'none' && style.visibility !== 'hidden';
-          }
-
-          // 1. Kiểm tra xem ô prompt box đã có chip ảnh đính kèm chưa
-          const promptBox = document.querySelector('flow-prompt-box, flow-base-prompt-box, .prompt-box-container');
-          const existingChip = promptBox ? promptBox.querySelector('flow-image-ingredient-chip, .chip-container, .chip-image-wrapper, mat-chip') : null;
-          if (existingChip) {
-            return 'already_has_image_chip';
-          }
-
-          // 2. Tìm thẻ ảnh (flow-image-tile) trên canvas của project
-          const imageCards = Array.from(document.querySelectorAll('flow-image-tile')).filter(isVisible);
-          if (imageCards.length > 0) {
-            const targetCard = imageCards[imageCards.length - 1];
-            
-            // Tìm nút menu (Tuỳ chọn khác) trên tile ảnh
-            const menuBtn = targetCard.querySelector(
-              'button[aria-label*="Tuỳ chọn khác" i], button[aria-label*="More" i], .mat-mdc-menu-trigger'
-            );
-            if (menuBtn) {
-              menuBtn.click();
-              await new Promise(r => setTimeout(r, 450));
-              
-              // Tìm mục "Tạo ảnh động" (motion_blur / animate) hoặc "Thêm vào câu lệnh" trong menu vừa mở
-              const menuItems = Array.from(document.querySelectorAll('.cdk-overlay-container [role="menuitem"], .mat-mdc-menu-item'));
-              const animItem = menuItems.find(el => {
-                const t = (el.innerText || el.textContent || '').toLowerCase();
-                return t.includes('tạo ảnh động') || t.includes('motion') || t.includes('animate');
-              }) || menuItems.find(el => {
-                const t = (el.innerText || el.textContent || '').toLowerCase();
-                return t.includes('thêm vào câu lệnh') || t.includes('add to prompt');
-              });
-
-              if (animItem) {
-                animItem.click();
-                await new Promise(r => setTimeout(r, 500));
-                return 'clicked_menu_tao_anh_dong';
-              }
-            }
-
-            // Fallback: click nút animate trực tiếp nếu có
-            const btns = Array.from(targetCard.querySelectorAll('button, [role="button"]'));
-            const animBtn = btns.find(b => {
-              const t = (b.getAttribute('aria-label') || b.innerText || b.textContent || '').toLowerCase();
-              return t.includes('tạo video') || t.includes('animate') || t.includes('tạo ảnh động');
-            });
-            if (animBtn) {
-              animBtn.click();
-              await new Promise(r => setTimeout(r, 500));
-              return 'clicked_card_animate';
-            }
-          }
-
-          // 3. Fallback: mở menu Add của prompt box để chọn ảnh
-          if (promptBox) {
-            const addBtn = promptBox.querySelector('button[aria-label*="Thêm thành phần" i], button.add-menu-trigger');
-            if (addBtn && isVisible(addBtn)) {
-              addBtn.click();
-              await new Promise(r => setTimeout(r, 450));
-              const addItems = Array.from(document.querySelectorAll('.cdk-overlay-container [role="menuitem"], .mat-mdc-menu-item'));
-              const imgItem = addItems.find(el => {
-                const t = (el.innerText || el.textContent || '').toLowerCase();
-                return t.includes('hình ảnh') || t.includes('image') || t.includes('thêm vào câu lệnh');
-              });
-              if (imgItem) {
-                imgItem.click();
-                await new Promise(r => setTimeout(r, 500));
-                return 'clicked_add_menu_image';
-              }
-              document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', keyCode: 27 }));
-            }
-          }
-
-          return 'no_image_card';
-        })()
-      `;
-
-      const cardRes = await this.safeExecuteJs<string>(win, selectImageCardJs, 6000);
-      console.log('[Google Flow Browser] 🎬 Kết quả liên kết card ảnh Image-to-Video:', cardRes);
-
-      // Kiểm tra xem chip ảnh đã xuất hiện trong prompt box chưa
-      const checkChipJs = `Boolean(document.querySelector('flow-image-ingredient-chip, flow-prompt-box .chip-container, flow-prompt-box .chip-image-wrapper, flow-prompt-box mat-chip'))`;
-      let hasChip = await this.safeExecuteJs<boolean>(win, checkChipJs, 2000);
-
-      // B. Nếu chưa có chip trên canvas nhưng có file ảnh cục bộ (initFrameUrl bên ngoài): Dán ảnh qua Clipboard
-      if (!hasChip && params.initFrameUrl) {
-        try {
-          let localImgPath = params.initFrameUrl;
-          if (localImgPath.startsWith('file://')) {
-            localImgPath = localImgPath.replace(/^file:\/\/\/?/, '');
-          }
-          const fs = require('fs');
-          if (fs.existsSync(localImgPath)) {
-            const natImg = electron.nativeImage.createFromPath(localImgPath);
-            if (!natImg.isEmpty()) {
-              console.log('[Google Flow Browser] 🖼️ Nạp ảnh initFrameUrl vào Clipboard và Paste vào Prompt Box...');
-              await FlowClipboardGuard.withPreservedClipboard(electron, async () => {
-                electron.clipboard.writeImage(natImg);
-                win.focus();
-                win.webContents.paste();
-                await new Promise((r) => setTimeout(r, 1200));
-              });
-              hasChip = await this.safeExecuteJs<boolean>(win, checkChipJs, 2000);
-            }
-          }
-        } catch (pasteErr) {
-          console.warn('[Google Flow Browser] Thử paste initFrameUrl warning:', pasteErr);
-        }
-      }
-
-      console.log('[Google Flow Browser] 📌 Trạng thái gắn chip ảnh trong prompt box:', hasChip);
-
-      // BƯỚC 2: Thiết lập Mode VIDEO, Duration, Aspect Ratio và Output Count trong Google Flow
-      onProgress?.(22, 'Đang đồng bộ thiết lập video (thời lượng, tỉ lệ, số lượng)...');
-      await this.configureGoogleFlowSettings(win, 'video', {
-        outputCount: params.outputCount || 1,
-        aspectRatio: params.aspectRatio || '16:9',
-        durationSeconds: params.durationSeconds || 4,
-        modelVariant: params.modelVariant || 'omni-flash',
-      });
-
-      if (isCancelled?.()) return null;
-
-      // Chụp snapshot baseline các URL video/card hiện có trên trang để loại trừ 100% video cũ
-      const captureBaselineJs = `
-        (function() {
-          const urls = new Set();
-          document.querySelectorAll('video, video source, a[href*="flow-content"], a[href*="videoplayback"], flow-video-tile, flow-image-tile, .video-container').forEach(el => {
-            const s = el.currentSrc || el.src || el.href;
-            if (s && !s.includes('gstatic') && !s.includes('/banners/')) urls.add(s);
-            const mid = el.getAttribute('data-media-id');
-            if (mid) urls.add(mid);
-          });
-          document.querySelectorAll('flow-media-card, flow-video-card, flow-card, flow-chat-view, .media-card, video, flow-video-tile, flow-image-tile, .video-container').forEach(el => {
-            el.setAttribute('data-flow-existing', 'true');
-          });
-          return Array.from(urls);
-        })()
-      `;
-      const baselineUrlsList = (await this.safeExecuteJs<string[]>(win, captureBaselineJs, 3000)) || [];
-      for (const u of baselineUrlsList) baselineUrlsSet.add(u);
-      console.log(`[Google Flow Browser] 📋 Đã ghi nhận baseline video: ${baselineUrlsList.length} media URLs có sẵn.`);
-
-      // === BƯỚC 3: Điền prompt và bấm nút Generate ===
-      onProgress?.(25, 'Đang nộp prompt vào Google Flow...');
-
-      // Đảm bảo cửa sổ được hiển thị và lấy focus để Chromium kích hoạt input
-      if (!win.isDestroyed()) {
-        try {
-          if (win.isMinimized()) win.restore();
-          win.show();
-          win.focus();
-          if (!this.isLobbyDebugVisible) {
-            win.setPosition(OFFSCREEN_X, OFFSCREEN_Y);
-          }
-          console.log('[Google Flow Browser] Vị trí cửa sổ sau show/focus (Video):', win.getPosition());
-        } catch {}
-      }
-
-      // 1. Focus vào ô soạn thảo trong DOM trước
-      const focusEditorJs = `
-        (function() {
-          const promptBox = document.querySelector(
-            'flow-prompt-box, flow-base-prompt-box, flow-creative-agent-prompt-box, .prompt-box-container, .base-prompt-box'
-          ) || document;
-          const selectors = [
-            'flow-rich-text-editor .ProseMirror',
-            '.prosemirror-editor .ProseMirror',
-            '.ProseMirror',
-            '[contenteditable="true"]',
-            'textarea:not(.g-recaptcha-response)',
-            'input[type="text"]'
-          ];
-          for (const sel of selectors) {
-            const el = promptBox.querySelector(sel) || document.querySelector(sel);
-            if (el && (el.isContentEditable || el.tagName === 'TEXTAREA' || el.tagName === 'INPUT')) {
-              el.focus();
-              const selObj = window.getSelection();
-              const range = document.createRange();
-              range.selectNodeContents(el);
-              selObj.removeAllRanges();
-              selObj.addRange(range);
-              return true;
-            }
-          }
-          return false;
-        })()
-      `;
-      await this.safeExecuteJs(win, focusEditorJs, 2500);
-
-      // 2. Nạp prompt vào Clipboard và kích hoạt native paste qua WebContents (bảo tồn clipboard người dùng)
-      await FlowClipboardGuard.withPreservedClipboard(electron, async () => {
-        try {
-          electron.clipboard.writeText(promptClean);
-          win.focus();
-          win.webContents.paste();
-        } catch (e) {
-          console.warn('[Google Flow Browser] Clipboard paste error:', e);
-        }
-        await new Promise((r) => setTimeout(r, 400));
-      });
-
-      // 3. Thực thi đoạn mã hoàn tất việc điền và định vị nút Submit
-      const fillPromptJs = `
-        (async function() {
-          try {
-            const promptBox = document.querySelector(
-              'flow-prompt-box, flow-base-prompt-box, flow-creative-agent-prompt-box, .prompt-box-container, .base-prompt-box'
-            ) || document;
-
-            const selectors = [
-              'flow-rich-text-editor .ProseMirror',
-              '.prosemirror-editor .ProseMirror',
-              '.ProseMirror',
-              '[contenteditable="true"]',
-              'textarea:not(.g-recaptcha-response)',
-              'input[type="text"]'
-            ];
-
-            let promptEl = null;
-            for (let i = 0; i < 20; i++) {
-              for (const sel of selectors) {
-                const el = promptBox.querySelector(sel) || document.querySelector(sel);
-                if (el && (el.isContentEditable || el.tagName === 'TEXTAREA' || el.tagName === 'INPUT')) {
-                  promptEl = el;
-                  break;
-                }
-              }
-              if (promptEl) break;
-              await new Promise(r => setTimeout(r, 300));
-            }
-
-            if (!promptEl) {
-              return JSON.stringify({
-                ok: false,
-                error: 'no_prompt_input',
-                url: window.location.href,
-                htmlSnippet: document.body.innerText.slice(0, 300)
-              });
-            }
-
-            promptEl.focus();
-
-            // Nạp nội dung vào ProseMirror bằng delete + insertText chuẩn để Angular nhận diện state
-            try {
-              const sel = window.getSelection();
-              const range = document.createRange();
-              range.selectNodeContents(promptEl);
-              sel.removeAllRanges();
-              sel.addRange(range);
-              document.execCommand('delete', false, null);
-              document.execCommand('insertText', false, ${promptJson});
-              promptEl.dispatchEvent(new Event('input', { bubbles: true }));
-              promptEl.dispatchEvent(new Event('change', { bubbles: true }));
-            } catch (e) {}
-
-            if (promptEl.tagName === 'TEXTAREA' || promptEl.tagName === 'INPUT') {
-              promptEl.value = ${promptJson};
-              promptEl.dispatchEvent(new Event('input', { bubbles: true }));
-              promptEl.dispatchEvent(new Event('change', { bubbles: true }));
-            }
-
-            await new Promise(r => setTimeout(r, 300));
-            let textAfterInsert = (promptEl.innerText || promptEl.textContent || promptEl.value || '').trim();
-            if (!textAfterInsert && promptEl.isContentEditable) {
-              promptEl.innerHTML = '<p>' + ${JSON.stringify(promptClean)} + '</p>';
-              promptEl.dispatchEvent(new Event('input', { bubbles: true }));
-              await new Promise(r => setTimeout(r, 200));
-              textAfterInsert = (promptEl.innerText || promptEl.textContent || promptEl.value || '').trim();
-            }
-
-            function isElementVisible(el) {
-              if (!el) return false;
-              const rect = el.getBoundingClientRect();
-              if (!rect || rect.width <= 0 || rect.height <= 0) return false;
-              const style = window.getComputedStyle(el);
-              if (style.display === 'none' || style.visibility === 'hidden') return false;
-              if (el.offsetParent === null && style.position !== 'fixed') return false;
-              return true;
-            }
-
-            // Tìm nút Submit / Generate VIDEO đang thực sự hiển thị trên DOM (loại trừ các nút helper)
-            const genBtnSelectors = [
-              'flow-generate-icon-button button',
-              'button.generate-icon-button',
-              'button[type="submit"]',
-              'button[aria-label*="Tạo video" i]',
-              'button[aria-label*="Generate video" i]',
-              'button[aria-label*="Bắt đầu tạo" i]',
-              'button[aria-label*="Start generation" i]',
-              'button[aria-label="Generate" i]',
-              'flow-generate-button button',
-              'button.submit-button'
-            ];
-
-            let genBtn = null;
-            let btnCoords = null;
-            for (let i = 0; i < 20; i++) {
-              const scope = promptBox || document;
-              let candidates = Array.from(scope.querySelectorAll(genBtnSelectors.join(', '))).filter(el => {
-                if (!isElementVisible(el)) return false;
-                if (el.classList.contains('agent-action-button') ||
-                    el.classList.contains('settings-trigger-button') ||
-                    el.classList.contains('add-menu-trigger') ||
-                    el.classList.contains('header-action') ||
-                    el.classList.contains('suggestion-card')) {
-                  return false;
-                }
-                const label = (el.getAttribute('aria-label') || el.innerText || el.textContent || '').toLowerCase();
-                // TUYỆT ĐỐI KHÔNG CHẤP NHẬN NÚT TẠO ẢNH TRONG LƯỢT SINH VIDEO
-                if (label.includes('tạo ảnh') || label.includes('generate image')) {
-                  return false;
-                }
-                return true;
-              });
-              if (candidates.length === 0 && scope !== document) {
-                candidates = Array.from(document.querySelectorAll(genBtnSelectors.join(', '))).filter(el => {
-                  if (!isElementVisible(el)) return false;
-                  if (el.classList.contains('agent-action-button') ||
-                      el.classList.contains('settings-trigger-button') ||
-                      el.classList.contains('add-menu-trigger') ||
-                      el.classList.contains('header-action') ||
-                      el.classList.contains('suggestion-card')) {
-                    return false;
-                  }
-                  const label = (el.getAttribute('aria-label') || el.innerText || el.textContent || '').toLowerCase();
-                  if (label.includes('tạo ảnh') || label.includes('generate image')) {
-                    return false;
-                  }
-                  return true;
-                });
-              }
-              if (candidates.length > 0) {
-                const target = candidates.find(b => {
-                  const lbl = (b.getAttribute('aria-label') || b.innerText || b.textContent || '').toLowerCase();
-                  if (lbl.includes('tạo ảnh') || lbl.includes('generate image')) return false;
-                  return (
-                    lbl.includes('tạo video') ||
-                    lbl.includes('generate video') ||
-                    lbl.includes('bắt đầu tạo') ||
-                    lbl.includes('start generation') ||
-                    b.classList.contains('generate-icon-button') ||
-                    b.getAttribute('type') === 'submit'
-                  );
-                }) || candidates[0];
-
-                if (target) {
-                  const targetLabel = (target.getAttribute('aria-label') || target.innerText || target.textContent || '').toLowerCase();
-                  if (targetLabel.includes('tạo ảnh') || targetLabel.includes('generate image')) {
-                    await new Promise(r => setTimeout(r, 200));
-                    continue;
-                  }
-
-                  const rect = target.getBoundingClientRect();
-                  if (rect && rect.width > 0 && rect.height > 0) {
-                    genBtn = target;
-                    btnCoords = {
-                      x: Math.round(rect.x + rect.width / 2),
-                      y: Math.round(rect.y + rect.height / 2)
-                    };
-                    break;
-                  }
-                }
-              }
-              await new Promise(r => setTimeout(r, 200));
-            }
-
-            if (genBtn && btnCoords) {
-              genBtn.disabled = false;
-              genBtn.removeAttribute('disabled');
-              genBtn.setAttribute('aria-disabled', 'false');
-
-              genBtn.click();
-              return JSON.stringify({
-                ok: true,
-                method: 'click_gen_button',
-                insertedText: textAfterInsert.slice(0, 80),
-                buttonFound: true,
-                btnText: (genBtn.getAttribute('aria-label') || genBtn.innerText || genBtn.textContent || '').trim(),
-                btnCoords
-              });
-            }
-
-            // Fallback: dispatch phím Enter
-            promptEl.dispatchEvent(new KeyboardEvent('keydown', {
-              key: 'Enter',
-              code: 'Enter',
-              keyCode: 13,
-              which: 13,
-              bubbles: true
-            }));
-
-            const debugSnippet = promptBox ? (promptBox.outerHTML || '').slice(0, 500) : '';
-
-            return JSON.stringify({
-              ok: true,
-              method: 'enter_key',
-              insertedText: textAfterInsert.slice(0, 80),
-              buttonFound: false,
-              btnCoords: null,
-              debugSnippet
-            });
-          } catch (e) {
-            return JSON.stringify({ ok: false, error: String(e && e.message ? e.message : e) });
-          }
-        })()
-      `;
-
-      const fillResult = await this.safeExecuteJs<any>(win, fillPromptJs, 9000);
-      console.log('[Google Flow Browser] Kết quả điền prompt video:', fillResult);
-
-      if (!fillResult?.ok || !fillResult?.buttonFound || !fillResult?.btnCoords) {
-        console.warn('[Google Flow Browser] ❌ Không thể tìm thấy nút Tạo video:', fillResult?.error || 'gen_btn_not_found');
-        return null;
-      }
-
-      // Gửi click chuột thật qua webContents.sendInputEvent tại đúng toạ độ btnCoords
-      if (!win.isDestroyed()) {
-        try {
-          console.log('[Google Flow Browser] 🖱️ Gửi click chuột thật tới nút Tạo video:', fillResult.btnCoords);
-          win.webContents.sendInputEvent({
-            type: 'mouseDown',
-            x: fillResult.btnCoords.x,
-            y: fillResult.btnCoords.y,
-            button: 'left',
-            clickCount: 1,
-          });
-          await new Promise((r) => setTimeout(r, 50));
-          win.webContents.sendInputEvent({
-            type: 'mouseUp',
-            x: fillResult.btnCoords.x,
-            y: fillResult.btnCoords.y,
-            button: 'left',
-            clickCount: 1,
-          });
-        } catch (clickErr: any) {
-          console.warn('[Google Flow Browser] Native mouse click warning:', clickErr?.message);
-        }
-      }
-
-      // Đánh dấu chính xác thời điểm bấm nút Generate của lượt hiện tại
-      generateClickedAt = Date.now();
-
-      // Đợi 300ms và tự động xác nhận quyền của Tác nhân nếu có
-      await new Promise((r) => setTimeout(r, 300));
-      const agentCheckInit = await this.autoConfirmAgentPermission(win);
-      if (agentCheckInit.startsWith('agent_error:')) {
-        console.error('[Google Flow Browser] 🛑 Dừng tác vụ vì Tác nhân Google Flow báo lỗi:', agentCheckInit);
-        return { error: 'agent_error', errorDetail: agentCheckInit };
-      }
-
-      if (isCancelled?.()) return null;
-
-      // Xác nhận phản hồi ban đầu của Flow
-      const checkVideoStartedJs = `
-        (function() {
-          const promptBox = document.querySelector('flow-prompt-box, flow-base-prompt-box, flow-creative-agent-prompt-box, .prompt-box-container');
-          const promptEl = promptBox ? promptBox.querySelector('.ProseMirror, [contenteditable="true"], textarea') : null;
-          const currentText = promptEl ? (promptEl.innerText || promptEl.textContent || promptEl.value || '').trim() : '';
-
-          const hasSpinner = Boolean(document.querySelector(
-            'flow-loading-indicator, flow-progress-bar, mat-progress-spinner, mat-spinner, .generation-in-progress, [role="progressbar"], flow-card[state="generating"], .loading-spinner'
-          ));
-
-          const btnDisabled = Boolean(document.querySelector(
-            'flow-generate-icon-button button[disabled], button.generate-icon-button[disabled], button[aria-disabled="true"]'
-          ));
-
-          return JSON.stringify({
-            isCleared: currentText.length === 0,
-            hasSpinner,
-            btnDisabled,
-            textLen: currentText.length
-          });
-        })()
-      `;
-
-      let startedStatus: any = null;
-      for (let i = 0; i < 15; i++) {
-        await new Promise((r) => setTimeout(r, 200));
-        startedStatus = await this.safeExecuteJs<any>(win, checkVideoStartedJs, 1500);
-        if (startedStatus?.isCleared || startedStatus?.hasSpinner) break;
-      }
-      console.log('[Google Flow Browser] Xác nhận phản hồi ban đầu của Flow (Video):', startedStatus);
-
-      if (startedStatus && !startedStatus.isCleared && !startedStatus.hasSpinner && !startedStatus.btnDisabled && !win.isDestroyed()) {
-        console.log('[Google Flow Browser] ⚠️ Flow chưa nhận lệnh (text còn nguyên, chưa loading), kích hoạt bổ trợ Enter native...');
-        try {
-          await win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Enter' });
-          await new Promise((r) => setTimeout(r, 60));
-          await win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Enter' });
-        } catch {}
-        await new Promise((r) => setTimeout(r, 1500));
-      }
-
-      if (isCancelled?.()) return null;
-
-      // === BƯỚC 4: Polling chờ video (tối đa 240s, mỗi 3s kiểm tra 1 lần) ===
-      onProgress?.(30, 'Đang chờ Google Veo render video...');
-
-      const pollAndTriggerVideoJs = `
-        (async function() {
-          const baselineList = ${JSON.stringify(baselineUrlsList)};
-          const baselineSet = new Set(baselineList);
-
-          // 1. Kiểm tra nếu có thẻ <video> trực tiếp
-          try {
-            const videos = Array.from(document.querySelectorAll('video'));
-            for (const v of videos) {
-              if (v.closest('[data-flow-existing="true"]')) continue;
-              const src = v.currentSrc || v.src || (v.querySelector('source') ? v.querySelector('source').src : '');
-              if (!src || src.includes('/banners/') || src.includes('googleusercontent.com/a/')) continue;
-              if (baselineSet.has(src)) continue;
-              if (src.startsWith('http')) return { type: 'http', videoUrl: src };
-            }
-          } catch (e) {}
-
-          // 2. Kiểm tra flow-video-tile trên canvas
-          try {
-            const allTiles = Array.from(document.querySelectorAll('flow-video-tile'));
-            const newTiles = allTiles.filter(t => !t.closest('[data-flow-existing="true"]') && !t.hasAttribute('data-flow-existing'));
-
-            // 3. Kiểm tra .video-container.clickable trong chat view
-            const allChatVid = Array.from(document.querySelectorAll('.video-container.clickable, flow-chat-view .video-container'));
-            const newChatVid = allChatVid.filter(c => !c.closest('[data-flow-existing="true"]') && !c.hasAttribute('data-flow-existing'));
-
-            const bodyText = (document.body.innerText || '').toLowerCase();
-            const chatSaysReady = bodyText.includes('your video is ready') || bodyText.includes('video của bạn đã sẵn sàng') || bodyText.includes('video is ready');
-
-            // Kiểm tra các tile mới sinh ra trên canvas
-            for (const tile of newTiles) {
-              const progressBar = tile.querySelector('.progress-bar, [role="progressbar"]');
-              const progressStyle = progressBar ? (progressBar.getAttribute('style') || '') : '';
-              const isDone = !progressBar || progressStyle.includes('100%') || chatSaysReady;
-
-              if (isDone) {
-                // Click vào tile để Google Flow nạp luồng video .mp4 thật
-                tile.click();
-                return { type: 'triggered_click', source: 'tile' };
-              }
-            }
-
-            // Kiểm tra các video container trong khung chat tác nhân
-            for (const container of newChatVid) {
-              container.click();
-              return { type: 'triggered_click', source: 'chat' };
-            }
-          } catch (e) {}
-
-          return null;
-        })()
-      `;
-
-      const maxWaitSeconds = 240;
-      const pollIntervalMs = 3000;
-      const maxAttempts = Math.floor((maxWaitSeconds * 1000) / pollIntervalMs);
-
-      for (let attempt = 0; attempt < maxAttempts; attempt++) {
-        if (win.isDestroyed()) break;
-
-        if (isCancelled?.()) {
-          console.log('[Google Flow Browser] Tác vụ đã bị người dùng hủy bỏ.');
-          return null;
-        }
-
-        // Tự động kiểm tra quyền hoặc phát hiện lỗi Tác nhân
-        const agentStatus = await this.autoConfirmAgentPermission(win);
-        if (agentStatus.startsWith('agent_error:')) {
-          console.error('[Google Flow Browser] 🛑 Dừng tác vụ vì Tác nhân Google Flow báo lỗi:', agentStatus);
-          return { error: 'agent_error', errorDetail: agentStatus };
-        }
-
-        const elapsedSinceClick = Date.now() - generateClickedAt;
-        const minVideoTimeGate = 12000; // Tối thiểu 12s mới chấp nhận video thật
-
-        // 1. Kiểm tra nếu đã bắt được URL video qua network listener
-        if (capturedVideoUrl && elapsedSinceClick >= minVideoTimeGate) {
-          onProgress?.(90, 'Đã nhận được video từ Google Flow!');
-          console.log('[Google Flow Browser] ✅ Bắt được video qua network (sau ' + Math.round(elapsedSinceClick / 1000) + 's):', capturedVideoUrl);
-          
-          let projectId: string | undefined;
-          try {
-            const currentUrl = win.webContents?.getURL?.() || '';
-            const match = currentUrl.match(/\/project\/([a-zA-Z0-9_-]+)/);
-            if (match && match[1]) projectId = match[1];
-          } catch {}
-          if (projectId) {
-            this.currentProjectId = projectId;
-          } else if (this.currentProjectId) {
-            projectId = this.currentProjectId;
-          }
-
-          return { videoUrl: capturedVideoUrl, projectId };
-        }
-
-        // 2. Thực thi kiểm tra DOM và kích hoạt click vào video tile/container nếu đã render xong
-        if (elapsedSinceClick >= minVideoTimeGate) {
-          const domResult = await this.safeExecuteJs<any>(win, pollAndTriggerVideoJs, 3500);
-          if (domResult?.type === 'http' && domResult.videoUrl) {
-            let projectId: string | undefined;
-            try {
-              const currentUrl = win.webContents?.getURL?.() || '';
-              const match = currentUrl.match(/\/project\/([a-zA-Z0-9_-]+)/);
-              if (match && match[1]) projectId = match[1];
-            } catch {}
-            if (projectId) {
-              this.currentProjectId = projectId;
-            } else if (this.currentProjectId) {
-              projectId = this.currentProjectId;
-            }
-
-            onProgress?.(90, 'Đã nhận được video từ Google Flow!');
-            console.log('[Google Flow Browser] ✅ Tìm thấy video HTTP qua DOM (sau ' + Math.round(elapsedSinceClick / 1000) + 's):', domResult.videoUrl);
-            return { videoUrl: domResult.videoUrl, projectId };
-          }
-          if (domResult?.type === 'triggered_click') {
-            console.log('[Google Flow Browser] 🎬 Phát hiện video hoàn tất trên ' + domResult.source + ', đã click kích hoạt luồng video MP4...');
-            // Đợi 1000ms để network listener nhận response
-            await new Promise((r) => setTimeout(r, 1000));
-            if (capturedVideoUrl) {
-              onProgress?.(90, 'Đã nhận được video từ Google Flow!');
-              console.log('[Google Flow Browser] ✅ Bắt được video qua network sau khi kích hoạt:', capturedVideoUrl);
-              let projectId: string | undefined;
-              try {
-                const currentUrl = win.webContents?.getURL?.() || '';
-                const match = currentUrl.match(/\/project\/([a-zA-Z0-9_-]+)/);
-                if (match && match[1]) projectId = match[1];
-              } catch {}
-              if (projectId) {
-                this.currentProjectId = projectId;
-              } else if (this.currentProjectId) {
-                projectId = this.currentProjectId;
-              }
-              return { videoUrl: capturedVideoUrl, projectId };
-            }
-          }
-        }
-
-        await new Promise((r) => setTimeout(r, pollIntervalMs));
-        const elapsed = (attempt + 1) * (pollIntervalMs / 1000);
-        const pct = Math.min(85, Math.round(30 + (elapsed / maxWaitSeconds) * 55));
-        onProgress?.(pct, `Google Veo đang xử lý (${Math.round(elapsed)}s / ${maxWaitSeconds}s)...`);
-      }
-
-      console.warn('[Google Flow Browser] Quá thời gian chờ video từ Google Flow.');
-
-      const outOfCreditsJs = `
-        (function() {
-          const text = (document.body.innerText || '').toLowerCase();
-          return (
-            text.includes('hết tín dụng') ||
-            text.includes('không đủ tín dụng') ||
-            text.includes('insufficient credit') ||
-            text.includes('out of credits') ||
-            text.includes('you have run out')
-          );
-        })()
-      `;
-      const outOfCredits = await this.safeExecuteJs<boolean>(win, outOfCreditsJs, 2000);
-      if (outOfCredits) {
-        console.warn('[Google Flow Browser] Tài khoản đã hết credit Google Flow.');
+    if (!res.ok) {
+      if (res.error === 'out_of_credits' || res.classifiedErrorCode === 'OUT_OF_CREDITS') {
         SettingsStore.set('veoSessionStatus', 'out_of_credits');
         SettingsStore.set('veoFlowCredits', 0);
         SettingsStore.set('veoFlowCreditsCheckedAt', Date.now());
-        return { error: 'out_of_credits' };
       }
-
-      return null;
-    } finally {
-      try {
-        ses.webRequest.onResponseStarted(netFilter, null as any);
-      } catch {}
+      return {
+        error: (res.classifiedErrorCode as any) || (res.error as any) || 'unknown_failure',
+        errorDetail: res.errorDetail,
+      };
     }
+
+    let pid = res.projectId || params.projectId || this.currentProjectId;
+    try {
+      const curUrl = win.webContents?.getURL?.() || '';
+      const match = curUrl.match(/\/project\/([a-zA-Z0-9_-]+)/);
+      if (match && match[1]) pid = match[1];
+    } catch {}
+
+    if (pid) {
+      this.currentProjectId = pid;
+    }
+
+    return {
+      videoUrl: res.videoUrl,
+      base64Data: res.base64Data,
+      projectId: pid || undefined,
+    };
   }
 
-  /**
+/**
    * Sinh ảnh trực tiếp trên trình duyệt Google Flow thông qua State Machine Engine.
    * Chạy qua chuỗi State Machine chuẩn:
    * OPEN_FLOW -> WAIT_FOR_PAGE_READY -> VERIFY_SESSION -> ENSURE_PROJECT_CONTEXT
@@ -2351,6 +1812,9 @@ export class GoogleVeoSessionManager {
     };
 
     const res = await fsm.run(ctx);
+
+    // Kích hoạt làm mới credit bất đồng bộ sau mỗi lượt sinh ảnh
+    this.refreshCreditsInBackground();
 
     if (!res.ok) {
       if (res.error === 'out_of_credits' || res.classifiedErrorCode === 'OUT_OF_CREDITS') {

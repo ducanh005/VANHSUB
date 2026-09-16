@@ -235,8 +235,21 @@ export class GoogleFlowAdapter implements ModelAdapter {
         return { videoPath: outPath, projectId: browserResult.projectId || params.projectId };
       }
 
-      if (browserResult?.videoUrl) {
-        console.log('[Google Flow] ✅ Tải video thật từ Google Veo...');
+      // 2. Tải trực tiếp chất lượng gốc 720p từ Video Viewer qua will-download (chuẩn nhất trên Electron)
+      const win = sessionMgr.lobbyWindow;
+      if (win && !win.isDestroyed()) {
+        ctx.onProgress(85);
+        console.log('[Google Flow] ⬇️ Đang trích xuất video 720p gốc từ Google Flow Video Viewer...');
+        const viewerSuccess = await sessionMgr.downloadVideoViaViewer(win, outPath);
+        if (viewerSuccess && fs.existsSync(outPath) && fs.statSync(outPath).size > 1000) {
+          console.log('[Google Flow] ✅ Đã tải video 720p gốc thành công từ Video Viewer!');
+          return { videoPath: outPath, projectId: browserResult?.projectId || params.projectId };
+        }
+      }
+
+      // 3. Fallback: tải qua HTTP URL nếu viewer không khả dụng
+      if (browserResult?.videoUrl && browserResult.videoUrl.startsWith('http')) {
+        console.log('[Google Flow] ✅ Tải video từ Google Veo qua HTTP URL...');
         ctx.onProgress(85);
         await this.downloadFile(browserResult.videoUrl, outPath, 5, 60000);
         return { videoPath: outPath, projectId: browserResult.projectId || params.projectId };
