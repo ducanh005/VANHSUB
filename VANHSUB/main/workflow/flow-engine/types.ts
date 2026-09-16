@@ -205,4 +205,23 @@ export interface FlowCheckpoint {
   metadata?: Record<string, any>;
 }
 
+export type FlowResumeStrategy =
+  | 'FRESH_START'
+  | 'REUSE_PROJECT'
+  | 'RESUME_CONFIGURING'
+  | 'JUMP_TO_WAIT'
+  | 'ALREADY_COMPLETED';
+
+export interface FlowResumePlan {
+  taskId: string;
+  strategy: FlowResumeStrategy;
+  checkpoint: FlowCheckpoint | null;
+  startStateName: string;
+  projectId?: string;
+  projectUrl?: string;
+  baselineUrls: string[];
+  reason: string;
+}
+
+
 

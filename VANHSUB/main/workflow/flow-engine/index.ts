@@ -10,4 +10,5 @@ export * from './FlowRetryManager';
 export * from './FlowClipboardGuard';
 export * from './FlowTaskQueue';
 export * from './FlowCheckpointManager';
+export * from './FlowCrashResumeCoordinator';
 export * from './states/FlowImageGenerationStates';

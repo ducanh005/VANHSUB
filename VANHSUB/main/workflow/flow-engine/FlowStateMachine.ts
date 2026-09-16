@@ -32,7 +32,7 @@ export class FlowStateMachine {
   /**
    * Chạy máy trạng thái từ đầu tới cuối hoặc cho tới khi gặp lỗi/skip.
    */
-  public async run(ctx: FlowStateContext): Promise<FlowAutomationResult> {
+  public async run(ctx: FlowStateContext, initialStateName?: string): Promise<FlowAutomationResult> {
     const overallStartTime = Date.now();
     ctx.stateHistory = ctx.stateHistory || [];
     console.log(
@@ -40,6 +40,16 @@ export class FlowStateMachine {
     );
 
     let currentIndex = 0;
+    if (initialStateName) {
+      const startIdx = this.states.findIndex((s) => s.name === initialStateName);
+      if (startIdx > 0) {
+        currentIndex = startIdx;
+        console.log(
+          `[FlowStateMachine] [${ctx.taskId}#${ctx.generationAttemptId}] 🔀 RESUME: Bắt đầu từ state [${initialStateName}] (index ${currentIndex}/${this.states.length})`
+        );
+      }
+    }
+
     let recoveryAttemptsForCurrentState = 0;
     let retryAttemptsForCurrentState = 0;
 
