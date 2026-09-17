@@ -151,6 +151,32 @@ Trả về định dạng JSON DUY NHẤT (không giải thích, không bọc ma
       return this.generateFallbackScript(topic, config.systemPromptPreset);
     }
 
+    // ------------------------------------------------------------------------
+    // Zero-API-Cost Mode: Gemini Web Automation
+    // ------------------------------------------------------------------------
+    if (config.provider === 'gemini_web') {
+      try {
+        const { GeminiWebSessionManager } = await import('../gemini/GeminiWebSessionManager');
+        const { parseChatGptScriptResponse } = await import('../chatgpt/ChatGptWebSessionManager');
+        const mgr = GeminiWebSessionManager.getInstance();
+        const mode = config.geminiWebMode || 'offscreen';
+        const rawText = await mgr.generateScriptWeb(
+          topic,
+          config.systemPromptPreset || 'youtube_story',
+          mode,
+          onProgress
+        );
+        const parsedLines = parseChatGptScriptResponse(rawText, topic);
+        if (parsedLines.length >= 3) {
+          return parsedLines;
+        }
+        console.warn('[AiStudioLlmService] Gemini Web returned text but parsed fewer than 3 lines, falling back');
+      } catch (err) {
+        console.warn('[AiStudioLlmService] Gemini Web automation failed, falling back to offline generator:', err);
+      }
+      return this.generateFallbackScript(topic, config.systemPromptPreset);
+    }
+
     const clientBundle = this.createClient(config);
     if (!clientBundle) {
       return this.generateFallbackScript(topic, config.systemPromptPreset);

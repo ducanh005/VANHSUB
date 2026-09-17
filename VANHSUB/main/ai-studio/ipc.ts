@@ -14,6 +14,7 @@ import {
   resetAiStudioConfig,
 } from '../store/aiStudioStore';
 import { ChatGptWebSessionManager } from './chatgpt/ChatGptWebSessionManager';
+import { GeminiWebSessionManager } from './gemini/GeminiWebSessionManager';
 import type {
   AiStudioConfig,
   PartialAiStudioConfig,
@@ -314,5 +315,21 @@ export function registerAiStudioIpc(): void {
     return { success: true };
   });
 
-  console.log('[AI Studio] Registered 13 IPC channels successfully (including ChatGPT Web).');
+  // --------------------------------------------------------------------------
+  // Gemini Web Automation Channels (Zero API Cost Mode)
+  // --------------------------------------------------------------------------
+  safeHandle('aiStudio:gemini:checkLogin', async () => {
+    return GeminiWebSessionManager.getInstance().checkLoginStatus();
+  });
+
+  safeHandle('aiStudio:gemini:openLogin', async () => {
+    return GeminiWebSessionManager.getInstance().openLoginWindow();
+  });
+
+  safeHandle('aiStudio:gemini:closeLogin', async () => {
+    GeminiWebSessionManager.getInstance().closeWindow();
+    return { success: true };
+  });
+
+  console.log('[AI Studio] Registered 16 IPC channels successfully (including ChatGPT & Gemini Web).');
 }

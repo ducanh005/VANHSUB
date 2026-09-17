@@ -38,6 +38,14 @@ export default function AiStudioSettingsTab() {
   const [isCheckingChatGpt, setIsCheckingChatGpt] = useState(false);
   const [isOpeningChatGptLogin, setIsOpeningChatGptLogin] = useState(false);
 
+  // Gemini Web Automation status state
+  const [geminiStatus, setGeminiStatus] = useState<{
+    isLoggedIn: boolean;
+    userEmail?: string;
+  } | null>(null);
+  const [isCheckingGemini, setIsCheckingGemini] = useState(false);
+  const [isOpeningGeminiLogin, setIsOpeningGeminiLogin] = useState(false);
+
   const checkChatGptStatus = async () => {
     if (typeof window === 'undefined' || !window.vanhsub?.aiStudio?.checkChatGptLogin) return;
     setIsCheckingChatGpt(true);
@@ -62,16 +70,44 @@ export default function AiStudioSettingsTab() {
     }
   };
 
+  const checkGeminiStatus = async () => {
+    if (typeof window === 'undefined' || !window.vanhsub?.aiStudio?.checkGeminiLogin) return;
+    setIsCheckingGemini(true);
+    try {
+      const res = await window.vanhsub.aiStudio.checkGeminiLogin();
+      setGeminiStatus(res);
+    } catch {
+      setGeminiStatus({ isLoggedIn: false });
+    } finally {
+      setIsCheckingGemini(false);
+    }
+  };
+
+  const handleOpenGeminiLogin = async () => {
+    if (typeof window === 'undefined' || !window.vanhsub?.aiStudio?.openGeminiLogin) return;
+    setIsOpeningGeminiLogin(true);
+    try {
+      await window.vanhsub.aiStudio.openGeminiLogin();
+      await checkGeminiStatus();
+    } finally {
+      setIsOpeningGeminiLogin(false);
+    }
+  };
+
   useEffect(() => {
     setForm(config);
     if (config.llm.provider === 'chatgpt_web') {
       checkChatGptStatus();
+    } else if (config.llm.provider === 'gemini_web') {
+      checkGeminiStatus();
     }
   }, [config]);
 
   useEffect(() => {
     if (form.llm.provider === 'chatgpt_web') {
       checkChatGptStatus();
+    } else if (form.llm.provider === 'gemini_web') {
+      checkGeminiStatus();
     }
   }, [form.llm.provider]);
 
@@ -154,6 +190,7 @@ export default function AiStudioSettingsTab() {
                 className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-slate-200 focus:border-brand-cyan focus:outline-none"
               >
                 <option value="chatgpt_web">⚡ ChatGPT Web (Chế độ Tiết kiệm — Miễn phí 100% token)</option>
+                <option value="gemini_web">⚡ Gemini Web (Chế độ Tiết kiệm — Miễn phí 100% token)</option>
                 <option value="deepseek">DeepSeek (Khuyến nghị API - Siêu rẻ, nhạy bén)</option>
                 <option value="openai">OpenAI (GPT-4o / GPT-4o-mini)</option>
                 <option value="custom">Custom Endpoint (OpenAI-compatible)</option>
@@ -222,6 +259,70 @@ export default function AiStudioSettingsTab() {
 
                 <p className="text-[11px] text-emerald-400/90 leading-relaxed">
                   💡 <strong>Chế độ Tiết kiệm (Zero API Cost):</strong> Tự động hóa tài khoản ChatGPT miễn phí trên trình duyệt qua phiên lưu trữ vĩnh viễn. Không cần thẻ tín dụng, không mất phí API token.
+                </p>
+              </div>
+            ) : form.llm.provider === 'gemini_web' ? (
+              <div className="space-y-3 rounded-xl border border-blue-500/30 bg-blue-950/20 p-3.5">
+                <div className="flex items-center justify-between">
+                  <span className="font-medium text-blue-300">Trạng thái Gemini Web (Google):</span>
+                  {geminiStatus?.isLoggedIn ? (
+                    <span className="flex items-center gap-1.5 text-xs font-semibold text-blue-400 bg-blue-500/10 px-2.5 py-1 rounded-md border border-blue-500/30">
+                      <CheckCircle2 className="h-3.5 w-3.5" />
+                      Đã đăng nhập
+                    </span>
+                  ) : (
+                    <span className="flex items-center gap-1.5 text-xs font-semibold text-amber-400 bg-amber-500/10 px-2.5 py-1 rounded-md border border-amber-500/30">
+                      <AlertCircle className="h-3.5 w-3.5" />
+                      Chưa đăng nhập
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleOpenGeminiLogin}
+                    disabled={isOpeningGeminiLogin}
+                    className="flex-1 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-medium py-2 px-3 text-xs transition cursor-pointer flex items-center justify-center gap-1.5 shadow-md shadow-blue-900/30"
+                  >
+                    <Sparkles className="h-3.5 w-3.5" />
+                    {isOpeningGeminiLogin ? 'Đang mở cửa sổ...' : 'Đăng nhập Gemini Web'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={checkGeminiStatus}
+                    disabled={isCheckingGemini}
+                    className="rounded-xl border border-slate-700 bg-slate-800 hover:bg-slate-700 text-slate-300 py-2 px-3 text-xs transition cursor-pointer"
+                  >
+                    {isCheckingGemini ? 'Đang kiểm tra...' : 'Kiểm tra lại'}
+                  </button>
+                </div>
+
+                <div className="pt-2 border-t border-slate-800/80">
+                  <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={form.llm.geminiWebMode === 'visible'}
+                      onChange={(e) =>
+                        setForm({
+                          ...form,
+                          llm: {
+                            ...form.llm,
+                            geminiWebMode: e.target.checked ? 'visible' : 'offscreen',
+                          },
+                        })
+                      }
+                      className="rounded border-slate-700 bg-slate-900 text-brand-cyan focus:ring-brand-cyan"
+                    />
+                    <span>Xem trực tiếp AI gõ chữ (Mở cửa sổ Live trên màn hình)</span>
+                  </label>
+                  <p className="text-[11px] text-slate-400 mt-1 pl-5">
+                    Mặc định: Chạy ngầm trong nền (Offscreen) hoàn toàn không che khuất màn hình.
+                  </p>
+                </div>
+
+                <p className="text-[11px] text-blue-400/90 leading-relaxed">
+                  💡 <strong>Chế độ Tiết kiệm Gemini (Zero API Cost):</strong> Tự động hóa tài khoản Gemini của bạn tại <code>gemini.google.com</code> qua phiên đăng nhập Google lưu vĩnh viễn trên máy.
                 </p>
               </div>
             ) : (

@@ -209,6 +209,11 @@ const vanhsub = {
     openChatGptLogin: () => ipcRenderer.invoke('aiStudio:chatgpt:openLogin'),
     closeChatGptLogin: () => ipcRenderer.invoke('aiStudio:chatgpt:closeLogin'),
 
+    // Gemini Web Automation (Zero API Cost Mode)
+    checkGeminiLogin: () => ipcRenderer.invoke('aiStudio:gemini:checkLogin'),
+    openGeminiLogin: () => ipcRenderer.invoke('aiStudio:gemini:openLogin'),
+    closeGeminiLogin: () => ipcRenderer.invoke('aiStudio:gemini:closeLogin'),
+
     // Push Event Subscription (Returns unsubscribe function)
     onPipelineProgress: (callback: (event: any) => void) => {
       const subscription = (_event: any, data: any) => callback(data);

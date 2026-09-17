@@ -224,6 +224,37 @@ Hãy đăng ký theo dõi kênh ngay hôm nay để không bỏ lỡ những chu
   }
 
   // --------------------------------------------------------------------------
+  // Test 6: AiStudioLlmService Offline Fallback Resilience for gemini_web
+  // --------------------------------------------------------------------------
+  logTest(6, 'AiStudioLlmService fallback resilience for gemini_web provider in test/offline environment');
+  try {
+    const llmService = AiStudioLlmService.getInstance();
+    const config: AiStudioLlmConfig = {
+      provider: 'gemini_web',
+      apiKey: '',
+      model: 'gemini_free',
+      temperature: 0.6,
+      systemPromptPreset: 'youtube_story',
+      geminiWebMode: 'offscreen',
+    };
+
+    const beats = await llmService.generateScript('Bí ẩn hố đen vũ trụ', config);
+
+    if (!Array.isArray(beats) || beats.length < 3) {
+      throw new Error(`Expected fallback script with at least 3 beats, got ${beats?.length}`);
+    }
+    if (beats[0].beatType !== 'hook' || beats[beats.length - 1].beatType !== 'outro') {
+      throw new Error(`Fallback beats missing hook/outro tags`);
+    }
+
+    logPass(`AiStudioLlmService cleanly falls back to offline generator for Gemini Web when browser session is absent.`);
+    passed++;
+  } catch (err: any) {
+    logFail('Test 6 failed', err);
+    failed++;
+  }
+
+  // --------------------------------------------------------------------------
   // Summary
   // --------------------------------------------------------------------------
   console.log(`\n${colors.bold}════════════════════════════════════════════════════════════════════════════════${colors.reset}`);

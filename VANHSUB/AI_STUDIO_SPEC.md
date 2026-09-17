@@ -44,7 +44,7 @@ Giao diện hiển thị thanh trạng thái thời gian thực tương tự mô
 | Bước | Tên Công Đoạn | Công Nghệ Thực Thi | Kết Quả Đầu Ra (Artifact) | Trạng Thái |
 | :--- | :--- | :--- | :--- | :--- |
 | **1** | **Dữ kiện (Source/Idea)** | LLM Prompt Blueprint | Phân tích tệp dữ kiện, xác định góc nhìn & Hook | `pending` $\rightarrow$ `success` |
-| **2** | **Kịch bản (Script)** | DeepSeek / OpenAI / **ChatGPT Web** (0₫ API) | Kịch bản cấu trúc theo nhịp (câu ngắn, hook, outro) | `pending` $\rightarrow$ `success` |
+| **2** | **Kịch bản (Script)** | DeepSeek / OpenAI / **ChatGPT Web** / **Gemini Web** (0₫ API) | Kịch bản cấu trúc theo nhịp (câu ngắn, hook, outro) | `pending` $\rightarrow$ `success` |
 | **3** | **Lồng tiếng (Voice)** | `msedge-tts` (Edge TTS) | File audio `voiceover.mp3` | `pending` $\rightarrow$ `success` |
 | **4** | **Trích xuất Time** | Word-boundary / Whisper | Mốc thời gian chính xác từng câu/từ (JSON) | `pending` $\rightarrow$ `success` |
 | **5** | **Storyboard** | LLM Prompt Splitter | Bảng danh sách phân cảnh kèm Visual Prompt | `pending` $\rightarrow$ `success` |
@@ -105,13 +105,14 @@ Dành cho người sáng tạo nội dung cần kiểm soát 100% chất lượn
 export interface AiStudioConfig {
   // 1. LLM Settings (Kịch bản & Phân tích)
   llm: {
-    provider: 'deepseek' | 'openai' | 'custom' | 'chatgpt_web';
+    provider: 'deepseek' | 'openai' | 'custom' | 'chatgpt_web' | 'gemini_web';
     apiKey: string;
-    model: string;              // vd: 'deepseek-chat', 'gpt-4o', 'chatgpt_web'
+    model: string;              // vd: 'deepseek-chat', 'gpt-4o', 'chatgpt_web', 'gemini_web'
     baseUrl?: string;           // Hỗ trợ custom endpoint / proxy
     temperature: number;        // 0.2 (chính xác) - 0.7 (sáng tạo)
     systemPromptPreset: string; // 'youtube_story', 'tiktok_short', 'affiliate_sales'
-    chatgptWebMode?: 'offscreen' | 'visible'; // Chế độ Tiết kiệm: Chạy ngầm hoặc Xem trực tiếp
+    chatgptWebMode?: 'offscreen' | 'visible'; // Chế độ Tiết kiệm ChatGPT: Chạy ngầm hoặc Xem trực tiếp
+    geminiWebMode?: 'offscreen' | 'visible';  // Chế độ Tiết kiệm Gemini: Chạy ngầm hoặc Xem trực tiếp
   };
 
   // 2. TTS & Voice Settings (Giọng đọc & Lồng tiếng)

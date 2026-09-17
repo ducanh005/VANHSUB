@@ -7,10 +7,10 @@
 // 1. Configuration Schemas (§5.1)
 // ============================================================================
 
-export type LlmProvider = 'deepseek' | 'openai' | 'custom' | 'chatgpt_web';
+export type LlmProvider = 'deepseek' | 'openai' | 'custom' | 'chatgpt_web' | 'gemini_web';
 
 export interface AiStudioLlmConfig {
-  /** Nhà cung cấp mô hình ngôn ngữ lớn: 'deepseek' | 'openai' | 'custom' | 'chatgpt_web' */
+  /** Nhà cung cấp mô hình ngôn ngữ lớn: 'deepseek' | 'openai' | 'custom' | 'chatgpt_web' | 'gemini_web' */
   provider: LlmProvider;
   /** API Key (được mã hóa DPAPI khi lưu trữ trên đĩa, tiền tố 'enc:v1:') */
   apiKey: string;
@@ -24,6 +24,8 @@ export interface AiStudioLlmConfig {
   systemPromptPreset: string;
   /** Chế độ hiển thị khi dùng ChatGPT Web: 'offscreen' | 'visible' */
   chatgptWebMode?: 'offscreen' | 'visible';
+  /** Chế độ hiển thị khi dùng Gemini Web: 'offscreen' | 'visible' */
+  geminiWebMode?: 'offscreen' | 'visible';
 }
 
 export type TtsVoiceProvider = 'edge_tts' | 'local_onnx';

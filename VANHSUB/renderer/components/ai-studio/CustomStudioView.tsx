@@ -256,6 +256,19 @@ export default function CustomStudioView() {
               </div>
             )}
 
+            {config.llm.provider === 'gemini_web' && (
+              <div className="flex items-center justify-between rounded-2xl border border-blue-500/30 bg-blue-950/40 px-4 py-2.5 text-xs text-blue-300">
+                <div className="flex items-center gap-2">
+                  <span className="flex h-2 w-2 rounded-full bg-blue-400 animate-pulse" />
+                  <span className="font-semibold text-blue-200">⚡ Chế độ Tiết kiệm:</span>
+                  <span>Đang liên kết với Gemini Web miễn phí (0₫ API Token).</span>
+                </div>
+                <span className="rounded-md bg-blue-500/20 px-2.5 py-0.5 text-[11px] font-mono text-blue-300 border border-blue-500/30">
+                  {config.llm.geminiWebMode === 'visible' ? '🖥️ Cửa sổ trực tiếp' : '👻 Chạy ngầm'}
+                </span>
+              </div>
+            )}
+
             <div className="flex items-center justify-between">
               <div>
                 <h3 className="text-base font-bold text-white">Hiệu đính Kịch bản & Giọng đọc AI</h3>

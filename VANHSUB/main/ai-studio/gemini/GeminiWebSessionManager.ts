@@ -1,119 +1,47 @@
 /**
- * Vanhsub AI Video Studio - ChatGPT Web Session & Automation Manager
+ * Vanhsub AI Video Studio - Gemini Web Session & Automation Manager
  *
- * Provides Zero-API-Cost script generation by automating ChatGPT Web (chatgpt.com)
+ * Provides Zero-API-Cost script generation by automating Gemini Web (gemini.google.com)
  * inside an isolated, persistent Electron session partition:
- * - Session partition: 'persist:chatgpt_session' (cookies & login preserved indefinitely)
+ * - Session partition: 'persist:gemini_session' (Google cookies & login preserved indefinitely)
  * - Headless/Offscreen execution OR Live Window (user can watch AI typing)
- * - Anti-bot detection mitigation: sec-ch-ua strip, navigator.webdriver wipe, OAuth popup handling
+ * - Google OAuth anti-bot mitigation: Firefox auth UA switcher, sec-ch-ua strip, webdriver removal
+ * - Self-healing DOM interaction for Gemini rich-textarea and Quill contenteditable
  * - Multi-turn conversation chunking (similar to Revo Studio economy mode)
  */
 
 import { BrowserWindow, session, type WebContents } from 'electron';
-import crypto from 'crypto';
 import type { ScriptBeatLine } from '../types';
+import { parseChatGptScriptResponse } from '../chatgpt/ChatGptWebSessionManager';
 
-const CHATGPT_HOME_URL = 'https://chatgpt.com';
+const GEMINI_HOME_URL = 'https://gemini.google.com/app';
 const CHROME_DESKTOP_UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
 const GOOGLE_AUTH_UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0';
 
-export interface ChatGptLoginStatus {
+const GOOGLE_AUTH_COOKIE_NAMES = [
+  'SID',
+  'HSID',
+  'SSID',
+  'APISID',
+  'SAPISID',
+  '__Secure-1PSID',
+  '__Secure-3PSID',
+  '__Secure-1PSIDTS',
+  '__Secure-3PSIDTS',
+  '__Secure-1PAPISID',
+  '__Secure-3PAPISID',
+];
+
+export interface GeminiLoginStatus {
   isLoggedIn: boolean;
   userEmail?: string;
   sessionCheckedAt: number;
 }
 
-/**
- * Parses raw textual response from ChatGPT Web into structured ScriptBeatLine items.
- * Robust against varied ChatGPT formatting (CÂU X, numbered list, bold prefixes, markdown).
- */
-export function parseChatGptScriptResponse(rawText: string, topic: string): ScriptBeatLine[] {
-  if (!rawText || typeof rawText !== 'string') return [];
-
-  const lines = rawText
-    .split('\n')
-    .map((l) => l.trim())
-    .filter(Boolean);
-
-  const parsedBeats: ScriptBeatLine[] = [];
-
-  // Match prefixes like "CÂU 1:", "Câu 1.", "Beat 1:", "Phân cảnh 1:", "1. [Hook] ..."
-  const linePattern =
-    /^(?:(?:\*{0,2}(?:CÂU|Câu|Beat|Phân cảnh)\s*(\d+)[\s:\-\.]+\*{0,2})|(?:\*{0,2}(\d+)[\.\)]\s*\*{0,2}))(?:\[.*?\]\s*)?(.+)/i;
-
-  for (const line of lines) {
-    const match = line.match(linePattern);
-    if (match) {
-      const lineNumStr = match[1] || match[2];
-      const idx = parseInt(lineNumStr, 10);
-      let content = match[3].trim();
-      content = content.replace(/^[\*_"“”'`]+|[\*_"“”'`]+$/g, '').trim();
-      content = content.replace(/^\[.*?\]\s*/, '').trim();
-
-      if (content.length >= 8) {
-        const wordCount = content.split(/\s+/).length;
-        const estDuration = Math.max(3.5, Math.round((wordCount / 3.2) * 10) / 10);
-        parsedBeats.push({
-          id: `line-${idx}-${crypto.randomBytes(3).toString('hex')}`,
-          index: idx,
-          text: content,
-          estimatedDurationSec: estDuration,
-          beatType: 'body',
-        });
-      }
-    }
-  }
-
-  // Fallback if formatting was not strictly numbered
-  if (parsedBeats.length < 3) {
-    parsedBeats.length = 0;
-    const meaningfulLines = lines.filter((l) => {
-      const lower = l.toLowerCase();
-      if (lower.startsWith('#') || lower.startsWith('>') || lower.startsWith('-')) return false;
-      if (
-        lower.includes('dưới đây là') ||
-        lower.includes('chúc bạn') ||
-        lower.includes('hy vọng kịch bản') ||
-        lower.includes('bạn có thể tham khảo')
-      ) {
-        return false;
-      }
-      return l.length >= 15;
-    });
-
-    meaningfulLines.slice(0, 8).forEach((text, i) => {
-      let cleanText = text.replace(/^\d+[\.\-\)]\s*/, '').replace(/\*\*/g, '').trim();
-      cleanText = cleanText.replace(/^[\*_"“”'`]+|[\*_"“”'`]+$/g, '').trim();
-      const wordCount = cleanText.split(/\s+/).length;
-      parsedBeats.push({
-        id: `line-${i + 1}-${crypto.randomBytes(3).toString('hex')}`,
-        index: i + 1,
-        text: cleanText,
-        estimatedDurationSec: Math.max(3.5, Math.round((wordCount / 3.2) * 10) / 10),
-        beatType: 'body',
-      });
-    });
-  }
-
-  // Normalize indexes and assign proper beat types
-  if (parsedBeats.length >= 3) {
-    parsedBeats.forEach((beat, i) => {
-      beat.index = i + 1;
-      if (i === 0) beat.beatType = 'hook';
-      else if (i === 1) beat.beatType = 'intro';
-      else if (i === parsedBeats.length - 1) beat.beatType = 'outro';
-      else if (i === parsedBeats.length - 2) beat.beatType = 'climax';
-      else beat.beatType = 'body';
-    });
-  }
-
-  return parsedBeats;
-}
-
-export class ChatGptWebSessionManager {
-  private static instance: ChatGptWebSessionManager | null = null;
+export class GeminiWebSessionManager {
+  private static instance: GeminiWebSessionManager | null = null;
   private browserWindow: BrowserWindow | null = null;
   private isOffscreen = true;
   private isBusy = false;
@@ -121,11 +49,11 @@ export class ChatGptWebSessionManager {
 
   private constructor() {}
 
-  public static getInstance(): ChatGptWebSessionManager {
-    if (!ChatGptWebSessionManager.instance) {
-      ChatGptWebSessionManager.instance = new ChatGptWebSessionManager();
+  public static getInstance(): GeminiWebSessionManager {
+    if (!GeminiWebSessionManager.instance) {
+      GeminiWebSessionManager.instance = new GeminiWebSessionManager();
     }
-    return ChatGptWebSessionManager.instance;
+    return GeminiWebSessionManager.instance;
   }
 
   /** Get or initialize the persistent Electron session partition */
@@ -133,10 +61,10 @@ export class ChatGptWebSessionManager {
     if (!session || typeof session.fromPartition !== 'function') {
       return null;
     }
-    const ses = session.fromPartition('persist:chatgpt_session');
+    const ses = session.fromPartition('persist:gemini_session');
     ses.setUserAgent(CHROME_DESKTOP_UA);
 
-    // Setup header modifications to bypass Cloudflare and Google bot blockers
+    // Setup header modifications to bypass Google OAuth bot blockers
     if (!this.isHeaderHookConfigured) {
       try {
         ses.webRequest.onBeforeSendHeaders(
@@ -163,7 +91,7 @@ export class ChatGptWebSessionManager {
         );
         this.isHeaderHookConfigured = true;
       } catch (err) {
-        console.warn('[ChatGptWebSession] Could not configure onBeforeSendHeaders:', err);
+        console.warn('[GeminiWebSession] Could not configure onBeforeSendHeaders:', err);
       }
     }
 
@@ -171,9 +99,9 @@ export class ChatGptWebSessionManager {
   }
 
   /**
-   * Check whether the user is logged into ChatGPT Web by inspecting cookies.
+   * Check whether the user is logged into Google / Gemini Web by inspecting session cookies.
    */
-  public async checkLoginStatus(): Promise<ChatGptLoginStatus> {
+  public async checkLoginStatus(): Promise<GeminiLoginStatus> {
     try {
       const ses = this.getSession();
       if (!ses?.cookies) {
@@ -185,11 +113,8 @@ export class ChatGptWebSessionManager {
       const cookies = await ses.cookies.get({});
       const authCookie = cookies.find(
         (c) =>
-          c.name.includes('session-token') ||
-          c.name.includes('jwt') ||
-          c.name.includes('auth') ||
-          c.name === '__Secure-next-auth.session-token' ||
-          c.name.includes('oai-nav-state')
+          GOOGLE_AUTH_COOKIE_NAMES.includes(c.name) ||
+          (c.domain?.includes('google.com') && (c.name.includes('SID') || c.name.includes('SSID')))
       );
 
       return {
@@ -197,7 +122,7 @@ export class ChatGptWebSessionManager {
         sessionCheckedAt: Date.now(),
       };
     } catch (err) {
-      console.error('[ChatGptWebSession] Error checking login status:', err);
+      console.error('[GeminiWebSession] Error checking login status:', err);
       return {
         isLoggedIn: false,
         sessionCheckedAt: Date.now(),
@@ -223,7 +148,7 @@ export class ChatGptWebSessionManager {
       `).catch(() => {});
     });
 
-    // Handle OAuth navigation (Google, Apple, Microsoft)
+    // Handle OAuth navigation (Google Auth UA switcher)
     win.webContents.on('did-navigate', (_event: any, url: string) => {
       if (url.includes('accounts.google.com')) {
         win.webContents.setUserAgent(GOOGLE_AUTH_UA);
@@ -234,13 +159,7 @@ export class ChatGptWebSessionManager {
 
     // Support OAuth popup login windows
     win.webContents.setWindowOpenHandler(({ url }) => {
-      if (
-        url.includes('accounts.google.com') ||
-        url.includes('appleid.apple.com') ||
-        url.includes('login.microsoftonline.com') ||
-        url.includes('auth0') ||
-        url.includes('auth')
-      ) {
+      if (url.includes('accounts.google.com') || url.includes('google.com')) {
         win.loadURL(url).catch(() => {});
         return { action: 'deny' };
       }
@@ -248,15 +167,14 @@ export class ChatGptWebSessionManager {
     });
 
     win.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
-      // Ignore abort errors (usually redirects)
       if (errorCode !== -3) {
-        console.warn(`[ChatGPT Web] Page load notice (${errorCode}): ${errorDescription} for ${validatedURL}`);
+        console.warn(`[Gemini Web] Page load notice (${errorCode}): ${errorDescription} for ${validatedURL}`);
       }
     });
   }
 
   /**
-   * Opens a visible BrowserWindow for the user to log in with their ChatGPT account.
+   * Opens a visible BrowserWindow for the user to log in with their Google account.
    */
   public async openLoginWindow(): Promise<boolean> {
     if (this.browserWindow && !this.browserWindow.isDestroyed()) {
@@ -269,13 +187,13 @@ export class ChatGptWebSessionManager {
 
     const ses = this.getSession();
     if (!ses || typeof BrowserWindow === 'undefined') {
-      throw new Error('Môi trường Electron không khả dụng để mở trình duyệt ChatGPT.');
+      throw new Error('Môi trường Electron không khả dụng để mở trình duyệt Gemini.');
     }
 
     this.browserWindow = new BrowserWindow({
       width: 950,
       height: 750,
-      title: 'Đăng nhập ChatGPT Web — Vanhsub AI Studio (Chế độ Tiết kiệm)',
+      title: 'Đăng nhập Gemini Web — Vanhsub AI Studio (Chế độ Tiết kiệm)',
       backgroundColor: '#ffffff',
       autoHideMenuBar: true,
       show: true,
@@ -290,9 +208,9 @@ export class ChatGptWebSessionManager {
     this.configureWebContents(this.browserWindow);
     this.isOffscreen = false;
 
-    // Load ChatGPT home
-    this.browserWindow.loadURL(CHATGPT_HOME_URL).catch((err) => {
-      console.warn('[ChatGptWebSession] loadURL warning:', err?.message || err);
+    // Load Gemini home
+    this.browserWindow.loadURL(GEMINI_HOME_URL).catch((err) => {
+      console.warn('[GeminiWebSession] loadURL warning:', err?.message || err);
     });
 
     return new Promise((resolve) => {
@@ -311,7 +229,7 @@ export class ChatGptWebSessionManager {
   private async ensureAutomationWindow(mode: 'offscreen' | 'visible' = 'offscreen'): Promise<BrowserWindow> {
     const ses = this.getSession();
     if (!ses || typeof BrowserWindow === 'undefined') {
-      throw new Error('Môi trường Electron không khả dụng để tự động hóa ChatGPT.');
+      throw new Error('Môi trường Electron không khả dụng để tự động hóa Gemini.');
     }
     const shouldBeOffscreen = mode === 'offscreen';
 
@@ -338,7 +256,7 @@ export class ChatGptWebSessionManager {
       x: shouldBeOffscreen ? -3000 : 100,
       y: shouldBeOffscreen ? -3000 : 100,
       show: !shouldBeOffscreen,
-      title: 'ChatGPT Web Automation — Vanhsub AI Studio',
+      title: 'Gemini Web Automation — Vanhsub AI Studio',
       backgroundColor: '#ffffff',
       autoHideMenuBar: true,
       webPreferences: {
@@ -359,57 +277,56 @@ export class ChatGptWebSessionManager {
   }
 
   /**
-   * Sends a prompt turn into ChatGPT Web DOM and waits for response.
+   * Sends a prompt turn into Gemini Web DOM and waits for response.
    */
   private async sendPromptTurn(
     win: BrowserWindow,
     prompt: string,
     onProgress?: (msg: string) => void
   ): Promise<string> {
-    onProgress?.('Đang truyền prompt vào ChatGPT Web...');
+    onProgress?.('Đang truyền prompt vào Gemini Web...');
 
     const injected = await win.webContents.executeJavaScript(`
       (async () => {
-        const textarea = document.querySelector('#prompt-textarea') ||
-                         document.querySelector('div[contenteditable="true"]') ||
-                         document.querySelector('textarea');
-        if (!textarea) return { success: false, error: 'Không tìm thấy ô nhập prompt trên ChatGPT Web' };
+        const editor = document.querySelector('rich-textarea div[contenteditable="true"]') ||
+                       document.querySelector('div.ql-editor[contenteditable="true"]') ||
+                       document.querySelector('div[contenteditable="true"]') ||
+                       document.querySelector('textarea');
+        if (!editor) return { success: false, error: 'Không tìm thấy ô nhập prompt trên Gemini Web' };
 
-        textarea.focus();
-        if (textarea.tagName === 'DIV' || textarea.getAttribute('contenteditable') === 'true') {
-          document.execCommand('selectAll', false, null);
-          document.execCommand('insertText', false, ${JSON.stringify(prompt)});
-        } else {
-          textarea.value = ${JSON.stringify(prompt)};
-          textarea.dispatchEvent(new Event('input', { bubbles: true }));
-        }
+        editor.focus();
+        document.execCommand('selectAll', false, null);
+        document.execCommand('insertText', false, ${JSON.stringify(prompt)});
+        editor.dispatchEvent(new Event('input', { bubbles: true }));
 
         await new Promise(r => setTimeout(r, 600));
 
-        const sendBtn = document.querySelector('button[data-testid="send-button"]') ||
-                        document.querySelector('button[aria-label="Send prompt"]') ||
-                        document.querySelector('button[data-testid="fruitjuice-send-button"]');
+        const sendBtn = document.querySelector('button[aria-label*="Gửi"]') ||
+                        document.querySelector('button[aria-label*="Send"]') ||
+                        document.querySelector('button.send-button') ||
+                        document.querySelector('button[mattooltip*="Send"]') ||
+                        document.querySelector('button[data-test-id="send-button"]');
         if (sendBtn && !sendBtn.disabled) {
           sendBtn.click();
           return { success: true };
         }
 
         const enterEvent = new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true });
-        textarea.dispatchEvent(enterEvent);
+        editor.dispatchEvent(enterEvent);
         return { success: true };
       })()
     `);
 
     if (!injected?.success) {
-      throw new Error(injected?.error || 'Không thể gửi prompt tới ChatGPT Web');
+      throw new Error(injected?.error || 'Không thể gửi prompt tới Gemini Web');
     }
 
-    onProgress?.('ChatGPT đang phản hồi...');
+    onProgress?.('Gemini đang phản hồi...');
     return this.waitForResponseCompletion(win.webContents, onProgress);
   }
 
   /**
-   * Core automation: Navigate to ChatGPT, input prompt, wait for reply,
+   * Core automation: Navigate to Gemini, input prompt, wait for reply,
    * with automatic Multi-Turn Chunking if the script is truncated.
    */
   public async generateScriptWeb(
@@ -419,27 +336,27 @@ export class ChatGptWebSessionManager {
     onProgress?: (msg: string) => void
   ): Promise<string> {
     if (this.isBusy) {
-      throw new Error('ChatGPT Web đang bận thực hiện tác vụ khác. Vui lòng thử lại sau giây lát.');
+      throw new Error('Gemini Web đang bận thực hiện tác vụ khác. Vui lòng thử lại sau giây lát.');
     }
 
     this.isBusy = true;
     try {
       const loginStatus = await this.checkLoginStatus();
       if (!loginStatus.isLoggedIn) {
-        onProgress?.('Chưa phát hiện đăng nhập ChatGPT Web. Đang mở cửa sổ đăng nhập...');
+        onProgress?.('Chưa phát hiện đăng nhập Google / Gemini Web. Đang mở cửa sổ đăng nhập...');
         await this.openLoginWindow();
         const recheck = await this.checkLoginStatus();
         if (!recheck.isLoggedIn) {
-          throw new Error('Vui lòng hoàn tất đăng nhập tài khoản ChatGPT Web để sử dụng Chế độ Tiết kiệm.');
+          throw new Error('Vui lòng hoàn tất đăng nhập tài khoản Google để sử dụng Gemini Web.');
         }
       }
 
-      onProgress?.('Đang kết nối phiên ChatGPT Web...');
+      onProgress?.('Đang kết nối phiên Gemini Web...');
       const win = await this.ensureAutomationWindow(mode);
 
       const currentUrl = win.webContents.getURL();
-      if (!currentUrl.includes('chatgpt.com')) {
-        await win.loadURL(CHATGPT_HOME_URL);
+      if (!currentUrl.includes('gemini.google.com')) {
+        await win.loadURL(GEMINI_HOME_URL);
         await new Promise((r) => setTimeout(r, 4000));
       }
 
@@ -473,7 +390,7 @@ CHÚ Ý: Chỉ trả về các dòng bắt đầu bằng "CÂU X: ...", không t
           const turn2Response = await this.sendPromptTurn(win, turn2Prompt, onProgress);
           combinedResponse = `${turn1Response}\n${turn2Response}`;
         } catch (turn2Err) {
-          console.warn('[ChatGptWebSession] Turn 2 continuation failed, proceeding with Turn 1 response:', turn2Err);
+          console.warn('[GeminiWebSession] Turn 2 continuation failed, proceeding with Turn 1 response:', turn2Err);
         }
       }
 
@@ -487,7 +404,7 @@ CHÚ Ý: Chỉ trả về các dòng bắt đầu bằng "CÂU X: ...", không t
   }
 
   /**
-   * Polls the ChatGPT Web DOM until generation completes.
+   * Polls the Gemini Web DOM until generation completes.
    */
   private async waitForResponseCompletion(
     webContents: WebContents,
@@ -504,10 +421,13 @@ CHÚ Ý: Chỉ trả về các dòng bắt đầu bằng "CÂU X: ...", không t
     while (Date.now() - startTime < maxWaitMs) {
       const state = await webContents.executeJavaScript(`
         (() => {
-          const stopBtn = document.querySelector('button[data-testid="stop-button"]');
-          const isStreaming = Boolean(stopBtn) || Boolean(document.querySelector('.result-streaming'));
+          const stopBtn = document.querySelector('button[aria-label*="Dừng"]') ||
+                          document.querySelector('button[aria-label*="Stop"]');
+          const isStreaming = Boolean(stopBtn) || Boolean(document.querySelector('.sparkle-anim'));
           
-          const assistantMessages = Array.from(document.querySelectorAll('[data-message-author-role="assistant"]'));
+          const assistantMessages = Array.from(
+            document.querySelectorAll('message-content, model-response, .model-response-text, .response-container, .markdown')
+          );
           const lastMsg = assistantMessages[assistantMessages.length - 1];
           const text = lastMsg ? lastMsg.innerText : '';
 
@@ -516,7 +436,7 @@ CHÚ Ý: Chỉ trả về các dòng bắt đầu bằng "CÂU X: ...", không t
       `);
 
       if (state.isStreaming) {
-        onProgress?.(`AI đang viết kịch bản... (${state.text.length} ký tự)`);
+        onProgress?.(`Gemini đang viết kịch bản... (${state.text.length} ký tự)`);
         stableCount = 0;
       } else if (state.text && state.text.length > 30) {
         if (state.text.length === lastLength) {
@@ -533,7 +453,7 @@ CHÚ Ý: Chỉ trả về các dòng bắt đầu bằng "CÂU X: ...", không t
       await new Promise((r) => setTimeout(r, 1200));
     }
 
-    throw new Error('Hết thời gian chờ phản hồi từ ChatGPT Web (Timeout 90s)');
+    throw new Error('Hết thời gian chờ phản hồi từ Gemini Web (Timeout 90s)');
   }
 
   /** Close active window if needed */

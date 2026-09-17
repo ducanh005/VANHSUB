@@ -31,7 +31,7 @@ export type DeepPartial<T> = {
 /**
  * 1. LLM Settings (Kịch bản & Phân tích ý tưởng)
  */
-export type LlmProviderType = 'deepseek' | 'openai' | 'custom' | 'chatgpt_web';
+export type LlmProviderType = 'deepseek' | 'openai' | 'custom' | 'chatgpt_web' | 'gemini_web';
 
 export interface AiStudioLlmConfig {
   /** Nhà cung cấp mô hình ngôn ngữ lớn */
@@ -48,6 +48,8 @@ export interface AiStudioLlmConfig {
   systemPromptPreset: string;
   /** Chế độ hiển thị khi dùng ChatGPT Web: 'offscreen' (chạy ngầm) hoặc 'visible' (xem trực tiếp) */
   chatgptWebMode?: 'offscreen' | 'visible';
+  /** Chế độ hiển thị khi dùng Gemini Web: 'offscreen' (chạy ngầm) hoặc 'visible' (xem trực tiếp) */
+  geminiWebMode?: 'offscreen' | 'visible';
 }
 
 /**
