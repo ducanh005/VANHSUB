@@ -8,6 +8,7 @@ import type {
   AiStudioSubtitleConfig,
   PipelineSessionState,
   PipelineProgressEvent,
+  IdeaBlueprint,
 } from './aiStudio';
 
 export type SettingKey =
@@ -401,7 +402,12 @@ export interface VanhsubAPI {
     reset: () => Promise<AiStudioConfig>;
 
     // Pipeline Execution (Milestone 2)
-    startPipeline: (payload: { topic: string; options?: DeepPartial<AiStudioConfig> }) => Promise<{ sessionId: string }>;
+    startPipeline: (payload: {
+      topic: string;
+      blueprint?: IdeaBlueprint;
+      gatedMode?: boolean;
+      options?: DeepPartial<AiStudioConfig>;
+    }) => Promise<{ sessionId: string }>;
     resumePipeline: (payload: { sessionId: string; fromStage?: number }) => Promise<{ success: boolean }>;
     cancelPipeline: (payload: { sessionId: string }) => Promise<{ success: boolean }>;
     getPipelineState: (payload: { sessionId: string }) => Promise<PipelineSessionState | null>;
@@ -421,6 +427,24 @@ export interface VanhsubAPI {
       sessionId: string;
       customSettings?: DeepPartial<AiStudioRenderingConfig & AiStudioSubtitleConfig>;
     }) => Promise<{ videoPath: string }>;
+
+    // Chế độ từng bước & Tự động điền ý tưởng
+    autoFillIdea: (payload: {
+      topic: string;
+      aspectRatio?: '16:9' | '9:16';
+    }) => Promise<{
+      title: string;
+      hookConcept: string;
+      narrativeAngle: string;
+      outline: string[];
+      thumbnailConcept: string;
+      thumbnailPrompt: string;
+    }>;
+    approveStage: (payload: {
+      sessionId: string;
+      currentStage: number;
+      updatedArtifacts?: any;
+    }) => Promise<{ success: boolean; nextStage?: number }>;
 
     // ChatGPT Web Automation (Zero API Cost Mode)
     checkChatGptLogin: () => Promise<{ isLoggedIn: boolean; userEmail?: string; sessionCheckedAt: number }>;

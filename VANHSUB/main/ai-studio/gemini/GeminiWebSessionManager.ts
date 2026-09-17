@@ -404,6 +404,49 @@ CHÚ Ý: Chỉ trả về các dòng bắt đầu bằng "CÂU X: ...", không t
   }
 
   /**
+   * Executes a single prompt turn against Gemini Web and returns the full response text.
+   * Useful for Idea Blueprint generation, SEO metadata, and custom prompt queries.
+   */
+  public async executePromptTurn(
+    prompt: string,
+    mode: 'offscreen' | 'visible' = 'offscreen',
+    onProgress?: (msg: string) => void
+  ): Promise<string> {
+    if (this.isBusy) {
+      throw new Error('Gemini Web đang bận thực hiện tác vụ khác. Vui lòng thử lại sau giây lát.');
+    }
+
+    this.isBusy = true;
+    try {
+      const loginStatus = await this.checkLoginStatus();
+      if (!loginStatus.isLoggedIn) {
+        onProgress?.('Chưa phát hiện đăng nhập Google. Đang mở cửa sổ đăng nhập...');
+        await this.openLoginWindow();
+        const recheck = await this.checkLoginStatus();
+        if (!recheck.isLoggedIn) {
+          throw new Error('Vui lòng hoàn tất đăng nhập tài khoản Google để sử dụng Gemini Web.');
+        }
+      }
+
+      onProgress?.('Đang kết nối phiên Gemini Web...');
+      const win = await this.ensureAutomationWindow(mode);
+
+      const currentUrl = win.webContents.getURL();
+      if (!currentUrl.includes('gemini.google.com')) {
+        await win.loadURL(GEMINI_HOME_URL);
+        await new Promise((r) => setTimeout(r, 4000));
+      }
+
+      return await this.sendPromptTurn(win, prompt, onProgress);
+    } finally {
+      this.isBusy = false;
+      if (mode === 'offscreen' && this.browserWindow && !this.browserWindow.isDestroyed()) {
+        this.browserWindow.hide();
+      }
+    }
+  }
+
+  /**
    * Polls the Gemini Web DOM until generation completes.
    */
   private async waitForResponseCompletion(

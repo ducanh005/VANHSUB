@@ -219,7 +219,7 @@ export const DEFAULT_AI_STUDIO_CONFIG: AiStudioConfig = {
 
 export type PipelineStageNumber = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
 
-export type PipelineStageStatus = 'pending' | 'running' | 'success' | 'error' | 'skipped';
+export type PipelineStageStatus = 'pending' | 'running' | 'success' | 'error' | 'skipped' | 'awaiting_approval';
 
 export interface PipelineProgressEvent {
   sessionId: string;
@@ -232,8 +232,27 @@ export interface PipelineProgressEvent {
   artifacts?: Record<string, unknown>;
 }
 
+export interface IdeaBlueprint {
+  topic: string;
+  title?: string;
+  aspectRatio?: '16:9' | '9:16';
+  targetAudience?: string;
+  narrativeAngle: string;
+  hookConcept: string;
+  pacing?: 'fast' | 'moderate' | 'slow';
+  estimatedDurationSec?: number;
+  keyBeats?: string[];
+  outline?: string[];
+  existingScript?: string;
+  thumbnailConcept?: string;
+  thumbnailPrompt?: string;
+  rawSummary?: string;
+}
+
 export interface PipelineStartInput {
   topic: string;
+  blueprint?: IdeaBlueprint;
+  gatedMode?: boolean;
   options?: DeepPartial<AiStudioConfig>;
 }
 export type StartPipelinePayload = PipelineStartInput;
@@ -242,6 +261,35 @@ export interface PipelineStartResponse {
   sessionId: string;
 }
 export type StartPipelineResult = PipelineStartResponse;
+
+export interface AutoFillIdeaInput {
+  topic: string;
+  aspectRatio?: '16:9' | '9:16';
+}
+export type AutoFillIdeaPayload = AutoFillIdeaInput;
+
+export interface AutoFillIdeaResponse {
+  title: string;
+  hookConcept: string;
+  narrativeAngle: string;
+  outline: string[];
+  thumbnailConcept: string;
+  thumbnailPrompt: string;
+}
+export type AutoFillIdeaResult = AutoFillIdeaResponse;
+
+export interface ApproveStageInput {
+  sessionId: string;
+  currentStage: number;
+  updatedArtifacts?: Record<string, unknown>;
+}
+export type ApproveStagePayload = ApproveStageInput;
+
+export interface ApproveStageResponse {
+  success: boolean;
+  nextStage?: number;
+}
+export type ApproveStageResult = ApproveStageResponse;
 
 export interface PipelineResumeInput {
   sessionId: string;
@@ -315,6 +363,7 @@ export interface StoryboardScene {
 
 export interface PipelineSessionArtifacts {
   ideaSummary?: string;
+  blueprint?: IdeaBlueprint;
   scriptLines?: ScriptBeatLine[];
   audioPath?: string;
   srtPath?: string;
@@ -335,8 +384,9 @@ export interface PipelineSessionState {
   topic: string;
   currentStage: number;
   stageName?: string;
-  status: 'idle' | 'running' | 'paused' | 'completed' | 'failed' | 'cancelled' | 'error';
+  status: 'idle' | 'running' | 'awaiting_approval' | 'paused' | 'completed' | 'failed' | 'cancelled' | 'error';
   progress?: number;
+  gatedMode?: boolean;
   stages?: Record<number, PipelineStageInfo> | PipelineStageInfo[];
   stageProgress?: Record<number, PipelineStageInfo>;
   artifacts: PipelineSessionArtifacts;
@@ -409,9 +459,23 @@ export interface VanhsubAiStudioBridge {
   cancelPipeline?: (input: PipelineCancelInput) => Promise<PipelineCancelResponse>;
   getPipelineState?: (sessionId: string | { sessionId: string }) => Promise<PipelineSessionState | null>;
 
+  // Chế độ từng bước có phê duyệt & Tự động điền ý tưởng
+  autoFillIdea?: (input: AutoFillIdeaInput) => Promise<AutoFillIdeaResponse>;
+  approveStage?: (input: ApproveStageInput) => Promise<ApproveStageResponse>;
+
   renderSingleLineVoice?: (input: RenderSingleLineVoiceInput) => Promise<RenderSingleLineVoiceResponse>;
   regenerateSceneAsset?: (input: RegenerateSceneAssetInput) => Promise<RegenerateSceneAssetResponse>;
   renderVideo?: (input: RenderVideoInput) => Promise<RenderVideoResponse>;
+
+  // ChatGPT Web Automation
+  checkChatGptLogin?: () => Promise<{ isLoggedIn: boolean; userEmail?: string; sessionCheckedAt: number }>;
+  openChatGptLogin?: () => Promise<{ success: boolean }>;
+  closeChatGptLogin?: () => Promise<{ success: boolean }>;
+
+  // Gemini Web Automation
+  checkGeminiLogin?: () => Promise<{ isLoggedIn: boolean; userEmail?: string; sessionCheckedAt: number }>;
+  openGeminiLogin?: () => Promise<{ success: boolean }>;
+  closeGeminiLogin?: () => Promise<{ success: boolean }>;
 
   onPipelineProgress?: (callback: (event: PipelineProgressEvent) => void) => () => void;
   onProgress?: (callback: (event: PipelineProgressEvent) => void) => () => void;

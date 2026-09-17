@@ -59,34 +59,176 @@ export class AiStudioLlmService {
   }
 
   // ==========================================================================
+  // Split Existing Script to Beat Lines
+  // ==========================================================================
+  public splitScriptToBeatLines(rawScript: string): ScriptBeatLine[] {
+    if (!rawScript || typeof rawScript !== 'string') return [];
+
+    const rawChunks = rawScript
+      .split(/\r?\n+/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+
+    const sentences: string[] = [];
+
+    for (const chunk of rawChunks) {
+      // Split on sentence boundaries (. ! ? …) when followed by whitespace and a capital/number
+      const parts = chunk
+        .split(/(?<=[.!?…])\s+(?=[A-ZÀÁẢÃẠĂẮẰẲẴẶÂẤẦẨẪẬĐÈÉẺẼẸÊẾỀỂỄỆÌÍỈĨỊÒÓỎÕỌÔỐỒỔỖỘƠỚỜỞỠỢÙÚỦŨỤƯỨỪỬỮỰỲÝỶỸỴ0-9"“'\[])/u)
+        .map((p) => p.trim())
+        .filter(Boolean);
+
+      if (parts.length > 0) {
+        sentences.push(...parts);
+      } else if (chunk.length > 0) {
+        sentences.push(chunk);
+      }
+    }
+
+    const filtered = sentences.filter((s) => s.length >= 2);
+
+    return filtered.map((text, idx) => {
+      const cleanText = text.replace(/^[\*_"“”'`]+|[\*_"“”'`]+$/g, '').trim();
+      const wordCount = cleanText.split(/\s+/).filter(Boolean).length;
+      const estimatedDurationSec = Math.max(3.0, Math.round((wordCount / 3.2) * 10) / 10);
+
+      const beatType: ScriptBeatLine['beatType'] =
+        idx === 0
+          ? 'hook'
+          : idx === 1
+          ? 'intro'
+          : idx === filtered.length - 1
+          ? 'outro'
+          : idx === filtered.length - 2
+          ? 'climax'
+          : 'body';
+
+      return {
+        id: `line-${idx + 1}-${crypto.randomBytes(3).toString('hex')}`,
+        index: idx + 1,
+        text: cleanText,
+        estimatedDurationSec,
+        beatType,
+      };
+    });
+  }
+
+  // ==========================================================================
+  // Parse Blueprint JSON Helper
+  // ==========================================================================
+  public parseBlueprintJson(
+    rawText: string,
+    topic: string,
+    aspectRatio: '16:9' | '9:16' = '16:9'
+  ): IdeaBlueprint {
+    const cleaned = rawText
+      .replace(/```json/gi, '')
+      .replace(/```/g, '')
+      .trim();
+
+    const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+    const candidate = jsonMatch ? jsonMatch[0] : cleaned;
+
+    const repaired = jsonrepair(candidate);
+    const parsed = JSON.parse(repaired);
+
+    const outlineArray: string[] = Array.isArray(parsed.outline)
+      ? parsed.outline
+      : Array.isArray(parsed.keyBeats)
+      ? parsed.keyBeats
+      : [
+          'Phân đoạn 1: Mở đầu sự cố / bối cảnh bất ngờ...',
+          'Phân đoạn 2: Diễn biến kịch tính / xung đột cao trào...',
+          'Phân đoạn 3: Bước ngoặt / giải mã sự thật...',
+          'Phân đoạn 4: Bài học & Lối thoát...',
+        ];
+
+    return {
+      topic,
+      title: parsed.title || topic,
+      aspectRatio,
+      targetAudience: parsed.targetAudience || 'Khán giả đại chúng yêu thích video thông tin nhanh',
+      narrativeAngle: parsed.narrativeAngle || 'Góc tiếp cận độc đáo, đột phá của kênh',
+      hookConcept: parsed.hookConcept || `Bạn có tin vào sự thật đằng sau ${topic}?`,
+      pacing: parsed.pacing || (aspectRatio === '9:16' ? 'fast' : 'moderate'),
+      estimatedDurationSec: Number(parsed.estimatedDurationSec) || (aspectRatio === '9:16' ? 45 : 90),
+      keyBeats: outlineArray,
+      outline: outlineArray,
+      thumbnailConcept: parsed.thumbnailConcept || `Ý tưởng thumbnail ấn tượng về ${topic}`,
+      thumbnailPrompt:
+        parsed.thumbnailPrompt ||
+        `Cinematic high resolution photography for video thumbnail of ${topic}, dramatic lighting, 8k, photorealistic`,
+      rawSummary:
+        parsed.rawSummary ||
+        `Chiến lược sản xuất video "${parsed.title || topic}" với tỷ lệ ${aspectRatio}.`,
+    };
+  }
+
+  // ==========================================================================
   // Stage 1: Idea Blueprint Analysis
   // ==========================================================================
   public async analyzeIdeaBlueprint(
     topic: string,
-    config: AiStudioLlmConfig
+    config: AiStudioLlmConfig,
+    aspectRatio: '16:9' | '9:16' = '16:9',
+    onProgress?: (msg: string) => void
   ): Promise<IdeaBlueprint> {
+    const prompt = `Bạn là giám đốc sáng tạo video triệu view.
+Dựa trên chủ đề/ý tưởng: "${topic}" và định dạng khung hình ${aspectRatio === '9:16' ? 'Video Ngắn (9:16 / TikTok / Shorts)' : 'Video Dài (16:9 / YouTube)'}, hãy lập kế hoạch và sinh mẫu ý tưởng sản xuất video hoàn chỉnh.
+Preset phong cách: "${config.systemPromptPreset || 'youtube_story'}".
+
+Yêu cầu nghiêm ngặt: Trả về DUY NHẤT một khối JSON hợp lệ theo đúng cấu trúc sau (không kèm lời chào, không markdown thừa):
+{
+  "title": "Tiêu đề video cuốn hút, chuẩn SEO viral",
+  "hookConcept": "Câu mở đầu 3 giây gây tò mò, giật gân, giữ chân khán giả",
+  "narrativeAngle": "Góc nhìn/tiếp cận độc đáo của kênh",
+  "outline": [
+    "Phân đoạn 1: Mở đầu sự cố / bối cảnh bất ngờ...",
+    "Phân đoạn 2: Diễn biến kịch tính / xung đột cao trào...",
+    "Phân đoạn 3: Bước ngoặt / giải mã sự thật...",
+    "Phân đoạn 4: Bài học & Lối thoát / kêu gọi hành động..."
+  ],
+  "thumbnailConcept": "Mô tả ý tưởng hình ảnh bìa thumbnail cực kỳ bắt mắt",
+  "thumbnailPrompt": "Detailed English image prompt for thumbnail generation, cinematic lighting, 8k, photorealistic"
+}`;
+
+    // 1. ChatGPT Web Automation
+    if (config.provider === 'chatgpt_web') {
+      try {
+        const { ChatGptWebSessionManager } = await import('../chatgpt/ChatGptWebSessionManager');
+        const mgr = ChatGptWebSessionManager.getInstance();
+        const mode = config.chatgptWebMode || 'offscreen';
+        onProgress?.('Đang gửi yêu cầu sinh ý tưởng tới ChatGPT Web...');
+        const rawText = await mgr.executePromptTurn(prompt, mode, onProgress);
+        return this.parseBlueprintJson(rawText, topic, aspectRatio);
+      } catch (err: any) {
+        console.error('[AiStudioLlmService] ChatGPT Web blueprint error:', err);
+        throw new Error(`Lỗi sinh ý tưởng qua ChatGPT Web: ${err?.message || err}`);
+      }
+    }
+
+    // 2. Gemini Web Automation
+    if (config.provider === 'gemini_web') {
+      try {
+        const { GeminiWebSessionManager } = await import('../gemini/GeminiWebSessionManager');
+        const mgr = GeminiWebSessionManager.getInstance();
+        const mode = config.geminiWebMode || 'offscreen';
+        onProgress?.('Đang gửi yêu cầu sinh ý tưởng tới Gemini Web...');
+        const rawText = await mgr.executePromptTurn(prompt, mode, onProgress);
+        return this.parseBlueprintJson(rawText, topic, aspectRatio);
+      } catch (err: any) {
+        console.error('[AiStudioLlmService] Gemini Web blueprint error:', err);
+        throw new Error(`Lỗi sinh ý tưởng qua Gemini Web: ${err?.message || err}`);
+      }
+    }
+
+    // 3. API Client (OpenAI, DeepSeek, Custom)
     const clientBundle = this.createClient(config);
     if (!clientBundle) {
-      return this.generateFallbackBlueprint(topic, config.systemPromptPreset);
+      throw new Error(`Chưa cấu hình API Key cho nhà cung cấp LLM "${config.provider}". Vui lòng kiểm tra lại tab Cài Đặt hoặc chọn Chế độ Tiết kiệm.`);
     }
 
     try {
-      const prompt = `Bạn là giám đốc sáng tạo video ngắn triệu view.
-Hãy phân tích chủ đề sau và lập kế hoạch sản xuất video:
-Chủ đề: "${topic}"
-Preset phong cách: "${config.systemPromptPreset || 'youtube_story'}"
-
-Trả về định dạng JSON DUY NHẤT (không giải thích, không bọc markdown):
-{
-  "targetAudience": "Đối tượng khán giả mục tiêu",
-  "narrativeAngle": "Góc nhìn kể chuyện độc đáo",
-  "hookConcept": "Ý tưởng mở đầu giật gân giữ chân trong 3 giây",
-  "pacing": "fast | moderate | slow",
-  "estimatedDurationSec": 60,
-  "keyBeats": ["Ý chính 1", "Ý chính 2", "Ý chính 3", "Ý chính 4"],
-  "rawSummary": "Tóm tắt chiến lược nội dung trong 2 câu"
-}`;
-
       const response = await clientBundle.client.chat.completions.create({
         model: clientBundle.model,
         messages: [{ role: 'user', content: prompt }],
@@ -94,25 +236,10 @@ Trả về định dạng JSON DUY NHẤT (không giải thích, không bọc ma
       });
 
       const rawText = response.choices[0]?.message?.content || '';
-      const cleaned = rawText.replace(/```json|```/g, '').trim();
-      const repaired = jsonrepair(cleaned);
-      const parsed = JSON.parse(repaired);
-
-      return {
-        topic,
-        targetAudience: parsed.targetAudience || 'Khán giả đại chúng yêu thích khám phá thông tin mới',
-        narrativeAngle: parsed.narrativeAngle || 'Bật mí những góc nhìn bất ngờ ít người biết',
-        hookConcept: parsed.hookConcept || `Bạn có tin vào điều kỳ lạ nhất về ${topic}?`,
-        pacing: parsed.pacing || (config.systemPromptPreset === 'tiktok_short' ? 'fast' : 'moderate'),
-        estimatedDurationSec: Number(parsed.estimatedDurationSec) || 60,
-        keyBeats: Array.isArray(parsed.keyBeats) && parsed.keyBeats.length > 0
-          ? parsed.keyBeats
-          : ['Đặt câu hỏi gợi tò mò', 'Cung cấp dữ kiện bất ngờ', 'Phân tích cao trào', 'Kêu gọi hành động'],
-        rawSummary: parsed.rawSummary || `Phân tích chủ đề "${topic}". Định hướng video hấp dẫn, giữ chân người xem.`,
-      };
-    } catch (err) {
-      console.warn('[AiStudioLlmService] LLM blueprint analysis failed, engaging fallback:', err);
-      return this.generateFallbackBlueprint(topic, config.systemPromptPreset);
+      return this.parseBlueprintJson(rawText, topic, aspectRatio);
+    } catch (err: any) {
+      console.error(`[AiStudioLlmService] Remote LLM error (${config.provider}):`, err);
+      throw new Error(`Lỗi kết nối API ${config.provider}: ${err?.message || err}`);
     }
   }
 
@@ -122,11 +249,19 @@ Trả về định dạng JSON DUY NHẤT (không giải thích, không bọc ma
   public async generateScript(
     topic: string,
     config: AiStudioLlmConfig,
-    onProgress?: (msg: string) => void
+    onProgress?: (msg: string) => void,
+    blueprint?: IdeaBlueprint
   ): Promise<ScriptBeatLine[]> {
-    // ------------------------------------------------------------------------
-    // Zero-API-Cost Mode: ChatGPT Web Automation
-    // ------------------------------------------------------------------------
+    // 0. Nếu người dùng đã cung cấp sẵn kịch bản (Existing Script), tự động tách câu
+    if (blueprint?.existingScript && blueprint.existingScript.trim().length >= 10) {
+      onProgress?.('Đang phân tách kịch bản có sẵn thành các câu độc lập...');
+      const beatLines = this.splitScriptToBeatLines(blueprint.existingScript);
+      if (beatLines.length > 0) {
+        return beatLines;
+      }
+    }
+
+    // 1. Zero-API-Cost Mode: ChatGPT Web Automation
     if (config.provider === 'chatgpt_web') {
       try {
         const { ChatGptWebSessionManager, parseChatGptScriptResponse } = await import(
@@ -144,16 +279,14 @@ Trả về định dạng JSON DUY NHẤT (không giải thích, không bọc ma
         if (parsedLines.length >= 3) {
           return parsedLines;
         }
-        console.warn('[AiStudioLlmService] ChatGPT Web returned text but parsed fewer than 3 lines, falling back');
-      } catch (err) {
-        console.warn('[AiStudioLlmService] ChatGPT Web automation failed, falling back to offline generator:', err);
+        throw new Error('ChatGPT Web không trả về đủ số câu kịch bản hợp lệ.');
+      } catch (err: any) {
+        console.error('[AiStudioLlmService] ChatGPT Web script generation error:', err);
+        throw new Error(`Lỗi tạo kịch bản qua ChatGPT Web: ${err?.message || err}`);
       }
-      return this.generateFallbackScript(topic, config.systemPromptPreset);
     }
 
-    // ------------------------------------------------------------------------
-    // Zero-API-Cost Mode: Gemini Web Automation
-    // ------------------------------------------------------------------------
+    // 2. Zero-API-Cost Mode: Gemini Web Automation
     if (config.provider === 'gemini_web') {
       try {
         const { GeminiWebSessionManager } = await import('../gemini/GeminiWebSessionManager');
@@ -170,16 +303,17 @@ Trả về định dạng JSON DUY NHẤT (không giải thích, không bọc ma
         if (parsedLines.length >= 3) {
           return parsedLines;
         }
-        console.warn('[AiStudioLlmService] Gemini Web returned text but parsed fewer than 3 lines, falling back');
-      } catch (err) {
-        console.warn('[AiStudioLlmService] Gemini Web automation failed, falling back to offline generator:', err);
+        throw new Error('Gemini Web không trả về đủ số câu kịch bản hợp lệ.');
+      } catch (err: any) {
+        console.error('[AiStudioLlmService] Gemini Web script generation error:', err);
+        throw new Error(`Lỗi tạo kịch bản qua Gemini Web: ${err?.message || err}`);
       }
-      return this.generateFallbackScript(topic, config.systemPromptPreset);
     }
 
+    // 3. API Client (OpenAI, DeepSeek, Custom)
     const clientBundle = this.createClient(config);
     if (!clientBundle) {
-      return this.generateFallbackScript(topic, config.systemPromptPreset);
+      throw new Error(`Chưa cấu hình API Key cho nhà cung cấp LLM "${config.provider}". Vui lòng kiểm tra lại cấu hình.`);
     }
 
     try {
@@ -217,7 +351,7 @@ Yêu cầu nghiêm ngặt:
 
       const rawLines = Array.isArray(parsed) ? parsed : parsed.lines;
       if (!Array.isArray(rawLines) || rawLines.length < 3) {
-        throw new Error('LLM did not return an array with at least 3 script lines');
+        throw new Error('LLM không trả về danh sách phân cảnh hợp lệ.');
       }
 
       return rawLines.map((item: any, idx: number) => {
@@ -236,9 +370,9 @@ Yêu cầu nghiêm ngặt:
           beatType,
         };
       });
-    } catch (err) {
-      console.warn('[AiStudioLlmService] Remote LLM script generation failed, falling back:', err);
-      return this.generateFallbackScript(topic, config.systemPromptPreset);
+    } catch (err: any) {
+      console.error('[AiStudioLlmService] Script generation API error:', err);
+      throw new Error(`Lỗi gọi API sinh kịch bản (${config.provider}): ${err?.message || err}`);
     }
   }
 

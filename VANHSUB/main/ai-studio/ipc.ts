@@ -15,6 +15,7 @@ import {
 } from '../store/aiStudioStore';
 import { ChatGptWebSessionManager } from './chatgpt/ChatGptWebSessionManager';
 import { GeminiWebSessionManager } from './gemini/GeminiWebSessionManager';
+import { aiStudioLlmService } from './services/AiStudioLlmService';
 import type {
   AiStudioConfig,
   PartialAiStudioConfig,
@@ -33,6 +34,10 @@ import type {
   RegenerateSceneAssetResult,
   RenderVideoPayload,
   RenderVideoResult,
+  AutoFillIdeaPayload,
+  AutoFillIdeaResult,
+  ApproveStagePayload,
+  ApproveStageResult,
 } from './types';
 
 // ============================================================================
@@ -53,6 +58,13 @@ export interface IAiStudioPipelineEngineDelegate {
   cancel(payload: CancelPipelinePayload): Promise<CancelPipelineResult>;
 
   getState(payload: GetPipelineStatePayload): Promise<PipelineSessionState | null>;
+
+  autoFillIdea?(payload: AutoFillIdeaPayload): Promise<AutoFillIdeaResult>;
+
+  approveStage?(
+    payload: ApproveStagePayload,
+    onProgress: (event: PipelineProgressEvent) => void
+  ): Promise<ApproveStageResult>;
 
   renderSingleLineVoice(
     payload: RenderSingleLineVoicePayload
@@ -242,6 +254,55 @@ export function registerAiStudioIpc(): void {
         return pipelineEngineDelegate.getState(payload);
       }
       return null;
+    }
+  );
+
+  /**
+   * Channel: aiStudio:idea:autoFill
+   * Automatically generates and fills out idea blueprint fields using the active LLM provider.
+   */
+  safeHandle(
+    'aiStudio:idea:autoFill',
+    async (_event, payload: AutoFillIdeaPayload): Promise<AutoFillIdeaResult> => {
+      if (pipelineEngineDelegate?.autoFillIdea) {
+        return pipelineEngineDelegate.autoFillIdea(payload);
+      }
+      const config = getDecryptedAiStudioConfig();
+      const blueprint = await aiStudioLlmService.analyzeIdeaBlueprint(
+        payload.topic,
+        config.llm,
+        payload.aspectRatio || '16:9'
+      );
+      return {
+        title: blueprint.title || blueprint.topic,
+        hookConcept: blueprint.hookConcept,
+        narrativeAngle: blueprint.narrativeAngle,
+        outline: blueprint.outline || blueprint.keyBeats || [],
+        thumbnailConcept: blueprint.thumbnailConcept || '',
+        thumbnailPrompt: blueprint.thumbnailPrompt || '',
+      };
+    }
+  );
+
+  /**
+   * Channel: aiStudio:pipeline:approveStage
+   * Approves current completed stage in gated pipeline and triggers the next stage.
+   */
+  safeHandle(
+    'aiStudio:pipeline:approveStage',
+    async (event, payload: ApproveStagePayload): Promise<ApproveStageResult> => {
+      if (pipelineEngineDelegate?.approveStage) {
+        return pipelineEngineDelegate.approveStage(payload, (progressEvent: PipelineProgressEvent) => {
+          try {
+            if (!event.sender.isDestroyed()) {
+              event.sender.send('aiStudio:pipeline:progress', progressEvent);
+            }
+          } catch (emitErr) {
+            console.error('[AI-Studio-IPC] Failed to emit pipeline progress event on approve:', emitErr);
+          }
+        });
+      }
+      throw new Error('Pipeline engine delegate does not support approveStage.');
     }
   );
 

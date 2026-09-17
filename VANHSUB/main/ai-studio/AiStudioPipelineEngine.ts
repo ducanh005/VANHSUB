@@ -19,6 +19,10 @@ import type {
   RegenerateSceneAssetResult,
   RenderVideoPayload,
   RenderVideoResult,
+  AutoFillIdeaPayload,
+  AutoFillIdeaResult,
+  ApproveStagePayload,
+  ApproveStageResult,
   AiStudioConfig,
   AiStudioStageId,
   AiStudioStageName,
@@ -217,14 +221,17 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
     onProgress: (event: PipelineProgressEvent) => void
   ): Promise<StartPipelineResult> {
     const sessionId = `ai-studio-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
+    const topic = payload.blueprint?.title || payload.topic;
+    const gatedMode = payload.gatedMode !== false;
 
     const session: PipelineSessionState = {
       sessionId,
-      topic: payload.topic,
+      topic,
       currentStage: 1,
       stageName: 'source',
       status: 'running',
       progress: 5,
+      gatedMode,
       stages: {
         1: { status: 'pending', stageName: STAGE_CONFIG[1].label },
         2: { status: 'pending', stageName: STAGE_CONFIG[2].label },
@@ -235,7 +242,10 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
         7: { status: 'pending', stageName: STAGE_CONFIG[7].label },
         8: { status: 'pending', stageName: STAGE_CONFIG[8].label },
       },
-      artifacts: {},
+      artifacts: {
+        blueprint: payload.blueprint,
+        ideaSummary: payload.blueprint?.rawSummary || payload.blueprint?.title || topic,
+      },
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
@@ -277,6 +287,99 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
     }, 20);
 
     return { sessionId };
+  }
+
+  public async autoFillIdea(payload: AutoFillIdeaPayload): Promise<AutoFillIdeaResult> {
+    const config = getDecryptedAiStudioConfig();
+    const blueprint = await aiStudioLlmService.analyzeIdeaBlueprint(
+      payload.topic,
+      config.llm,
+      payload.aspectRatio || '16:9'
+    );
+    return {
+      title: blueprint.title || blueprint.topic,
+      hookConcept: blueprint.hookConcept,
+      narrativeAngle: blueprint.narrativeAngle,
+      outline: blueprint.outline || blueprint.keyBeats || [],
+      thumbnailConcept: blueprint.thumbnailConcept || '',
+      thumbnailPrompt: blueprint.thumbnailPrompt || '',
+    };
+  }
+
+  public async approveStage(
+    payload: ApproveStagePayload,
+    onProgress: (event: PipelineProgressEvent) => void
+  ): Promise<ApproveStageResult> {
+    const session = await this.getState({ sessionId: payload.sessionId });
+    if (!session) {
+      throw new Error(`Session không tồn tại: ${payload.sessionId}`);
+    }
+
+    if (payload.updatedArtifacts) {
+      session.artifacts = {
+        ...session.artifacts,
+        ...payload.updatedArtifacts,
+      };
+    }
+
+    const nextStage = (payload.currentStage + 1) as AiStudioStageId;
+    if (nextStage > 8) {
+      session.status = 'completed';
+      session.progress = 100;
+      this.persistSessionStateAtomic(session);
+      onProgress({
+        sessionId: session.sessionId,
+        stage: 8,
+        stageName: 'Hoàn thành',
+        progress: 100,
+        status: 'success',
+        message: 'Đã hoàn thành toàn bộ quy trình sản xuất video AI Studio!',
+        artifacts: session.artifacts,
+      });
+      return { success: true };
+    }
+
+    session.status = 'running';
+    session.currentStage = nextStage;
+    session.stageName = STAGE_CONFIG[nextStage].name;
+    this.persistSessionStateAtomic(session);
+
+    let abortController = this.activeAbortControllers.get(session.sessionId);
+    if (!abortController || abortController.signal.aborted) {
+      abortController = new AbortController();
+      this.activeAbortControllers.set(session.sessionId, abortController);
+    }
+
+    setTimeout(() => {
+      this.runPipelineLoop(session, nextStage, onProgress, abortController!.signal).catch((err) => {
+        if (session.status === 'cancelled' || abortController!.signal.aborted) {
+          session.status = 'cancelled';
+          if (session.stages && session.stages[session.currentStage]) {
+            session.stages[session.currentStage].status = 'error';
+            session.stages[session.currentStage].error = 'Đã hủy bởi người dùng';
+          }
+          this.persistSessionStateAtomic(session);
+          return;
+        }
+        console.error(`[AiStudioPipelineEngine] Error on stage ${nextStage}:`, err);
+        session.status = 'failed';
+        if (session.stages && session.stages[session.currentStage]) {
+          session.stages[session.currentStage].status = 'error';
+          session.stages[session.currentStage].error = err?.message || String(err);
+        }
+        this.persistSessionStateAtomic(session);
+        onProgress({
+          sessionId: session.sessionId,
+          stage: session.currentStage,
+          stageName: session.stageName,
+          progress: session.progress,
+          status: 'error',
+          error: err?.message || String(err),
+        });
+      });
+    }, 20);
+
+    return { success: true, nextStage };
   }
 
   // ==========================================================================
@@ -419,11 +522,30 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
         switch (stage) {
           case 1: {
             // Stage 1: Dữ kiện (Source / Idea Blueprint)
-            const blueprint = await aiStudioLlmService.analyzeIdeaBlueprint(
-              session.topic,
-              config.llm
-            );
-            session.artifacts.ideaSummary = blueprint.rawSummary;
+            if (session.artifacts.blueprint && (session.artifacts.blueprint.title || session.artifacts.blueprint.topic)) {
+              session.artifacts.ideaSummary =
+                session.artifacts.blueprint.rawSummary ||
+                session.artifacts.blueprint.title ||
+                session.artifacts.blueprint.topic;
+            } else {
+              const blueprint = await aiStudioLlmService.analyzeIdeaBlueprint(
+                session.topic,
+                config.llm,
+                config.flowEngine.aspectRatio === '9:16' ? '9:16' : '16:9',
+                (msg: string) => {
+                  onProgress({
+                    sessionId: session.sessionId,
+                    stage: 1,
+                    stageName: stageMeta.label,
+                    progress: session.progress,
+                    status: 'running',
+                    message: msg,
+                  });
+                }
+              );
+              session.artifacts.blueprint = blueprint;
+              session.artifacts.ideaSummary = blueprint.rawSummary;
+            }
             break;
           }
 
@@ -441,7 +563,8 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
                   status: 'running',
                   message: msg,
                 });
-              }
+              },
+              session.artifacts.blueprint
             );
             session.artifacts.scriptLines = scriptLines;
             break;
@@ -570,6 +693,24 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
         session.stages[stage].completedAt = Date.now();
         session.progress = stageMeta.baseProgress;
         this.persistSessionStateAtomic(session);
+
+        // Gated Approval Check: Pause and wait for explicit user approval before next stage
+        if (session.gatedMode && stage < 8) {
+          session.status = 'awaiting_approval';
+          this.persistSessionStateAtomic(session);
+
+          onProgress({
+            sessionId: session.sessionId,
+            stage,
+            stageName: stageMeta.label,
+            progress: session.progress,
+            status: 'awaiting_approval',
+            message: `Công đoạn ${stage}/8 (${stageMeta.label}) đã hoàn thành. Đang chờ phê duyệt từ bạn để tiếp tục...`,
+            artifacts: session.artifacts,
+          });
+
+          return; // Pause loop until user calls approveStage
+        }
 
         onProgress({
           sessionId: session.sessionId,

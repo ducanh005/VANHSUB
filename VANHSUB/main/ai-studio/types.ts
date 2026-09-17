@@ -315,13 +315,19 @@ export interface SeoMetadata {
 
 export interface IdeaBlueprint {
   topic: string;
-  targetAudience: string;
+  title?: string;
+  aspectRatio?: '16:9' | '9:16';
+  targetAudience?: string;
   narrativeAngle: string;
   hookConcept: string;
-  pacing: 'fast' | 'moderate' | 'slow';
-  estimatedDurationSec: number;
-  keyBeats: string[];
-  rawSummary: string;
+  pacing?: 'fast' | 'moderate' | 'slow';
+  estimatedDurationSec?: number;
+  keyBeats?: string[];
+  outline?: string[];
+  existingScript?: string;
+  thumbnailConcept?: string;
+  thumbnailPrompt?: string;
+  rawSummary?: string;
 }
 
 export interface ScriptQualityAuditResult {
@@ -339,8 +345,9 @@ export interface PipelineSessionState {
   topic: string;
   currentStage: AiStudioStageId;
   stageName: AiStudioStageName;
-  status: 'idle' | 'running' | 'completed' | 'failed' | 'cancelled';
+  status: 'idle' | 'running' | 'awaiting_approval' | 'completed' | 'failed' | 'cancelled';
   progress: number; // 0 - 100
+  gatedMode?: boolean;
   stages: Record<
     number,
     {
@@ -353,6 +360,7 @@ export interface PipelineSessionState {
   >;
   artifacts: {
     ideaSummary?: string;
+    blueprint?: IdeaBlueprint;
     scriptLines?: ScriptBeatLine[];
     audioPath?: string;
     srtPath?: string;
@@ -370,7 +378,7 @@ export interface PipelineProgressPayload {
   stage: number;
   stageName: string;
   progress: number;
-  status: AiStudioStageStatus;
+  status: AiStudioStageStatus | 'awaiting_approval';
   message?: string;
   error?: string;
   artifacts?: Partial<PipelineSessionState['artifacts']>;
@@ -382,11 +390,38 @@ export type PipelineProgressEvent = PipelineProgressPayload;
 // Payload and Result contracts for IPC
 export interface StartPipelinePayload {
   topic: string;
+  blueprint?: IdeaBlueprint;
+  gatedMode?: boolean;
   options?: PartialAiStudioConfig;
 }
 
 export interface StartPipelineResult {
   sessionId: string;
+}
+
+export interface AutoFillIdeaPayload {
+  topic: string;
+  aspectRatio?: '16:9' | '9:16';
+}
+
+export interface AutoFillIdeaResult {
+  title: string;
+  hookConcept: string;
+  narrativeAngle: string;
+  outline: string[];
+  thumbnailConcept: string;
+  thumbnailPrompt: string;
+}
+
+export interface ApproveStagePayload {
+  sessionId: string;
+  currentStage: number;
+  updatedArtifacts?: Partial<PipelineSessionState['artifacts']>;
+}
+
+export interface ApproveStageResult {
+  success: boolean;
+  nextStage?: number;
 }
 
 export interface ResumePipelinePayload {
@@ -439,3 +474,4 @@ export interface RenderVideoPayload {
 export interface RenderVideoResult {
   videoPath: string;
 }
+

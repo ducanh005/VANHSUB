@@ -193,7 +193,9 @@ Hãy đăng ký theo dõi kênh ngay hôm nay để không bỏ lỡ những chu
   // --------------------------------------------------------------------------
   // Test 5: AiStudioLlmService Offline Fallback Resilience for chatgpt_web
   // --------------------------------------------------------------------------
-  logTest(5, 'AiStudioLlmService fallback resilience for chatgpt_web provider in test/offline environment');
+  // Test 5: Zero Silent Mock Fallback Verification for chatgpt_web
+  // --------------------------------------------------------------------------
+  logTest(5, 'AiStudioLlmService zero silent mock error throwing for chatgpt_web in headless environment');
   try {
     const llmService = AiStudioLlmService.getInstance();
     const config: AiStudioLlmConfig = {
@@ -205,18 +207,23 @@ Hãy đăng ký theo dõi kênh ngay hôm nay để không bỏ lỡ những chu
       chatgptWebMode: 'offscreen',
     };
 
-    // When running in headless CLI node/tsx, Electron BrowserWindow is not available,
-    // so it must cleanly fall back to procedural generator without crashing or hanging.
-    const beats = await llmService.generateScript('Bí ẩn đại dương', config);
-
-    if (!Array.isArray(beats) || beats.length < 3) {
-      throw new Error(`Expected fallback script with at least 3 beats, got ${beats?.length}`);
+    // In headless CLI node/tsx, Electron BrowserWindow is not available.
+    // Per user requirement (zero silent mocks), it MUST throw an explicit error rather than silently faking output.
+    let threw = false;
+    try {
+      await llmService.generateScript('Bí ẩn đại dương', config);
+    } catch (err: any) {
+      threw = true;
+      if (!err.message.includes('Môi trường Electron không khả dụng')) {
+        throw new Error(`Unexpected error message: ${err.message}`);
+      }
     }
-    if (beats[0].beatType !== 'hook' || beats[beats.length - 1].beatType !== 'outro') {
-      throw new Error(`Fallback beats missing hook/outro tags`);
+
+    if (!threw) {
+      throw new Error('Expected generateScript to throw explicit error without silent mock fallback, but it succeeded.');
     }
 
-    logPass(`AiStudioLlmService cleanly falls back to offline generator when browser session is absent.`);
+    logPass(`AiStudioLlmService zero silent mock verified: explicit error thrown when Electron session cannot open.`);
     passed++;
   } catch (err: any) {
     logFail('Test 5 failed', err);
@@ -224,9 +231,9 @@ Hãy đăng ký theo dõi kênh ngay hôm nay để không bỏ lỡ những chu
   }
 
   // --------------------------------------------------------------------------
-  // Test 6: AiStudioLlmService Offline Fallback Resilience for gemini_web
+  // Test 6: Zero Silent Mock Fallback Verification for gemini_web
   // --------------------------------------------------------------------------
-  logTest(6, 'AiStudioLlmService fallback resilience for gemini_web provider in test/offline environment');
+  logTest(6, 'AiStudioLlmService zero silent mock error throwing for gemini_web in headless environment');
   try {
     const llmService = AiStudioLlmService.getInstance();
     const config: AiStudioLlmConfig = {
@@ -238,16 +245,21 @@ Hãy đăng ký theo dõi kênh ngay hôm nay để không bỏ lỡ những chu
       geminiWebMode: 'offscreen',
     };
 
-    const beats = await llmService.generateScript('Bí ẩn hố đen vũ trụ', config);
-
-    if (!Array.isArray(beats) || beats.length < 3) {
-      throw new Error(`Expected fallback script with at least 3 beats, got ${beats?.length}`);
+    let threw = false;
+    try {
+      await llmService.generateScript('Bí ẩn hố đen vũ trụ', config);
+    } catch (err: any) {
+      threw = true;
+      if (!err.message.includes('Môi trường Electron không khả dụng')) {
+        throw new Error(`Unexpected error message: ${err.message}`);
+      }
     }
-    if (beats[0].beatType !== 'hook' || beats[beats.length - 1].beatType !== 'outro') {
-      throw new Error(`Fallback beats missing hook/outro tags`);
+
+    if (!threw) {
+      throw new Error('Expected generateScript to throw explicit error without silent mock fallback, but it succeeded.');
     }
 
-    logPass(`AiStudioLlmService cleanly falls back to offline generator for Gemini Web when browser session is absent.`);
+    logPass(`AiStudioLlmService zero silent mock verified: explicit error thrown for Gemini Web when Electron session cannot open.`);
     passed++;
   } catch (err: any) {
     logFail('Test 6 failed', err);

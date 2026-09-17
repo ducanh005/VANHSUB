@@ -204,6 +204,12 @@ const vanhsub = {
     renderVideo: (payload: { sessionId: string; customSettings?: any }) =>
       ipcRenderer.invoke('aiStudio:step:renderVideo', payload),
 
+    // Chế độ từng bước & Tự động điền ý tưởng
+    autoFillIdea: (payload: { topic: string; aspectRatio?: '16:9' | '9:16' }) =>
+      ipcRenderer.invoke('aiStudio:idea:autoFill', payload),
+    approveStage: (payload: { sessionId: string; currentStage: number; updatedArtifacts?: any }) =>
+      ipcRenderer.invoke('aiStudio:pipeline:approveStage', payload),
+
     // ChatGPT Web Automation (Zero API Cost Mode)
     checkChatGptLogin: () => ipcRenderer.invoke('aiStudio:chatgpt:checkLogin'),
     openChatGptLogin: () => ipcRenderer.invoke('aiStudio:chatgpt:openLogin'),

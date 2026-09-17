@@ -231,7 +231,19 @@ async function runAudit() {
   const startPromise = new Promise<void>((resolve, reject) => {
     const timeout = setTimeout(() => reject(new Error('Pipeline engine timed out after 60s')), 60_000);
     engine.start(
-      { topic: '5 Bí Ẩn Đại Dương' },
+      {
+        topic: '5 Bí Ẩn Đại Dương',
+        blueprint: {
+          topic: '5 Bí Ẩn Đại Dương',
+          title: '5 Bí Ẩn Chưa Từng Tiết Lộ Dưới Đáy Biển Sâu',
+          narrativeAngle: 'Góc nhìn khoa học kỳ bí',
+          hookConcept: 'Bạn có biết 95% đại dương vẫn chưa được khám phá?',
+          outline: ['Mở đầu', 'Bí ẩn 1', 'Bí ẩn 2', 'Kết thúc'],
+          aspectRatio: '16:9',
+          existingScript: 'Chào mừng các bạn đến với bản tin đại dương đặc biệt hôm nay. Dưới đáy biển sâu hàng ngàn mét có những điều con người chưa từng giải thích được. Hãy cùng Vanhsub khám phá ngay bây giờ. Hãy nhấn nút đăng ký kênh Vanhsub AI Studio để theo dõi những tập tiếp theo.',
+        },
+        gatedMode: false,
+      },
       (event) => {
         stagesSeen.add(event.stage);
         lastProgressEvent = event;

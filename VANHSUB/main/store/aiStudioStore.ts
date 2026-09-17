@@ -328,6 +328,8 @@ export function updateAiStudioConfig(
         // New plaintext key, encrypt with DPAPI or headless fallback
         updated.llm.apiKey = encryptSecret(rawKey);
       }
+    } else {
+      throw new TypeError(`Invalid apiKey type: expected string, got ${typeof partial.llm.apiKey}`);
     }
   }
 
