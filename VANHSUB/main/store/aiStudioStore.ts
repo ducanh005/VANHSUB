@@ -259,6 +259,10 @@ export function getAiStudioConfig(options?: { decrypted?: boolean }): AiStudioCo
     flowEngine: { ...DEFAULT_AI_STUDIO_CONFIG.flowEngine, ...(isPlainRecord(config.flowEngine) ? config.flowEngine : {}) },
     rendering: { ...DEFAULT_AI_STUDIO_CONFIG.rendering, ...(isPlainRecord(config.rendering) ? config.rendering : {}) },
     subtitles: { ...DEFAULT_AI_STUDIO_CONFIG.subtitles, ...(isPlainRecord(config.subtitles) ? config.subtitles : {}) },
+    channelProfile: {
+      ...(DEFAULT_AI_STUDIO_CONFIG.channelProfile || ({} as any)),
+      ...(isPlainRecord(config.channelProfile) ? config.channelProfile : {}),
+    },
   };
 
   if (options?.decrypted) {
@@ -312,6 +316,10 @@ export function updateAiStudioConfig(
     subtitles: {
       ...current.subtitles,
       ...(isPlainRecord(partial.subtitles) ? partial.subtitles : {}),
+    },
+    channelProfile: {
+      ...(current.channelProfile || DEFAULT_AI_STUDIO_CONFIG.channelProfile || ({} as any)),
+      ...(isPlainRecord(partial.channelProfile) ? partial.channelProfile : {}),
     },
   };
 

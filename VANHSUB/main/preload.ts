@@ -209,6 +209,8 @@ const vanhsub = {
       ipcRenderer.invoke('aiStudio:idea:autoFill', payload),
     approveStage: (payload: { sessionId: string; currentStage: number; updatedArtifacts?: any }) =>
       ipcRenderer.invoke('aiStudio:pipeline:approveStage', payload),
+    generateMasterPrompt: (payload: { channelProfile: any }) =>
+      ipcRenderer.invoke('aiStudio:channel:generateMasterPrompt', payload),
 
     // ChatGPT Web Automation (Zero API Cost Mode)
     checkChatGptLogin: () => ipcRenderer.invoke('aiStudio:chatgpt:checkLogin'),

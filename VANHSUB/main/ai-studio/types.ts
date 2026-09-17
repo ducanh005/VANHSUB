@@ -106,6 +106,85 @@ export interface AiStudioSubtitleConfig {
   positionY: number;
 }
 
+// ============================================================================
+// 1.5 Channel Profile & Personality Settings (Cấu hình Kênh & Bộ não)
+// ============================================================================
+
+export type ChannelImageSource = 'ai_flow_meta' | 'ai_static' | 'ai_video';
+export type ChannelSeriesType = 'anthology_new_topic' | 'connected_series' | 'standalone';
+export type ChannelEvaluationLlm = 'gemini_web' | 'chatgpt_web' | 'deepseek' | 'openai';
+export type ChannelLongDuration = '1_3_min' | '3_5_min' | '5_8_min' | '8_12_min' | '12_18_min' | '18_28_min';
+export type ChannelShortDuration = '30_60_sec' | '60_90_sec' | '90_120_sec' | '120_180_sec';
+export type ChannelCharacterSync = 'per_video' | 'consistent_channel' | 'none';
+export type ChannelCharacterImageMode = 'ai_draw' | 'upload_photo' | 'studio_preset';
+export type ChannelVisualMode = 'blend' | 'image_only' | 'video_only';
+
+export interface ChannelVideoStyle {
+  id: string;
+  name: string;
+  description: string;
+  systemPrompt?: string;
+}
+
+export interface ChannelProfileConfig {
+  /** 1. Nguồn hình */
+  imageSource: ChannelImageSource;
+  /** 2. Kiểu video (bộ não AI) đã chọn */
+  videoStyleId: string;
+  /** Danh sách các kiểu video tùy biến */
+  videoStyles: ChannelVideoStyle[];
+  /** 3. Ngách của kênh (gõ cụ thể để khác biệt) */
+  channelNiche: string;
+  /** 4. Kiểu chuỗi tập (chống trùng chủ đề) */
+  seriesType: ChannelSeriesType;
+  /** 5. Mô tả chi tiết kênh */
+  channelDescription: string;
+  /** 6. Định hướng kênh */
+  channelOrientation: string;
+  /** 7. Master prompt viết kịch bản */
+  masterPrompt: string;
+  /** 8. Tra cứu dữ kiện trước khi viết */
+  researchFactBeforeWrite: boolean;
+  /** 9. AI chấm điểm & cải thiện kịch bản */
+  evaluationLlm: ChannelEvaluationLlm;
+  /** 10. Hook của kênh (câu chốt thương hiệu) */
+  channelHook: string;
+  /** 11. Độ dài Video dài mục tiêu */
+  targetLongDuration: ChannelLongDuration;
+  /** 12. Độ dài Shorts mục tiêu */
+  targetShortDuration: ChannelShortDuration;
+  /** 13. AI provider (văn bản) */
+  aiProvider: 'default' | 'chatgpt_web' | 'gemini_web' | 'deepseek' | 'openai';
+  /** 14. Giọng đọc (TTS) */
+  ttsEngine: 'edge_tts' | 'kokoro_tts';
+  /** 15. Giọng cụ thể */
+  specificVoice: string;
+  /** 16. Đồng bộ nhân vật */
+  characterSync: ChannelCharacterSync;
+  /** 17. Vai của nhân vật đại diện */
+  characterRole: string;
+  /** 18. Ảnh nhân vật */
+  characterImageMode: ChannelCharacterImageMode;
+  /** 19. Profile Chrome của kênh */
+  chromeProfile: string;
+  /** 20. Tạo ảnh/video bằng */
+  visualEngine: 'google_flow' | 'comfyui' | 'mock';
+  /** 21. Chế độ hình */
+  visualMode: ChannelVisualMode;
+  /** 22. Số cảnh video mở đầu */
+  videoScenesIntro: number;
+  /** 23. Số cảnh video phần thân */
+  videoScenesBody: number;
+  /** 24. Thời gian ảnh tĩnh min (giây) */
+  staticImageDurationMin: number;
+  /** 25. Thời gian ảnh tĩnh max (giây) */
+  staticImageDurationMax: number;
+  /** 26. Model video */
+  videoModel: string;
+  /** 27. Model ảnh */
+  imageModel: string;
+}
+
 export interface AiStudioConfig {
   /** 1. LLM Settings (Kịch bản & Phân tích) */
   llm: AiStudioLlmConfig;
@@ -117,6 +196,8 @@ export interface AiStudioConfig {
   rendering: AiStudioRenderingConfig;
   /** 5. Subtitle Styling (Đặc tính phụ đề gắn liền video) */
   subtitles: AiStudioSubtitleConfig;
+  /** 6. Channel Profile Settings (Cấu hình Kênh & Bộ não) */
+  channelProfile?: ChannelProfileConfig;
 }
 
 /** Deep partial type for safe partial updates */
@@ -125,8 +206,8 @@ export type DeepPartial<T> = {
     ? T[P]
     : T[P] extends ReadonlyArray<infer U>
     ? T[P]
-    : T[P] extends object
-    ? DeepPartial<T[P]>
+    : NonNullable<T[P]> extends object
+    ? DeepPartial<NonNullable<T[P]>>
     : T[P];
 };
 
@@ -185,12 +266,63 @@ export const DEFAULT_SUBTITLE_CONFIG: Readonly<AiStudioSubtitleConfig> = Object.
   positionY: 80,
 });
 
+export const DEFAULT_CHANNEL_PROFILE_CONFIG: Readonly<ChannelProfileConfig> = Object.freeze({
+  imageSource: 'ai_flow_meta',
+  videoStyleId: '',
+  videoStyles: [
+    {
+      id: 'survival_documentary',
+      name: 'Sinh tồn & Lịch sử tiền sử',
+      description: 'Phong cách kịch tính, chân thực về đời sống và sinh tồn con người thời kỳ cổ xưa',
+      systemPrompt: 'Phong cách kể chuyện sinh tồn tiền sử, nhấn mạnh vào sự khắc nghiệt của thiên nhiên, bản năng sinh tồn và khám phá khảo cổ.',
+    },
+    {
+      id: 'science_mystery',
+      name: 'Khoa học & Bí ẩn đại dương',
+      description: 'Khám phá những hiện tượng khoa học chưa có lời giải và thế giới tự nhiên bí ẩn',
+      systemPrompt: 'Phong cách phóng sự tài liệu khoa học khám phá, logic chặt chẽ, tạo cảm giác tò mò và thán phục.',
+    },
+    {
+      id: 'finance_wealth',
+      name: 'Tài chính & Kinh tế vĩ mô',
+      description: 'Phân tích dòng tiền, sự kiện kinh tế lớn và bài học đầu tư thực chiến',
+      systemPrompt: 'Phong cách chuyên gia tài chính sắc bén, góc nhìn thực tế, ngôn từ cuốn hút và có tính cảnh báo.',
+    },
+  ],
+  channelNiche: '',
+  seriesType: 'anthology_new_topic',
+  channelDescription: '',
+  channelOrientation: '',
+  masterPrompt: '',
+  researchFactBeforeWrite: false,
+  evaluationLlm: 'gemini_web',
+  channelHook: '',
+  targetLongDuration: '3_5_min',
+  targetShortDuration: '90_120_sec',
+  aiProvider: 'default',
+  ttsEngine: 'kokoro_tts',
+  specificVoice: 'vi-VN-HoaiMyNeural',
+  characterSync: 'per_video',
+  characterRole: '',
+  characterImageMode: 'ai_draw',
+  chromeProfile: 'auto',
+  visualEngine: 'google_flow',
+  visualMode: 'blend',
+  videoScenesIntro: 3,
+  videoScenesBody: 10,
+  staticImageDurationMin: 5,
+  staticImageDurationMax: 8,
+  videoModel: 'Omni 1.1 Flash',
+  imageModel: '⭐ Nano Banana 2',
+});
+
 export const DEFAULT_AI_STUDIO_CONFIG: Readonly<AiStudioConfig> = Object.freeze({
   llm: DEFAULT_LLM_CONFIG,
   voice: DEFAULT_VOICE_CONFIG,
   flowEngine: DEFAULT_FLOW_ENGINE_CONFIG,
   rendering: DEFAULT_RENDERING_CONFIG,
   subtitles: DEFAULT_SUBTITLE_CONFIG,
+  channelProfile: DEFAULT_CHANNEL_PROFILE_CONFIG,
 });
 
 // ============================================================================
@@ -473,5 +605,13 @@ export interface RenderVideoPayload {
 
 export interface RenderVideoResult {
   videoPath: string;
+}
+
+export interface GenerateMasterPromptPayload {
+  channelProfile: Partial<ChannelProfileConfig>;
+}
+
+export interface GenerateMasterPromptResult {
+  masterPrompt: string;
 }
 

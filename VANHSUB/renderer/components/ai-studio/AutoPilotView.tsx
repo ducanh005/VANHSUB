@@ -18,6 +18,7 @@ import {
   ArrowRight,
   Target,
   Zap,
+  Settings,
 } from 'lucide-react';
 import { useAiStudioStore } from '../../lib/store/aiStudioStore';
 import type {
@@ -26,6 +27,7 @@ import type {
   IdeaBlueprint,
 } from '../../types/aiStudio';
 import IdeaGenerationModal from './IdeaGenerationModal';
+import ChannelConfigModal from './ChannelConfigModal';
 
 const STAGES = [
   { id: 1, name: 'Dữ kiện', icon: FileText },
@@ -54,6 +56,7 @@ export default function AutoPilotView() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isGatedMode, setIsGatedMode] = useState(true); // Chu trình từng bước có phê duyệt
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isChannelModalOpen, setIsChannelModalOpen] = useState(false);
 
   useEffect(() => {
     if (typeof window === 'undefined' || !window.vanhsub?.aiStudio) return;
@@ -238,6 +241,12 @@ export default function AutoPilotView() {
         onSubmit={handleStartWithBlueprint}
       />
 
+      {/* Modal: Cấu hình Kênh · Bộ não AI, Giọng đọc & Model */}
+      <ChannelConfigModal
+        isOpen={isChannelModalOpen}
+        onClose={() => setIsChannelModalOpen(false)}
+      />
+
       {/* Input Header Section */}
       <div className="rounded-3xl border border-slate-800 bg-gradient-to-b from-slate-900/80 to-slate-950/80 p-6 shadow-2xl backdrop-blur-md mb-6">
         <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
@@ -250,20 +259,59 @@ export default function AutoPilotView() {
             </span>
           </div>
 
-          {/* Gated Mode Toggle (Chu trình từng bước có phê duyệt) */}
-          <label className="flex items-center gap-2 cursor-pointer select-none rounded-xl border border-slate-800 bg-slate-950/70 px-3 py-1.5 hover:border-slate-700 transition">
-            <input
-              type="checkbox"
-              checked={isGatedMode}
-              onChange={(e) => setIsGatedMode(e.target.checked)}
-              className="rounded border-slate-700 bg-slate-900 text-brand-cyan focus:ring-brand-cyan focus:ring-offset-0"
-            />
-            <span className="text-xs font-semibold text-slate-300 flex items-center gap-1">
-              <ShieldCheck className="h-3.5 w-3.5 text-brand-cyan" />
-              <span>Chế độ từng bước (Cần duyệt)</span>
-            </span>
-          </label>
+          <div className="flex items-center gap-2">
+            {/* Button mở Cấu hình kênh */}
+            <button
+              type="button"
+              onClick={() => setIsChannelModalOpen(true)}
+              className="flex items-center gap-1.5 rounded-xl border border-slate-800 bg-slate-950/80 px-3 py-1.5 text-xs font-semibold text-slate-300 hover:border-brand-cyan/40 hover:text-white transition cursor-pointer"
+              title="Cấu hình bộ não AI, giọng đọc và Master Prompt của kênh"
+            >
+              <Settings className="h-3.5 w-3.5 text-brand-cyan" />
+              <span>⚙️ Cấu hình kênh</span>
+              {config.channelProfile?.channelNiche && (
+                <span className="max-w-[120px] truncate rounded bg-brand-cyan/10 px-1.5 py-0.2 text-[10px] font-bold text-brand-cyan border border-brand-cyan/20">
+                  {config.channelProfile.channelNiche}
+                </span>
+              )}
+            </button>
+
+            {/* Gated Mode Toggle (Chu trình từng bước có phê duyệt) */}
+            <label className="flex items-center gap-2 cursor-pointer select-none rounded-xl border border-slate-800 bg-slate-950/70 px-3 py-1.5 hover:border-slate-700 transition">
+              <input
+                type="checkbox"
+                checked={isGatedMode}
+                onChange={(e) => setIsGatedMode(e.target.checked)}
+                className="rounded border-slate-700 bg-slate-900 text-brand-cyan focus:ring-brand-cyan focus:ring-offset-0"
+              />
+              <span className="text-xs font-semibold text-slate-300 flex items-center gap-1">
+                <ShieldCheck className="h-3.5 w-3.5 text-brand-cyan" />
+                <span>Chế độ từng bước (Cần duyệt)</span>
+              </span>
+            </label>
+          </div>
         </div>
+
+        {/* Active Channel Profile Banner (nếu có cấu hình) */}
+        {config.channelProfile?.channelNiche && (
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-brand-cyan/25 bg-gradient-to-r from-brand-cyan/10 via-brand-indigo/10 to-transparent px-4 py-2.5 text-xs text-brand-cyan">
+            <div className="flex items-center gap-2">
+              <span className="flex h-2 w-2 rounded-full bg-brand-cyan animate-pulse" />
+              <span className="font-bold text-white">📺 Kênh hoạt động:</span>
+              <span className="font-semibold text-brand-cyan">{config.channelProfile.channelNiche}</span>
+              {config.channelProfile.channelHook && (
+                <span className="hidden md:inline text-slate-400">· Hook: "{config.channelProfile.channelHook}"</span>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsChannelModalOpen(true)}
+              className="text-[11px] font-medium text-slate-400 hover:text-white underline cursor-pointer"
+            >
+              Chỉnh sửa cấu hình kênh ▸
+            </button>
+          </div>
+        )}
 
         {config.llm.provider === 'chatgpt_web' && (
           <div className="mb-4 flex items-center justify-between rounded-2xl border border-emerald-500/30 bg-emerald-950/40 px-4 py-2.5 text-xs text-emerald-300">

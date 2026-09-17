@@ -38,6 +38,8 @@ import type {
   AutoFillIdeaResult,
   ApproveStagePayload,
   ApproveStageResult,
+  GenerateMasterPromptPayload,
+  GenerateMasterPromptResult,
 } from './types';
 
 // ============================================================================
@@ -303,6 +305,30 @@ export function registerAiStudioIpc(): void {
         });
       }
       throw new Error('Pipeline engine delegate does not support approveStage.');
+    }
+  );
+
+  /**
+   * Channel: aiStudio:channel:generateMasterPrompt
+   * Generates a tailored Master Prompt for the channel based on niche, description & orientation.
+   */
+  safeHandle(
+    'aiStudio:channel:generateMasterPrompt',
+    async (
+      _event,
+      payload: GenerateMasterPromptPayload
+    ): Promise<GenerateMasterPromptResult> => {
+      try {
+        const config = getDecryptedAiStudioConfig();
+        const masterPrompt = await aiStudioLlmService.generateMasterPromptForChannel(
+          payload.channelProfile,
+          config.llm
+        );
+        return { masterPrompt };
+      } catch (err: any) {
+        console.error('[AI-Studio-IPC] Error generating master prompt:', err);
+        throw new Error(`Lỗi tạo Master Prompt cho kênh: ${err?.message || err}`);
+      }
     }
   );
 

@@ -445,6 +445,9 @@ export interface VanhsubAPI {
       currentStage: number;
       updatedArtifacts?: any;
     }) => Promise<{ success: boolean; nextStage?: number }>;
+    generateMasterPrompt: (payload: {
+      channelProfile: Partial<ChannelProfileConfig>;
+    }) => Promise<{ masterPrompt: string }>;
 
     // ChatGPT Web Automation (Zero API Cost Mode)
     checkChatGptLogin: () => Promise<{ isLoggedIn: boolean; userEmail?: string; sessionCheckedAt: number }>;

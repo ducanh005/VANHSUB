@@ -1,0 +1,883 @@
+import React, { useState, useEffect } from 'react';
+import {
+  X,
+  Settings,
+  Brain,
+  Mic,
+  Plus,
+  Copy,
+  Edit2,
+  Trash2,
+  AlertTriangle,
+  Zap,
+  ChevronRight,
+} from 'lucide-react';
+import {
+  ChannelProfileConfig,
+  DEFAULT_CHANNEL_PROFILE_CONFIG,
+  ChannelVideoStyle,
+  ChannelImageSource,
+  ChannelSeriesType,
+  ChannelEvaluationLlm,
+  ChannelLongDuration,
+  ChannelShortDuration,
+  ChannelCharacterSync,
+  ChannelCharacterImageMode,
+  ChannelVisualMode,
+} from '../../types/aiStudio';
+import { useAiStudioStore } from '../../lib/store/aiStudioStore';
+
+interface ChannelConfigModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onSaved?: (config: ChannelProfileConfig) => void;
+}
+
+export default function ChannelConfigModal({
+  isOpen,
+  onClose,
+  onSaved,
+}: ChannelConfigModalProps) {
+  const { config, updateChannelProfileConfig } = useAiStudioStore();
+
+  // Local state for the modal
+  const [profile, setProfile] = useState<ChannelProfileConfig>({
+    ...DEFAULT_CHANNEL_PROFILE_CONFIG,
+    ...(config.channelProfile || {}),
+  });
+
+  const [isGeneratingPrompt, setIsGeneratingPrompt] = useState(false);
+  const [promptMessage, setPromptMessage] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+
+  // Video Styles Management modal/state
+  const [isStyleModalOpen, setIsStyleModalOpen] = useState(false);
+  const [newStyleName, setNewStyleName] = useState('');
+  const [newStyleDesc, setNewStyleDesc] = useState('');
+
+  // Sync state when modal opens or store config changes
+  useEffect(() => {
+    if (isOpen) {
+      setProfile({
+        ...DEFAULT_CHANNEL_PROFILE_CONFIG,
+        ...(config.channelProfile || {}),
+      });
+      setPromptMessage(null);
+    }
+  }, [isOpen, config.channelProfile]);
+
+  if (!isOpen) return null;
+
+  const handleChange = <K extends keyof ChannelProfileConfig>(
+    field: K,
+    value: ChannelProfileConfig[K]
+  ) => {
+    setProfile((prev) => ({ ...prev, [field]: value }));
+  };
+
+  // Nút tạo Master Prompt tự động bằng AI
+  const handleGenerateMasterPrompt = async () => {
+    setIsGeneratingPrompt(true);
+    setPromptMessage('Đang kết nối AI để tạo Master Prompt cho kênh...');
+
+    try {
+      if (window.vanhsub?.aiStudio?.generateMasterPrompt) {
+        const result = await window.vanhsub.aiStudio.generateMasterPrompt({
+          channelProfile: profile,
+        });
+        if (result?.masterPrompt) {
+          handleChange('masterPrompt', result.masterPrompt);
+          setPromptMessage('✨ Đã sinh Master Prompt hoàn chỉnh cho kênh!');
+        }
+      } else {
+        // Fallback generator directly in renderer
+        const niche = profile.channelNiche || 'Nội dung khám phá & kiến thức chuyên sâu';
+        const desc = profile.channelDescription || 'Kênh chia sẻ những câu chuyện và góc nhìn độc đáo.';
+        const orient = profile.channelOrientation || 'Kịch tính, lôi cuốn, tạo sự đồng cảm.';
+        const hook = profile.channelHook || 'Hãy cùng chúng tôi khám phá ngay bây giờ.';
+
+        const generated = `================================================================================
+MASTER PROMPT SẢN XUẤT VIDEO: {{CHANNEL_NAME}}
+Phân loại ngách: ${niche}
+================================================================================
+
+[MỤC TIÊU & TÔN CHỈ KÊNH]
+1. Định vị thương hiệu: {{CHANNEL_NAME}}
+2. Ngách chuyên biệt: ${niche}
+3. Tôn chỉ nội dung: ${desc}
+4. Định hướng góc nhìn & văn phong: ${orient}
+5. Câu chốt thương hiệu (Brand Hook): "${hook}"
+6. Độ dài mục tiêu: Video dài: ${profile.targetLongDuration.replace('_', ' - ')} | Shorts: ${profile.targetShortDuration.replace('_', ' - ')}
+
+[KỶ LUẬT DỮ KIỆN & NGUỒN TÀI LIỆU]
+- Nguồn tư liệu đầu vào: {{SOURCE_MATERIAL}}
+- Kỷ luật dữ liệu: ${profile.researchFactBeforeWrite ? 'ĐÒI HỎI DỮ LIỆU THẬT — Đối chiếu sự kiện, địa danh và nhân chứng xác thực' : 'SÁNG TẠO NGHỆ THUẬT — Cho phép hư cấu tình huống kịch tính'}
+- Mọi tình tiết phải phục vụ thông điệp cốt lõi của chủ đề.
+
+[KIẾN TRÚC PHÂN ĐOẠN BEAT (BEAT STRUCTURE)]
+- BEAT 1 (00:00 - 00:03) [HOOK]: Mở đầu bằng một câu hỏi búa bổ hoặc nghịch lý không thể giải thích.
+- BEAT 2 [BRAND SIGNATURE]: Câu chốt định vị thương hiệu: "${hook}".
+- BEAT 3 - 4 [INTRO & BỐI CẢNH]: Đặt nhân vật/vụ án vào tình thế ngàn cân treo sợi tóc.
+- BEAT 5 - 7 [ESCALATION & CLIMAX]: Diễn biến leo thang dồn dập, đẩy kịch tính lên cao trào.
+- BEAT 8 [OUTRO & CTA]: Đúc kết bài học giá trị, kêu gọi khán giả bấm Like và Đăng ký kênh {{CHANNEL_NAME}}.
+
+[QUY TẮC ĐẦU RA BẮT BUỘC]
+Chỉ trả về JSON duy nhất có dạng:
+{
+  "channel": "{{CHANNEL_NAME}}",
+  "topic": "{{SOURCE_MATERIAL}}",
+  "lines": [
+    { "index": 1, "text": "Câu thoại mở đầu hook...", "beatType": "hook", "estimatedDurationSec": 4.0 },
+    { "index": 2, "text": "${hook}", "beatType": "intro", "estimatedDurationSec": 3.5 }
+  ]
+}
+================================================================================
+(Lưu ý: Giữ nguyên {{CHANNEL_NAME}} và {{SOURCE_MATERIAL}} để hệ thống tự động điền lúc chạy)`;
+
+        handleChange('masterPrompt', generated);
+        setPromptMessage('✨ Đã sinh Master Prompt mẫu thành công!');
+      }
+    } catch (err: any) {
+      console.error('[ChannelConfigModal] Error generating master prompt:', err);
+      setPromptMessage(`Lỗi: ${err?.message || 'Không thể tạo master prompt'}`);
+    } finally {
+      setIsGeneratingPrompt(false);
+    }
+  };
+
+  // Lưu cấu hình
+  const handleSave = async () => {
+    setIsSaving(true);
+    try {
+      await updateChannelProfileConfig(profile);
+      onSaved?.(profile);
+      onClose();
+    } catch (err: any) {
+      console.error('[ChannelConfigModal] Error saving config:', err);
+      alert(`Lỗi lưu cấu hình: ${err?.message || err}`);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // Quản lý Kiểu video (Video Styles)
+  const handleAddStyle = () => {
+    if (!newStyleName.trim()) return;
+    const newStyle: ChannelVideoStyle = {
+      id: `style_${Date.now()}`,
+      name: newStyleName.trim(),
+      description: newStyleDesc.trim() || 'Phong cách video tùy chỉnh',
+    };
+    const updatedStyles = [...profile.videoStyles, newStyle];
+    handleChange('videoStyles', updatedStyles);
+    handleChange('videoStyleId', newStyle.id);
+    setNewStyleName('');
+    setNewStyleDesc('');
+    setIsStyleModalOpen(false);
+  };
+
+  const handleDuplicateStyle = () => {
+    const current = profile.videoStyles.find((s) => s.id === profile.videoStyleId);
+    if (!current) return;
+    const duplicated: ChannelVideoStyle = {
+      id: `style_${Date.now()}`,
+      name: `${current.name} (Bản sao)`,
+      description: current.description,
+      systemPrompt: current.systemPrompt,
+    };
+    const updated = [...profile.videoStyles, duplicated];
+    handleChange('videoStyles', updated);
+    handleChange('videoStyleId', duplicated.id);
+  };
+
+  const handleDeleteStyle = () => {
+    if (!profile.videoStyleId) return;
+    if (confirm('Bạn có chắc chắn muốn xoá kiểu video này?')) {
+      const updated = profile.videoStyles.filter((s) => s.id !== profile.videoStyleId);
+      handleChange('videoStyles', updated);
+      handleChange('videoStyleId', updated[0]?.id || '');
+    }
+  };
+
+  const isMissingDescOrOrient =
+    !profile.channelDescription.trim() || !profile.channelOrientation.trim();
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-2 sm:p-4 backdrop-blur-md animate-in fade-in duration-200">
+      <div className="relative flex max-h-[94vh] w-full max-w-5xl flex-col rounded-2xl border border-slate-800 bg-[#0B1120] text-slate-200 shadow-2xl overflow-hidden">
+        {/* MODAL HEADER */}
+        <div className="flex h-14 shrink-0 items-center justify-between border-b border-slate-800/80 bg-[#0F172A]/90 px-6 backdrop-blur-sm">
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-800 text-slate-300">
+              <Settings className="h-4 w-4" />
+            </div>
+            <div className="flex items-baseline gap-2">
+              <h2 className="text-sm font-bold text-white tracking-wide">Cấu hình kênh</h2>
+              <span className="text-xs text-slate-400">· bộ não AI, giọng, lịch tự đề xuất</span>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-700/60 bg-slate-800/50 text-slate-400 hover:bg-slate-700 hover:text-white transition cursor-pointer"
+            title="Đóng"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        {/* MODAL SCROLLABLE BODY */}
+        <div className="flex-1 overflow-y-auto px-6 py-6 space-y-8 custom-scrollbar">
+          {/* ========================================================================= */}
+          {/* PHẦN 1: NỘI DUNG & BỘ NÃO */}
+          {/* ========================================================================= */}
+          <section className="space-y-5">
+            <div className="flex items-center gap-2">
+              <div className="flex h-6 w-6 items-center justify-center rounded-full bg-pink-500/20 text-pink-400">
+                <Brain className="h-3.5 w-3.5" />
+              </div>
+              <h3 className="text-sm font-bold text-white flex items-center gap-1.5">
+                <span>Nội dung &amp; Bộ não</span>
+                <span className="text-xs font-normal text-slate-400">
+                  — quyết định chủ đề &amp; chất riêng của kênh
+                </span>
+              </h3>
+            </div>
+
+            {/* Row 1: Nguồn hình | Kiểu video (bộ não AI) | Ngách của kênh */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {/* 1. Nguồn hình */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-slate-300">Nguồn hình</label>
+                <div className="relative">
+                  <select
+                    value={profile.imageSource}
+                    onChange={(e) => handleChange('imageSource', e.target.value as ChannelImageSource)}
+                    className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2.5 text-xs text-white focus:border-brand-cyan focus:outline-none focus:ring-1 focus:ring-brand-cyan cursor-pointer"
+                  >
+                    <option value="ai_flow_meta">🎨 AI tạo hình (Flow/Meta)</option>
+                    <option value="ai_static">📸 Ảnh tĩnh AI chất lượng cao</option>
+                    <option value="ai_video">🎬 Video AI (Chuyển động clip)</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* 2. Kiểu video (bộ não AI) */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-slate-300">
+                  Kiểu video <span className="text-[10px] text-slate-500">(bộ não AI)</span>
+                </label>
+                <select
+                  value={profile.videoStyleId}
+                  onChange={(e) => handleChange('videoStyleId', e.target.value)}
+                  className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2.5 text-xs text-white focus:border-brand-cyan focus:outline-none focus:ring-1 focus:ring-brand-cyan cursor-pointer"
+                >
+                  <option value="">— Chọn kiểu —</option>
+                  {profile.videoStyles.map((style) => (
+                    <option key={style.id} value={style.id}>
+                      {style.name}
+                    </option>
+                  ))}
+                </select>
+
+                {/* Sub-action buttons */}
+                <div className="flex items-center gap-1.5 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setIsStyleModalOpen(true)}
+                    className="flex items-center gap-1 rounded-lg border border-slate-800 bg-slate-900/90 px-2 py-1 text-[11px] font-medium text-slate-300 hover:bg-slate-800 hover:text-white transition cursor-pointer"
+                  >
+                    <Plus className="h-3 w-3" />
+                    <span>Tạo</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleDuplicateStyle}
+                    disabled={!profile.videoStyleId}
+                    className="flex items-center gap-1 rounded-lg border border-slate-800 bg-slate-900/90 px-2 py-1 text-[11px] font-medium text-slate-300 hover:bg-slate-800 hover:text-white disabled:opacity-40 transition cursor-pointer"
+                  >
+                    <Copy className="h-3 w-3" />
+                    <span>Nhân bản</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const current = profile.videoStyles.find((s) => s.id === profile.videoStyleId);
+                      if (current) {
+                        const newName = prompt('Nhập tên mới cho kiểu video:', current.name);
+                        if (newName && newName.trim()) {
+                          const updated = profile.videoStyles.map((s) =>
+                            s.id === current.id ? { ...s, name: newName.trim() } : s
+                          );
+                          handleChange('videoStyles', updated);
+                        }
+                      }
+                    }}
+                    disabled={!profile.videoStyleId}
+                    className="flex items-center gap-1 rounded-lg border border-slate-800 bg-slate-900/90 px-2 py-1 text-[11px] font-medium text-slate-300 hover:bg-slate-800 hover:text-white disabled:opacity-40 transition cursor-pointer"
+                  >
+                    <Edit2 className="h-3 w-3" />
+                    <span>Sửa</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleDeleteStyle}
+                    disabled={!profile.videoStyleId}
+                    className="flex items-center gap-1 rounded-lg border border-slate-800 bg-slate-900/90 px-2 py-1 text-[11px] font-medium text-rose-400 hover:bg-rose-950/40 hover:text-rose-300 disabled:opacity-40 transition cursor-pointer"
+                  >
+                    <Trash2 className="h-3 w-3" />
+                    <span>Xoá</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* 3. Ngách của kênh */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-slate-300">
+                  Ngách của kênh <span className="text-[10px] text-slate-500">(gõ cụ thể để khác biệt)</span>
+                </label>
+                <input
+                  type="text"
+                  value={profile.channelNiche}
+                  onChange={(e) => handleChange('channelNiche', e.target.value)}
+                  placeholder="Vd: Sinh tồn của thợ săn voi ma mút vùng Siberia"
+                  className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2.5 text-xs text-white placeholder:text-slate-600 focus:border-brand-cyan focus:outline-none focus:ring-1 focus:ring-brand-cyan"
+                />
+              </div>
+            </div>
+
+            {/* Kiểu chuỗi tập (chống trùng chủ đề) */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-slate-300">
+                Kiểu chuỗi tập <span className="text-[10px] text-slate-500">(chống trùng chủ đề)</span>
+              </label>
+              <select
+                value={profile.seriesType}
+                onChange={(e) => handleChange('seriesType', e.target.value as ChannelSeriesType)}
+                className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2.5 text-xs text-white focus:border-brand-cyan focus:outline-none focus:ring-1 focus:ring-brand-cyan cursor-pointer"
+              >
+                <option value="anthology_new_topic">Tuyển tập — mỗi tập một chủ đề MỚI (khuyên dùng)</option>
+                <option value="connected_series">Series nhiều tập liên kết theo mạch truyện dài</option>
+                <option value="standalone">Video đơn lẻ độc lập theo từng yêu cầu</option>
+              </select>
+              <p className="text-[11px] text-slate-500 italic">
+                Mỗi video sẽ về một vụ án/câu chuyện/chủ đề KHÁC HẲN — chỉ giữ chung phong cách &amp; giọng kênh. Tránh 3 video cùng 1 vụ án.
+              </p>
+            </div>
+
+            {/* Warning Banner khi chưa nhập Mô tả & Định hướng */}
+            {isMissingDescOrOrient && (
+              <div className="flex items-center gap-2.5 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-2.5 text-xs text-amber-300">
+                <AlertTriangle className="h-4 w-4 shrink-0 text-amber-400" />
+                <span>
+                  <strong className="font-semibold text-amber-200">Bạn chưa nhập Mô tả &amp; Định hướng</strong> — ý tưởng sẽ dễ chung chung và trùng với kênh khác. Nên điền 2 ô dưới.
+                </span>
+              </div>
+            )}
+
+            {/* Hai ô Mô tả chi tiết kênh & Định hướng kênh */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-slate-300">
+                  Mô tả chi tiết kênh <span className="text-[10px] text-slate-500">(nói cụ thể về gì)</span>
+                </label>
+                <textarea
+                  rows={3}
+                  value={profile.channelDescription}
+                  onChange={(e) => handleChange('channelDescription', e.target.value)}
+                  placeholder="Vd: Kênh kể chuyện sinh tồn của người tiền sử ở vùng băng giá — tập trung vào kỹ năng săn bắt, giữ lửa, và đời sống bộ lạc."
+                  className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2.5 text-xs text-white placeholder:text-slate-600 focus:border-brand-cyan focus:outline-none focus:ring-1 focus:ring-brand-cyan resize-none"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-slate-300">
+                  Định hướng kênh{' '}
+                  <span className="text-[10px] text-slate-500">(quyết định góc nhìn &amp; giọng của khâu đề xuất ý tưởng)</span>
+                </label>
+                <textarea
+                  rows={3}
+                  value={profile.channelOrientation}
+                  onChange={(e) => handleChange('channelOrientation', e.target.value)}
+                  placeholder="Vd: Nghiêng về cảm xúc &amp; kịch tính sinh tồn hơn là số liệu khoa học; khán giả phổ thông yêu thích lịch sử."
+                  className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2.5 text-xs text-white placeholder:text-slate-600 focus:border-brand-cyan focus:outline-none focus:ring-1 focus:ring-brand-cyan resize-none"
+                />
+              </div>
+            </div>
+
+            {/* Master prompt viết kịch bản */}
+            <div className="rounded-2xl border border-slate-800/90 bg-slate-950/60 p-4 space-y-3">
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-amber-400">
+                  Master prompt viết kịch bản{' '}
+                  <span className="font-normal text-slate-400">(quyết định toàn bộ giọng &amp; cấu trúc kịch bản)</span>
+                </label>
+                <p className="text-[11px] text-slate-500 leading-relaxed">
+                  Một prompt sản xuất hoàn chỉnh (300–600 dòng) gồm luật nguồn, kiến trúc beat và định dạng đầu ra. Khi có, nó THAY bộ não của kiểu video ở bước viết kịch bản — chỉ bước đó. Sinh ý tưởng, storyboard và SEO vẫn chạy bằng bộ não của kiểu video. Để trống thì kênh chạy hoàn toàn bằng bộ não đó.
+                </p>
+              </div>
+
+              <textarea
+                rows={6}
+                value={profile.masterPrompt}
+                onChange={(e) => handleChange('masterPrompt', e.target.value)}
+                placeholder="Dán TRỌN một master prompt sản xuất vào đây — hoặc bấm “Tạo master prompt cho kênh này” bên dưới. Giữ nguyên {{CHANNEL_NAME}} và {{SOURCE_MATERIAL}}, hệ thống tự điền lúc chạy."
+                className="w-full font-mono rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2.5 text-xs text-slate-300 placeholder:text-slate-600 focus:border-brand-cyan focus:outline-none focus:ring-1 focus:ring-brand-cyan leading-relaxed"
+              />
+
+              {/* Action buttons under Master Prompt */}
+              <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={handleGenerateMasterPrompt}
+                    disabled={isGeneratingPrompt}
+                    className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-rose-500 via-amber-500 to-orange-500 px-4 py-2 text-xs font-bold text-white shadow-md hover:brightness-110 active:scale-95 disabled:opacity-50 transition cursor-pointer"
+                  >
+                    <Zap className={`h-3.5 w-3.5 ${isGeneratingPrompt ? 'animate-spin' : 'fill-current'}`} />
+                    <span>{isGeneratingPrompt ? 'Đang tạo prompt...' : 'Tạo master prompt cho kênh này'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (profile.masterPrompt) {
+                        navigator.clipboard.writeText(profile.masterPrompt);
+                        alert('Đã sao chép Master Prompt vào Clipboard!');
+                      } else {
+                        alert('Chưa có Master Prompt để sao chép.');
+                      }
+                    }}
+                    className="text-xs text-amber-400/90 hover:text-amber-300 font-medium inline-flex items-center gap-1 cursor-pointer transition"
+                  >
+                    <span>Xem / sao chép skill để tự chạy</span>
+                    <ChevronRight className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+
+                {promptMessage && (
+                  <span className="text-xs text-emerald-400 font-medium animate-in fade-in">
+                    {promptMessage}
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* Checkbox: Tra cứu dữ kiện trước khi viết */}
+            <div className="rounded-xl border border-slate-800/80 bg-slate-950/40 p-3.5">
+              <label className="flex items-start gap-3 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={profile.researchFactBeforeWrite}
+                  onChange={(e) => handleChange('researchFactBeforeWrite', e.target.checked)}
+                  className="mt-0.5 rounded border-slate-700 bg-slate-900 text-brand-cyan focus:ring-0 cursor-pointer"
+                />
+                <div className="space-y-0.5">
+                  <span className="text-xs font-semibold text-slate-200 flex items-center gap-1.5">
+                    <span>🔎 Tra cứu dữ kiện trước khi viết</span>
+                  </span>
+                  <p className="text-[11px] text-slate-500 leading-relaxed">
+                    AI đi tra dữ kiện thật cho từng chủ đề rồi mới viết. Master prompt nào cũng có mục kỷ luật dữ kiện ĐÒI tư liệu — không có tư liệu thì nó từ chối viết, và video dừng ở bước Kịch bản. Chỉ tắt với kênh truyện hư cấu.
+                  </p>
+                </div>
+              </label>
+            </div>
+
+            {/* AI chấm điểm & cải thiện kịch bản */}
+            <div className="space-y-2">
+              <label className="text-xs font-semibold text-slate-300">
+                AI chấm điểm &amp; cải thiện kịch bản
+              </label>
+              <select
+                value={profile.evaluationLlm}
+                onChange={(e) => handleChange('evaluationLlm', e.target.value as ChannelEvaluationLlm)}
+                className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2.5 text-xs text-white focus:border-brand-cyan focus:outline-none focus:ring-1 focus:ring-brand-cyan cursor-pointer"
+              >
+                <option value="gemini_web">Gemini (web)</option>
+                <option value="chatgpt_web">ChatGPT (web)</option>
+                <option value="deepseek">DeepSeek (API)</option>
+                <option value="openai">OpenAI GPT-4o (API)</option>
+              </select>
+
+              {profile.evaluationLlm.includes('web') && (
+                <div className="flex items-start gap-2 rounded-xl border border-amber-500/20 bg-amber-500/5 px-3.5 py-2 text-[11px] text-amber-300/90 leading-relaxed">
+                  <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-400 mt-0.5" />
+                  <span>
+                    Bản web dùng phiên đăng nhập, một lượt chỉ nhận ~4.500 ký tự — không đủ cho cả bộ tiêu chí lẫn cả bài kịch bản, và cũng không trả nổi cả bài đã sửa. Chấm điểm và cải thiện sẽ báo lỗi. Chọn DeepSeek rồi nhập API key ở Cài đặt.
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {/* Hook của kênh */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-slate-300">
+                Hook của kênh{' '}
+                <span className="text-[10px] text-slate-500">(câu chốt thương hiệu — AI lồng sau đoạn mở đầu)</span>
+              </label>
+              <input
+                type="text"
+                value={profile.channelHook}
+                onChange={(e) => handleChange('channelHook', e.target.value)}
+                placeholder="Vd: Và tôi là Anh 3 Tài Chính - Người giúp bạn biến mọi thứ thành tiền."
+                className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2.5 text-xs text-white placeholder:text-slate-600 focus:border-brand-cyan focus:outline-none focus:ring-1 focus:ring-brand-cyan"
+              />
+            </div>
+
+            {/* Độ dài Video dài mục tiêu & Độ dài Shorts mục tiêu */}
+            <div className="space-y-2">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-slate-300">Độ dài Video dài mục tiêu</label>
+                  <select
+                    value={profile.targetLongDuration}
+                    onChange={(e) => handleChange('targetLongDuration', e.target.value as ChannelLongDuration)}
+                    className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2.5 text-xs text-white focus:border-brand-cyan focus:outline-none focus:ring-1 focus:ring-brand-cyan cursor-pointer"
+                  >
+                    <option value="1_3_min">1 - 3 phút</option>
+                    <option value="3_5_min">3 - 5 phút (Mặc định)</option>
+                    <option value="5_8_min">5 - 8 phút</option>
+                    <option value="8_12_min">8 - 12 phút</option>
+                    <option value="12_18_min">12 - 18 phút</option>
+                    <option value="18_28_min">18 - 28 phút</option>
+                  </select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-slate-300">Độ dài Shorts mục tiêu</label>
+                  <select
+                    value={profile.targetShortDuration}
+                    onChange={(e) => handleChange('targetShortDuration', e.target.value as ChannelShortDuration)}
+                    className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2.5 text-xs text-white focus:border-brand-cyan focus:outline-none focus:ring-1 focus:ring-brand-cyan cursor-pointer"
+                  >
+                    <option value="30_60_sec">30 - 60 giây</option>
+                    <option value="60_90_sec">60 - 90 giây</option>
+                    <option value="90_120_sec">90 - 120 giây (Mặc định)</option>
+                    <option value="120_180_sec">120 - 180 giây</option>
+                  </select>
+                </div>
+              </div>
+
+              <p className="text-[11px] text-slate-500 italic">
+                Hai con số này là ĐỘ DÀI CHỐT của kênh — chúng đè cả độ dài mà ý tưởng ước lượng lẫn độ dài ghi trong Master prompt. Kênh dùng master prompt loại dài (18–28 phút) thì nhớ chọn mức tương ứng ở đây, nếu không kịch bản sẽ bị ép ngắn lại.
+              </p>
+            </div>
+          </section>
+
+          <hr className="border-slate-800/80 my-2" />
+
+          {/* ========================================================================= */}
+          {/* PHẦN 2: GIỌNG & HÌNH */}
+          {/* ========================================================================= */}
+          <section className="space-y-5">
+            <div className="flex items-center gap-2">
+              <div className="flex h-6 w-6 items-center justify-center rounded-full bg-cyan-500/20 text-cyan-400">
+                <Mic className="h-3.5 w-3.5" />
+              </div>
+              <h3 className="text-sm font-bold text-white tracking-wide">Giọng &amp; Hình</h3>
+            </div>
+
+            {/* Row 1: AI provider (văn bản) | Giọng đọc (TTS) | Giọng cụ thể */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-slate-300">AI provider (văn bản)</label>
+                <select
+                  value={profile.aiProvider}
+                  onChange={(e) => handleChange('aiProvider', e.target.value as any)}
+                  className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2.5 text-xs text-white focus:border-brand-cyan focus:outline-none focus:ring-1 focus:ring-brand-cyan cursor-pointer"
+                >
+                  <option value="default">Mặc định (theo Cài đặt chung)</option>
+                  <option value="chatgpt_web">ChatGPT Web (Chế độ Tiết kiệm)</option>
+                  <option value="gemini_web">Gemini Web (Chế độ Tiết kiệm)</option>
+                  <option value="deepseek">DeepSeek (API)</option>
+                  <option value="openai">OpenAI (API)</option>
+                </select>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-slate-300">Giọng đọc (TTS)</label>
+                <select
+                  value={profile.ttsEngine}
+                  onChange={(e) => handleChange('ttsEngine', e.target.value as any)}
+                  className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2.5 text-xs text-white focus:border-brand-cyan focus:outline-none focus:ring-1 focus:ring-brand-cyan cursor-pointer"
+                >
+                  <option value="kokoro_tts">Kokoro TTS (Anh/Mỹ/..., local)</option>
+                  <option value="edge_tts">Edge-TTS (Việt Nam / Đa ngôn ngữ, miễn phí)</option>
+                </select>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-slate-300">Giọng cụ thể</label>
+                <select
+                  value={profile.specificVoice}
+                  onChange={(e) => handleChange('specificVoice', e.target.value)}
+                  className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2.5 text-xs text-white focus:border-brand-cyan focus:outline-none focus:ring-1 focus:ring-brand-cyan cursor-pointer"
+                >
+                  <option value="vi-VN-HoaiMyNeural">Hoài My (Nữ Hà Nội - Truyền cảm)</option>
+                  <option value="vi-VN-NamMinhNeural">Nam Minh (Nam Hà Nội - Trầm ấm)</option>
+                  <option value="default">Đang tải / mặc định...</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Row 2: Đồng bộ nhân vật | Vai của nhân vật đại diện | Ảnh nhân vật */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-slate-300">Đồng bộ nhân vật</label>
+                <select
+                  value={profile.characterSync}
+                  onChange={(e) => handleChange('characterSync', e.target.value as ChannelCharacterSync)}
+                  className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2.5 text-xs text-white focus:border-brand-cyan focus:outline-none focus:ring-1 focus:ring-brand-cyan cursor-pointer"
+                >
+                  <option value="per_video">Trong video (mỗi video một dàn)</option>
+                  <option value="consistent_channel">Xuyên suốt các video của kênh</option>
+                  <option value="none">Không sử dụng nhân vật đại diện</option>
+                </select>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-slate-300">Vai của nhân vật đại diện</label>
+                <div className="rounded-xl border border-slate-800 bg-slate-950/60 px-3.5 py-2.5 text-xs text-slate-500 italic">
+                  {profile.characterRole || 'Kênh chưa có nhân vật đại diện — tạo ở tab Nhân vật trước.'}
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-slate-300">Ảnh nhân vật</label>
+                <select
+                  value={profile.characterImageMode}
+                  onChange={(e) => handleChange('characterImageMode', e.target.value as ChannelCharacterImageMode)}
+                  className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2.5 text-xs text-white focus:border-brand-cyan focus:outline-none focus:ring-1 focus:ring-brand-cyan cursor-pointer"
+                >
+                  <option value="ai_draw">AI tự vẽ (mặc định)</option>
+                  <option value="upload_photo">Tải lên ảnh mẫu riêng</option>
+                  <option value="studio_preset">Theo bộ preset của Studio</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Row 3: Profile Chrome của kênh */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-slate-300">Profile Chrome của kênh</label>
+              <select
+                value={profile.chromeProfile}
+                onChange={(e) => handleChange('chromeProfile', e.target.value)}
+                className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2.5 text-xs text-white focus:border-brand-cyan focus:outline-none focus:ring-1 focus:ring-brand-cyan cursor-pointer"
+              >
+                <option value="auto">Tự chọn (profile trống bất kỳ)</option>
+                <option value="profile_1">Profile 1 (Chính)</option>
+                <option value="profile_2">Profile 2 (Dự phòng)</option>
+              </select>
+              <p className="text-[11px] text-slate-500 italic">
+                Video của kênh sẽ cố dùng đúng profile này (đang bận thì chờ). Nếu profile hết lượt/tắt mới tự chuyển sang profile khác.
+              </p>
+            </div>
+
+            {/* Row 4: Tạo ảnh/video bằng | Chế độ hình */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-slate-300">Tạo ảnh/video bằng</label>
+                <select
+                  value={profile.visualEngine}
+                  onChange={(e) => handleChange('visualEngine', e.target.value as any)}
+                  className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2.5 text-xs text-white focus:border-brand-cyan focus:outline-none focus:ring-1 focus:ring-brand-cyan cursor-pointer"
+                >
+                  <option value="google_flow">Google Flow (Veo/Imagen)</option>
+                  <option value="comfyui">ComfyUI / Stable Diffusion Local</option>
+                  <option value="mock">Synthetic Studio Mock</option>
+                </select>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-slate-300">Chế độ hình</label>
+                <select
+                  value={profile.visualMode}
+                  onChange={(e) => handleChange('visualMode', e.target.value as ChannelVisualMode)}
+                  className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2.5 text-xs text-white focus:border-brand-cyan focus:outline-none focus:ring-1 focus:ring-brand-cyan cursor-pointer"
+                >
+                  <option value="blend">Trộn ảnh + video</option>
+                  <option value="image_only">Chỉ dùng ảnh tĩnh (Ken Burns)</option>
+                  <option value="video_only">Toàn bộ là video clip</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Row 5: Số cảnh video & Thời gian ảnh tĩnh */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Số cảnh video */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-slate-300">
+                  Số cảnh video{' '}
+                  <span className="text-[10px] text-slate-500">(Clip đắt và chậm hơn ảnh — nhập 0 cho phần nào thì phần đó toàn ảnh.)</span>
+                </label>
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-slate-400">Mở đầu</span>
+                    <input
+                      type="number"
+                      min={0}
+                      max={20}
+                      value={profile.videoScenesIntro}
+                      onChange={(e) => handleChange('videoScenesIntro', parseInt(e.target.value) || 0)}
+                      className="w-16 rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-xs text-center text-white focus:border-brand-cyan focus:outline-none"
+                    />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-slate-400">Phần thân</span>
+                    <input
+                      type="number"
+                      min={0}
+                      max={50}
+                      value={profile.videoScenesBody}
+                      onChange={(e) => handleChange('videoScenesBody', parseInt(e.target.value) || 0)}
+                      className="w-20 rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-xs text-center text-white focus:border-brand-cyan focus:outline-none"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Thời gian ảnh tĩnh */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-slate-300">
+                  Thời gian ảnh tĩnh{' '}
+                  <span className="text-[10px] text-slate-500">(Khoảng thời gian mỗi cảnh ảnh tĩnh (giây). Tăng lên để video dài tiết kiệm số lần tạo ảnh.)</span>
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min={1}
+                    max={30}
+                    value={profile.staticImageDurationMin}
+                    onChange={(e) => handleChange('staticImageDurationMin', parseInt(e.target.value) || 5)}
+                    className="w-16 rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-xs text-center text-white focus:border-brand-cyan focus:outline-none"
+                  />
+                  <span className="text-xs text-slate-400">s —</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={60}
+                    value={profile.staticImageDurationMax}
+                    onChange={(e) => handleChange('staticImageDurationMax', parseInt(e.target.value) || 8)}
+                    className="w-16 rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-xs text-center text-white focus:border-brand-cyan focus:outline-none"
+                  />
+                  <span className="text-xs text-slate-400">s</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Row 6: Model video | Model ảnh */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-slate-300">Model video</label>
+                <select
+                  value={profile.videoModel}
+                  onChange={(e) => handleChange('videoModel', e.target.value)}
+                  className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2.5 text-xs text-white focus:border-brand-cyan focus:outline-none focus:ring-1 focus:ring-brand-cyan cursor-pointer"
+                >
+                  <option value="Omni 1.1 Flash">Omni 1.1 Flash</option>
+                  <option value="Veo 2">Veo 2 (DeepMind)</option>
+                  <option value="Sora">Sora Turbo</option>
+                </select>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-slate-300">Model ảnh</label>
+                <select
+                  value={profile.imageModel}
+                  onChange={(e) => handleChange('imageModel', e.target.value)}
+                  className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2.5 text-xs text-white focus:border-brand-cyan focus:outline-none focus:ring-1 focus:ring-brand-cyan cursor-pointer"
+                >
+                  <option value="⭐ Nano Banana 2">⭐ Nano Banana 2</option>
+                  <option value="Imagen 3">Imagen 3 Fast</option>
+                  <option value="FLUX.1-schnell">FLUX.1-schnell</option>
+                  <option value="SDXL Turbo">SDXL Turbo</option>
+                </select>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        {/* MODAL FOOTER */}
+        <div className="flex h-16 shrink-0 items-center justify-between border-t border-slate-800/80 bg-[#0F172A]/95 px-6 backdrop-blur-sm">
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-slate-400">Thay đổi áp dụng cho ý tưởng / video mới.</span>
+            {profile.ttsEngine === 'kokoro_tts' && (
+              <span className="text-[11px] text-slate-500">Đang tải danh sách giọng kokoro...</span>
+            )}
+          </div>
+
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={isSaving}
+              className="rounded-xl border border-slate-700/80 bg-slate-800 px-5 py-2.5 text-xs font-semibold text-slate-300 hover:bg-slate-700 hover:text-white transition cursor-pointer"
+            >
+              Đóng
+            </button>
+            <button
+              type="button"
+              onClick={handleSave}
+              disabled={isSaving}
+              className="rounded-xl bg-[#F95738] hover:bg-[#E54324] px-6 py-2.5 text-xs font-bold text-white shadow-lg shadow-[#F95738]/25 hover:brightness-105 active:scale-95 transition cursor-pointer"
+            >
+              {isSaving ? 'Đang lưu...' : 'Lưu cấu hình'}
+            </button>
+          </div>
+        </div>
+
+        {/* POPUP MODAL: TẠO KIỂU VIDEO MỚI */}
+        {isStyleModalOpen && (
+          <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+            <div className="w-full max-w-md rounded-2xl border border-slate-700 bg-slate-900 p-5 space-y-4 shadow-2xl">
+              <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                <Plus className="h-4 w-4 text-brand-cyan" />
+                <span>Tạo kiểu video (Bộ não AI) mới</span>
+              </h4>
+              <div className="space-y-3">
+                <div className="space-y-1">
+                  <label className="text-xs text-slate-300 font-medium">Tên kiểu video</label>
+                  <input
+                    type="text"
+                    value={newStyleName}
+                    onChange={(e) => setNewStyleName(e.target.value)}
+                    placeholder="Vd: Phóng sự điều tra kỳ án"
+                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs text-slate-300 font-medium">Mô tả đặc trưng</label>
+                  <input
+                    type="text"
+                    value={newStyleDesc}
+                    onChange={(e) => setNewStyleDesc(e.target.value)}
+                    placeholder="Vd: Dẫn dắt trinh thám hình sự, tiết tấu nghẹt thở..."
+                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white"
+                  />
+                </div>
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsStyleModalOpen(false)}
+                  className="rounded-xl border border-slate-700 bg-slate-800 px-4 py-2 text-xs font-medium text-slate-300 hover:text-white"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="button"
+                  onClick={handleAddStyle}
+                  disabled={!newStyleName.trim()}
+                  className="btn-vanh-gradient rounded-xl px-4 py-2 text-xs font-bold text-white disabled:opacity-40"
+                >
+                  Thêm kiểu
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

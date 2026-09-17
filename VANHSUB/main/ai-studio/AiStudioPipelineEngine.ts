@@ -564,7 +564,8 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
                   message: msg,
                 });
               },
-              session.artifacts.blueprint
+              session.artifacts.blueprint,
+              config.channelProfile
             );
             session.artifacts.scriptLines = scriptLines;
             break;

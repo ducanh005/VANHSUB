@@ -11,6 +11,7 @@ import {
   EyeOff,
   CheckCircle2,
   AlertCircle,
+  Settings,
 } from 'lucide-react';
 import { useAiStudioStore } from '../../lib/store/aiStudioStore';
 import type {
@@ -21,6 +22,7 @@ import type {
   RenderResolution,
   SubtitlePreset,
 } from '../../types/aiStudio';
+import ChannelConfigModal from './ChannelConfigModal';
 
 export default function AiStudioSettingsTab() {
   const { config, updateConfig, resetConfig, isLoading, isSaving } =
@@ -45,6 +47,7 @@ export default function AiStudioSettingsTab() {
   } | null>(null);
   const [isCheckingGemini, setIsCheckingGemini] = useState(false);
   const [isOpeningGeminiLogin, setIsOpeningGeminiLogin] = useState(false);
+  const [isChannelModalOpen, setIsChannelModalOpen] = useState(false);
 
   const checkChatGptStatus = async () => {
     if (typeof window === 'undefined' || !window.vanhsub?.aiStudio?.checkChatGptLogin) return;
@@ -148,6 +151,15 @@ export default function AiStudioSettingsTab() {
               {saveMessage}
             </span>
           )}
+          <button
+            type="button"
+            onClick={() => setIsChannelModalOpen(true)}
+            className="flex items-center gap-1.5 rounded-xl border border-brand-cyan/40 bg-brand-cyan/10 px-3.5 py-2 text-xs font-semibold text-brand-cyan hover:bg-brand-cyan/20 transition cursor-pointer"
+            title="Cấu hình bộ não AI, giọng đọc và Master Prompt theo từng kênh"
+          >
+            <Settings className="h-3.5 w-3.5" />
+            ⚙️ Cấu hình Kênh
+          </button>
           <button
             type="button"
             onClick={handleReset}
@@ -645,6 +657,12 @@ export default function AiStudioSettingsTab() {
           </div>
         </div>
       </div>
+
+      {/* Modal: Cấu hình Kênh · Bộ não AI, Giọng đọc & Model */}
+      <ChannelConfigModal
+        isOpen={isChannelModalOpen}
+        onClose={() => setIsChannelModalOpen(false)}
+      />
     </div>
   );
 }

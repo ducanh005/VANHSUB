@@ -9,6 +9,7 @@ import type {
   IdeaBlueprint,
   SeoMetadata,
   ScriptQualityAuditResult,
+  ChannelProfileConfig,
 } from '../types';
 
 /**
@@ -250,7 +251,8 @@ Yêu cầu nghiêm ngặt: Trả về DUY NHẤT một khối JSON hợp lệ th
     topic: string,
     config: AiStudioLlmConfig,
     onProgress?: (msg: string) => void,
-    blueprint?: IdeaBlueprint
+    blueprint?: IdeaBlueprint,
+    channelProfile?: ChannelProfileConfig
   ): Promise<ScriptBeatLine[]> {
     // 0. Nếu người dùng đã cung cấp sẵn kịch bản (Existing Script), tự động tách câu
     if (blueprint?.existingScript && blueprint.existingScript.trim().length >= 10) {
@@ -277,7 +279,7 @@ Yêu cầu nghiêm ngặt: Trả về DUY NHẤT một khối JSON hợp lệ th
         );
         const parsedLines = parseChatGptScriptResponse(rawText, topic);
         if (parsedLines.length >= 3) {
-          return parsedLines;
+          return this.applyChannelHook(parsedLines, channelProfile);
         }
         throw new Error('ChatGPT Web không trả về đủ số câu kịch bản hợp lệ.');
       } catch (err: any) {
@@ -301,7 +303,7 @@ Yêu cầu nghiêm ngặt: Trả về DUY NHẤT một khối JSON hợp lệ th
         );
         const parsedLines = parseChatGptScriptResponse(rawText, topic);
         if (parsedLines.length >= 3) {
-          return parsedLines;
+          return this.applyChannelHook(parsedLines, channelProfile);
         }
         throw new Error('Gemini Web không trả về đủ số câu kịch bản hợp lệ.');
       } catch (err: any) {
@@ -317,7 +319,12 @@ Yêu cầu nghiêm ngặt: Trả về DUY NHẤT một khối JSON hợp lệ th
     }
 
     try {
-      const prompt = `Bạn là nhà biên kịch video ngắn chuyên nghiệp.
+      const masterPrompt = (channelProfile?.masterPrompt || '').trim();
+      const prompt = (masterPrompt && masterPrompt.length >= 40)
+        ? masterPrompt
+            .replace(/\{\{CHANNEL_NAME\}\}/g, channelProfile?.channelNiche || 'Kênh Vanhsub AI Studio')
+            .replace(/\{\{SOURCE_MATERIAL\}\}/g, topic)
+        : `Bạn là nhà biên kịch video ngắn chuyên nghiệp.
 Nhiệm vụ: Viết kịch bản lồng tiếng tiếng Việt hoàn chỉnh cho chủ đề: "${topic}".
 Phong cách preset: "${config.systemPromptPreset || 'youtube_story'}".
 
@@ -354,7 +361,7 @@ Yêu cầu nghiêm ngặt:
         throw new Error('LLM không trả về danh sách phân cảnh hợp lệ.');
       }
 
-      return rawLines.map((item: any, idx: number) => {
+      const lines: ScriptBeatLine[] = rawLines.map((item: any, idx: number) => {
         const text = String(item.text || item.content || '').trim();
         const fallbackText = `Chào mừng bạn đến với phần ${idx + 1} của chủ đề ${topic}.`;
         const finalText = text.length >= 10 ? text : fallbackText;
@@ -370,10 +377,44 @@ Yêu cầu nghiêm ngặt:
           beatType,
         };
       });
+
+      return this.applyChannelHook(lines, channelProfile);
     } catch (err: any) {
       console.error('[AiStudioLlmService] Script generation API error:', err);
       throw new Error(`Lỗi gọi API sinh kịch bản (${config.provider}): ${err?.message || err}`);
     }
+  }
+
+  /**
+   * Helper: Tự động lồng câu chốt thương hiệu (Brand Hook) của kênh vào kịch bản sau câu Hook đầu
+   */
+  private applyChannelHook(
+    lines: ScriptBeatLine[],
+    channelProfile?: ChannelProfileConfig
+  ): ScriptBeatLine[] {
+    if (!channelProfile?.channelHook || !channelProfile.channelHook.trim()) {
+      return lines;
+    }
+    const hookText = channelProfile.channelHook.trim();
+    const alreadyHasHook = lines.some((l) => l.text.includes(hookText));
+    if (alreadyHasHook || lines.length < 2) {
+      return lines;
+    }
+
+    const words = hookText.split(/\s+/).filter(Boolean).length;
+    const duration = Math.max(2.0, Math.round((words / 3.0) * 10) / 10);
+    const result = [...lines];
+    result.splice(1, 0, {
+      id: `line-hook-${crypto.randomBytes(3).toString('hex')}`,
+      index: 2,
+      text: hookText,
+      estimatedDurationSec: duration,
+      beatType: 'intro',
+    });
+    result.forEach((l, idx) => {
+      l.index = idx + 1;
+    });
+    return result;
   }
 
   // ==========================================================================
@@ -642,6 +683,120 @@ Chấm điểm trên thang 100 và trả về JSON DUY NHẤT:
         : 'Nên bổ sung lời nhắc đăng ký kênh hoặc bấm like ở câu cuối.',
       overallFeedback: `Kịch bản đạt ${retentionScore}/100 điểm giữ chân khán giả, tối ưu cho video dạng ngắn và trung bình.`,
     };
+  }
+
+  // ==========================================================================
+  // Channel Master Prompt Generation
+  // ==========================================================================
+  public async generateMasterPromptForChannel(
+    channelProfile: Partial<ChannelProfileConfig>,
+    config?: AiStudioLlmConfig,
+    onProgress?: (msg: string) => void
+  ): Promise<string> {
+    const niche = channelProfile.channelNiche || 'Nội dung khám phá & kiến thức chuyên sâu';
+    const desc = channelProfile.channelDescription || 'Kênh chia sẻ những câu chuyện và góc nhìn độc đáo, hấp dẫn.';
+    const orient = channelProfile.channelOrientation || 'Kịch tính, lôi cuốn, tạo sự đồng cảm và kích thích trí tò mò.';
+    const hook = channelProfile.channelHook || 'Hãy cùng chúng tôi khám phá ngay bây giờ.';
+    const factDiscipline = channelProfile.researchFactBeforeWrite
+      ? 'NGHIÊM NGẶT: AI bắt buộc phải đối chiếu và bám sát dữ liệu/tư liệu thực tế, không hư cấu hay bịa đặt số liệu sai lệch.'
+      : 'TỰ DO SÁNG TẠO: Được phép xây dựng tình huống kịch tính, lôi cuốn nhằm tối đa cảm xúc của khán giả.';
+    const durationLong = channelProfile.targetLongDuration || '3_5_min';
+    const durationShort = channelProfile.targetShortDuration || '90_120_sec';
+
+    const promptTemplate = `================================================================================
+MASTER PROMPT SẢN XUẤT VIDEO: {{CHANNEL_NAME}}
+Phân loại ngách: ${niche}
+================================================================================
+
+[MỤC TIÊU & TÔN CHỈ KÊNH]
+1. Định vị kênh: {{CHANNEL_NAME}}
+2. Ngách chuyên biệt: ${niche}
+3. Tôn chỉ nội dung: ${desc}
+4. Định hướng góc nhìn & văn phong: ${orient}
+5. Câu chốt thương hiệu (Brand Hook): "${hook}"
+6. Độ dài mục tiêu: Video dài: ${durationLong.replace('_', ' - ')} | Shorts: ${durationShort.replace('_', ' - ')}
+
+[KỶ LUẬT DỮ KIỆN & NGUỒN TÀI LIỆU]
+- Nguồn tư liệu đầu vào: {{SOURCE_MATERIAL}}
+- Kỷ luật dữ liệu: ${factDiscipline}
+- Mọi tình tiết, mốc thời gian và luận điểm phải gắn liền với tư liệu nguồn được cung cấp.
+
+[KIẾN TRÚC PHÂN ĐOẠN BEAT (BEAT STRUCTURE)]
+- BEAT 1 (00:00 - 00:03) [HOOK]: Mở đầu bằng một câu hỏi búa bổ, một sự thật phản trực giác hoặc một tình huống ngàn cân treo sợi tóc. Không chào hỏi rườm rà.
+- BEAT 2 [BRAND SIGNATURE]: Lồng ghép câu chốt thương hiệu của kênh: "${hook}".
+- BEAT 3 - 4 [INTRO & BỐI CẢNH]: Đặt vấn đề, giới thiệu nhân vật/sự kiện trung tâm và mối đe dọa hoặc cơ hội.
+- BEAT 5 - 7 [ESCALATION & CLIMAX]: Diễn biến dồn dập, đẩy mức độ căng thẳng hoặc sự tò mò lên đỉnh điểm.
+- BEAT 8 [RESOLUTION & OUTRO]: Đúc kết bài học đắt giá, khép lại câu chuyện và kêu gọi hành động (CTA) đăng ký kênh {{CHANNEL_NAME}}.
+
+[QUY TẮC ĐẦU RA BẮT BUỘC]
+1. Tuyệt đối chỉ trả về dữ liệu định dạng JSON hợp lệ duy nhất.
+2. Không kèm văn bản giải thích ngoài khối JSON.
+3. Cấu trúc JSON chuẩn:
+{
+  "channel": "{{CHANNEL_NAME}}",
+  "topic": "{{SOURCE_MATERIAL}}",
+  "lines": [
+    {
+      "index": 1,
+      "text": "Câu thoại mở đầu hook...",
+      "beatType": "hook",
+      "estimatedDurationSec": 4.0
+    },
+    {
+      "index": 2,
+      "text": "Câu thoại chốt thương hiệu: ${hook}...",
+      "beatType": "intro",
+      "estimatedDurationSec": 3.5
+    }
+  ]
+}
+================================================================================
+(Lưu ý: Giữ nguyên các biến {{CHANNEL_NAME}} và {{SOURCE_MATERIAL}} để hệ thống tự động điền lúc sản xuất)`;
+
+    // Nếu người dùng có LLM provider sẵn sàng, thử yêu cầu LLM tối ưu hóa thêm
+    if (config && (config.apiKey || config.provider === 'chatgpt_web' || config.provider === 'gemini_web')) {
+      try {
+        onProgress?.('Đang kết nối AI Provider để tạo Master Prompt tùy chỉnh cho kênh...');
+        const userPrompt = `Bạn là chuyên gia thiết kế Prompt kỹ thuật cao cho YouTube/TikTok Creator.
+Hãy dựa vào thông tin kênh sau đây để tạo một MASTER PROMPT viết kịch bản hoàn chỉnh (chuẩn format 300+ dòng, đầy đủ quy tắc nguồn, cấu trúc beat và định dạng JSON):
+- Tên/Ngách kênh: ${niche}
+- Mô tả: ${desc}
+- Định hướng góc nhìn: ${orient}
+- Câu chốt thương hiệu: ${hook}
+Yêu cầu bắt buộc:
+1. Giữ nguyên 2 biến placeholder: {{CHANNEL_NAME}} và {{SOURCE_MATERIAL}}.
+2. Trả về toàn bộ nội dung Master Prompt để người dùng dán trực tiếp vào cấu hình kênh.`;
+
+        if (config.provider === 'chatgpt_web') {
+          const { ChatGptWebSessionManager } = await import('../chatgpt/ChatGptWebSessionManager');
+          const mgr = ChatGptWebSessionManager.getInstance();
+          const mode = config.chatgptWebMode || 'offscreen';
+          const res = await mgr.executePromptTurn(userPrompt, mode, onProgress);
+          if (res && res.length >= 100) return res.trim();
+        } else if (config.provider === 'gemini_web') {
+          const { GeminiWebSessionManager } = await import('../gemini/GeminiWebSessionManager');
+          const mgr = GeminiWebSessionManager.getInstance();
+          const mode = config.geminiWebMode || 'offscreen';
+          const res = await mgr.executePromptTurn(userPrompt, mode, onProgress);
+          if (res && res.length >= 100) return res.trim();
+        } else {
+          const clientBundle = this.createClient(config);
+          if (clientBundle) {
+            const resp = await clientBundle.client.chat.completions.create({
+              model: clientBundle.model,
+              messages: [{ role: 'user', content: userPrompt }],
+              temperature: 0.7,
+            });
+            const text = resp.choices[0]?.message?.content;
+            if (text && text.length >= 100) return text.trim();
+          }
+        }
+      } catch (err) {
+        console.warn('[AiStudioLlmService] Remote master prompt generation error, using modular template:', err);
+      }
+    }
+
+    return promptTemplate;
   }
 }
 

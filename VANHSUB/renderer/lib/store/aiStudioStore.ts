@@ -8,6 +8,7 @@ import {
   AiStudioFlowEngineConfig,
   AiStudioRenderingConfig,
   AiStudioSubtitleConfig,
+  ChannelProfileConfig,
 } from '../../types/aiStudio';
 
 // ============================================================================
@@ -24,7 +25,7 @@ export function cloneDefaultAiStudioConfig(): AiStudioConfig {
 
 /**
  * Trộn một phần cấu hình (DeepPartial) vào cấu hình cơ sở một cách an toàn.
- * Bảo toàn tất cả các thuộc tính lồng nhau trong 5 phân hệ cấu hình.
+ * Bảo toàn tất cả các thuộc tính lồng nhau trong các phân hệ cấu hình.
  */
 export function mergeAiStudioConfig(
   base: AiStudioConfig,
@@ -50,6 +51,10 @@ export function mergeAiStudioConfig(
     subtitles: {
       ...base.subtitles,
       ...(patch.subtitles || {}),
+    },
+    channelProfile: {
+      ...(base.channelProfile || DEFAULT_AI_STUDIO_CONFIG.channelProfile || ({} as any)),
+      ...(patch.channelProfile || {}),
     },
   };
 }
@@ -98,6 +103,7 @@ export interface AiStudioStoreActions {
   updateFlowConfig: (partial: Partial<AiStudioFlowEngineConfig>) => Promise<boolean>;
   updateRenderingConfig: (partial: Partial<AiStudioRenderingConfig>) => Promise<boolean>;
   updateSubtitleConfig: (partial: Partial<AiStudioSubtitleConfig>) => Promise<boolean>;
+  updateChannelProfileConfig: (partial: Partial<ChannelProfileConfig>) => Promise<boolean>;
 }
 
 export type AiStudioStore = AiStudioStoreState & AiStudioStoreActions;
@@ -304,5 +310,9 @@ export const useAiStudioStore = create<AiStudioStore>((set, get) => ({
 
   updateSubtitleConfig: async (partial: Partial<AiStudioSubtitleConfig>): Promise<boolean> => {
     return get().updateConfig({ subtitles: partial });
+  },
+
+  updateChannelProfileConfig: async (partial: Partial<ChannelProfileConfig>): Promise<boolean> => {
+    return get().updateConfig({ channelProfile: partial });
   },
 }));
