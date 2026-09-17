@@ -176,7 +176,7 @@ Trả về DUY NHẤT nội dung master prompt. Không lời dẫn, không giả
 Bắt đầu ngay bằng mục 1 SYSTEM ROLE.`;
 
 export function generateFilledSkillPrompt(channelProfile?: Partial<ChannelProfileConfig>): string {
-  const channelName = channelProfile?.channelNiche || 'Kênh Kể Chuyện YouTube';
+  const channelName = channelProfile?.projectName || channelProfile?.channelNiche || 'kênh test';
   const engineName = 'Google Flow (Veo & Imagen)';
   const niche = channelProfile?.channelNiche || 'Chưa thiết lập ngách';
   const brief = channelProfile?.channelDescription || 'Kênh tài liệu, khám phá và câu chuyện chuyên sâu.';

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Sparkles,
   Play,
@@ -19,6 +19,10 @@ import {
   Target,
   Zap,
   Settings,
+  Lock,
+  Plus,
+  Trash2,
+  Upload,
 } from 'lucide-react';
 import { useAiStudioStore } from '../../lib/store/aiStudioStore';
 import type {
@@ -40,15 +44,8 @@ const STAGES = [
   { id: 8, name: 'SEO & Xuất bản', icon: Share2 },
 ];
 
-const PRESETS = [
-  '5 Bí Ẩn Rùng Mình Dưới Đáy Biển Sâu Chưa Từng Được Tiết Lộ',
-  'Tại Sao Đầu Tư Trí Tuệ Nhân Tạo Năm 2026 Không Bao Giờ Lỗ',
-  '3 Thói Quen Của Người Giàu Khiến Tiền Tự Chảy Vào Túi',
-  'Hành Trình Khám Phá Hố Đen Vũ Trụ Và Giới Hạn Vật Lý',
-];
-
 export default function AutoPilotView() {
-  const { config } = useAiStudioStore();
+  const { config, updateChannelProfileConfig } = useAiStudioStore();
   const [topic, setTopic] = useState('');
   const [session, setSession] = useState<PipelineSessionState | null>(null);
   const [isRunning, setIsRunning] = useState(false);
@@ -57,6 +54,18 @@ export default function AutoPilotView() {
   const [isGatedMode, setIsGatedMode] = useState(true); // Chu trình từng bước có phê duyệt
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isChannelModalOpen, setIsChannelModalOpen] = useState(false);
+
+  // 3-Column Studio States (Matching Revo Studio UI)
+  const [activeTab, setActiveTab] = useState<'video' | 'facebook'>('video');
+  const [selectedFormat, setSelectedFormat] = useState<'16:9' | '9:16'>('16:9');
+  const [ideas, setIdeas] = useState<IdeaBlueprint[]>([]);
+  const [selectedIdea, setSelectedIdea] = useState<IdeaBlueprint | null>(null);
+
+  // Host & Character States
+  const [newCharName, setNewCharName] = useState('');
+  const [newCharDesc, setNewCharDesc] = useState('');
+  const [hostToast, setHostToast] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     if (typeof window === 'undefined' || !window.vanhsub?.aiStudio) return;
@@ -105,6 +114,13 @@ export default function AutoPilotView() {
     setErrorMessage(null);
     setIsRunning(true);
     setTopic(blueprint.title || blueprint.topic);
+    setSelectedIdea(blueprint);
+
+    // Lưu vào danh sách ý tưởng
+    setIdeas((prev) => {
+      const exists = prev.some((i) => i.title === blueprint.title && i.aspectRatio === blueprint.aspectRatio);
+      return exists ? prev : [blueprint, ...prev];
+    });
 
     try {
       const result = await window.vanhsub.aiStudio.startPipeline({
@@ -231,14 +247,72 @@ export default function AutoPilotView() {
     }
   };
 
+  const handleHostAvatarUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        updateChannelProfileConfig({ hostAvatarUrl: reader.result });
+        setHostToast('Đã tải ảnh đại diện host thành công!');
+        setTimeout(() => setHostToast(null), 3000);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleAiGenerateHost = () => {
+    const desc = config.channelProfile?.hostDescription?.trim();
+    if (!desc) {
+      setHostToast('⚠️ Vui lòng nhập mô tả host để AI có căn cứ sinh hình ảnh.');
+      setTimeout(() => setHostToast(null), 3500);
+      return;
+    }
+    setHostToast(`✨ Đã nạp mô tả host vào bộ sinh Visual của kênh! Khi sản xuất, Flow sẽ tự động render ảnh host.`);
+    setTimeout(() => setHostToast(null), 4000);
+  };
+
+  const handleAddCharacter = async () => {
+    if (!newCharName.trim()) return;
+    const currentChars = config.channelProfile?.channelCharacters || [];
+    const updated = [
+      ...currentChars,
+      {
+        id: `char_${Date.now()}`,
+        name: newCharName.trim(),
+        descriptionEn: newCharDesc.trim(),
+      },
+    ];
+    await updateChannelProfileConfig({ channelCharacters: updated });
+    setNewCharName('');
+    setNewCharDesc('');
+  };
+
+  const handleRemoveCharacter = async (index: number) => {
+    const currentChars = config.channelProfile?.channelCharacters || [];
+    const updated = currentChars.filter((_, idx) => idx !== index);
+    await updateChannelProfileConfig({ channelCharacters: updated });
+  };
+
+  const projectName = config.channelProfile?.projectName || 'kênh test';
+  const aiProviderName =
+    config.llm.provider === 'chatgpt_web'
+      ? 'ChatGPT Web'
+      : config.llm.provider === 'gemini_web'
+      ? 'Gemini Web'
+      : config.llm.provider.toUpperCase();
+
   return (
-    <div className="flex h-full flex-col overflow-y-auto p-6 text-slate-200">
+    <div className="flex h-full flex-col overflow-hidden bg-[#070B13] text-slate-200 select-none">
       {/* Modal: Tạo & Sinh Ý Tưởng Video */}
       <IdeaGenerationModal
         isOpen={isModalOpen}
-        initialTopic={topic}
+        initialTopic={selectedIdea?.title || topic}
         onClose={() => setIsModalOpen(false)}
-        onSubmit={handleStartWithBlueprint}
+        onSubmit={(blueprint) => {
+          setIsModalOpen(false);
+          handleStartWithBlueprint(blueprint);
+        }}
       />
 
       {/* Modal: Cấu hình Kênh · Bộ não AI, Giọng đọc & Model */}
@@ -247,512 +321,717 @@ export default function AutoPilotView() {
         onClose={() => setIsChannelModalOpen(false)}
       />
 
-      {/* Input Header Section */}
-      <div className="rounded-3xl border border-slate-800 bg-gradient-to-b from-slate-900/80 to-slate-950/80 p-6 shadow-2xl backdrop-blur-md mb-6">
-        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-          <div className="flex items-center gap-2">
-            <span className="rounded-full bg-brand-cyan/10 px-2.5 py-0.5 text-[11px] font-semibold text-brand-cyan border border-brand-cyan/20">
-              ⚡ One-Click Auto Pilot
-            </span>
-            <span className="text-xs text-slate-400">
-              Sản xuất video tự động từ Kịch bản, Giọng đọc, Storyboard đến Dựng phim hoàn chỉnh.
-            </span>
-          </div>
-
-          <div className="flex items-center gap-2">
-            {/* Button mở Cấu hình kênh */}
-            <button
-              type="button"
-              onClick={() => setIsChannelModalOpen(true)}
-              className="flex items-center gap-1.5 rounded-xl border border-slate-800 bg-slate-950/80 px-3 py-1.5 text-xs font-semibold text-slate-300 hover:border-brand-cyan/40 hover:text-white transition cursor-pointer"
-              title="Cấu hình bộ não AI, giọng đọc và Master Prompt của kênh"
-            >
-              <Settings className="h-3.5 w-3.5 text-brand-cyan" />
-              <span>⚙️ Cấu hình kênh</span>
-              {config.channelProfile?.channelNiche && (
-                <span className="max-w-[120px] truncate rounded bg-brand-cyan/10 px-1.5 py-0.2 text-[10px] font-bold text-brand-cyan border border-brand-cyan/20">
-                  {config.channelProfile.channelNiche}
-                </span>
-              )}
-            </button>
-
-            {/* Gated Mode Toggle (Chu trình từng bước có phê duyệt) */}
-            <label className="flex items-center gap-2 cursor-pointer select-none rounded-xl border border-slate-800 bg-slate-950/70 px-3 py-1.5 hover:border-slate-700 transition">
-              <input
-                type="checkbox"
-                checked={isGatedMode}
-                onChange={(e) => setIsGatedMode(e.target.checked)}
-                className="rounded border-slate-700 bg-slate-900 text-brand-cyan focus:ring-brand-cyan focus:ring-offset-0"
-              />
-              <span className="text-xs font-semibold text-slate-300 flex items-center gap-1">
-                <ShieldCheck className="h-3.5 w-3.5 text-brand-cyan" />
-                <span>Chế độ từng bước (Cần duyệt)</span>
-              </span>
-            </label>
-          </div>
-        </div>
-
-        {/* Active Channel Profile Banner (nếu có cấu hình) */}
-        {config.channelProfile?.channelNiche && (
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-brand-cyan/25 bg-gradient-to-r from-brand-cyan/10 via-brand-indigo/10 to-transparent px-4 py-2.5 text-xs text-brand-cyan">
-            <div className="flex items-center gap-2">
-              <span className="flex h-2 w-2 rounded-full bg-brand-cyan animate-pulse" />
-              <span className="font-bold text-white">📺 Kênh hoạt động:</span>
-              <span className="font-semibold text-brand-cyan">{config.channelProfile.channelNiche}</span>
-              {config.channelProfile.channelHook && (
-                <span className="hidden md:inline text-slate-400">· Hook: "{config.channelProfile.channelHook}"</span>
-              )}
-            </div>
-            <button
-              type="button"
-              onClick={() => setIsChannelModalOpen(true)}
-              className="text-[11px] font-medium text-slate-400 hover:text-white underline cursor-pointer"
-            >
-              Chỉnh sửa cấu hình kênh ▸
-            </button>
-          </div>
-        )}
-
-        {config.llm.provider === 'chatgpt_web' && (
-          <div className="mb-4 flex items-center justify-between rounded-2xl border border-emerald-500/30 bg-emerald-950/40 px-4 py-2.5 text-xs text-emerald-300">
-            <div className="flex items-center gap-2">
-              <span className="flex h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
-              <span className="font-semibold text-emerald-200">⚡ Chế độ Tiết kiệm:</span>
-              <span>Đang kết nối ChatGPT Web (0₫ API Token).</span>
-            </div>
-            <span className="rounded-md bg-emerald-500/20 px-2.5 py-0.5 text-[11px] font-mono text-emerald-300 border border-emerald-500/30">
-              {config.llm.chatgptWebMode === 'visible' ? '🖥️ Cửa sổ trực tiếp' : '👻 Chạy ngầm'}
-            </span>
-          </div>
-        )}
-
-        {config.llm.provider === 'gemini_web' && (
-          <div className="mb-4 flex items-center justify-between rounded-2xl border border-blue-500/30 bg-blue-950/40 px-4 py-2.5 text-xs text-blue-300">
-            <div className="flex items-center gap-2">
-              <span className="flex h-2 w-2 rounded-full bg-blue-400 animate-pulse" />
-              <span className="font-semibold text-blue-200">⚡ Chế độ Tiết kiệm:</span>
-              <span>Đang kết nối Gemini Web (0₫ API Token).</span>
-            </div>
-            <span className="rounded-md bg-blue-500/20 px-2.5 py-0.5 text-[11px] font-mono text-blue-300 border border-blue-500/30">
-              {config.llm.geminiWebMode === 'visible' ? '🖥️ Cửa sổ trực tiếp' : '👻 Chạy ngầm'}
-            </span>
-          </div>
-        )}
-
-        <h2 className="text-base font-bold text-white mb-3">
-          Nhập chủ đề hoặc mở cửa sổ Tạo &amp; Sinh Ý Tưởng Video:
-        </h2>
-
-        <div className="flex flex-col sm:flex-row gap-3">
-          <input
-            type="text"
-            value={topic}
-            onChange={(e) => setTopic(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && !isRunning && handleStartQuick()}
-            placeholder="Ví dụ: Cú sốc tài chính toàn cầu 2026 - Sự thật chưa ai kể..."
-            className="flex-1 rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white placeholder:text-slate-500 focus:border-brand-cyan focus:ring-1 focus:ring-brand-cyan focus:outline-none"
-          />
-
-          {/* Button: Mở Modal Lên Ý Tưởng Chi Tiết */}
+      {/* ==================================================================== */}
+      {/* TOP HEADER BAR (Revo Studio Style: media_1789652444948.png)           */}
+      {/* ==================================================================== */}
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800/80 bg-[#090E18] px-5 py-2.5 shrink-0">
+        <div className="flex items-center gap-3">
+          {/* Tên Project / Kênh với icon lấp lánh */}
           <button
             type="button"
-            onClick={() => setIsModalOpen(true)}
-            className="inline-flex items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-amber-500 to-rose-500 px-5 py-3 text-xs font-bold text-white shadow-lg shadow-amber-500/20 hover:brightness-110 active:scale-95 transition cursor-pointer"
+            onClick={() => setIsChannelModalOpen(true)}
+            className="flex items-center gap-1.5 rounded-lg border border-slate-800 bg-[#0F1626] px-3 py-1.5 text-xs font-bold text-white hover:border-slate-700 transition cursor-pointer shadow-sm"
+            title="Bấm để mở Cấu hình kênh & Master Prompt"
           >
-            <Lightbulb className="h-4 w-4 fill-white text-white" />
-            <span>💡 Tạo &amp; Sinh Ý Tưởng (Chi tiết)</span>
+            <Sparkles className="h-3.5 w-3.5 text-amber-400" />
+            <span>{projectName}</span>
           </button>
 
-          {/* Quick Start Button */}
-          <button
-            type="button"
-            onClick={handleStartQuick}
-            disabled={isRunning || !topic.trim()}
-            className="btn-vanh-gradient inline-flex items-center justify-center gap-2 rounded-2xl px-6 py-3 text-xs font-bold text-white shadow-lg shadow-brand-cyan/25 hover:brightness-110 active:scale-95 disabled:opacity-50 cursor-pointer transition"
-          >
-            {isRunning ? (
-              <>
-                <RotateCcw className="h-4 w-4 animate-spin" />
-                <span>Đang xử lý...</span>
-              </>
-            ) : (
-              <>
-                <Play className="h-4 w-4 fill-white" />
-                <span>Bắt đầu sản xuất</span>
-              </>
-            )}
-          </button>
+          {/* AI STUDIO Badge */}
+          <span className="rounded-md bg-[#131C2E] px-2 py-1 text-[11px] font-bold text-slate-300 border border-slate-700/50">
+            AI STUDIO
+          </span>
+
+          {/* Pill Toggle Switch: 🎥 Video vs 📄 Bài viết FB */}
+          <div className="flex items-center rounded-lg bg-[#0F1626] p-0.5 border border-slate-800">
+            <button
+              type="button"
+              onClick={() => setActiveTab('video')}
+              className={`flex items-center gap-1 rounded-md px-3 py-1 text-xs font-bold transition cursor-pointer ${
+                activeTab === 'video'
+                  ? 'bg-[#FA5252] text-white shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <span>🎥 Video</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('facebook')}
+              className={`flex items-center gap-1 rounded-md px-3 py-1 text-xs font-semibold transition cursor-pointer ${
+                activeTab === 'facebook'
+                  ? 'bg-[#FA5252] text-white shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <span>📄 Bài viết FB</span>
+            </button>
+          </div>
+
+          {/* AI Model Badge */}
+          <span className="rounded-md bg-[#121E36] px-2.5 py-0.5 text-[11px] font-mono font-bold text-blue-400 border border-blue-500/20">
+            AI 3/5 · {aiProviderName}
+          </span>
         </div>
 
-        {/* Quick Suggestion Chips */}
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          <span className="text-[11px] text-slate-500 font-medium">Gợi ý nhanh:</span>
-          {PRESETS.map((p, idx) => (
-            <button
-              key={idx}
-              type="button"
-              onClick={() => setTopic(p)}
-              className="rounded-xl border border-slate-800 bg-slate-900/60 px-2.5 py-1 text-[11px] text-slate-400 hover:border-brand-cyan/40 hover:text-brand-cyan transition cursor-pointer"
-            >
-              {p}
-            </button>
-          ))}
+        {/* Right Actions */}
+        <div className="flex items-center gap-2">
+          {/* Flow status */}
+          <span className="flex items-center gap-1.5 rounded-lg border border-slate-800 bg-[#0F1626] px-2.5 py-1 text-xs font-mono text-emerald-400">
+            <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+            <span>Flow 1/1 •</span>
+          </span>
+
+          {/* Telegram shortcut button */}
+          <button
+            type="button"
+            className="flex items-center gap-1.5 rounded-lg border border-slate-800 bg-[#0F1626] px-2.5 py-1 text-xs font-medium text-slate-300 hover:text-white hover:border-slate-700 transition cursor-pointer"
+          >
+            <span>Telegram 💬</span>
+          </button>
+
+          {/* Thống kê button */}
+          <button
+            type="button"
+            className="flex items-center gap-1.5 rounded-lg border border-slate-800 bg-[#0F1626] px-2.5 py-1 text-xs font-medium text-slate-300 hover:text-white hover:border-slate-700 transition cursor-pointer"
+          >
+            <span>📊 Thống kê</span>
+          </button>
+
+          {/* Cấu hình kênh button */}
+          <button
+            type="button"
+            onClick={() => setIsChannelModalOpen(true)}
+            className="flex items-center gap-1.5 rounded-lg border border-slate-800 bg-[#0F1626] px-3 py-1 text-xs font-semibold text-slate-300 hover:text-white hover:border-slate-700 transition cursor-pointer"
+          >
+            <Settings className="h-3.5 w-3.5 text-brand-cyan" />
+            <span>⚙ Cấu hình</span>
+          </button>
         </div>
       </div>
 
-      {/* Gated Stage Approval Banner (Chờ phê duyệt) */}
-      {session?.status === 'awaiting_approval' && (
-        <div className="mb-6 rounded-3xl border border-amber-500/40 bg-gradient-to-r from-amber-950/40 via-slate-900/90 to-slate-950/90 p-5 backdrop-blur-md shadow-2xl animate-in fade-in duration-300">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div className="flex items-start sm:items-center gap-3.5">
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-amber-500/20 border border-amber-500/40 text-amber-400 shadow-md">
-                <ShieldCheck className="h-6 w-6" />
-              </div>
-              <div>
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="rounded-full bg-amber-500/20 px-2.5 py-0.5 text-[10px] font-bold text-amber-300 border border-amber-500/30">
-                    BƯỚC {session.currentStage}/8 HOÀN TẤT
-                  </span>
-                  <h3 className="text-sm font-bold text-white">
-                    {STAGES.find((s) => s.id === session.currentStage)?.name}: Đang chờ bạn phê duyệt!
-                  </h3>
-                </div>
-                <p className="text-xs text-slate-400">
-                  Vui lòng kiểm tra dữ liệu đầu ra bên dưới. Khi đã hài lòng, bấm nút phê duyệt để hệ thống sản xuất bước tiếp theo.
-                </p>
-              </div>
-            </div>
+      {/* Subtitle / Status Line */}
+      <div className="border-b border-slate-800/60 bg-[#080C14] px-5 py-1.5 text-xs text-slate-400 flex items-center justify-between shrink-0">
+        <p className="truncate">
+          Dây chuyền:{' '}
+          {session ? (
+            <span className="text-amber-400 font-medium">đang xử lý: {session.topic}</span>
+          ) : (
+            'chưa có tập'
+          )}{' '}
+          ·{' '}
+          {ideas.length > 0 ? (
+            <span className="text-slate-300 font-medium">{ideas.length} ý tưởng chờ</span>
+          ) : (
+            'chưa có ý tưởng chờ'
+          )}{' '}
+          — bấm <strong className="text-white font-semibold">Sinh ý tưởng</strong>
+        </p>
 
-            <div className="flex items-center gap-2.5 self-end md:self-center">
+        <label className="flex items-center gap-1.5 cursor-pointer text-[11px] text-slate-400 hover:text-slate-200">
+          <input
+            type="checkbox"
+            checked={isGatedMode}
+            onChange={(e) => setIsGatedMode(e.target.checked)}
+            className="rounded border-slate-700 bg-slate-900 text-brand-cyan focus:ring-0 h-3.5 w-3.5 cursor-pointer"
+          />
+          <span>Phê duyệt từng bước (Gated)</span>
+        </label>
+      </div>
+
+      {/* ==================================================================== */}
+      {/* 3-COLUMN REVO WORKSPACE LAYOUT                                        */}
+      {/* ==================================================================== */}
+      <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 overflow-hidden">
+        {/* ------------------------------------------------------------------ */}
+        {/* CỘT 1 (LEFT - 3 COLS): Ý TƯỞNG VIDEO                              */}
+        {/* ------------------------------------------------------------------ */}
+        <div className="lg:col-span-3 flex flex-col h-full border-r border-slate-800/80 bg-[#070B13] overflow-hidden">
+          {/* Header Cột 1 */}
+          <div className="p-3.5 border-b border-slate-800/80 flex items-center justify-between gap-2 shrink-0">
+            <h3 className="text-sm font-bold text-white tracking-wide">Ý tưởng</h3>
+            <div className="flex items-center gap-2">
+              <select
+                value={selectedFormat}
+                onChange={(e) => setSelectedFormat(e.target.value as '16:9' | '9:16')}
+                className="rounded-lg border border-slate-800 bg-[#0E1526] px-2 py-1 text-xs text-slate-300 focus:outline-none cursor-pointer"
+              >
+                <option value="16:9">🎬 Video dài</option>
+                <option value="9:16">📱 Shorts</option>
+              </select>
+
+              {/* Nút ✨ Sinh (Mở modal tạo & sinh ý tưởng) */}
               <button
                 type="button"
-                onClick={handleRetryCurrentStage}
-                disabled={isApproving}
-                className="flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-900 px-4 py-2.5 text-xs font-semibold text-slate-300 hover:text-white hover:bg-slate-800 transition cursor-pointer"
+                onClick={() => setIsModalOpen(true)}
+                className="flex items-center gap-1 rounded-lg bg-[#FA5252] hover:bg-[#e04545] px-3 py-1 text-xs font-bold text-white shadow transition active:scale-95 cursor-pointer"
               >
-                <RotateCcw className="h-3.5 w-3.5" />
-                <span>Chạy lại bước này</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={handleApproveStage}
-                disabled={isApproving}
-                className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 px-5 py-2.5 text-xs font-bold text-white shadow-lg shadow-emerald-500/25 active:scale-95 transition cursor-pointer disabled:opacity-50"
-              >
-                {isApproving ? (
-                  <>
-                    <RotateCcw className="h-3.5 w-3.5 animate-spin" />
-                    <span>Đang kích hoạt...</span>
-                  </>
-                ) : (
-                  <>
-                    <CheckCircle2 className="h-4 w-4" />
-                    <span>
-                      Duyệt &amp; Sang Bước {session.currentStage + 1}:{' '}
-                      {STAGES.find((s) => s.id === session.currentStage + 1)?.name || 'Kế tiếp'}
-                    </span>
-                    <ArrowRight className="h-4 w-4" />
-                  </>
-                )}
+                <Sparkles className="h-3.5 w-3.5" />
+                <span>Sinh</span>
               </button>
             </div>
           </div>
-        </div>
-      )}
 
-      {/* Real Error Banner with Explicit Retry (No Fake Fallback) */}
-      {(errorMessage || session?.status === 'failed') && (
-        <div className="mb-6 rounded-3xl border border-rose-500/40 bg-gradient-to-r from-rose-950/40 via-slate-900/90 to-slate-950/90 p-5 backdrop-blur-md shadow-2xl">
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-            <div className="flex items-start gap-3">
-              <AlertCircle className="h-5 w-5 shrink-0 text-rose-400 mt-0.5" />
-              <div>
-                <h4 className="text-xs font-bold uppercase tracking-wider text-rose-300">
-                  Lỗi thực tế tại Công đoạn {session?.currentStage || 1} (Không chạy giả lập)
-                </h4>
-                <p className="text-xs text-rose-200/90 mt-1 leading-relaxed">
-                  {errorMessage || 'Tiến trình gặp lỗi kết nối hoặc xử lý dữ liệu.'}
+          {/* Nội dung danh sách ý tưởng / Trạng thái trống */}
+          <div className="flex-1 overflow-y-auto custom-scrollbar p-3">
+            {ideas.length === 0 ? (
+              <div className="h-full flex flex-col items-center justify-center p-6 text-center text-slate-500 text-xs leading-relaxed">
+                <Lightbulb className="h-8 w-8 text-slate-600 mb-3 stroke-[1.5]" />
+                <p>Chưa có ý tưởng.</p>
+                <p className="mt-1">
+                  Bấm &quot;✨ Sinh&quot; (cần đã chọn engine + cấu hình AI provider ở Settings).
                 </p>
-                <p className="text-[11px] text-slate-400 mt-1">
-                  Ứng dụng đã tạm dừng để bảo toàn dữ liệu. Bạn có thể kiểm tra lại cấu hình hoặc bấm nút &quot;Thử lại bước này&quot;.
-                </p>
-              </div>
-            </div>
-
-            <button
-              type="button"
-              onClick={handleRetryCurrentStage}
-              className="flex items-center gap-2 rounded-xl bg-rose-600 hover:bg-rose-500 px-5 py-2.5 text-xs font-bold text-white shadow-lg shadow-rose-600/30 active:scale-95 transition cursor-pointer self-end sm:self-center"
-            >
-              <RotateCcw className="h-4 w-4" />
-              <span>Thử lại bước này</span>
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Pipeline Status Tracker (8 Steps) */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left 2 Cols: Pipeline Stepper & Artifact Previews */}
-        <div className="lg:col-span-2 space-y-6">
-          <div className="rounded-3xl border border-slate-800 bg-slate-900/60 p-6 backdrop-blur-sm">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
-                <Sparkles className="h-4 w-4 text-brand-cyan" />
-                Tiến độ sản xuất video (8 công đoạn)
-              </h3>
-              <span className="text-xs font-mono font-bold text-brand-cyan">
-                {session?.progress || 0}%
-              </span>
-            </div>
-
-            {/* Overall Progress Bar */}
-            <div className="h-2 w-full rounded-full bg-slate-800 overflow-hidden mb-6">
-              <div
-                className="h-full bg-gradient-to-r from-brand-cyan to-brand-indigo rounded-full transition-all duration-500"
-                style={{ width: `${session?.progress || 0}%` }}
-              />
-            </div>
-
-            {/* 8 Steps List */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              {STAGES.map((st) => {
-                const Icon = st.icon;
-                const stagesMap = (session?.stages || {}) as Record<number, any>;
-                const stageStatus = stagesMap[st.id]?.status || 'pending';
-                const isCurrent = session?.currentStage === st.id;
-
-                let statusBadge = (
-                  <span className="text-[10px] text-slate-500 font-medium">Chờ</span>
-                );
-                let borderColor = 'border-slate-800 bg-slate-950/40';
-
-                if (stageStatus === 'success') {
-                  statusBadge = (
-                    <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-400">
-                      <CheckCircle2 className="h-3 w-3" /> Xong
-                    </span>
-                  );
-                  borderColor = 'border-emerald-500/30 bg-emerald-500/5';
-                } else if (session?.status === 'awaiting_approval' && isCurrent) {
-                  statusBadge = (
-                    <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-amber-400 animate-pulse">
-                      <ShieldCheck className="h-3 w-3" /> Chờ duyệt
-                    </span>
-                  );
-                  borderColor = 'border-amber-500/50 bg-amber-500/10 ring-1 ring-amber-500/40';
-                } else if (stageStatus === 'running' || (isCurrent && session?.status === 'running')) {
-                  statusBadge = (
-                    <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-brand-cyan animate-pulse">
-                      <RotateCcw className="h-3 w-3 animate-spin" /> Đang chạy
-                    </span>
-                  );
-                  borderColor = 'border-brand-cyan/50 bg-brand-cyan/10 ring-1 ring-brand-cyan/50';
-                } else if (stageStatus === 'error') {
-                  statusBadge = (
-                    <span className="text-[10px] font-semibold text-rose-400">Lỗi</span>
-                  );
-                  borderColor = 'border-rose-500/40 bg-rose-500/10';
-                }
-
-                return (
-                  <div
-                    key={st.id}
-                    className={`flex flex-col justify-between rounded-2xl border p-3 transition-all ${borderColor}`}
-                  >
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-[11px] font-mono text-slate-400">#{st.id}</span>
-                      <Icon className="h-4 w-4 text-slate-400" />
-                    </div>
-                    <div>
-                      <div className="text-xs font-bold text-white mb-1">{st.name}</div>
-                      {statusBadge}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Stage 1: Idea Blueprint Preview Card */}
-          {session?.artifacts?.blueprint && (
-            <div className="rounded-3xl border border-slate-800 bg-slate-900/60 p-6 backdrop-blur-sm space-y-3">
-              <div className="flex items-center justify-between">
-                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
-                  <Lightbulb className="h-4 w-4 text-amber-400" />
-                  Dữ kiện ý tưởng video (Khung hình: {session.artifacts.blueprint.aspectRatio || '16:9'})
-                </h4>
-                <span className="rounded-md bg-amber-500/10 px-2 py-0.5 text-[11px] font-mono text-amber-300 border border-amber-500/20">
-                  {session.artifacts.blueprint.aspectRatio === '9:16' ? '📱 Video Ngắn (9:16)' : '🎬 Video Dài (16:9)'}
-                </span>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
-                <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-3 space-y-1">
-                  <span className="text-slate-400 font-semibold flex items-center gap-1">
-                    <Zap className="h-3.5 w-3.5 text-amber-400" /> Hook 3s mở đầu:
-                  </span>
-                  <p className="text-slate-200">{session.artifacts.blueprint.hookConcept}</p>
-                </div>
-
-                <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-3 space-y-1">
-                  <span className="text-slate-400 font-semibold flex items-center gap-1">
-                    <Target className="h-3.5 w-3.5 text-cyan-400" /> Góc nhìn / Đột phá (Angle):
-                  </span>
-                  <p className="text-slate-200">{session.artifacts.blueprint.narrativeAngle}</p>
-                </div>
-              </div>
-
-              {session.artifacts.blueprint.outline && session.artifacts.blueprint.outline.length > 0 && (
-                <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-3 space-y-1 text-xs">
-                  <span className="text-slate-400 font-semibold">Dàn ý phân đoạn:</span>
-                  <ul className="list-disc list-inside space-y-0.5 text-slate-300 text-[11px] font-mono">
-                    {session.artifacts.blueprint.outline.map((o, idx) => (
-                      <li key={idx}>{o}</li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-
-              {session.artifacts.blueprint.existingScript && (
-                <div className="rounded-2xl border border-emerald-500/20 bg-emerald-950/20 p-3 text-xs space-y-1">
-                  <span className="font-semibold text-emerald-300">📜 Kịch bản có sẵn được nạp:</span>
-                  <p className="text-[11px] text-slate-300 line-clamp-3 italic">
-                    &quot;{session.artifacts.blueprint.existingScript}&quot;
-                  </p>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Script & Voice Preview Box */}
-          {session?.artifacts?.scriptLines && session.artifacts.scriptLines.length > 0 && (
-            <div className="rounded-3xl border border-slate-800 bg-slate-900/60 p-6 backdrop-blur-sm">
-              <div className="flex items-center justify-between mb-3">
-                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
-                  <FileText className="h-4 w-4 text-brand-cyan" />
-                  Kịch bản sản xuất ({session.artifacts.scriptLines.length} phân cảnh)
-                </h4>
-                {session.artifacts.audioPath && (
-                  <button
-                    type="button"
-                    onClick={() => handleOpenFolder(session.artifacts.audioPath)}
-                    className="flex items-center gap-1 text-xs text-brand-cyan hover:underline cursor-pointer"
-                  >
-                    <FolderOpen className="h-3.5 w-3.5" /> Mở thư mục Audio
-                  </button>
-                )}
-              </div>
-
-              {/* Audio Player if available */}
-              {session.artifacts.audioPath && (
-                <div className="mb-4 rounded-2xl border border-slate-800 bg-slate-950/80 p-3 flex items-center gap-3">
-                  <Volume2 className="h-5 w-5 text-brand-cyan shrink-0" />
-                  <audio
-                    controls
-                    src={`vanhmedia://local/${encodeURIComponent(session.artifacts.audioPath)}`}
-                    className="w-full h-8"
-                  />
-                </div>
-              )}
-
-              <div className="max-h-64 space-y-2 overflow-y-auto pr-2 text-xs custom-scrollbar">
-                {session.artifacts.scriptLines.map((line, idx) => (
-                  <div
-                    key={line.id || idx}
-                    className="rounded-xl border border-slate-800/80 bg-slate-950/50 p-2.5 flex items-start gap-3"
-                  >
-                    <span className="font-mono text-[10px] text-brand-cyan bg-brand-cyan/10 px-1.5 py-0.5 rounded">
-                      #{idx + 1}
-                    </span>
-                    <div className="flex-1">
-                      <p className="text-slate-200 leading-relaxed">{line.text}</p>
-                      {line.visualPromptEn && (
-                        <p className="text-[10px] font-mono text-slate-500 mt-1 line-clamp-1">
-                          🎨 {line.visualPromptEn}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Right Col: Video Preview & SEO Box */}
-        <div className="space-y-6">
-          {/* Video Preview Box */}
-          <div className="rounded-3xl border border-slate-800 bg-slate-900/60 p-6 backdrop-blur-sm flex flex-col justify-between">
-            <h3 className="text-sm font-bold uppercase tracking-wider text-slate-300 mb-3 flex items-center gap-2">
-              <Video className="h-4 w-4 text-brand-cyan" />
-              Video Hoàn Chỉnh
-            </h3>
-
-            {session?.artifacts?.videoPath ? (
-              <div className="space-y-3">
-                <div
-                  className={`w-full rounded-2xl overflow-hidden border border-slate-700 bg-black ${
-                    session?.artifacts?.blueprint?.aspectRatio === '9:16'
-                      ? 'aspect-[9/16] max-h-[420px] mx-auto'
-                      : 'aspect-video'
-                  }`}
-                >
-                  <video
-                    controls
-                    autoPlay
-                    src={`vanhmedia://local/${encodeURIComponent(session.artifacts.videoPath)}`}
-                    className="w-full h-full object-contain"
-                  />
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => handleOpenFolder(session.artifacts.videoPath)}
-                    className="flex-1 btn-vanh-gradient flex items-center justify-center gap-1.5 rounded-xl py-2.5 text-xs font-semibold text-white shadow-lg cursor-pointer"
-                  >
-                    <FolderOpen className="h-4 w-4" /> Mở File Video
-                  </button>
-                </div>
               </div>
             ) : (
-              <div className="aspect-video w-full rounded-2xl border border-dashed border-slate-800 bg-slate-950/40 flex flex-col items-center justify-center text-slate-500 p-6 text-center">
-                <Film className="h-8 w-8 mb-2 text-slate-600 animate-pulse" />
-                <p className="text-xs">
-                  Video sẽ tự động hiển thị tại đây sau khi hoàn tất công đoạn Dựng phim.
-                </p>
+              <div className="space-y-2.5">
+                {ideas.map((idea, idx) => {
+                  const isSelected = selectedIdea === idea;
+                  return (
+                    <div
+                      key={idx}
+                      onClick={() => setSelectedIdea(idea)}
+                      className={`rounded-xl border p-3 cursor-pointer transition ${
+                        isSelected
+                          ? 'border-orange-500/80 bg-[#141B29] shadow-md shadow-orange-500/10'
+                          : 'border-slate-800 bg-[#0B101E] hover:border-slate-700'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-1.5">
+                        <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-400">
+                          {idea.aspectRatio === '9:16' ? '📱 9:16 Shorts' : '🎬 16:9 Dài'}
+                        </span>
+                        <span className="text-[10px] text-slate-500">#{idx + 1}</span>
+                      </div>
+                      <h4 className="text-xs font-bold text-slate-200 line-clamp-2 leading-snug">
+                        {idea.title}
+                      </h4>
+                      <p className="text-[11px] text-slate-400 line-clamp-2 mt-1">
+                        {idea.hookConcept}
+                      </p>
+                      <div className="mt-2.5 flex items-center justify-end">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleStartWithBlueprint(idea);
+                          }}
+                          disabled={isRunning}
+                          className="rounded-lg bg-orange-600/90 hover:bg-orange-500 px-3 py-1 text-[11px] font-bold text-white transition active:scale-95 disabled:opacity-50 cursor-pointer"
+                        >
+                          Sản xuất ▸
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
+        </div>
 
-          {/* SEO Metadata Box */}
-          {session?.artifacts?.metadata && (
-            <div className="rounded-3xl border border-slate-800 bg-slate-900/60 p-6 backdrop-blur-sm space-y-3">
-              <h3 className="text-sm font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
-                <Share2 className="h-4 w-4 text-brand-cyan" />
-                Gói SEO &amp; Xuất bản Viral
-              </h3>
-              <div className="text-xs space-y-2">
-                <div>
-                  <span className="text-slate-400 font-medium">Tiêu đề đề xuất:</span>
-                  <p className="font-bold text-white mt-0.5">{session.artifacts.metadata.title}</p>
-                </div>
-                <div>
-                  <span className="text-slate-400 font-medium">Hashtags:</span>
-                  <p className="font-mono text-brand-cyan mt-0.5">
-                    {session.artifacts.metadata.hashtags.join(' ')}
-                  </p>
-                </div>
-                <div>
-                  <span className="text-slate-400 font-medium">Mô tả video:</span>
-                  <p className="text-slate-300 mt-0.5 whitespace-pre-line text-[11px] bg-slate-950/60 p-2.5 rounded-xl border border-slate-800">
-                    {session.artifacts.metadata.description}
-                  </p>
-                </div>
+        {/* ------------------------------------------------------------------ */}
+        {/* CỘT 2 (CENTER - 5 COLS): NHÂN VẬT ĐẠI DIỆN KÊNH & ĐỒNG BỘ CẢNH     */}
+        {/* ------------------------------------------------------------------ */}
+        <div className="lg:col-span-5 flex flex-col h-full border-r border-slate-800/80 bg-[#080D17] overflow-y-auto custom-scrollbar p-5 space-y-4">
+          {/* Top Instruction or Selected Idea Card */}
+          {selectedIdea ? (
+            <div className="rounded-2xl border border-orange-500/30 bg-[#121826] p-4 space-y-2 animate-in fade-in duration-200 shadow-lg">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-orange-400 flex items-center gap-1.5">
+                  <Lightbulb className="h-3.5 w-3.5" />
+                  Ý tưởng đang chọn:
+                </span>
+                <span className="text-[10px] font-mono text-slate-400 bg-slate-800/80 px-2 py-0.5 rounded">
+                  {selectedIdea.aspectRatio}
+                </span>
+              </div>
+              <h4 className="text-sm font-bold text-white">{selectedIdea.title}</h4>
+              <p className="text-xs text-slate-300">
+                <strong className="text-amber-400">Hook 3s:</strong> {selectedIdea.hookConcept}
+              </p>
+              <p className="text-xs text-slate-400">
+                <strong className="text-cyan-400">Góc nhìn:</strong> {selectedIdea.narrativeAngle}
+              </p>
+              <div className="pt-2 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => handleStartWithBlueprint(selectedIdea)}
+                  disabled={isRunning}
+                  className="rounded-xl bg-[#FA5252] hover:bg-[#e04545] px-4 py-2 text-xs font-bold text-white shadow-md transition active:scale-95 disabled:opacity-50 cursor-pointer flex items-center gap-1.5"
+                >
+                  <Play className="h-3.5 w-3.5 fill-white" />
+                  <span>Sản xuất ý tưởng này</span>
+                </button>
               </div>
             </div>
+          ) : (
+            <div className="text-center text-xs text-slate-500 py-1 font-medium">
+              Chọn một ý tưởng bên trái để xem chi tiết.
+            </div>
           )}
+
+          {/* Toast thông báo host */}
+          {hostToast && (
+            <div className="rounded-xl border border-amber-500/40 bg-amber-950/40 px-3.5 py-2 text-xs text-amber-200 animate-in fade-in duration-200 flex items-center gap-2">
+              <Sparkles className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+              <span>{hostToast}</span>
+            </div>
+          )}
+
+          {/* Box 1: Nhân vật đại diện kênh (Exact UI: media_1789652444948.png) */}
+          <div className="rounded-2xl border border-slate-800/80 bg-[#0B101E] p-4 space-y-3 shadow-md">
+            <div className="flex items-center justify-between">
+              <span className="text-amber-400 font-bold text-xs flex items-center gap-1.5">
+                <span>⭐</span> Nhân vật đại diện kênh
+              </span>
+              <span className="text-[11px] text-slate-500 flex items-center gap-1">
+                <Lock className="h-3 w-3" /> Cố định — không tự sinh lại
+              </span>
+            </div>
+
+            <p className="text-xs text-slate-400 leading-relaxed">
+              Xuất hiện LỚN ở thumbnail và trong video, giúp kênh dễ nhận diện. Kênh không cần thì bỏ trống.
+            </p>
+
+            {/* Avatar thumbnail preview if available */}
+            {config.channelProfile?.hostAvatarUrl ? (
+              <div className="flex items-center gap-3 p-2.5 rounded-xl border border-slate-800 bg-[#070B14]">
+                <img
+                  src={config.channelProfile.hostAvatarUrl}
+                  alt="Host Avatar"
+                  className="h-12 w-12 rounded-xl object-cover border border-amber-500/40"
+                />
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-bold text-white truncate">
+                    {config.channelProfile.hostName || 'Host đại diện kênh'}
+                  </p>
+                  <p className="text-[11px] text-slate-400 line-clamp-1">
+                    {config.channelProfile.hostDescription || 'Chưa có mô tả ngoại hình'}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => updateChannelProfileConfig({ hostAvatarUrl: '' })}
+                  className="text-[11px] text-rose-400 hover:underline px-2 cursor-pointer"
+                >
+                  Gỡ ảnh
+                </button>
+              </div>
+            ) : (
+              <p className="text-xs text-slate-500 italic">
+                Chưa có nhân vật đại diện. Import ảnh của bạn hoặc để AI tạo.
+              </p>
+            )}
+
+            {/* Inputs: Tên host & Mô tả host để AI tạo */}
+            <div className="grid grid-cols-1 sm:grid-cols-12 gap-2">
+              <div className="sm:col-span-4">
+                <input
+                  type="text"
+                  placeholder="Tên host"
+                  value={config.channelProfile?.hostName || ''}
+                  onChange={(e) => updateChannelProfileConfig({ hostName: e.target.value })}
+                  className="w-full rounded-lg border border-slate-800 bg-[#070B14] px-3 py-2 text-xs text-white placeholder:text-slate-600 focus:border-orange-500 focus:outline-none"
+                />
+              </div>
+              <div className="sm:col-span-8">
+                <input
+                  type="text"
+                  placeholder="Mô tả host để AI tạo (vd: một chú sói đội mũ, mặc vest, phong cách điện ảnh)"
+                  value={config.channelProfile?.hostDescription || ''}
+                  onChange={(e) => updateChannelProfileConfig({ hostDescription: e.target.value })}
+                  className="w-full rounded-lg border border-slate-800 bg-[#070B14] px-3 py-2 text-xs text-white placeholder:text-slate-600 focus:border-orange-500 focus:outline-none"
+                />
+              </div>
+            </div>
+
+            {/* Action Buttons: Tải ảnh lên & AI tạo host */}
+            <div className="flex items-center gap-2">
+              <input
+                type="file"
+                ref={fileInputRef}
+                accept="image/*"
+                className="hidden"
+                onChange={handleHostAvatarUpload}
+              />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="rounded-lg border border-slate-700/60 bg-[#162032] hover:bg-[#1E2B43] px-4 py-2 text-xs font-semibold text-slate-200 transition cursor-pointer"
+              >
+                Tải ảnh lên
+              </button>
+              <button
+                type="button"
+                onClick={handleAiGenerateHost}
+                className="rounded-lg bg-[#FA5252] hover:bg-[#e04545] px-4 py-2 text-xs font-bold text-white transition shadow cursor-pointer"
+              >
+                AI tạo host
+              </button>
+            </div>
+          </div>
+
+          {/* Box 2: Đồng bộ Nhân vật ↔ Cảnh (Exact copy: media_1789652444948.png) */}
+          <div className="rounded-2xl border border-amber-950/40 bg-[#151312]/70 p-4 text-xs text-slate-300 leading-relaxed shadow-sm">
+            <span className="font-bold text-amber-300">Đồng bộ Nhân vật ↔ Cảnh:</span>{' '}
+            tạo/khoá ảnh nhân vật một lần ở đây (upload ảnh thật{' '}
+            <span className="font-semibold text-white">hoặc</span> để Flow tự sinh khi sản xuất) —
+            mọi cảnh có nhân vật đó sẽ dùng đúng ảnh này làm <i>ingredient</i> nên khuôn mặt/trang
+            phục nhất quán. AI cũng tự thêm nhân vật mới khi đọc kịch bản.
+          </div>
+
+          {/* Box 3: + Thêm nhân vật cho kênh (Exact copy: media_1789652444948.png) */}
+          <div className="rounded-2xl border border-slate-800/80 bg-[#0B101E] p-4 space-y-3 shadow-md">
+            <h4 className="text-xs font-bold text-slate-300">+ Thêm nhân vật cho kênh</h4>
+
+            <div className="flex flex-col sm:flex-row items-center gap-2">
+              <input
+                type="text"
+                placeholder="Tên (vd: Host)"
+                value={newCharName}
+                onChange={(e) => setNewCharName(e.target.value)}
+                className="w-full sm:w-1/3 rounded-lg border border-slate-800 bg-[#070B14] px-3 py-2 text-xs text-white placeholder:text-slate-600 focus:border-orange-500 focus:outline-none"
+              />
+              <input
+                type="text"
+                placeholder="Mô tả ngoại hình (tiếng Anh tốt hơn cho sinh ảnh)"
+                value={newCharDesc}
+                onChange={(e) => setNewCharDesc(e.target.value)}
+                className="w-full sm:flex-1 rounded-lg border border-slate-800 bg-[#070B14] px-3 py-2 text-xs text-white placeholder:text-slate-600 focus:border-orange-500 focus:outline-none"
+              />
+              <button
+                type="button"
+                onClick={handleAddCharacter}
+                className="w-full sm:w-auto rounded-lg bg-[#FA5252] hover:bg-[#e04545] px-4 py-2 text-xs font-bold text-white shadow transition cursor-pointer"
+              >
+                Thêm
+              </button>
+            </div>
+
+            {/* Character List / Empty state */}
+            {!config.channelProfile?.channelCharacters ||
+            config.channelProfile.channelCharacters.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-slate-800/80 bg-[#080C14] p-4 text-center text-xs text-slate-500">
+                Chưa có nhân vật. Thêm ở trên (vd người dẫn cố định), hoặc cứ sản xuất — AI sẽ tự rút
+                nhân vật từ kịch bản.
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {config.channelProfile.channelCharacters.map((char, idx) => (
+                  <div
+                    key={idx}
+                    className="flex items-center justify-between rounded-xl border border-slate-800 bg-[#070B14] p-2.5 text-xs"
+                  >
+                    <div>
+                      <span className="font-bold text-white">{char.name}</span>
+                      {char.descriptionEn && (
+                        <span className="text-slate-400 ml-2 text-[11px]">
+                          ({char.descriptionEn})
+                        </span>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveCharacter(idx)}
+                      className="text-slate-500 hover:text-rose-400 p-1 text-xs transition cursor-pointer"
+                      title="Xoá nhân vật"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* ------------------------------------------------------------------ */}
+        {/* CỘT 3 (RIGHT - 4 COLS): TIẾN ĐỘ SẢN XUẤT                          */}
+        {/* ------------------------------------------------------------------ */}
+        <div className="lg:col-span-4 flex flex-col h-full bg-[#070A12] overflow-hidden">
+          {/* Header Cột 3 */}
+          <div className="p-3.5 border-b border-slate-800/80 flex items-center justify-between shrink-0">
+            <h3 className="text-sm font-bold text-white tracking-wide">Tiến độ sản xuất</h3>
+            {session && (
+              <span className="text-xs font-mono font-bold text-brand-cyan">
+                {session.progress}%
+              </span>
+            )}
+          </div>
+
+          {/* Nội dung Tiến độ sản xuất */}
+          <div className="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-4">
+            {!session ? (
+              <div className="h-full flex flex-col items-center justify-center p-6 text-center text-slate-500 text-xs">
+                <p>Duyệt một ý tưởng để bắt đầu sản xuất.</p>
+              </div>
+            ) : (
+              <>
+                {/* Gated Stage Approval Banner (Chờ phê duyệt) */}
+                {session.status === 'awaiting_approval' && (
+                  <div className="rounded-2xl border border-amber-500/40 bg-gradient-to-r from-amber-950/40 via-slate-900/90 to-slate-950/90 p-4 shadow-xl animate-in fade-in duration-300">
+                    <div className="flex items-start gap-3">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-400">
+                        <ShieldCheck className="h-5 w-5" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <span className="rounded bg-amber-500/20 px-2 py-0.5 text-[10px] font-bold text-amber-300 border border-amber-500/30">
+                          BƯỚC {session.currentStage}/8 HOÀN TẤT
+                        </span>
+                        <h4 className="text-xs font-bold text-white mt-1">
+                          {STAGES.find((s) => s.id === session.currentStage)?.name}: Đang chờ duyệt
+                        </h4>
+                        <p className="text-[11px] text-slate-400 mt-0.5">
+                          Kiểm tra dữ liệu bên dưới và bấm duyệt để sang bước tiếp theo.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="mt-3 flex items-center justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={handleRetryCurrentStage}
+                        disabled={isApproving}
+                        className="flex items-center gap-1 rounded-lg border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs font-semibold text-slate-300 hover:text-white transition cursor-pointer"
+                      >
+                        <RotateCcw className="h-3 w-3" />
+                        <span>Chạy lại</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={handleApproveStage}
+                        disabled={isApproving}
+                        className="flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 px-4 py-1.5 text-xs font-bold text-white shadow-md transition active:scale-95 cursor-pointer disabled:opacity-50"
+                      >
+                        {isApproving ? (
+                          <>
+                            <RotateCcw className="h-3 w-3 animate-spin" />
+                            <span>Đang duyệt...</span>
+                          </>
+                        ) : (
+                          <>
+                            <CheckCircle2 className="h-3.5 w-3.5" />
+                            <span>Duyệt &amp; Tiếp</span>
+                            <ArrowRight className="h-3.5 w-3.5" />
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Real Error Banner with Explicit Retry (No Fake Fallback) */}
+                {(errorMessage || session.status === 'failed') && (
+                  <div className="rounded-2xl border border-rose-500/40 bg-gradient-to-r from-rose-950/40 via-slate-900/90 to-slate-950/90 p-4 shadow-xl">
+                    <div className="flex items-start gap-3">
+                      <AlertCircle className="h-5 w-5 shrink-0 text-rose-400 mt-0.5" />
+                      <div className="flex-1 min-w-0">
+                        <h4 className="text-xs font-bold uppercase tracking-wider text-rose-300">
+                          Lỗi tại Công đoạn {session.currentStage} (Không chạy giả lập)
+                        </h4>
+                        <p className="text-xs text-rose-200/90 mt-1">
+                          {errorMessage || 'Tiến trình gặp lỗi kết nối hoặc xử lý dữ liệu.'}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="mt-3 flex justify-end">
+                      <button
+                        type="button"
+                        onClick={handleRetryCurrentStage}
+                        className="flex items-center gap-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 px-4 py-1.5 text-xs font-bold text-white shadow-md active:scale-95 transition cursor-pointer"
+                      >
+                        <RotateCcw className="h-3.5 w-3.5" />
+                        <span>Thử lại bước này</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Overall Progress Bar */}
+                <div className="h-1.5 w-full rounded-full bg-slate-800 overflow-hidden">
+                  <div
+                    className="h-full bg-gradient-to-r from-orange-500 to-amber-400 rounded-full transition-all duration-500"
+                    style={{ width: `${session.progress || 0}%` }}
+                  />
+                </div>
+
+                {/* 8-Stage Progress List */}
+                <div className="grid grid-cols-2 gap-2">
+                  {STAGES.map((st) => {
+                    const Icon = st.icon;
+                    const stagesMap = (session?.stages || {}) as Record<number, any>;
+                    const stageStatus = stagesMap[st.id]?.status || 'pending';
+                    const isCurrent = session?.currentStage === st.id;
+
+                    let statusBadge = (
+                      <span className="text-[10px] text-slate-500 font-medium">Chờ</span>
+                    );
+                    let borderColor = 'border-slate-800 bg-[#0B101E]';
+
+                    if (stageStatus === 'success') {
+                      statusBadge = (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-400">
+                          <CheckCircle2 className="h-3 w-3" /> Xong
+                        </span>
+                      );
+                      borderColor = 'border-emerald-500/30 bg-emerald-500/5';
+                    } else if (session?.status === 'awaiting_approval' && isCurrent) {
+                      statusBadge = (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-amber-400 animate-pulse">
+                          <ShieldCheck className="h-3 w-3" /> Chờ duyệt
+                        </span>
+                      );
+                      borderColor = 'border-amber-500/50 bg-amber-500/10 ring-1 ring-amber-500/40';
+                    } else if (stageStatus === 'running' || (isCurrent && session?.status === 'running')) {
+                      statusBadge = (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-orange-400 animate-pulse">
+                          <RotateCcw className="h-3 w-3 animate-spin" /> Đang chạy
+                        </span>
+                      );
+                      borderColor = 'border-orange-500/50 bg-orange-500/10 ring-1 ring-orange-500/50';
+                    } else if (stageStatus === 'error') {
+                      statusBadge = (
+                        <span className="text-[10px] font-semibold text-rose-400">Lỗi</span>
+                      );
+                      borderColor = 'border-rose-500/40 bg-rose-500/10';
+                    }
+
+                    return (
+                      <div
+                        key={st.id}
+                        className={`flex flex-col justify-between rounded-xl border p-2.5 transition-all ${borderColor}`}
+                      >
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-[10px] font-mono text-slate-500">#{st.id}</span>
+                          <Icon className="h-3.5 w-3.5 text-slate-400" />
+                        </div>
+                        <div>
+                          <div className="text-xs font-bold text-white">{st.name}</div>
+                          <div className="mt-0.5">{statusBadge}</div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Script & Voice Preview Box */}
+                {session.artifacts?.scriptLines && session.artifacts.scriptLines.length > 0 && (
+                  <div className="rounded-2xl border border-slate-800 bg-[#0B101E] p-4 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
+                        <FileText className="h-3.5 w-3.5 text-brand-cyan" />
+                        Kịch bản ({session.artifacts.scriptLines.length} câu)
+                      </h4>
+                      {session.artifacts.audioPath && (
+                        <button
+                          type="button"
+                          onClick={() => handleOpenFolder(session.artifacts?.audioPath)}
+                          className="flex items-center gap-1 text-[11px] text-brand-cyan hover:underline cursor-pointer"
+                        >
+                          <FolderOpen className="h-3 w-3" /> Mở Audio
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Audio Player if available */}
+                    {session.artifacts.audioPath && (
+                      <div className="rounded-xl border border-slate-800 bg-slate-950 p-2.5 flex items-center gap-2.5">
+                        <Volume2 className="h-4 w-4 text-brand-cyan shrink-0" />
+                        <audio
+                          controls
+                          src={`vanhmedia://local/${encodeURIComponent(session.artifacts.audioPath)}`}
+                          className="w-full h-7"
+                        />
+                      </div>
+                    )}
+
+                    <div className="max-h-48 space-y-1.5 overflow-y-auto pr-1 text-xs custom-scrollbar">
+                      {session.artifacts.scriptLines.map((line, idx) => (
+                        <div
+                          key={line.id || idx}
+                          className="rounded-lg border border-slate-800/80 bg-slate-950/50 p-2 flex items-start gap-2"
+                        >
+                          <span className="font-mono text-[9px] text-brand-cyan bg-brand-cyan/10 px-1 py-0.5 rounded">
+                            #{idx + 1}
+                          </span>
+                          <div className="flex-1">
+                            <p className="text-slate-200 leading-relaxed text-[11px]">{line.text}</p>
+                            {line.visualPromptEn && (
+                              <p className="text-[10px] font-mono text-slate-500 mt-0.5 line-clamp-1">
+                                🎨 {line.visualPromptEn}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Video Preview Box */}
+                <div className="rounded-2xl border border-slate-800 bg-[#0B101E] p-4 space-y-3">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
+                    <Video className="h-3.5 w-3.5 text-brand-cyan" />
+                    Video Hoàn Chỉnh
+                  </h4>
+
+                  {session.artifacts?.videoPath ? (
+                    <div className="space-y-2.5">
+                      <div
+                        className={`w-full rounded-xl overflow-hidden border border-slate-700 bg-black ${
+                          session.artifacts?.blueprint?.aspectRatio === '9:16'
+                            ? 'aspect-[9/16] max-h-[380px] mx-auto'
+                            : 'aspect-video'
+                        }`}
+                      >
+                        <video
+                          controls
+                          autoPlay
+                          src={`vanhmedia://local/${encodeURIComponent(session.artifacts.videoPath)}`}
+                          className="w-full h-full object-contain"
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleOpenFolder(session.artifacts?.videoPath)}
+                        className="w-full btn-vanh-gradient flex items-center justify-center gap-1.5 rounded-xl py-2 text-xs font-semibold text-white shadow cursor-pointer"
+                      >
+                        <FolderOpen className="h-3.5 w-3.5" /> Mở File Video
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="aspect-video w-full rounded-xl border border-dashed border-slate-800 bg-slate-950/40 flex flex-col items-center justify-center text-slate-500 p-4 text-center">
+                      <Film className="h-6 w-6 mb-1 text-slate-600 animate-pulse" />
+                      <p className="text-[11px]">
+                        Video hoàn chỉnh sẽ hiển thị tại đây sau khi hoàn tất công đoạn Dựng phim.
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                {/* SEO Metadata Box */}
+                {session.artifacts?.metadata && (
+                  <div className="rounded-2xl border border-slate-800 bg-[#0B101E] p-4 space-y-2.5 text-xs">
+                    <h4 className="font-bold uppercase tracking-wider text-slate-300 flex items-center gap-1.5 text-xs">
+                      <Share2 className="h-3.5 w-3.5 text-brand-cyan" />
+                      Gói SEO &amp; Viral
+                    </h4>
+                    <div>
+                      <span className="text-slate-400 font-medium">Tiêu đề:</span>
+                      <p className="font-bold text-white mt-0.5">{session.artifacts.metadata.title}</p>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 font-medium">Hashtags:</span>
+                      <p className="font-mono text-brand-cyan mt-0.5">
+                        {session.artifacts.metadata.hashtags.join(' ')}
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
         </div>
       </div>
     </div>

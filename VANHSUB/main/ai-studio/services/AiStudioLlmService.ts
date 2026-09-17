@@ -705,25 +705,28 @@ Chấm điểm trên thang 100 và trả về JSON DUY NHẤT:
   // ==========================================================================
   // Channel Master Prompt Generation
   // ==========================================================================
-  // ==========================================================================
-  // Channel Master Prompt Generation
-  // ==========================================================================
   public async generateMasterPromptForChannel(
     channelProfile: Partial<ChannelProfileConfig>,
     config?: AiStudioLlmConfig,
     onProgress?: (msg: string) => void
   ): Promise<string> {
-    const channelName = channelProfile.channelNiche || 'Kênh Kể Chuyện YouTube';
-    const niche = channelProfile.channelNiche || 'Nội dung khám phá & kiến thức chuyên sâu';
+    const projectName = (channelProfile.projectName || channelProfile.channelNiche || 'kênh test').trim();
+    const niche = channelProfile.channelNiche || projectName || 'Nội dung khám phá & kiến thức chuyên sâu';
     const desc = channelProfile.channelDescription || 'Kênh chia sẻ những câu chuyện và góc nhìn độc đáo, hấp dẫn.';
     const orient = channelProfile.channelOrientation || 'Kịch tính, lôi cuốn, tạo sự đồng cảm và kích thích trí tò mò.';
     const hook = channelProfile.channelHook || 'Hãy cùng chúng tôi khám phá ngay bây giờ.';
     const durationLong = channelProfile.targetLongDuration || '3_5_min';
     const targetMinutes = durationLong.replace('_', '–').replace('min', 'phút');
 
+    const aiModelName = config?.model || (
+      config?.provider === 'chatgpt_web' ? 'ChatGPT Web (Zero-API Cost)' :
+      config?.provider === 'gemini_web' ? 'Gemini Web (Zero-API Cost)' :
+      config?.provider || 'AI Studio LLM'
+    );
+
     // 10-Section Fallback Template complying 100% with the user's Master Prompt Standard
     const promptTemplate = `1. SYSTEM ROLE
-Bạn là nhà biên kịch lồng tiếng cao cấp cho kênh YouTube "${channelName}".
+Bạn là nhà biên kịch lồng tiếng cao cấp chạy trên mô hình AI "${aiModelName}" cho project / kênh YouTube "${projectName}".
 Khán giả của kênh là những người yêu thích tìm hiểu sâu, khao khát những góc nhìn chân thực, sắc sảo và kịch tính.
 Lời hứa của kênh với người xem: mỗi câu chuyện đều được bóc tách đến tận cùng sự thật, cuốn hút từng giây và không bao giờ lãng phí thời gian của bạn.
 
@@ -753,7 +756,7 @@ Everything inside the markers is the universe of established fact. You may add g
 - Tôn chỉ văn phong: Trực diện, không vòng vo, cụ thể thắng trừu tượng, mỗi câu nói đều mang sức nặng thông tin.
 
 4B. BRAND IDENTITY
-- BRAND COMPASS: Kênh ${channelName} luôn đi thẳng vào bản chất vấn đề trước khi người khác kịp thanh minh.
+- BRAND COMPASS: Kênh ${projectName} luôn đi thẳng vào bản chất vấn đề trước khi người khác kịp thanh minh.
 - KHÔNG nhắc tên kênh trong 40 giây đầu của video.
 - Giới thiệu thương hiệu trong khoảng 0:40–1:30 (8–12 giây). Câu mẫu:
   + "Chào mừng quý vị quay trở lại với {{CHANNEL_NAME}}, nơi chúng tôi cùng bạn bóc tách những bí ẩn chấn động nhất của câu chuyện hôm nay."
@@ -952,7 +955,8 @@ PHẦN E — ĐẦU VÀO
 ==================================================
 
 Thông tin kênh:
-- Tên kênh: ${channelName}
+- Tên kênh / Project: ${projectName}
+- Mô hình AI sử dụng: ${aiModelName}
 - Kiểu video (engine): Google Flow (Veo & Imagen)
 - Ngách: ${niche}
 - Mô tả kênh: ${desc}

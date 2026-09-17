@@ -11,6 +11,7 @@ import {
   AlertTriangle,
   Zap,
   ChevronRight,
+  Sparkles,
 } from 'lucide-react';
 import {
   ChannelProfileConfig,
@@ -77,67 +78,130 @@ export default function ChannelConfigModal({
     setProfile((prev) => ({ ...prev, [field]: value }));
   };
 
-  // Nút tạo Master Prompt tự động bằng AI
+  // Nút tạo Master Prompt tự động bằng AI (bắt buộc dựa trên Tên Project và Model AI)
   const handleGenerateMasterPrompt = async () => {
+    const projectName = (profile.projectName || profile.channelNiche || '').trim();
+    if (!projectName) {
+      alert('⚠️ Vui lòng nhập "Tên Project / Kênh" trước khi tạo Master Prompt.');
+      return;
+    }
+
+    const aiProvider = profile.aiProvider !== 'default' ? profile.aiProvider : config.llm.provider;
+    if (!aiProvider) {
+      alert('⚠️ Vui lòng chọn "Model AI biên kịch" trước khi tạo Master Prompt.');
+      return;
+    }
+
     setIsGeneratingPrompt(true);
-    setPromptMessage('Đang kết nối AI để tạo Master Prompt cho kênh...');
+    setPromptMessage(`Đang kết nối Model AI (${aiProvider}) để tạo Master Prompt cho project "${projectName}"...`);
 
     try {
       if (window.vanhsub?.aiStudio?.generateMasterPrompt) {
         const result = await window.vanhsub.aiStudio.generateMasterPrompt({
-          channelProfile: profile,
+          channelProfile: { ...profile, projectName },
         });
         if (result?.masterPrompt) {
           handleChange('masterPrompt', result.masterPrompt);
-          setPromptMessage('✨ Đã sinh Master Prompt hoàn chỉnh cho kênh!');
+          setPromptMessage(`✨ Đã sinh Master Prompt cho project "${projectName}" bằng ${aiProvider}!`);
         }
       } else {
-        // Fallback generator directly in renderer
-        const niche = profile.channelNiche || 'Nội dung khám phá & kiến thức chuyên sâu';
+        // Fallback generator directly in renderer complying with the 10-section contract
+        const niche = profile.channelNiche || projectName || 'Nội dung khám phá & kiến thức chuyên sâu';
         const desc = profile.channelDescription || 'Kênh chia sẻ những câu chuyện và góc nhìn độc đáo.';
         const orient = profile.channelOrientation || 'Kịch tính, lôi cuốn, tạo sự đồng cảm.';
         const hook = profile.channelHook || 'Hãy cùng chúng tôi khám phá ngay bây giờ.';
+        const targetMinutes = profile.targetLongDuration.replace('_', '–').replace('min', 'phút');
 
-        const generated = `================================================================================
-MASTER PROMPT SẢN XUẤT VIDEO: {{CHANNEL_NAME}}
-Phân loại ngách: ${niche}
-================================================================================
+        const generated = `1. SYSTEM ROLE
+Bạn là nhà biên kịch lồng tiếng cao cấp chạy trên mô hình AI "${aiProvider}" cho project / kênh YouTube "${projectName}".
+Khán giả của kênh là những người yêu thích tìm hiểu sâu, khao khát những góc nhìn chân thực, sắc sảo và kịch tính.
+Lời hứa của kênh với người xem: mỗi câu chuyện đều được bóc tách đến tận cùng sự thật, cuốn hút từng giây và không bao giờ lãng phí thời gian của bạn.
 
-[MỤC TIÊU & TÔN CHỈ KÊNH]
-1. Định vị thương hiệu: {{CHANNEL_NAME}}
-2. Ngách chuyên biệt: ${niche}
-3. Tôn chỉ nội dung: ${desc}
-4. Định hướng góc nhìn & văn phong: ${orient}
-5. Câu chốt thương hiệu (Brand Hook): "${hook}"
-6. Độ dài mục tiêu: Video dài: ${profile.targetLongDuration.replace('_', ' - ')} | Shorts: ${profile.targetShortDuration.replace('_', ' - ')}
+2. INPUT
 
-[KỶ LUẬT DỮ KIỆN & NGUỒN TÀI LIỆU]
-- Nguồn tư liệu đầu vào: {{SOURCE_MATERIAL}}
-- Kỷ luật dữ liệu: ${profile.researchFactBeforeWrite ? 'ĐÒI HỎI DỮ LIỆU THẬT — Đối chiếu sự kiện, địa danh và nhân chứng xác thực' : 'SÁNG TẠO NGHỆ THUẬT — Cho phép hư cấu tình huống kịch tính'}
-- Mọi tình tiết phải phục vụ thông điệp cốt lõi của chủ đề.
+CHANNEL NAME:
 
-[KIẾN TRÚC PHÂN ĐOẠN BEAT (BEAT STRUCTURE)]
-- BEAT 1 (00:00 - 00:03) [HOOK]: Mở đầu bằng một câu hỏi búa bổ hoặc nghịch lý không thể giải thích.
-- BEAT 2 [BRAND SIGNATURE]: Câu chốt định vị thương hiệu: "${hook}".
-- BEAT 3 - 4 [INTRO & BỐI CẢNH]: Đặt nhân vật/vụ án vào tình thế ngàn cân treo sợi tóc.
-- BEAT 5 - 7 [ESCALATION & CLIMAX]: Diễn biến leo thang dồn dập, đẩy kịch tính lên cao trào.
-- BEAT 8 [OUTRO & CTA]: Đúc kết bài học giá trị, kêu gọi khán giả bấm Like và Đăng ký kênh {{CHANNEL_NAME}}.
+{{CHANNEL_NAME}}
 
-[QUY TẮC ĐẦU RA BẮT BUỘC]
-Chỉ trả về JSON duy nhất có dạng:
-{
-  "channel": "{{CHANNEL_NAME}}",
-  "topic": "{{SOURCE_MATERIAL}}",
-  "lines": [
-    { "index": 1, "text": "Câu thoại mở đầu hook...", "beatType": "hook", "estimatedDurationSec": 4.0 },
-    { "index": 2, "text": "${hook}", "beatType": "intro", "estimatedDurationSec": 3.5 }
-  ]
-}
-================================================================================
-(Lưu ý: Giữ nguyên {{CHANNEL_NAME}} và {{SOURCE_MATERIAL}} để hệ thống tự động điền lúc chạy)`;
+=== SOURCE START ===
+
+{{SOURCE_MATERIAL}}
+
+=== SOURCE END ===
+
+Everything inside the markers is the universe of established fact. You may add general, verifiable context about how a system or process works, because that context is the transformation. You may never add facts about these specific people or events.
+
+3. PRIMARY OBJECTIVE
+- Độ dài mục tiêu: ${targetMinutes} (khoảng 600–1.200 từ lồng tiếng).
+- Phải giống: một bộ phim tài liệu điều tra điện ảnh thu nhỏ, kể chuyện với nhịp điệu dồn dập, sắc bén và giàu sức gợi cảm giác thực tế.
+- Tuyệt đối KHÔNG giống: một bài báo đọc to đều đều; một bài tóm tắt sách khô khan; một câu chuyện phiếm mạng xã hội nhạt nhòa; một bài giảng đạo đức.
+
+4. CHANNEL DNA
+- Ngách trọng tâm: ${niche}.
+- Bản sắc kênh: ${desc}
+- Định hướng góc nhìn: ${orient}
+- Tôn chỉ văn phong: Trực diện, không vòng vo, cụ thể thắng trừu tượng, mỗi câu nói đều mang sức nặng thông tin.
+
+4B. BRAND IDENTITY
+- BRAND COMPASS: Kênh ${projectName} luôn đi thẳng vào bản chất vấn đề trước khi người khác kịp thanh minh.
+- KHÔNG nhắc tên kênh trong 40 giây đầu của video.
+- Giới thiệu thương hiệu trong khoảng 0:40–1:30 (8–12 giây). Câu mẫu:
+  + "Chào mừng quý vị quay trở lại với {{CHANNEL_NAME}}, nơi chúng tôi cùng bạn bóc tách những bí ẩn chấn động nhất của câu chuyện hôm nay."
+  + "Bạn đang theo dõi {{CHANNEL_NAME}}, và những gì sắp diễn ra sẽ làm thay đổi hoàn toàn cách bạn nhìn nhận sự việc này."
+- Ký tên thương hiệu ở 30 giây cuối:
+  + "Cảm ơn bạn đã đồng hành cùng {{CHANNEL_NAME}}. Câu trả lời cuối cùng nằm ở góc nhìn của bạn."
+  + "{{CHANNEL_NAME}} xin chào và hẹn gặp lại trong hồ sơ tiếp theo."
+- Tối đa hai lần nhắc tên trong cả tập. Cấm nhắc tên trong đoạn cao trào hoặc đoạn chứng cứ.
+
+5. SIGNATURE BEAT
+- Khoảng phút 2:30 hoặc trước bước ngoặt lớn: "Đoạn đóng băng sự việc" — người dẫn dừng nhịp 1.5 giây, đặt một câu hỏi cốt tử về động cơ của nhân vật trước khi lật mở bằng chứng quyết định.
+
+6. NGUỒN & SỰ THẬT
+- Nhóm A (Trong nguồn): Sự kiện, tên người, mốc thời gian, số liệu có trong nguồn là bất khả xâm phạm.
+- Nhóm B (Bối cảnh chung): Được phép bổ sung kiến thức lịch sử, địa lý, cơ chế hoạt động để làm rõ câu chuyện.
+- Nhóm C (Suy diễn - CẤM): Cấm bịa đặt lời thoại trực tiếp, cấm gán ghép động cơ cá nhân khi nguồn không khẳng định.
+
+7. CẤU TRÚC TẬP
+- 00:00 - 00:40: Hook búa bổ mở đầu bằng danh từ riêng hoặc con số chấn động. Đặt ngay mâu thuẫn lớn nhất.
+- 00:40 - 01:30: Lời hứa tập này, giới thiệu kênh ngắn gọn và bắt đầu dòng thời gian.
+- 01:30 - Cao trào: Diễn biến leo thang, các nỗ lực bất thành và sự đổ vỡ.
+- Cao trào: Điểm bùng nổ, câu văn ngắn nhất, cảm xúc dồn nén.
+- Kết thúc: Đúc kết sắc sảo, câu hỏi mở cho khán giả và chữ ký kênh.
+
+8. NARRATION & DELIVERY
+- Spell every number as spoken: "two hundred and eleven thousand dollars", "nine days", "nineteen eighty-three". Never emit raw digits.
+- No symbols at all: no dollar sign, percent sign, ampersand, slash, or arrow.
+- The SCRIPT section contains narration and nothing else: no headings, no timestamps, no stage directions, no speaker labels, no bracketed cues.
+- Mở bằng danh từ riêng hoặc con số cụ thể. Cấm mở bằng câu hỏi tu từ hay "trong video này".
+- Cấm nói trước cấu trúc. Đi thẳng vào sự việc.
+- Tối đa 2 câu giải thích liên tiếp; câu thứ ba phải là cảnh, người, con số hoặc hành động.
+- Xen kẽ câu dài với các câu cực ngắn (3–5 từ) để tạo nhịp thở hồi hộp.
+- Cao trào cảm xúc phải là câu văn đơn giản nhất, không dùng từ ngữ sáo rỗng.
+
+9. STRICT OUTPUT FORMAT
+
+IF REJECTED:
+
+STATUS: REJECTED
+REASON: [one concise line]
+
+IF ACCEPTED:
+
+TITLE: [final title]
+
+SCRIPT:
+
+[complete narration script, plain text, no headings, no timestamps, no stage directions]
+
+--- END OF SCRIPT ---
+
+NARRATION DIRECTION:
+[3 to 6 lines: register, target words per minute, the two places to slow down, phonetic notes for any name or place]
+
+Output NOTHING else. No analysis, no planning, no alternative titles, no word counts, no visual or music instructions, no commentary.`;
 
         handleChange('masterPrompt', generated);
-        setPromptMessage('✨ Đã sinh Master Prompt mẫu thành công!');
+        setPromptMessage(`✨ Đã sinh Master Prompt cho project "${projectName}" bằng ${aiProvider}!`);
       }
     } catch (err: any) {
       console.error('[ChannelConfigModal] Error generating master prompt:', err);
@@ -245,6 +309,47 @@ Chỉ trả về JSON duy nhất có dạng:
                   — quyết định chủ đề &amp; chất riêng của kênh
                 </span>
               </h3>
+            </div>
+
+            {/* Project Name & Script AI Model (Bắt buộc để tạo Master Prompt) */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 rounded-2xl border border-brand-cyan/25 bg-gradient-to-r from-brand-cyan/10 via-brand-indigo/5 to-slate-950/60 p-4">
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-white flex items-center gap-1.5">
+                  <Sparkles className="h-3.5 w-3.5 text-brand-cyan" />
+                  <span>Tên Project / Kênh <span className="text-rose-400">*</span></span>
+                </label>
+                <input
+                  type="text"
+                  value={profile.projectName || ''}
+                  onChange={(e) => handleChange('projectName', e.target.value)}
+                  placeholder="vd: kênh test, Góc Nhìn Chiến Sự..."
+                  className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2.5 text-xs text-white placeholder:text-slate-600 focus:border-brand-cyan focus:outline-none"
+                />
+                <p className="text-[10.5px] text-slate-400">
+                  Dùng làm định danh project và xuất hiện trực tiếp trong System Role của Master Prompt.
+                </p>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-white flex items-center gap-1.5">
+                  <Zap className="h-3.5 w-3.5 text-amber-400" />
+                  <span>Model AI biên kịch <span className="text-rose-400">*</span></span>
+                </label>
+                <select
+                  value={profile.aiProvider}
+                  onChange={(e) => handleChange('aiProvider', e.target.value as any)}
+                  className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2.5 text-xs text-white focus:border-brand-cyan focus:outline-none cursor-pointer"
+                >
+                  <option value="default">Mặc định theo Cài đặt ({config.llm.provider})</option>
+                  <option value="chatgpt_web">ChatGPT Web (Zero-API Cost)</option>
+                  <option value="gemini_web">Gemini Web (Zero-API Cost)</option>
+                  <option value="deepseek">DeepSeek (API - deepseek-chat)</option>
+                  <option value="openai">OpenAI (API - GPT-4o)</option>
+                </select>
+                <p className="text-[10.5px] text-slate-400">
+                  Model AI được dùng để tự động tạo Master Prompt và sản xuất kịch bản cho project.
+                </p>
+              </div>
             </div>
 
             {/* Row 1: Nguồn hình | Kiểu video (bộ não AI) | Ngách của kênh */}

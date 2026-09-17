@@ -127,6 +127,16 @@ export interface ChannelVideoStyle {
 }
 
 export interface ChannelProfileConfig {
+  /** Tên project / Kênh */
+  projectName?: string;
+  /** Tên host đại diện */
+  hostName?: string;
+  /** Mô tả host đại diện để AI tạo */
+  hostDescription?: string;
+  /** Đường dẫn / URL ảnh host đại diện */
+  hostAvatarUrl?: string;
+  /** Danh sách nhân vật đại diện kênh */
+  channelCharacters?: Array<{ id: string; name: string; descriptionEn: string; avatarUrl?: string }>;
   /** 1. Nguồn hình */
   imageSource: ChannelImageSource;
   /** 2. Kiểu video (bộ não AI) đã chọn */
@@ -289,6 +299,11 @@ export const DEFAULT_CHANNEL_PROFILE_CONFIG: Readonly<ChannelProfileConfig> = Ob
       systemPrompt: 'Phong cách chuyên gia tài chính sắc bén, góc nhìn thực tế, ngôn từ cuốn hút và có tính cảnh báo.',
     },
   ],
+  projectName: 'kênh test',
+  hostName: '',
+  hostDescription: '',
+  hostAvatarUrl: '',
+  channelCharacters: [],
   channelNiche: '',
   seriesType: 'anthology_new_topic',
   channelDescription: '',
