@@ -26,6 +26,7 @@ import {
   ChannelVisualMode,
 } from '../../types/aiStudio';
 import { useAiStudioStore } from '../../lib/store/aiStudioStore';
+import ChannelSkillModal from './ChannelSkillModal';
 
 interface ChannelConfigModalProps {
   isOpen: boolean;
@@ -49,6 +50,7 @@ export default function ChannelConfigModal({
   const [isGeneratingPrompt, setIsGeneratingPrompt] = useState(false);
   const [promptMessage, setPromptMessage] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [isSkillModalOpen, setIsSkillModalOpen] = useState(false);
 
   // Video Styles Management modal/state
   const [isStyleModalOpen, setIsStyleModalOpen] = useState(false);
@@ -441,15 +443,9 @@ Chỉ trả về JSON duy nhất có dạng:
 
                   <button
                     type="button"
-                    onClick={() => {
-                      if (profile.masterPrompt) {
-                        navigator.clipboard.writeText(profile.masterPrompt);
-                        alert('Đã sao chép Master Prompt vào Clipboard!');
-                      } else {
-                        alert('Chưa có Master Prompt để sao chép.');
-                      }
-                    }}
-                    className="text-xs text-amber-400/90 hover:text-amber-300 font-medium inline-flex items-center gap-1 cursor-pointer transition"
+                    onClick={() => setIsSkillModalOpen(true)}
+                    className="text-xs text-amber-400/90 hover:text-amber-300 font-semibold inline-flex items-center gap-1 cursor-pointer transition hover:underline"
+                    title="Xem toàn bộ prompt skill và sao chép để chạy trên ChatGPT, Claude hoặc Gemini"
                   >
                     <span>Xem / sao chép skill để tự chạy</span>
                     <ChevronRight className="h-3.5 w-3.5" />
@@ -775,9 +771,21 @@ Chỉ trả về JSON duy nhất có dạng:
                   onChange={(e) => handleChange('videoModel', e.target.value)}
                   className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2.5 text-xs text-white focus:border-brand-cyan focus:outline-none focus:ring-1 focus:ring-brand-cyan cursor-pointer"
                 >
-                  <option value="Omni 1.1 Flash">Omni 1.1 Flash</option>
-                  <option value="Veo 2">Veo 2 (DeepMind)</option>
-                  <option value="Sora">Sora Turbo</option>
+                  <optgroup label="🎬 Google Flow &amp; DeepMind (Khuyên dùng)">
+                    <option value="Omni 1.1 Flash">Omni 1.1 Flash (Google Flow Video)</option>
+                    <option value="Veo 2">Google Veo 2 (DeepMind / Flow)</option>
+                    <option value="Veo 3.1">Google Veo 3.1 Cinema</option>
+                    <option value="Veo Fast">Google Veo Fast 1080p</option>
+                    <option value="Veo Flow Session">Google Veo (Sảnh Flow Session)</option>
+                    <option value="Veo 9:16 Shorts">Google Veo Shorts (Dọc 9:16)</option>
+                  </optgroup>
+                  <optgroup label="🌐 Mô hình Video Đối tác">
+                    <option value="Sora Turbo">OpenAI Sora Turbo</option>
+                    <option value="Kling 1.5 Pro">Kling 1.5 Pro</option>
+                    <option value="Minimax Hailuo 01">Minimax Hailuo Video</option>
+                    <option value="Luma Ray 2">Luma Ray 2 (Dream Machine)</option>
+                    <option value="Runway Gen-3 Alpha">Runway Gen-3 Alpha</option>
+                  </optgroup>
                 </select>
               </div>
 
@@ -788,10 +796,21 @@ Chỉ trả về JSON duy nhất có dạng:
                   onChange={(e) => handleChange('imageModel', e.target.value)}
                   className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2.5 text-xs text-white focus:border-brand-cyan focus:outline-none focus:ring-1 focus:ring-brand-cyan cursor-pointer"
                 >
-                  <option value="⭐ Nano Banana 2">⭐ Nano Banana 2</option>
-                  <option value="Imagen 3">Imagen 3 Fast</option>
-                  <option value="FLUX.1-schnell">FLUX.1-schnell</option>
-                  <option value="SDXL Turbo">SDXL Turbo</option>
+                  <optgroup label="🍌 Google Flow &amp; Banana Studio (Khuyên dùng)">
+                    <option value="⭐ Nano Banana 2">⭐ Nano Banana 2 (Google Flow)</option>
+                    <option value="🍌 Banana Pro (4K Studio)">🍌 Banana Pro (4K Studio)</option>
+                    <option value="🍌 Nano Banana Pro Preview">🍌 Nano Banana Pro Preview</option>
+                    <option value="Imagen 3 Fast">Google Imagen 3 (Fast)</option>
+                    <option value="Imagen 3.1 Photorealistic">Google Imagen 3.1 (Photorealistic)</option>
+                    <option value="Imagen 2 Studio">Google Imagen 2 (Studio)</option>
+                    <option value="Flow Image Session">Google Flow Image (Sảnh Flow Session)</option>
+                  </optgroup>
+                  <optgroup label="🎨 Mô hình Ảnh Đối tác &amp; Nghệ thuật">
+                    <option value="FLUX.1-schnell">FLUX.1-schnell (Black Forest Labs)</option>
+                    <option value="FLUX.1-dev">FLUX.1-dev (Chất lượng cao)</option>
+                    <option value="SDXL Turbo">SDXL Turbo (Stability AI)</option>
+                    <option value="Midjourney v6.1">Midjourney v6.1 (Flow Bridge)</option>
+                  </optgroup>
                 </select>
               </div>
             </div>
@@ -877,6 +896,13 @@ Chỉ trả về JSON duy nhất có dạng:
             </div>
           </div>
         )}
+
+        {/* Modal: Skill tạo Master Prompt (Xem & Sao Chép để tự chạy) */}
+        <ChannelSkillModal
+          isOpen={isSkillModalOpen}
+          onClose={() => setIsSkillModalOpen(false)}
+          channelProfile={profile}
+        />
       </div>
     </div>
   );

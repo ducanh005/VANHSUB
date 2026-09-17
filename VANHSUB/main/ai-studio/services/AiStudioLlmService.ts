@@ -352,31 +352,48 @@ Yêu cầu nghiêm ngặt:
       });
 
       const rawText = response.choices[0]?.message?.content || '';
-      const cleaned = rawText.replace(/```json|```/g, '').trim();
-      const repaired = jsonrepair(cleaned);
-      const parsed = JSON.parse(repaired);
+      let lines: ScriptBeatLine[] = [];
 
-      const rawLines = Array.isArray(parsed) ? parsed : parsed.lines;
-      if (!Array.isArray(rawLines) || rawLines.length < 3) {
-        throw new Error('LLM không trả về danh sách phân cảnh hợp lệ.');
+      try {
+        const cleaned = rawText.replace(/```json|```/g, '').trim();
+        const repaired = jsonrepair(cleaned);
+        const parsed = JSON.parse(repaired);
+        const rawLines = Array.isArray(parsed) ? parsed : parsed.lines;
+        if (Array.isArray(rawLines) && rawLines.length >= 3) {
+          lines = rawLines.map((item: any, idx: number) => {
+            const text = String(item.text || item.content || '').trim();
+            const fallbackText = `Chào mừng bạn đến với phần ${idx + 1} của chủ đề ${topic}.`;
+            const finalText = text.length >= 10 ? text : fallbackText;
+
+            const beatType: ScriptBeatLine['beatType'] =
+              item.beatType || (idx === 0 ? 'hook' : idx === rawLines.length - 1 ? 'outro' : 'body');
+
+            return {
+              id: `line-${idx + 1}-${crypto.randomBytes(3).toString('hex')}`,
+              index: idx + 1,
+              text: finalText,
+              estimatedDurationSec: Number(item.estimatedDurationSec) > 0 ? Number(item.estimatedDurationSec) : 4.5,
+              beatType,
+            };
+          });
+        }
+      } catch {
+        // Không phải JSON: Xử lý định dạng văn bản Strict Output (SCRIPT: ... --- END OF SCRIPT ---)
+        let scriptBody = rawText;
+        const scriptMatch = rawText.match(/SCRIPT:\s*([\s\S]*?)(?:---\s*END OF SCRIPT\s*---|NARRATION DIRECTION:|$)/i);
+        if (scriptMatch && scriptMatch[1].trim().length >= 20) {
+          scriptBody = scriptMatch[1].trim();
+        }
+        lines = this.splitScriptToBeatLines(scriptBody);
       }
 
-      const lines: ScriptBeatLine[] = rawLines.map((item: any, idx: number) => {
-        const text = String(item.text || item.content || '').trim();
-        const fallbackText = `Chào mừng bạn đến với phần ${idx + 1} của chủ đề ${topic}.`;
-        const finalText = text.length >= 10 ? text : fallbackText;
+      if (!lines || lines.length < 3) {
+        lines = this.splitScriptToBeatLines(rawText);
+      }
 
-        const beatType: ScriptBeatLine['beatType'] =
-          item.beatType || (idx === 0 ? 'hook' : idx === rawLines.length - 1 ? 'outro' : 'body');
-
-        return {
-          id: `line-${idx + 1}-${crypto.randomBytes(3).toString('hex')}`,
-          index: idx + 1,
-          text: finalText,
-          estimatedDurationSec: Number(item.estimatedDurationSec) > 0 ? Number(item.estimatedDurationSec) : 4.5,
-          beatType,
-        };
-      });
+      if (!lines || lines.length < 3) {
+        throw new Error('LLM không trả về danh sách phân cảnh hoặc kịch bản hợp lệ.');
+      }
 
       return this.applyChannelHook(lines, channelProfile);
     } catch (err: any) {
@@ -688,84 +705,280 @@ Chấm điểm trên thang 100 và trả về JSON DUY NHẤT:
   // ==========================================================================
   // Channel Master Prompt Generation
   // ==========================================================================
+  // ==========================================================================
+  // Channel Master Prompt Generation
+  // ==========================================================================
   public async generateMasterPromptForChannel(
     channelProfile: Partial<ChannelProfileConfig>,
     config?: AiStudioLlmConfig,
     onProgress?: (msg: string) => void
   ): Promise<string> {
+    const channelName = channelProfile.channelNiche || 'Kênh Kể Chuyện YouTube';
     const niche = channelProfile.channelNiche || 'Nội dung khám phá & kiến thức chuyên sâu';
     const desc = channelProfile.channelDescription || 'Kênh chia sẻ những câu chuyện và góc nhìn độc đáo, hấp dẫn.';
     const orient = channelProfile.channelOrientation || 'Kịch tính, lôi cuốn, tạo sự đồng cảm và kích thích trí tò mò.';
     const hook = channelProfile.channelHook || 'Hãy cùng chúng tôi khám phá ngay bây giờ.';
-    const factDiscipline = channelProfile.researchFactBeforeWrite
-      ? 'NGHIÊM NGẶT: AI bắt buộc phải đối chiếu và bám sát dữ liệu/tư liệu thực tế, không hư cấu hay bịa đặt số liệu sai lệch.'
-      : 'TỰ DO SÁNG TẠO: Được phép xây dựng tình huống kịch tính, lôi cuốn nhằm tối đa cảm xúc của khán giả.';
     const durationLong = channelProfile.targetLongDuration || '3_5_min';
-    const durationShort = channelProfile.targetShortDuration || '90_120_sec';
+    const targetMinutes = durationLong.replace('_', '–').replace('min', 'phút');
 
-    const promptTemplate = `================================================================================
-MASTER PROMPT SẢN XUẤT VIDEO: {{CHANNEL_NAME}}
-Phân loại ngách: ${niche}
-================================================================================
+    // 10-Section Fallback Template complying 100% with the user's Master Prompt Standard
+    const promptTemplate = `1. SYSTEM ROLE
+Bạn là nhà biên kịch lồng tiếng cao cấp cho kênh YouTube "${channelName}".
+Khán giả của kênh là những người yêu thích tìm hiểu sâu, khao khát những góc nhìn chân thực, sắc sảo và kịch tính.
+Lời hứa của kênh với người xem: mỗi câu chuyện đều được bóc tách đến tận cùng sự thật, cuốn hút từng giây và không bao giờ lãng phí thời gian của bạn.
 
-[MỤC TIÊU & TÔN CHỈ KÊNH]
-1. Định vị kênh: {{CHANNEL_NAME}}
-2. Ngách chuyên biệt: ${niche}
-3. Tôn chỉ nội dung: ${desc}
-4. Định hướng góc nhìn & văn phong: ${orient}
-5. Câu chốt thương hiệu (Brand Hook): "${hook}"
-6. Độ dài mục tiêu: Video dài: ${durationLong.replace('_', ' - ')} | Shorts: ${durationShort.replace('_', ' - ')}
+2. INPUT
 
-[KỶ LUẬT DỮ KIỆN & NGUỒN TÀI LIỆU]
-- Nguồn tư liệu đầu vào: {{SOURCE_MATERIAL}}
-- Kỷ luật dữ liệu: ${factDiscipline}
-- Mọi tình tiết, mốc thời gian và luận điểm phải gắn liền với tư liệu nguồn được cung cấp.
+CHANNEL NAME:
 
-[KIẾN TRÚC PHÂN ĐOẠN BEAT (BEAT STRUCTURE)]
-- BEAT 1 (00:00 - 00:03) [HOOK]: Mở đầu bằng một câu hỏi búa bổ, một sự thật phản trực giác hoặc một tình huống ngàn cân treo sợi tóc. Không chào hỏi rườm rà.
-- BEAT 2 [BRAND SIGNATURE]: Lồng ghép câu chốt thương hiệu của kênh: "${hook}".
-- BEAT 3 - 4 [INTRO & BỐI CẢNH]: Đặt vấn đề, giới thiệu nhân vật/sự kiện trung tâm và mối đe dọa hoặc cơ hội.
-- BEAT 5 - 7 [ESCALATION & CLIMAX]: Diễn biến dồn dập, đẩy mức độ căng thẳng hoặc sự tò mò lên đỉnh điểm.
-- BEAT 8 [RESOLUTION & OUTRO]: Đúc kết bài học đắt giá, khép lại câu chuyện và kêu gọi hành động (CTA) đăng ký kênh {{CHANNEL_NAME}}.
+{{CHANNEL_NAME}}
 
-[QUY TẮC ĐẦU RA BẮT BUỘC]
-1. Tuyệt đối chỉ trả về dữ liệu định dạng JSON hợp lệ duy nhất.
-2. Không kèm văn bản giải thích ngoài khối JSON.
-3. Cấu trúc JSON chuẩn:
-{
-  "channel": "{{CHANNEL_NAME}}",
-  "topic": "{{SOURCE_MATERIAL}}",
-  "lines": [
-    {
-      "index": 1,
-      "text": "Câu thoại mở đầu hook...",
-      "beatType": "hook",
-      "estimatedDurationSec": 4.0
-    },
-    {
-      "index": 2,
-      "text": "Câu thoại chốt thương hiệu: ${hook}...",
-      "beatType": "intro",
-      "estimatedDurationSec": 3.5
-    }
-  ]
-}
-================================================================================
-(Lưu ý: Giữ nguyên các biến {{CHANNEL_NAME}} và {{SOURCE_MATERIAL}} để hệ thống tự động điền lúc sản xuất)`;
+=== SOURCE START ===
 
-    // Nếu người dùng có LLM provider sẵn sàng, thử yêu cầu LLM tối ưu hóa thêm
+{{SOURCE_MATERIAL}}
+
+=== SOURCE END ===
+
+Everything inside the markers is the universe of established fact. You may add general, verifiable context about how a system or process works, because that context is the transformation. You may never add facts about these specific people or events.
+
+3. PRIMARY OBJECTIVE
+- Độ dài mục tiêu: ${targetMinutes} (khoảng 600–1.200 từ lồng tiếng).
+- Phải giống: một bộ phim tài liệu điều tra điện ảnh thu nhỏ, kể chuyện với nhịp điệu dồn dập, sắc bén và giàu sức gợi cảm giác thực tế.
+- Tuyệt đối KHÔNG giống: một bài báo đọc to đều đều; một bài tóm tắt sách khô khan; một câu chuyện phiếm mạng xã hội nhạt nhòa; một bài giảng đạo đức.
+
+4. CHANNEL DNA
+- Ngách trọng tâm: ${niche}.
+- Bản sắc kênh: ${desc}
+- Định hướng góc nhìn: ${orient}
+- Tôn chỉ văn phong: Trực diện, không vòng vo, cụ thể thắng trừu tượng, mỗi câu nói đều mang sức nặng thông tin.
+
+4B. BRAND IDENTITY
+- BRAND COMPASS: Kênh ${channelName} luôn đi thẳng vào bản chất vấn đề trước khi người khác kịp thanh minh.
+- KHÔNG nhắc tên kênh trong 40 giây đầu của video.
+- Giới thiệu thương hiệu trong khoảng 0:40–1:30 (8–12 giây). Câu mẫu:
+  + "Chào mừng quý vị quay trở lại với {{CHANNEL_NAME}}, nơi chúng tôi cùng bạn bóc tách những bí ẩn chấn động nhất của câu chuyện hôm nay."
+  + "Bạn đang theo dõi {{CHANNEL_NAME}}, và những gì sắp diễn ra sẽ làm thay đổi hoàn toàn cách bạn nhìn nhận sự việc này."
+- Ký tên thương hiệu ở 30 giây cuối:
+  + "Cảm ơn bạn đã đồng hành cùng {{CHANNEL_NAME}}. Câu trả lời cuối cùng nằm ở góc nhìn của bạn."
+  + "{{CHANNEL_NAME}} xin chào và hẹn gặp lại trong hồ sơ tiếp theo."
+- Tối đa hai lần nhắc tên trong cả tập. Cấm nhắc tên trong đoạn cao trào hoặc đoạn chứng cứ.
+
+5. SIGNATURE BEAT
+- Khoảng phút 2:30 hoặc trước bước ngoặt lớn: "Đoạn đóng băng sự việc" — người dẫn dừng nhịp 1.5 giây, đặt một câu hỏi cốt tử về động cơ của nhân vật trước khi lật mở bằng chứng quyết định.
+
+6. NGUỒN & SỰ THẬT
+- Nhóm A (Trong nguồn): Sự kiện, tên người, mốc thời gian, số liệu có trong nguồn là bất khả xâm phạm.
+- Nhóm B (Bối cảnh chung): Được phép bổ sung kiến thức lịch sử, địa lý, cơ chế hoạt động để làm rõ câu chuyện.
+- Nhóm C (Suy diễn - CẤM): Cấm bịa đặt lời thoại trực tiếp, cấm gán ghép động cơ cá nhân khi nguồn không khẳng định.
+
+7. CẤU TRÚC TẬP
+- 00:00 - 00:40: Hook búa bổ mở đầu bằng danh từ riêng hoặc con số chấn động. Đặt ngay mâu thuẫn lớn nhất.
+- 00:40 - 01:30: Lời hứa tập này, giới thiệu kênh ngắn gọn và bắt đầu dòng thời gian.
+- 01:30 - Cao trào: Diễn biến leo thang, các nỗ lực bất thành và sự đổ vỡ.
+- Cao trào: Điểm bùng nổ, câu văn ngắn nhất, cảm xúc dồn nén.
+- Kết thúc: Đúc kết sắc sảo, câu hỏi mở cho khán giả và chữ ký kênh.
+
+8. NARRATION & DELIVERY
+- Spell every number as spoken: "two hundred and eleven thousand dollars", "nine days", "nineteen eighty-three". Never emit raw digits.
+- No symbols at all: no dollar sign, percent sign, ampersand, slash, or arrow.
+- The SCRIPT section contains narration and nothing else: no headings, no timestamps, no stage directions, no speaker labels, no bracketed cues.
+- Mở bằng danh từ riêng hoặc con số cụ thể. Cấm mở bằng câu hỏi tu từ hay "trong video này".
+- Cấm nói trước cấu trúc. Đi thẳng vào sự việc.
+- Tối đa 2 câu giải thích liên tiếp; câu thứ ba phải là cảnh, người, con số hoặc hành động.
+- Xen kẽ câu dài với các câu cực ngắn (3–5 từ) để tạo nhịp thở hồi hộp.
+- Cao trào cảm xúc phải là câu văn đơn giản nhất, không dùng từ ngữ sáo rỗng.
+
+9. STRICT OUTPUT FORMAT
+
+IF REJECTED:
+
+STATUS: REJECTED
+REASON: [one concise line]
+
+IF ACCEPTED:
+
+TITLE: [final title]
+
+SCRIPT:
+
+[complete narration script, plain text, no headings, no timestamps, no stage directions]
+
+--- END OF SCRIPT ---
+
+NARRATION DIRECTION:
+[3 to 6 lines: register, target words per minute, the two places to slow down, phonetic notes for any name or place]
+
+Output NOTHING else. No analysis, no planning, no alternative titles, no word counts, no visual or music instructions, no commentary.`;
+
+    // Nếu người dùng có LLM provider sẵn sàng, chạy prompt meta chuyên gia để sinh prompt tối ưu
     if (config && (config.apiKey || config.provider === 'chatgpt_web' || config.provider === 'gemini_web')) {
       try {
-        onProgress?.('Đang kết nối AI Provider để tạo Master Prompt tùy chỉnh cho kênh...');
-        const userPrompt = `Bạn là chuyên gia thiết kế Prompt kỹ thuật cao cho YouTube/TikTok Creator.
-Hãy dựa vào thông tin kênh sau đây để tạo một MASTER PROMPT viết kịch bản hoàn chỉnh (chuẩn format 300+ dòng, đầy đủ quy tắc nguồn, cấu trúc beat và định dạng JSON):
-- Tên/Ngách kênh: ${niche}
-- Mô tả: ${desc}
-- Định hướng góc nhìn: ${orient}
-- Câu chốt thương hiệu: ${hook}
-Yêu cầu bắt buộc:
-1. Giữ nguyên 2 biến placeholder: {{CHANNEL_NAME}} và {{SOURCE_MATERIAL}}.
-2. Trả về toàn bộ nội dung Master Prompt để người dùng dán trực tiếp vào cấu hình kênh.`;
+        onProgress?.('Đang kết nối AI Provider để tạo Production Master Prompt...');
+        const userPrompt = `Bạn là chuyên gia viết PRODUCTION MASTER PROMPT cho kênh YouTube kể chuyện dài.
+
+Nhiệm vụ: từ mô tả kênh dưới đây, viết ra MỘT master prompt hoàn chỉnh — loại prompt mà người ta dán
+vào AI cùng với một nguồn (bài báo, hồ sơ, chủ đề) và nhận về kịch bản lồng tiếng hoàn chỉnh.
+
+Bạn KHÔNG viết kịch bản. Bạn viết cái prompt sinh ra kịch bản đó.
+
+==================================================
+PHẦN A — KHUÔN BẮT BUỘC
+==================================================
+
+Master prompt bạn viết phải có đủ 10 mục, đúng thứ tự này:
+
+1. SYSTEM ROLE — model đóng vai ai, viết cho kênh nào (GỌI ĐÚNG TÊN KÊNH), khán giả nào, hứa hẹn gì
+   với người xem.
+2. INPUT — vùng nhận nguồn, bọc bằng marker (xem PHẦN B).
+3. PRIMARY OBJECTIVE — độ dài mục tiêu theo phút và theo số từ; phải giống cái gì, và phải KHÔNG
+   giống cái gì (nêu 3-5 thứ cụ thể như "một bài báo đọc to", "truyện Reddit đổi tên").
+4. CHANNEL DNA — 3-4 dòng ngắn định nghĩa kênh này khác kênh cùng ngách ở chỗ nào.
+4B. BRAND IDENTITY — nhận diện thương hiệu, xem PHẦN B4.
+5. SIGNATURE BEAT — MỘT đoạn đặc trưng mà người xem quen chờ đợi ở mỗi tập. Đây là tài sản nhận diện
+   mạnh nhất của kênh; mô tả rõ nó nằm ở đâu trong tập và làm gì.
+6. NGUỒN & SỰ THẬT — phân loại dữ kiện (A = có trong nguồn, B = bối cảnh chung có thể kiểm chứng,
+   C = suy diễn, cấm). Nêu rõ được thêm gì và tuyệt đối không được thêm gì.
+7. CẤU TRÚC TẬP — chia theo mốc thời gian hoặc theo beat, nói rõ mỗi phần làm gì.
+8. NARRATION & DELIVERY — viết cho TAI, không cho mắt (xem PHẦN B).
+9. STRICT OUTPUT FORMAT — chép nguyên văn từ PHẦN B, không sửa một ký tự.
+
+==================================================
+PHẦN B — VÙNG CẤM SỬA
+==================================================
+
+Ba khối dưới đây là hợp đồng kỹ thuật với phần mềm chạy master prompt này. Chép NGUYÊN VĂN vào master
+prompt bạn viết. Không diễn đạt lại, không rút gọn, không dịch, không gộp vào mục khác.
+
+--- B1. VÙNG NHẬN NGUỒN (đặt ở mục 2 INPUT) ---
+
+CHANNEL NAME:
+
+{{CHANNEL_NAME}}
+
+=== SOURCE START ===
+
+{{SOURCE_MATERIAL}}
+
+=== SOURCE END ===
+
+Everything inside the markers is the universe of established fact. You may add general, verifiable
+context about how a system or process works, because that context is the transformation. You may never
+add facts about these specific people or events.
+
+--- B2. LUẬT ĐỌC THÀNH TIẾNG (đặt trong mục 8 NARRATION) ---
+
+- Spell every number as spoken: "two hundred and eleven thousand dollars", "nine days", "nineteen
+  eighty-three". Never emit raw digits.
+- No symbols at all: no dollar sign, percent sign, ampersand, slash, or arrow.
+- The SCRIPT section contains narration and nothing else: no headings, no timestamps, no stage
+  directions, no speaker labels, no bracketed cues.
+
+--- B4. NHẬN DIỆN THƯƠNG HIỆU (mục 4B) ---
+
+Viết mục 4B theo đúng bộ luật này, thay [[CHANNEL_NAME]] bằng tên kênh thật ở phần mô tả, nhưng giữ
+{{CHANNEL_NAME}} ở mọi CÂU MẪU mà người dẫn sẽ đọc trên sóng:
+
+- BRAND COMPASS: một câu nội bộ tóm gọn kênh này đứng ở đâu. Không bao giờ đọc nguyên văn trên sóng.
+  Người xem phải nhận ra kênh qua CÁCH LÀM trước, qua cái tên sau.
+- KHÔNG nhắc tên kênh trong 40 giây đầu. Đó là đoạn tụt người xem mạnh nhất; đặt tên ở đó là mất
+  người xem có thể đo được.
+- MỘT câu giới thiệu thương hiệu trong khoảng 0:40–1:30, dài 8–12 giây khi đọc. Ba việc rồi thôi:
+  tên kênh + lời hứa của kênh diễn đạt riêng cho tập này + quay lại câu chuyện ngay. Mỗi tập viết
+  một câu khác nhau, không lặp lại câu của tập trước. Cho 2–3 câu MẪU dùng {{CHANNEL_NAME}}.
+- MỘT câu ký tên ở 30 giây cuối. Cho 2–3 câu mẫu, cũng dùng {{CHANNEL_NAME}}.
+- Tối đa HAI lần nhắc tên trong cả tập, tuyệt đối không quá ba.
+- CẤM nhắc tên bên trong: đoạn dẫn chứng, signature beat, và cao trào cảm xúc.
+- Tối đa MỘT lời kêu gọi, gắn vào câu hỏi kết. Không xếp chồng like–đăng ký–chuông.
+- PHÉP THỬ ĐỘ SÂU: bỏ hẳn tên kênh đi, người xem quen có nhận ra kênh này qua hai phút bất kỳ không?
+  Nếu không thì nhận diện đang là trang trí — sửa giọng và signature beat, ĐỪNG thêm lần nhắc tên.
+
+--- B3. HỢP ĐỒNG OUTPUT (mục 9, luôn là mục CUỐI CÙNG) ---
+
+STRICT OUTPUT FORMAT
+
+IF REJECTED:
+
+STATUS: REJECTED
+REASON: [one concise line]
+
+IF ACCEPTED:
+
+TITLE: [final title]
+
+SCRIPT:
+
+[complete narration script, plain text, no headings, no timestamps, no stage directions]
+
+--- END OF SCRIPT ---
+
+NARRATION DIRECTION:
+[3 to 6 lines: register, target words per minute, the two places to slow down, phonetic notes for any
+name or place]
+
+Output NOTHING else. No analysis, no planning, no alternative titles, no word counts, no visual or
+music instructions, no commentary.
+
+==================================================
+PHẦN C — CỔNG NGUỒN: ĐỂ NHẸ
+==================================================
+
+Master prompt được phép trả \`STATUS: REJECTED\`, nhưng bạn phải đặt ngưỡng NHẸ:
+
+- Reject KHI: vùng nguồn trống, hoặc nội dung không liên quan gì tới ngách của kênh.
+- KHÔNG reject vì: nguồn ngắn, nguồn thiếu chi tiết, nguồn chỉ có vài đoạn.
+
+Lý do: người dùng chạy kênh hằng ngày. Ngưỡng khắt khe làm video dừng liên tục và họ tưởng phần mềm
+hỏng. Khi nguồn mỏng, hãy dặn model thu hẹp phạm vi và viết ngắn hơn mục tiêu — đừng từ chối, và cũng
+đừng bịa cho đủ thời lượng.
+
+==================================================
+PHẦN D — CHẤT LƯỢNG VĂN
+==================================================
+
+Nhét các luật này vào mục 8, diễn đạt theo giọng của kênh:
+
+- Mở bằng một danh từ riêng hoặc một con số cụ thể. Cấm mở bằng câu hỏi tu từ, cấm chào, cấm "trong
+  video này".
+- Cấm nói trước cấu trúc ("đầu tiên chúng ta sẽ…", "tóm lại…"). Nói thẳng vào việc.
+- Tối đa 2 câu giải thích liên tiếp. Câu thứ ba phải là một cảnh, một người, một con số, một đồ vật.
+- Cụ thể thắng trừu tượng: "ông ấy đếm ba lần rồi mới ký" thay vì "ông ấy rất cẩn thận".
+- Nhịp câu phải đổi. Xen câu dài với câu rất ngắn.
+- Cấm nhắc lại một ý đã nói bằng cách diễn đạt khác.
+- Cao trào cảm xúc phải là câu văn ĐƠN GIẢN nhất trong tập, không phải câu hoa mỹ nhất.
+- Kết bằng chi tiết riêng của câu chuyện này. Nếu đoạn kết có thể gắn vào mười tập khác thì viết lại.
+
+==================================================
+PHẦN E — ĐẦU VÀO
+==================================================
+
+Thông tin kênh:
+- Tên kênh: ${channelName}
+- Kiểu video (engine): Google Flow (Veo & Imagen)
+- Ngách: ${niche}
+- Mô tả kênh: ${desc}
+- Định hướng / nhấn mạnh: ${orient}
+- Ngôn ngữ kịch bản: Tiếng Việt
+- Độ dài mục tiêu: ${targetMinutes}
+- Loại nguồn thường dùng: Bài báo, tư liệu lịch sử, hồ sơ sự kiện, kịch bản phác thảo
+
+Tên kênh ở trên là TÊN THẬT. Viết nó thẳng vào mục 1 (SYSTEM ROLE), mục 4 (CHANNEL DNA) và mục 4B
+(BRAND IDENTITY) của master prompt bạn tạo ra, để prompt đọc lên là ra ngay kênh nào.
+
+Nhưng ở mục 2 (INPUT) và ở CÁC CÂU MẪU mà người dẫn sẽ đọc trên sóng thì phải giữ nguyên chuỗi
+{{CHANNEL_NAME}} — đó là chỗ phần mềm tự điền lúc chạy. Đổi tên kênh sau này thì mọi câu đọc tự cập
+nhật, không phải viết lại master prompt.
+
+==================================================
+PHẦN F — CÁCH TRẢ LỜI
+==================================================
+
+Viết master prompt bằng ngôn ngữ Tiếng Việt (vì kịch bản nó sinh ra sẽ ở ngôn ngữ đó), TRỪ ba khối
+ở PHẦN B — chép nguyên văn tiếng Anh.
+
+Độ dài master prompt: 150–250 dòng. Đủ chặt để chạy được, không dài tới mức không ai đọc nổi.
+
+Trả về DUY NHẤT nội dung master prompt. Không lời dẫn, không giải thích, không bọc trong khối code.
+Bắt đầu ngay bằng mục 1 SYSTEM ROLE.`;
 
         if (config.provider === 'chatgpt_web') {
           const { ChatGptWebSessionManager } = await import('../chatgpt/ChatGptWebSessionManager');
