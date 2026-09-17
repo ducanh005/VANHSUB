@@ -26,6 +26,8 @@ import { installRendererLogger } from './helpers/logger'
 import { getSharedTikTokProvider } from './tts-providers/tiktok/sessionStores'
 import { TikTokTTSError } from './tts-providers/tiktok/types'
 import { registerWorkflowIpc } from './workflow/ipc'
+import { registerAiStudioIpc, setAiStudioPipelineEngine } from './ai-studio/ipc'
+import { AiStudioPipelineEngine } from './ai-studio/pipelineEngine'
 import { GoogleVeoSessionManager } from './veo/GoogleVeoSessionManager'
 import { GoogleVeoAntiSpamGuard } from './veo/GoogleVeoAntiSpamGuard'
 
@@ -229,6 +231,12 @@ app.on('window-all-closed', () => {
 // WORKFLOW MODE IPC HANDLERS
 // =========================================================================
 registerWorkflowIpc()
+
+// =========================================================================
+// AI VIDEO STUDIO IPC HANDLERS
+// =========================================================================
+registerAiStudioIpc()
+setAiStudioPipelineEngine(new AiStudioPipelineEngine())
 
 // =========================================================================
 // TASK MANAGEMENT IPC HANDLERS

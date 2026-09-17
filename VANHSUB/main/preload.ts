@@ -175,6 +175,56 @@ const vanhsub = {
     saveScene: (profile: any) => ipcRenderer.invoke('bible:saveScene', profile),
     deleteScene: (id: string) => ipcRenderer.invoke('bible:deleteScene', id),
   },
+  aiStudio: {
+    // Configuration (Milestone 1)
+    getConfig: () => ipcRenderer.invoke('aiStudio:config:get'),
+    updateConfig: (updates: any) => ipcRenderer.invoke('aiStudio:config:set', updates),
+    resetConfig: () => ipcRenderer.invoke('aiStudio:config:reset'),
+
+    // Configuration Aliases
+    get: () => ipcRenderer.invoke('aiStudio:config:get'),
+    set: (updates: any) => ipcRenderer.invoke('aiStudio:config:set', updates),
+    reset: () => ipcRenderer.invoke('aiStudio:config:reset'),
+
+    // Pipeline Execution (Milestone 2)
+    startPipeline: (payload: { topic: string; options?: any }) =>
+      ipcRenderer.invoke('aiStudio:pipeline:start', payload),
+    resumePipeline: (payload: { sessionId: string; fromStage?: number }) =>
+      ipcRenderer.invoke('aiStudio:pipeline:resume', payload),
+    cancelPipeline: (payload: { sessionId: string }) =>
+      ipcRenderer.invoke('aiStudio:pipeline:cancel', payload),
+    getPipelineState: (payload: { sessionId: string }) =>
+      ipcRenderer.invoke('aiStudio:pipeline:getState', payload),
+
+    // Granular Step Operations (Milestone 2)
+    renderSingleLineVoice: (payload: { lineIndex: number; text: string; voiceConfig: any }) =>
+      ipcRenderer.invoke('aiStudio:step:renderSingleLineVoice', payload),
+    regenerateSceneAsset: (payload: { sceneId: string; visualPrompt: string; flowConfig: any }) =>
+      ipcRenderer.invoke('aiStudio:step:regenerateSceneAsset', payload),
+    renderVideo: (payload: { sessionId: string; customSettings?: any }) =>
+      ipcRenderer.invoke('aiStudio:step:renderVideo', payload),
+
+    // ChatGPT Web Automation (Zero API Cost Mode)
+    checkChatGptLogin: () => ipcRenderer.invoke('aiStudio:chatgpt:checkLogin'),
+    openChatGptLogin: () => ipcRenderer.invoke('aiStudio:chatgpt:openLogin'),
+    closeChatGptLogin: () => ipcRenderer.invoke('aiStudio:chatgpt:closeLogin'),
+
+    // Push Event Subscription (Returns unsubscribe function)
+    onPipelineProgress: (callback: (event: any) => void) => {
+      const subscription = (_event: any, data: any) => callback(data);
+      ipcRenderer.on('aiStudio:pipeline:progress', subscription);
+      return () => {
+        ipcRenderer.removeListener('aiStudio:pipeline:progress', subscription);
+      };
+    },
+    onProgress: (callback: (event: any) => void) => {
+      const subscription = (_event: any, data: any) => callback(data);
+      ipcRenderer.on('aiStudio:pipeline:progress', subscription);
+      return () => {
+        ipcRenderer.removeListener('aiStudio:pipeline:progress', subscription);
+      };
+    },
+  },
 }
 
 const handler = {

@@ -1,0 +1,308 @@
+import { create } from 'zustand';
+import {
+  AiStudioConfig,
+  DEFAULT_AI_STUDIO_CONFIG,
+  DeepPartial,
+  AiStudioLlmConfig,
+  AiStudioVoiceConfig,
+  AiStudioFlowEngineConfig,
+  AiStudioRenderingConfig,
+  AiStudioSubtitleConfig,
+} from '../../types/aiStudio';
+
+// ============================================================================
+// PURE UTILITY FUNCTIONS (MERGE & CLONE)
+// ============================================================================
+
+/**
+ * Tạo một bản sao độc lập (Deep Clone) của DEFAULT_AI_STUDIO_CONFIG
+ * để không bao giờ làm đột biến hằng số gốc.
+ */
+export function cloneDefaultAiStudioConfig(): AiStudioConfig {
+  return JSON.parse(JSON.stringify(DEFAULT_AI_STUDIO_CONFIG));
+}
+
+/**
+ * Trộn một phần cấu hình (DeepPartial) vào cấu hình cơ sở một cách an toàn.
+ * Bảo toàn tất cả các thuộc tính lồng nhau trong 5 phân hệ cấu hình.
+ */
+export function mergeAiStudioConfig(
+  base: AiStudioConfig,
+  patch: DeepPartial<AiStudioConfig>
+): AiStudioConfig {
+  return {
+    llm: {
+      ...base.llm,
+      ...(patch.llm || {}),
+    },
+    voice: {
+      ...base.voice,
+      ...(patch.voice || {}),
+    },
+    flowEngine: {
+      ...base.flowEngine,
+      ...(patch.flowEngine || {}),
+    },
+    rendering: {
+      ...base.rendering,
+      ...(patch.rendering || {}),
+    },
+    subtitles: {
+      ...base.subtitles,
+      ...(patch.subtitles || {}),
+    },
+  };
+}
+
+/**
+ * Kiểm tra xem môi trường hiện tại có cầu nối Electron IPC (preload) khả dụng hay không.
+ */
+function isElectronAiStudioAvailable(): boolean {
+  return (
+    typeof window !== 'undefined' &&
+    typeof window.vanhsub !== 'undefined' &&
+    Boolean(window.vanhsub.aiStudio)
+  );
+}
+
+// ============================================================================
+// STORE INTERFACES
+// ============================================================================
+
+export interface AiStudioStoreState {
+  /** Toàn bộ đối tượng cấu hình AI Studio hiện tại */
+  config: AiStudioConfig;
+  /** Trạng thái đang tải cấu hình từ Main process hoặc đang reset */
+  isLoading: boolean;
+  /** Trạng thái đang lưu cấu hình xuống đĩa qua Main process */
+  isSaving: boolean;
+  /** Thông điệp lỗi gần nhất (nếu có); null nếu hoạt động bình thường */
+  error: string | null;
+  /** Đánh dấu cấu hình đã được nạp thành công ít nhất một lần */
+  hasLoaded: boolean;
+}
+
+export interface AiStudioStoreActions {
+  /** Nạp cấu hình từ Electron Main; fallback về mặc định nếu ở Browser */
+  loadConfig: () => Promise<AiStudioConfig>;
+  /** Cập nhật một phần cấu hình, đồng bộ 2 chiều với Main */
+  updateConfig: (partial: DeepPartial<AiStudioConfig>) => Promise<boolean>;
+  /** Đặt lại toàn bộ cấu hình về giá trị mặc định của hệ thống */
+  resetConfig: () => Promise<boolean>;
+  /** Ghi nhận hoặc xoá trạng thái lỗi */
+  setError: (err: string | null) => void;
+
+  // Tiện ích cập nhật riêng lẻ từng phân hệ (Sub-configuration Helpers)
+  updateLlmConfig: (partial: Partial<AiStudioLlmConfig>) => Promise<boolean>;
+  updateVoiceConfig: (partial: Partial<AiStudioVoiceConfig>) => Promise<boolean>;
+  updateFlowConfig: (partial: Partial<AiStudioFlowEngineConfig>) => Promise<boolean>;
+  updateRenderingConfig: (partial: Partial<AiStudioRenderingConfig>) => Promise<boolean>;
+  updateSubtitleConfig: (partial: Partial<AiStudioSubtitleConfig>) => Promise<boolean>;
+}
+
+export type AiStudioStore = AiStudioStoreState & AiStudioStoreActions;
+
+// ============================================================================
+// ZUSTAND STORE IMPLEMENTATION
+// ============================================================================
+
+export const useAiStudioStore = create<AiStudioStore>((set, get) => ({
+  // Khởi tạo state ban đầu an toàn
+  config: cloneDefaultAiStudioConfig(),
+  isLoading: false,
+  isSaving: false,
+  error: null,
+  hasLoaded: false,
+
+  /**
+   * Đọc cấu hình từ Main process qua IPC bridge `window.vanhsub.aiStudio.getConfig()`.
+   * Nếu đang ở Browser dev mode, giữ nguyên giá trị mặc định mà không báo lỗi.
+   */
+  loadConfig: async (): Promise<AiStudioConfig> => {
+    set({ isLoading: true, error: null });
+
+    if (!isElectronAiStudioAvailable()) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.debug(
+          '[useAiStudioStore] window.vanhsub.aiStudio không tồn tại. Sử dụng cấu hình mặc định (Browser Dev Mode).'
+        );
+      }
+      set({ isLoading: false, hasLoaded: true });
+      return get().config;
+    }
+
+    try {
+      const bridge = window.vanhsub.aiStudio;
+      // Hỗ trợ cả method chuẩn getConfig và alias get
+      const fetchFn = bridge.getConfig || bridge.get;
+      if (typeof fetchFn !== 'function') {
+        throw new Error('IPC method aiStudio.getConfig không khả dụng trên preload bridge.');
+      }
+
+      const remoteConfig = await fetchFn();
+      if (remoteConfig && typeof remoteConfig === 'object') {
+        // Hợp nhất với default config để phòng trường hợp dữ liệu cũ thiếu key
+        const merged = mergeAiStudioConfig(cloneDefaultAiStudioConfig(), remoteConfig);
+        set({
+          config: merged,
+          isLoading: false,
+          hasLoaded: true,
+          error: null,
+        });
+        return merged;
+      }
+
+      set({ isLoading: false, hasLoaded: true });
+      return get().config;
+    } catch (err: any) {
+      const errorMsg = err?.message || 'Không thể tải cấu hình AI Studio từ Main process.';
+      console.error('[useAiStudioStore.loadConfig] Lỗi:', err);
+      set({
+        isLoading: false,
+        hasLoaded: true, // Vẫn đánh dấu hasLoaded để không gây block vòng lặp UI
+        error: errorMsg,
+      });
+      return get().config;
+    }
+  },
+
+  /**
+   * Cập nhật cấu hình:
+   * 1. Cập nhật lạc quan (Optimistic update) trên Zustand store ngay lập tức.
+   * 2. Nếu có Electron Main, gửi payload partial xuống qua IPC để lưu vào electron-store.
+   * 3. Nhận lại cấu hình chính thống từ Main để cập nhật lại store.
+   */
+  updateConfig: async (partial: DeepPartial<AiStudioConfig>): Promise<boolean> => {
+    if (!partial || typeof partial !== 'object') {
+      return false;
+    }
+
+    // 1. Optimistic Update cục bộ
+    const currentConfig = get().config;
+    const optimisticConfig = mergeAiStudioConfig(currentConfig, partial);
+    set({
+      config: optimisticConfig,
+      isSaving: true,
+      error: null,
+    });
+
+    // 2. Kiểm tra môi trường Browser Dev
+    if (!isElectronAiStudioAvailable()) {
+      set({ isSaving: false });
+      return true;
+    }
+
+    // 3. Đồng bộ với Electron Main Process
+    try {
+      const bridge = window.vanhsub.aiStudio;
+      const saveFn = bridge.updateConfig || bridge.set;
+      if (typeof saveFn !== 'function') {
+        throw new Error('IPC method aiStudio.updateConfig không khả dụng trên preload bridge.');
+      }
+
+      const savedConfig = await saveFn(partial);
+      if (savedConfig && typeof savedConfig === 'object') {
+        const validatedConfig = mergeAiStudioConfig(cloneDefaultAiStudioConfig(), savedConfig);
+        set({
+          config: validatedConfig,
+          isSaving: false,
+          error: null,
+        });
+      } else {
+        set({ isSaving: false });
+      }
+      return true;
+    } catch (err: any) {
+      const errorMsg = err?.message || 'Lỗi khi lưu cấu hình AI Studio xuống đĩa.';
+      console.error('[useAiStudioStore.updateConfig] Lỗi:', err);
+      // Roll back optimistic update to pre-update state
+      set({
+        config: currentConfig,
+        isSaving: false,
+        error: errorMsg,
+      });
+      return false;
+    }
+  },
+
+  /**
+   * Đặt lại toàn bộ cấu hình về giá trị mặc định:
+   * Gọi IPC `resetConfig()` nếu có Electron, hoặc khôi phục in-memory nếu ở Browser.
+   */
+  resetConfig: async (): Promise<boolean> => {
+    const currentConfig = get().config;
+    set({ isLoading: true, error: null });
+
+    const defaultConfig = cloneDefaultAiStudioConfig();
+
+    if (!isElectronAiStudioAvailable()) {
+      set({
+        config: defaultConfig,
+        isLoading: false,
+        error: null,
+      });
+      return true;
+    }
+
+    try {
+      const bridge = window.vanhsub.aiStudio;
+      const resetFn = bridge.resetConfig || bridge.reset;
+      if (typeof resetFn !== 'function') {
+        throw new Error('IPC method aiStudio.resetConfig không khả dụng trên preload bridge.');
+      }
+
+      const result = await resetFn();
+      const finalConfig =
+        result && typeof result === 'object'
+          ? mergeAiStudioConfig(cloneDefaultAiStudioConfig(), result)
+          : defaultConfig;
+
+      set({
+        config: finalConfig,
+        isLoading: false,
+        error: null,
+      });
+      return true;
+    } catch (err: any) {
+      const errorMsg = err?.message || 'Lỗi khi đặt lại cấu hình AI Studio mặc định.';
+      console.error('[useAiStudioStore.resetConfig] Lỗi:', err);
+      set({
+        config: currentConfig,
+        isLoading: false,
+        error: errorMsg,
+      });
+      return false;
+    }
+  },
+
+  /**
+   * Đặt hoặc xóa thông điệp lỗi trên store.
+   */
+  setError: (err: string | null) => {
+    set({ error: err });
+  },
+
+  // ==========================================================================
+  // CONVENIENCE SECTION HELPERS
+  // ==========================================================================
+
+  updateLlmConfig: async (partial: Partial<AiStudioLlmConfig>): Promise<boolean> => {
+    return get().updateConfig({ llm: partial });
+  },
+
+  updateVoiceConfig: async (partial: Partial<AiStudioVoiceConfig>): Promise<boolean> => {
+    return get().updateConfig({ voice: partial });
+  },
+
+  updateFlowConfig: async (partial: Partial<AiStudioFlowEngineConfig>): Promise<boolean> => {
+    return get().updateConfig({ flowEngine: partial });
+  },
+
+  updateRenderingConfig: async (partial: Partial<AiStudioRenderingConfig>): Promise<boolean> => {
+    return get().updateConfig({ rendering: partial });
+  },
+
+  updateSubtitleConfig: async (partial: Partial<AiStudioSubtitleConfig>): Promise<boolean> => {
+    return get().updateConfig({ subtitles: partial });
+  },
+}));

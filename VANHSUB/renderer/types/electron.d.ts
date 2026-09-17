@@ -1,4 +1,14 @@
 import type { Task, CreateTaskInput } from './task';
+import type {
+  AiStudioConfig,
+  DeepPartial,
+  AiStudioVoiceConfig,
+  AiStudioFlowEngineConfig,
+  AiStudioRenderingConfig,
+  AiStudioSubtitleConfig,
+  PipelineSessionState,
+  PipelineProgressEvent,
+} from './aiStudio';
 
 export type SettingKey =
   | 'geminiApiKey'
@@ -378,6 +388,48 @@ export interface VanhsubAPI {
     getScenes: () => Promise<any[]>;
     saveScene: (profile: any) => Promise<any>;
     deleteScene: (id: string) => Promise<boolean>;
+  };
+  aiStudio: {
+    // Configuration (Milestone 1)
+    getConfig: () => Promise<AiStudioConfig>;
+    updateConfig: (updates: DeepPartial<AiStudioConfig>) => Promise<AiStudioConfig>;
+    resetConfig: () => Promise<AiStudioConfig>;
+
+    // Configuration Aliases
+    get: () => Promise<AiStudioConfig>;
+    set: (updates: DeepPartial<AiStudioConfig>) => Promise<AiStudioConfig>;
+    reset: () => Promise<AiStudioConfig>;
+
+    // Pipeline Execution (Milestone 2)
+    startPipeline: (payload: { topic: string; options?: DeepPartial<AiStudioConfig> }) => Promise<{ sessionId: string }>;
+    resumePipeline: (payload: { sessionId: string; fromStage?: number }) => Promise<{ success: boolean }>;
+    cancelPipeline: (payload: { sessionId: string }) => Promise<{ success: boolean }>;
+    getPipelineState: (payload: { sessionId: string }) => Promise<PipelineSessionState | null>;
+
+    // Granular Step Operations (Milestone 2)
+    renderSingleLineVoice: (payload: {
+      lineIndex: number;
+      text: string;
+      voiceConfig: AiStudioVoiceConfig;
+    }) => Promise<{ audioPath: string; durationMs: number }>;
+    regenerateSceneAsset: (payload: {
+      sceneId: string;
+      visualPrompt: string;
+      flowConfig: AiStudioFlowEngineConfig;
+    }) => Promise<{ assetPath: string }>;
+    renderVideo: (payload: {
+      sessionId: string;
+      customSettings?: DeepPartial<AiStudioRenderingConfig & AiStudioSubtitleConfig>;
+    }) => Promise<{ videoPath: string }>;
+
+    // ChatGPT Web Automation (Zero API Cost Mode)
+    checkChatGptLogin: () => Promise<{ isLoggedIn: boolean; userEmail?: string; sessionCheckedAt: number }>;
+    openChatGptLogin: () => Promise<boolean>;
+    closeChatGptLogin: () => Promise<{ success: boolean }>;
+
+    // Push Event Subscription
+    onPipelineProgress: (callback: (event: PipelineProgressEvent) => void) => () => void;
+    onProgress: (callback: (event: PipelineProgressEvent) => void) => () => void;
   };
 }
 

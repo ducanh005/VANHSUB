@@ -40,6 +40,7 @@ import SettingsPage from '../components/SettingsPage';
 import TerminalPanel from '../components/TerminalPanel';
 import OnboardingModal from '../components/OnboardingModal';
 import { DownloadModal } from '../components/download/DownloadModal';
+import AiStudioWorkspace from '../components/ai-studio/AiStudioWorkspace';
 
 const WorkflowCanvas = dynamic(
   () => import('../components/workflow/WorkflowCanvas'),
@@ -55,6 +56,7 @@ type NavItem = {
 
 const getNavItems = (): NavItem[] => [
   { id: 'home', label: t('sidebar.home'), icon: Film },
+  { id: 'ai-studio', label: 'AI Studio', icon: Sparkles, badge: 'HOT' },
   { id: 'workflow', label: 'Workflow AI', icon: Workflow, badge: 'MỚI' },
   { id: 'subtitles', label: t('sidebar.subtitles'), icon: Subtitles },
   { id: 'editor', label: t('sidebar.editor'), icon: MessageSquareText },
@@ -552,7 +554,9 @@ export default function HomePage() {
             <header className="flex h-16 shrink-0 items-center justify-between border-b border-slate-800/80 bg-[#0B1120]/80 px-6 backdrop-blur-md z-20">
               <div className="flex flex-1 items-center gap-4">
                 <h2 className="text-lg font-semibold text-white tracking-tight">
-                  {activeTab === 'workflow'
+                  {activeTab === 'ai-studio'
+                    ? 'AI Video Studio'
+                    : activeTab === 'workflow'
                     ? 'Workflow AI Studio'
                     : activeTab === 'editor'
                     ? 'Hiệu đính Phụ đề'
@@ -610,6 +614,9 @@ export default function HomePage() {
           {/* Body Dashboard (2 Columns)
               Các tab luôn mounted, chỉ ẩn bằng CSS — giữ nguyên trạng thái
               (audio đang nghe thử, panel mở, dữ liệu đã tải) khi chuyển tab */}
+          <div className={activeTab === 'ai-studio' ? 'flex min-h-0 flex-1 flex-col overflow-hidden' : 'hidden'}>
+            <AiStudioWorkspace />
+          </div>
           <div className={activeTab === 'workflow' ? 'flex min-h-0 flex-1 flex-col overflow-hidden' : 'hidden'}>
             <WorkflowCanvas
               onNavigateTab={setActiveTab}
