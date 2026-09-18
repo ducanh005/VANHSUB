@@ -67,6 +67,8 @@ export interface SynthesisResult {
 
 /** Facade chính — các method theo đúng spec TiktokTTSProvider */
 export interface TiktokTTSProvider {
+  /** Kiểm tra đã có sessionid được lưu hay chưa */
+  hasSession(): boolean;
   /** Kiểm tra session còn hạn không (probe 1 request TTS nhỏ) */
   validateSession(): Promise<TikTokValidateResult>;
   /** Danh sách voice khả dụng */

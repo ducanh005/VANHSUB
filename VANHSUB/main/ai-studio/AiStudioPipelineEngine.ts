@@ -595,10 +595,17 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
             const voiceoverPath = path.join(assetsDir, 'voiceover.mp3');
             const scriptLines = session.artifacts.scriptLines || [];
 
-            // Ưu tiên giọng đọc cụ thể trong ChannelProfile nếu đã cấu hình
+            // Ưu tiên giọng đọc cụ thể và provider trong ChannelProfile nếu đã cấu hình
+            const isTikTok =
+              config.channelProfile?.ttsEngine === 'tiktok_tts' ||
+              config.voice.provider === 'tiktok_tts' ||
+              Boolean(config.channelProfile?.specificVoice?.startsWith('BV0'));
+            const defaultVoice = isTikTok ? 'BV074_streaming' : 'vi-VN-HoaiMyNeural';
+
             const voiceConfig: AiStudioVoiceConfig = {
               ...config.voice,
-              voiceId: config.channelProfile?.specificVoice || config.voice.voiceId || 'vi-VN-HoaiMyNeural',
+              provider: isTikTok ? 'tiktok_tts' : (config.voice.provider || 'edge_tts'),
+              voiceId: config.channelProfile?.specificVoice || config.voice.voiceId || defaultVoice,
             };
 
             const ttsResult = await aiStudioTtsService.synthesizeVoiceover(

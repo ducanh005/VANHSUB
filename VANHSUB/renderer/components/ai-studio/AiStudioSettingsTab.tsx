@@ -51,6 +51,55 @@ export default function AiStudioSettingsTab() {
   const [isOpeningGeminiLogin, setIsOpeningGeminiLogin] = useState(false);
   const [isLoggingOutGemini, setIsLoggingOutGemini] = useState(false);
 
+  // TikTok TTS session state
+  const [hasTikTokSession, setHasTikTokSession] = useState<boolean>(false);
+  const [tikTokSessionInput, setTikTokSessionInput] = useState<string>('');
+  const [showTikTokSession, setShowTikTokSession] = useState(false);
+  const [tikTokValidateResult, setTikTokValidateResult] = useState<{ valid: boolean; detail: string } | null>(null);
+  const [isValidatingTikTok, setIsValidatingTikTok] = useState(false);
+  const [isSavingTikTokSession, setIsSavingTikTokSession] = useState(false);
+
+  const checkTikTokStatus = async () => {
+    if (typeof window === 'undefined' || !window.vanhsub?.tiktokTts?.status) return;
+    try {
+      const res = await window.vanhsub.tiktokTts.status();
+      setHasTikTokSession(Boolean(res?.hasSession));
+    } catch {
+      setHasTikTokSession(false);
+    }
+  };
+
+  const handleSaveTikTokSession = async () => {
+    if (!tikTokSessionInput.trim() || !window.vanhsub?.tiktokTts?.saveSession) return;
+    setIsSavingTikTokSession(true);
+    try {
+      const res = await window.vanhsub.tiktokTts.saveSession(tikTokSessionInput.trim());
+      if (res.ok) {
+        setHasTikTokSession(true);
+        setTikTokSessionInput('');
+        setTikTokValidateResult({ valid: true, detail: 'Đã lưu session TikTok thành công!' });
+      } else {
+        setTikTokValidateResult({ valid: false, detail: res.error || 'Lỗi lưu session' });
+      }
+    } finally {
+      setIsSavingTikTokSession(false);
+    }
+  };
+
+  const handleValidateTikTok = async () => {
+    if (!window.vanhsub?.tiktokTts?.validate) return;
+    setIsValidatingTikTok(true);
+    try {
+      const res = await window.vanhsub.tiktokTts.validate();
+      setTikTokValidateResult(res);
+      setHasTikTokSession(res.valid);
+    } catch (err: any) {
+      setTikTokValidateResult({ valid: false, detail: err?.message || 'Lỗi kết nối TikTok' });
+    } finally {
+      setIsValidatingTikTok(false);
+    }
+  };
+
   const checkChatGptStatus = async () => {
     if (typeof window === 'undefined' || !window.vanhsub?.aiStudio?.checkChatGptLogin) return;
     setIsCheckingChatGpt(true);
@@ -163,6 +212,7 @@ export default function AiStudioSettingsTab() {
 
   useEffect(() => {
     setForm(config);
+    checkTikTokStatus();
     if (config.llm.provider === 'chatgpt_web') {
       checkChatGptStatus();
     } else if (config.llm.provider === 'gemini_web') {
@@ -533,27 +583,139 @@ export default function AiStudioSettingsTab() {
 
         {/* 2. TTS & Voice Settings */}
         <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 backdrop-blur-sm">
-          <div className="mb-4 flex items-center gap-2 border-b border-slate-800/80 pb-3">
-            <Mic className="h-4 w-4 text-brand-cyan" />
-            <h3 className="text-sm font-semibold text-white">2. Giọng đọc & Lồng tiếng (Edge TTS)</h3>
+          <div className="mb-4 flex items-center justify-between border-b border-slate-800/80 pb-3">
+            <div className="flex items-center gap-2">
+              <Mic className="h-4 w-4 text-brand-cyan" />
+              <h3 className="text-sm font-semibold text-white">2. Giọng đọc &amp; Lồng tiếng</h3>
+            </div>
+            {form.voice.provider === 'tiktok_tts' && (
+              <span className={`text-[11px] font-medium flex items-center gap-1.5 ${hasTikTokSession ? 'text-emerald-400' : 'text-amber-400'}`}>
+                {hasTikTokSession ? (
+                  <>
+                    <CheckCircle2 className="h-3.5 w-3.5" />
+                    Đã có Session TikTok
+                  </>
+                ) : (
+                  <>
+                    <AlertCircle className="h-3.5 w-3.5" />
+                    Chưa có Session TikTok
+                  </>
+                )}
+              </span>
+            )}
           </div>
           <div className="space-y-3.5 text-xs">
             <div>
-              <label className="mb-1 block font-medium text-slate-300">Giọng đọc tiếng Việt</label>
+              <label className="mb-1 block font-medium text-slate-300">Công nghệ Giọng đọc (TTS Engine)</label>
               <select
-                value={form.voice.voiceId}
-                onChange={(e) =>
+                value={form.voice.provider || 'edge_tts'}
+                onChange={(e) => {
+                  const nextProv = e.target.value as VoiceProviderType;
                   setForm({
                     ...form,
-                    voice: { ...form.voice, voiceId: e.target.value },
-                  })
-                }
-                className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-slate-200 focus:border-brand-cyan focus:outline-none"
+                    voice: {
+                      ...form.voice,
+                      provider: nextProv,
+                      voiceId: nextProv === 'tiktok_tts' ? 'BV074_streaming' : 'vi-VN-HoaiMyNeural',
+                    },
+                  });
+                }}
+                className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-slate-200 focus:border-brand-cyan focus:outline-none cursor-pointer"
               >
-                <option value="vi-VN-HoaiMyNeural">Hoài My (Nữ — Truyền cảm, tự nhiên)</option>
-                <option value="vi-VN-NamMinhNeural">Nam Minh (Nam — Trầm ấm, đĩnh đạc)</option>
+                <option value="edge_tts">Microsoft Edge TTS (Việt Nam / Đa ngôn ngữ, miễn phí, ổn định)</option>
+                <option value="tiktok_tts">TikTok TTS (Giọng đọc đặc trưng từ Session TikTok)</option>
               </select>
             </div>
+
+            <div>
+              <label className="mb-1 block font-medium text-slate-300">
+                {form.voice.provider === 'tiktok_tts' ? 'Giọng đọc TikTok' : 'Giọng đọc tiếng Việt (Edge TTS)'}
+              </label>
+              {form.voice.provider === 'tiktok_tts' ? (
+                <select
+                  value={form.voice.voiceId || 'BV074_streaming'}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      voice: { ...form.voice, voiceId: e.target.value },
+                    })
+                  }
+                  className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-slate-200 focus:border-brand-cyan focus:outline-none cursor-pointer"
+                >
+                  <option value="BV074_streaming">TikTok — Tiếng Việt Nữ (BV074)</option>
+                  <option value="BV075_streaming">TikTok — Tiếng Việt Nam (BV075)</option>
+                  <option value="en_male_narration">TikTok — Story Teller (Anh/Mỹ)</option>
+                  <option value="en_us_001">TikTok — Jessie Nữ (Anh/Mỹ)</option>
+                </select>
+              ) : (
+                <select
+                  value={form.voice.voiceId || 'vi-VN-HoaiMyNeural'}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      voice: { ...form.voice, voiceId: e.target.value },
+                    })
+                  }
+                  className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-slate-200 focus:border-brand-cyan focus:outline-none cursor-pointer"
+                >
+                  <option value="vi-VN-HoaiMyNeural">Hoài My (Nữ — Truyền cảm, tự nhiên)</option>
+                  <option value="vi-VN-NamMinhNeural">Nam Minh (Nam — Trầm ấm, đĩnh đạc)</option>
+                </select>
+              )}
+            </div>
+
+            {form.voice.provider === 'tiktok_tts' && (
+              <div className="rounded-xl border border-slate-800/80 bg-slate-950/60 p-3.5 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold text-slate-200">Cấu hình TikTok Session ID</span>
+                  <button
+                    type="button"
+                    onClick={handleValidateTikTok}
+                    disabled={isValidatingTikTok}
+                    className="text-[11px] text-brand-cyan hover:underline cursor-pointer disabled:opacity-50"
+                  >
+                    {isValidatingTikTok ? 'Đang kiểm tra...' : 'Kiểm tra kết nối'}
+                  </button>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <div className="relative flex-1">
+                    <input
+                      type={showTikTokSession ? 'text' : 'password'}
+                      value={tikTokSessionInput}
+                      onChange={(e) => setTikTokSessionInput(e.target.value)}
+                      placeholder={hasTikTokSession ? '•••••••••••••••• (Đã lưu session)' : 'Dán sessionid TikTok vào đây...'}
+                      className="w-full rounded-lg border border-slate-800 bg-slate-900 px-3 py-1.5 text-xs text-slate-200 focus:border-brand-cyan focus:outline-none pr-8"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowTikTokSession(!showTikTokSession)}
+                      className="absolute right-2.5 top-2 text-slate-500 hover:text-slate-300 cursor-pointer"
+                    >
+                      {showTikTokSession ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleSaveTikTokSession}
+                    disabled={!tikTokSessionInput.trim() || isSavingTikTokSession}
+                    className="rounded-lg bg-brand-cyan/20 border border-brand-cyan/40 px-3 py-1.5 text-xs font-semibold text-brand-cyan hover:bg-brand-cyan/30 disabled:opacity-40 cursor-pointer"
+                  >
+                    {isSavingTikTokSession ? 'Đang lưu...' : 'Lưu Session'}
+                  </button>
+                </div>
+
+                {tikTokValidateResult && (
+                  <p className={`text-[11px] ${tikTokValidateResult.valid ? 'text-emerald-400' : 'text-amber-400'}`}>
+                    {tikTokValidateResult.detail}
+                  </p>
+                )}
+
+                <p className="text-[11px] text-slate-500 leading-relaxed">
+                  💡 <strong>Cơ chế tự phục hồi (Graceful Fallback):</strong> Nếu phiên TikTok chưa cấu hình hoặc hết hạn, hệ thống sẽ tự động chuyển sang giọng Edge TTS tiếng Việt tương ứng (Hoài My / Nam Minh) để tiến trình sản xuất video không bị gián đoạn.
+                </p>
+              </div>
+            )}
 
             <div className="grid grid-cols-2 gap-3">
               <div>

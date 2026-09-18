@@ -5,12 +5,14 @@ import ffmpeg from 'fluent-ffmpeg';
 import ffmpegInstaller from '@ffmpeg-installer/ffmpeg';
 import ffprobeInstaller from '@ffprobe-installer/ffprobe';
 import { MsEdgeTTS, OUTPUT_FORMAT, type ProsodyOptions } from 'msedge-tts';
+import type { TiktokTTSProvider } from '../../tts-providers/tiktok/types';
 import type {
   AiStudioVoiceConfig,
   ScriptBeatLine,
   WordTimestamp,
   RenderSingleLineVoicePayload,
   RenderSingleLineVoiceResult,
+  TtsVoiceProvider,
 } from '../types';
 
 // Setup FFmpeg & FFprobe binary paths
@@ -40,6 +42,7 @@ export interface AlignmentResult {
 
 export class AiStudioTtsService {
   private static instance: AiStudioTtsService | null = null;
+  private tikTokProvider: TiktokTTSProvider | null = null;
 
   public static getInstance(): AiStudioTtsService {
     if (!AiStudioTtsService.instance) {
@@ -48,18 +51,98 @@ export class AiStudioTtsService {
     return AiStudioTtsService.instance;
   }
 
+  /** Cho phép tiêm provider TikTok TTS tùy chỉnh (hữu ích cho unit test) */
+  public setTikTokProvider(provider: TiktokTTSProvider | null): void {
+    this.tikTokProvider = provider;
+  }
+
+  /** Lấy singleton TikTok TTS Provider từ hệ thống phiên TikTok */
+  public getTikTokProvider(): TiktokTTSProvider | null {
+    if (this.tikTokProvider) return this.tikTokProvider;
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { getSharedTikTokProvider } = require('../../tts-providers/tiktok/sessionStores');
+      this.tikTokProvider = getSharedTikTokProvider();
+      return this.tikTokProvider;
+    } catch (err: any) {
+      console.warn('[AiStudioTtsService] Could not initialize shared TikTok TTS provider:', err?.message || err);
+      return null;
+    }
+  }
+
   // ==========================================================================
   // Helper: Normalize Voice ID
   // ==========================================================================
-  public normalizeVoiceId(voiceId?: string): string {
-    const v = (voiceId || '').toLowerCase();
-    if (v.includes('female') || v.includes('hoaimy') || v.includes('nu') || v.includes('nữ')) {
+  public normalizeVoiceId(voiceId?: string, provider?: TtsVoiceProvider): string {
+    const v = (voiceId || '').toLowerCase().trim();
+
+    if (provider === 'tiktok_tts' || v.startsWith('bv0') || v.includes('tiktok')) {
+      // Ưu tiên voice ID TikTok tường minh (vd: BV074_streaming, en_male_narration, en_us_001)
+      if (voiceId && (voiceId.startsWith('BV0') || voiceId.startsWith('en_') || voiceId.startsWith('es_') || voiceId.startsWith('fr_'))) {
+        return voiceId;
+      }
+      if (v.includes('nu') || v.includes('nữ') || v.includes('female')) {
+        return 'BV074_streaming';
+      }
+      if (v.includes('nam') || v.includes('male')) {
+        return 'BV075_streaming';
+      }
+      return 'BV074_streaming';
+    }
+
+    // Edge-TTS: Ưu tiên voice ID tường minh
+    if (voiceId && voiceId.startsWith('vi-VN-')) {
+      return voiceId;
+    }
+    if (v.includes('nu') || v.includes('nữ') || v.includes('female') || v.includes('hoaimy')) {
       return 'vi-VN-HoaiMyNeural';
     }
-    if (v.includes('nam') || v.includes('male')) {
+    if (v.includes('nam') || v.includes('male') || v.includes('namminh')) {
       return 'vi-VN-NamMinhNeural';
     }
     return 'vi-VN-HoaiMyNeural';
+  }
+
+  // ==========================================================================
+  // Helper: Chunk Text For TikTok TTS (limit ~300 chars)
+  // ==========================================================================
+  public chunkTextForTikTok(text: string, maxChars = 220): string[] {
+    const trimmed = text.trim();
+    if (!trimmed || trimmed.length <= maxChars) return trimmed ? [trimmed] : [];
+
+    const rawParts = trimmed.split(/(?<=[.!?,\n;:])\s+/);
+    const result: string[] = [];
+    let currentChunk = '';
+
+    for (const part of rawParts) {
+      if (!part) continue;
+      if (part.length > maxChars) {
+        const words = part.split(/\s+/);
+        for (const word of words) {
+          if (!currentChunk) {
+            currentChunk = word;
+          } else if ((currentChunk + ' ' + word).length <= maxChars) {
+            currentChunk += ' ' + word;
+          } else {
+            result.push(currentChunk.trim());
+            currentChunk = word;
+          }
+        }
+      } else if (!currentChunk) {
+        currentChunk = part;
+      } else if ((currentChunk + ' ' + part).length <= maxChars) {
+        currentChunk += ' ' + part;
+      } else {
+        result.push(currentChunk.trim());
+        currentChunk = part;
+      }
+    }
+
+    if (currentChunk.trim()) {
+      result.push(currentChunk.trim());
+    }
+
+    return result;
   }
 
   // ==========================================================================
@@ -142,8 +225,58 @@ export class AiStudioTtsService {
     targetVoice: string,
     prosody: ProsodyOptions,
     outputPath: string,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    provider?: TtsVoiceProvider
   ): Promise<Buffer> {
+    const isTikTok = provider === 'tiktok_tts' || targetVoice.startsWith('BV0') || targetVoice.startsWith('en_');
+
+    if (isTikTok) {
+      const tikTok = this.getTikTokProvider();
+      if (tikTok && tikTok.hasSession()) {
+        try {
+          if (signal?.aborted) {
+            throw new Error('Quá trình tạo giọng đọc đã bị hủy bởi người dùng.');
+          }
+
+          const chunks = this.chunkTextForTikTok(text, 220);
+          const chunkBuffers: Buffer[] = [];
+
+          for (const chunk of chunks) {
+            if (signal?.aborted) {
+              throw new Error('Quá trình tạo giọng đọc đã bị hủy bởi người dùng.');
+            }
+            const res = await tikTok.synthesize(chunk, targetVoice);
+            if (res.audio && res.audio.length > 0) {
+              chunkBuffers.push(res.audio);
+            }
+          }
+
+          if (chunkBuffers.length > 0) {
+            const finalBuffer = Buffer.concat(chunkBuffers);
+            fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+            fs.writeFileSync(outputPath, finalBuffer);
+            return finalBuffer;
+          }
+        } catch (err: any) {
+          if (signal?.aborted) throw err;
+          console.warn(
+            `[AiStudioTtsService] TikTok TTS thất bại ("${err?.message || err}"). Tự động chuyển sang Edge TTS dự phòng...`
+          );
+        }
+      } else {
+        console.warn(
+          '[AiStudioTtsService] Chưa lưu session TikTok hoặc session không khả dụng. Tự động chuyển sang Edge TTS dự phòng...'
+        );
+      }
+
+      // Fallback: Chuyển sang giọng Edge-TTS tương ứng giới tính
+      if (targetVoice === 'BV075_streaming' || targetVoice.toLowerCase().includes('nam')) {
+        targetVoice = 'vi-VN-NamMinhNeural';
+      } else {
+        targetVoice = 'vi-VN-HoaiMyNeural';
+      }
+    }
+
     const maxRetries = 3;
     let lastError: any = null;
 
@@ -230,7 +363,7 @@ export class AiStudioTtsService {
       }
     }
 
-    throw new Error(`Edge TTS Voiceover synthesis failed: ${lastError?.message || lastError}`);
+    throw new Error(`TTS Voiceover synthesis failed: ${lastError?.message || lastError}`);
   }
 
   // ==========================================================================
@@ -243,7 +376,11 @@ export class AiStudioTtsService {
     signal?: AbortSignal
   ): Promise<TtsSynthesisResult> {
     fs.mkdirSync(path.dirname(outputPath), { recursive: true });
-    const targetVoice = this.normalizeVoiceId(voiceConfig.voiceId);
+    const provider: TtsVoiceProvider =
+      voiceConfig.provider === 'tiktok_tts' || voiceConfig.voiceId?.startsWith('BV0')
+        ? 'tiktok_tts'
+        : (voiceConfig.provider || 'edge_tts');
+    const targetVoice = this.normalizeVoiceId(voiceConfig.voiceId, provider);
 
     const prosody: ProsodyOptions = {
       rate: voiceConfig.rate || '+0%',
@@ -280,7 +417,7 @@ export class AiStudioTtsService {
         if (!sanitizedLine) continue;
 
         const lineAudioPath = path.join(voiceDir, `line_${line.index || i + 1}.mp3`);
-        await this.synthesizeSingleSpeechChunk(sanitizedLine, targetVoice, prosody, lineAudioPath, signal);
+        await this.synthesizeSingleSpeechChunk(sanitizedLine, targetVoice, prosody, lineAudioPath, signal, provider);
 
         const durSec = await this.probeMediaDuration(lineAudioPath);
         const durMs = Math.round(durSec * 1000);
@@ -326,8 +463,9 @@ export class AiStudioTtsService {
 
     const sanitized = this.sanitizeTextForTts(rawFullText) || rawFullText;
 
-    // If text is long (>= 1000 chars), split into sentence chunks to prevent Edge TTS drop
-    if (sanitized.length >= 1000) {
+    // If text is long (>= 220 chars for TikTok, >= 1000 chars for Edge), split into sentence chunks
+    const chunkThreshold = provider === 'tiktok_tts' ? 220 : 1000;
+    if (sanitized.length >= chunkThreshold) {
       const sentenceSplits = sanitized
         .split(/(?<=[.!?\n])\s+/)
         .map((s) => s.trim())
@@ -339,11 +477,11 @@ export class AiStudioTtsService {
         text,
       }));
 
-      return this.synthesizeVoiceover(mockLines, voiceConfig, outputPath, signal);
+      return this.synthesizeVoiceover(mockLines, { ...voiceConfig, provider }, outputPath, signal);
     }
 
     // Short text: Synthesize directly
-    await this.synthesizeSingleSpeechChunk(sanitized, targetVoice, prosody, outputPath, signal);
+    await this.synthesizeSingleSpeechChunk(sanitized, targetVoice, prosody, outputPath, signal, provider);
     const durationSec = await this.probeMediaDuration(outputPath);
     const durationMs = Math.round(durationSec * 1000);
     const wordTimestamps = this.calculateSyllabicAlignment(sanitized, durationMs);

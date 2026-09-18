@@ -55,12 +55,19 @@ export interface AiStudioLlmConfig {
 /**
  * 2. TTS & Voice Settings (Giọng đọc & Lồng tiếng)
  */
-export type VoiceProviderType = 'edge_tts' | 'local_onnx';
+export type VoiceProviderType = 'edge_tts' | 'tiktok_tts' | 'local_onnx';
+
+export const TIKTOK_STUDIO_VOICES = [
+  { id: 'BV074_streaming', label: 'Tiếng Việt — Nữ (BV074)', gender: 'female', lang: 'vi' },
+  { id: 'BV075_streaming', label: 'Tiếng Việt — Nam (BV075)', gender: 'male', lang: 'vi' },
+  { id: 'en_male_narration', label: 'Story Teller (English)', gender: 'male', lang: 'en' },
+  { id: 'en_us_001', label: 'English US — Female', gender: 'female', lang: 'en' },
+] as const;
 
 export interface AiStudioVoiceConfig {
   /** Nhà cung cấp giọng đọc (mặc định 'edge_tts') */
   provider: VoiceProviderType;
-  /** Mã định danh giọng đọc (vd: 'vi-VN-HoaiMyNeural', 'vi-VN-NamMinhNeural') */
+  /** Mã định danh giọng đọc (vd: 'vi-VN-HoaiMyNeural', 'vi-VN-NamMinhNeural', 'BV074_streaming', 'BV075_streaming') */
   voiceId: string;
   /** Tốc độ đọc (vd: '-10%', '+0%', '+15%') */
   rate: string;
@@ -209,7 +216,7 @@ export interface ChannelProfileConfig {
   /** 13. AI provider (văn bản) */
   aiProvider: 'default' | 'chatgpt_web' | 'gemini_web' | 'deepseek' | 'openai';
   /** 14. Giọng đọc (TTS) */
-  ttsEngine: 'edge_tts' | 'kokoro_tts';
+  ttsEngine: 'edge_tts' | 'tiktok_tts' | 'kokoro_tts';
   /** 15. Giọng cụ thể */
   specificVoice: string;
   /** 16. Đồng bộ nhân vật */

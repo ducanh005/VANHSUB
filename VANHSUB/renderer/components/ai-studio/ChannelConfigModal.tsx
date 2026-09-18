@@ -58,6 +58,8 @@ export default function ChannelConfigModal({
   const [newStyleName, setNewStyleName] = useState('');
   const [newStyleDesc, setNewStyleDesc] = useState('');
 
+  const [hasTikTokSession, setHasTikTokSession] = useState<boolean | null>(null);
+
   // Sync state when modal opens or store config changes
   useEffect(() => {
     if (isOpen) {
@@ -66,6 +68,13 @@ export default function ChannelConfigModal({
         ...(config.channelProfile || {}),
       });
       setPromptMessage(null);
+
+      if (typeof window !== 'undefined' && window.vanhsub?.tiktokTts?.status) {
+        window.vanhsub.tiktokTts
+          .status()
+          .then((res) => setHasTikTokSession(Boolean(res?.hasSession)))
+          .catch(() => setHasTikTokSession(false));
+      }
     }
   }, [isOpen, config.channelProfile]);
 
@@ -708,28 +717,58 @@ Output NOTHING else. No analysis, no planning, no alternative titles, no word co
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-slate-300">Giọng đọc (TTS)</label>
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-semibold text-slate-300">Giọng đọc (TTS)</label>
+                  {profile.ttsEngine === 'tiktok_tts' && (
+                    <span className={`text-[10px] font-medium ${hasTikTokSession ? 'text-emerald-400' : 'text-amber-400'}`}>
+                      {hasTikTokSession ? '✓ Session OK' : '⚠ Chưa lưu session'}
+                    </span>
+                  )}
+                </div>
                 <select
                   value={profile.ttsEngine}
-                  onChange={(e) => handleChange('ttsEngine', e.target.value as any)}
+                  onChange={(e) => {
+                    const nextEngine = e.target.value as any;
+                    if (nextEngine === 'tiktok_tts' && !profile.specificVoice?.startsWith('BV0')) {
+                      setProfile((prev) => ({ ...prev, ttsEngine: nextEngine, specificVoice: 'BV074_streaming' }));
+                    } else if (nextEngine === 'edge_tts' && profile.specificVoice?.startsWith('BV0')) {
+                      setProfile((prev) => ({ ...prev, ttsEngine: nextEngine, specificVoice: 'vi-VN-HoaiMyNeural' }));
+                    } else {
+                      handleChange('ttsEngine', nextEngine);
+                    }
+                  }}
                   className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2.5 text-xs text-white focus:border-brand-cyan focus:outline-none focus:ring-1 focus:ring-brand-cyan cursor-pointer"
                 >
-                  <option value="kokoro_tts">Kokoro TTS (Anh/Mỹ/..., local)</option>
                   <option value="edge_tts">Edge-TTS (Việt Nam / Đa ngôn ngữ, miễn phí)</option>
+                  <option value="tiktok_tts">TikTok TTS (Giọng từ Session TikTok)</option>
+                  <option value="kokoro_tts">Kokoro TTS (Anh/Mỹ/..., local)</option>
                 </select>
               </div>
 
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-slate-300">Giọng cụ thể</label>
-                <select
-                  value={profile.specificVoice}
-                  onChange={(e) => handleChange('specificVoice', e.target.value)}
-                  className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2.5 text-xs text-white focus:border-brand-cyan focus:outline-none focus:ring-1 focus:ring-brand-cyan cursor-pointer"
-                >
-                  <option value="vi-VN-HoaiMyNeural">Hoài My (Nữ Hà Nội - Truyền cảm)</option>
-                  <option value="vi-VN-NamMinhNeural">Nam Minh (Nam Hà Nội - Trầm ấm)</option>
-                  <option value="default">Đang tải / mặc định...</option>
-                </select>
+                {profile.ttsEngine === 'tiktok_tts' ? (
+                  <select
+                    value={profile.specificVoice || 'BV074_streaming'}
+                    onChange={(e) => handleChange('specificVoice', e.target.value)}
+                    className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2.5 text-xs text-white focus:border-brand-cyan focus:outline-none focus:ring-1 focus:ring-brand-cyan cursor-pointer"
+                  >
+                    <option value="BV074_streaming">TikTok — Tiếng Việt Nữ (BV074)</option>
+                    <option value="BV075_streaming">TikTok — Tiếng Việt Nam (BV075)</option>
+                    <option value="en_male_narration">TikTok — Story Teller (Anh/Mỹ)</option>
+                    <option value="en_us_001">TikTok — Jessie Nữ (Anh/Mỹ)</option>
+                  </select>
+                ) : (
+                  <select
+                    value={profile.specificVoice || 'vi-VN-HoaiMyNeural'}
+                    onChange={(e) => handleChange('specificVoice', e.target.value)}
+                    className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2.5 text-xs text-white focus:border-brand-cyan focus:outline-none focus:ring-1 focus:ring-brand-cyan cursor-pointer"
+                  >
+                    <option value="vi-VN-HoaiMyNeural">Hoài My (Nữ Hà Nội - Truyền cảm)</option>
+                    <option value="vi-VN-NamMinhNeural">Nam Minh (Nam Hà Nội - Trầm ấm)</option>
+                    <option value="default">Mặc định (Hoài My)</option>
+                  </select>
+                )}
               </div>
             </div>
 
@@ -939,6 +978,11 @@ Output NOTHING else. No analysis, no planning, no alternative titles, no word co
             <span className="text-xs text-slate-400">Thay đổi áp dụng cho ý tưởng / video mới.</span>
             {profile.ttsEngine === 'kokoro_tts' && (
               <span className="text-[11px] text-slate-500">Đang tải danh sách giọng kokoro...</span>
+            )}
+            {profile.ttsEngine === 'tiktok_tts' && (
+              <span className={`text-[11px] flex items-center gap-1 ${hasTikTokSession ? 'text-emerald-400' : 'text-amber-400'}`}>
+                {hasTikTokSession ? '✓ TikTok TTS Session sẵn sàng' : '⚠ Chưa lưu Session TikTok (tự động Edge-TTS dự phòng)'}
+              </span>
             )}
           </div>
 
