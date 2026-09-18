@@ -299,7 +299,7 @@ export const DEFAULT_CHANNEL_PROFILE_CONFIG: Readonly<ChannelProfileConfig> = Ob
       systemPrompt: 'Phong cách chuyên gia tài chính sắc bén, góc nhìn thực tế, ngôn từ cuốn hút và có tính cảnh báo.',
     },
   ],
-  projectName: 'kênh test',
+  projectName: '',
   hostName: '',
   hostDescription: '',
   hostAvatarUrl: '',

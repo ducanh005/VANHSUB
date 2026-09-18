@@ -1,12 +1,26 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Sparkles, Play, Settings } from 'lucide-react';
 import AutoPilotView from './AutoPilotView';
 import AiStudioSettingsTab from './AiStudioSettingsTab';
+import ProjectSetupScreen from './ProjectSetupScreen';
+import ChannelConfigModal from './ChannelConfigModal';
+import { useAiStudioStore } from '../../lib/store/aiStudioStore';
 
 export type AiStudioMode = 'auto' | 'settings';
 
 export default function AiStudioWorkspace() {
   const [activeMode, setActiveMode] = useState<AiStudioMode>('auto');
+  const [isProjectEntered, setIsProjectEntered] = useState<boolean>(false);
+  const [isChannelModalOpen, setIsChannelModalOpen] = useState<boolean>(false);
+
+  const { config, loadConfig, isLoading, hasLoaded } = useAiStudioStore();
+
+  // Nạp cấu hình từ Electron Main / disk ngay khi Workspace mount
+  useEffect(() => {
+    loadConfig();
+  }, [loadConfig]);
+
+  const currentProjectName = config.channelProfile?.projectName?.trim();
 
   return (
     <div className="flex h-full w-full flex-col overflow-hidden bg-[#080D1A]">
@@ -25,6 +39,24 @@ export default function AiStudioWorkspace() {
             </h1>
           </div>
         </div>
+
+        {/* Center: Current Project Badge & Switcher Button (when entered) */}
+        {isProjectEntered && currentProjectName && (
+          <div className="hidden sm:flex items-center gap-2 rounded-xl border border-slate-800 bg-[#0E1526] px-3.5 py-1 text-xs">
+            <span className="text-slate-400">Project:</span>
+            <span className="font-bold text-white truncate max-w-[200px]" title={currentProjectName}>
+              📁 {currentProjectName}
+            </span>
+            <button
+              type="button"
+              onClick={() => setIsProjectEntered(false)}
+              className="ml-1 rounded px-2 py-0.5 text-[11px] font-semibold text-brand-cyan hover:bg-slate-800 hover:text-white transition cursor-pointer"
+              title="Quay lại màn hình thiết lập / đổi project"
+            >
+              (Đổi Project)
+            </button>
+          </div>
+        )}
 
         {/* Mode Switcher Buttons */}
         <div className="flex items-center rounded-2xl border border-slate-800 bg-slate-950/80 p-1">
@@ -58,10 +90,38 @@ export default function AiStudioWorkspace() {
       </header>
 
       {/* Main Studio Viewport */}
-      <div className="flex-1 min-h-0 overflow-hidden">
-        {activeMode === 'auto' && <AutoPilotView />}
-        {activeMode === 'settings' && <AiStudioSettingsTab />}
+      <div className="flex-1 min-h-0 overflow-hidden relative">
+        {isLoading && !hasLoaded ? (
+          <div className="flex h-full w-full items-center justify-center bg-[#080D1A] text-slate-400">
+            <div className="flex flex-col items-center gap-3">
+              <div className="h-7 w-7 animate-spin rounded-full border-2 border-brand-cyan border-t-transparent" />
+              <span className="text-xs font-medium">Đang tải cấu hình AI Studio...</span>
+            </div>
+          </div>
+        ) : (
+          <>
+            {activeMode === 'auto' && (
+              !isProjectEntered ? (
+                <ProjectSetupScreen
+                  onEnterStudio={() => setIsProjectEntered(true)}
+                  onOpenDetailedConfig={() => setIsChannelModalOpen(true)}
+                />
+              ) : (
+                <AutoPilotView
+                  onSwitchProject={() => setIsProjectEntered(false)}
+                />
+              )
+            )}
+            {activeMode === 'settings' && <AiStudioSettingsTab />}
+          </>
+        )}
       </div>
+
+      {/* Modal Cấu hình kênh chi tiết */}
+      <ChannelConfigModal
+        isOpen={isChannelModalOpen}
+        onClose={() => setIsChannelModalOpen(false)}
+      />
     </div>
   );
 }

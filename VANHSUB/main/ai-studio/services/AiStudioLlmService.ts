@@ -966,7 +966,7 @@ Chấm điểm trên thang 100 và trả về JSON DUY NHẤT:
     config?: AiStudioLlmConfig,
     onProgress?: (msg: string) => void
   ): Promise<string> {
-    const projectName = (channelProfile.projectName || channelProfile.channelNiche || 'kênh test').trim();
+    const projectName = (channelProfile.projectName || channelProfile.channelNiche || 'Kênh YouTube').trim();
     const niche = channelProfile.channelNiche || projectName || 'Nội dung khám phá & kiến thức chuyên sâu';
     const desc = channelProfile.channelDescription || 'Kênh chia sẻ những câu chuyện và góc nhìn độc đáo, hấp dẫn.';
     const orient = channelProfile.channelOrientation || 'Kịch tính, lôi cuốn, tạo sự đồng cảm và kích thích trí tò mò.';

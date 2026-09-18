@@ -44,7 +44,11 @@ const STAGES = [
   { id: 8, name: 'SEO & Xuất bản', icon: Share2 },
 ];
 
-export default function AutoPilotView() {
+interface AutoPilotViewProps {
+  onSwitchProject?: () => void;
+}
+
+export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = {}) {
   const { config, updateChannelProfileConfig } = useAiStudioStore();
   const [topic, setTopic] = useState('');
   const [session, setSession] = useState<PipelineSessionState | null>(null);
@@ -294,7 +298,7 @@ export default function AutoPilotView() {
     await updateChannelProfileConfig({ channelCharacters: updated });
   };
 
-  const projectName = config.channelProfile?.projectName || 'kênh test';
+  const projectName = config.channelProfile?.projectName || 'Chưa đặt tên';
   const aiProviderName =
     config.llm.provider === 'chatgpt_web'
       ? 'ChatGPT Web'
@@ -326,16 +330,28 @@ export default function AutoPilotView() {
       {/* ==================================================================== */}
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800/80 bg-[#090E18] px-5 py-2.5 shrink-0">
         <div className="flex items-center gap-3">
-          {/* Tên Project / Kênh với icon lấp lánh */}
-          <button
-            type="button"
-            onClick={() => setIsChannelModalOpen(true)}
-            className="flex items-center gap-1.5 rounded-lg border border-slate-800 bg-[#0F1626] px-3 py-1.5 text-xs font-bold text-white hover:border-slate-700 transition cursor-pointer shadow-sm"
-            title="Bấm để mở Cấu hình kênh & Master Prompt"
-          >
-            <Sparkles className="h-3.5 w-3.5 text-amber-400" />
-            <span>{projectName}</span>
-          </button>
+          {/* Tên Project / Kênh với icon lấp lánh và nút đổi project */}
+          <div className="flex items-center rounded-lg border border-slate-800 bg-[#0F1626] overflow-hidden shadow-sm">
+            <button
+              type="button"
+              onClick={() => setIsChannelModalOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white hover:bg-slate-800/60 transition cursor-pointer"
+              title="Bấm để mở Cấu hình kênh & Master Prompt"
+            >
+              <Sparkles className="h-3.5 w-3.5 text-amber-400" />
+              <span>{projectName}</span>
+            </button>
+            {onSwitchProject && (
+              <button
+                type="button"
+                onClick={onSwitchProject}
+                className="border-l border-slate-800/80 px-2 py-1.5 text-[11px] font-semibold text-brand-cyan hover:bg-slate-800 hover:text-white transition cursor-pointer"
+                title="Quay lại màn hình thiết lập project"
+              >
+                Đổi
+              </button>
+            )}
+          </div>
 
           {/* AI STUDIO Badge */}
           <span className="rounded-md bg-[#131C2E] px-2 py-1 text-[11px] font-bold text-slate-300 border border-slate-700/50">
