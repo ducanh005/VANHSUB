@@ -12,6 +12,8 @@ import {
   CheckCircle2,
   AlertCircle,
   Settings,
+  LogOut,
+  ExternalLink,
 } from 'lucide-react';
 import { useAiStudioStore } from '../../lib/store/aiStudioStore';
 import type {
@@ -38,6 +40,7 @@ export default function AiStudioSettingsTab() {
   } | null>(null);
   const [isCheckingChatGpt, setIsCheckingChatGpt] = useState(false);
   const [isOpeningChatGptLogin, setIsOpeningChatGptLogin] = useState(false);
+  const [isLoggingOutChatGpt, setIsLoggingOutChatGpt] = useState(false);
 
   // Gemini Web Automation status state
   const [geminiStatus, setGeminiStatus] = useState<{
@@ -46,6 +49,7 @@ export default function AiStudioSettingsTab() {
   } | null>(null);
   const [isCheckingGemini, setIsCheckingGemini] = useState(false);
   const [isOpeningGeminiLogin, setIsOpeningGeminiLogin] = useState(false);
+  const [isLoggingOutGemini, setIsLoggingOutGemini] = useState(false);
 
   const checkChatGptStatus = async () => {
     if (typeof window === 'undefined' || !window.vanhsub?.aiStudio?.checkChatGptLogin) return;
@@ -66,8 +70,39 @@ export default function AiStudioSettingsTab() {
     try {
       await window.vanhsub.aiStudio.openChatGptLogin();
       await checkChatGptStatus();
+      // Polling up to 60s while login window is active
+      let polls = 0;
+      const pollTimer = setInterval(async () => {
+        polls++;
+        if (polls > 30) {
+          clearInterval(pollTimer);
+          return;
+        }
+        try {
+          const res = await window.vanhsub?.aiStudio?.checkChatGptLogin?.();
+          if (res?.isLoggedIn) {
+            setChatGptStatus(res);
+            clearInterval(pollTimer);
+          }
+        } catch {
+          // ignore
+        }
+      }, 2000);
     } finally {
       setIsOpeningChatGptLogin(false);
+    }
+  };
+
+  const handleLogoutChatGpt = async () => {
+    if (typeof window === 'undefined' || !window.vanhsub?.aiStudio?.logoutChatGptLogin) return;
+    setIsLoggingOutChatGpt(true);
+    try {
+      await window.vanhsub.aiStudio.logoutChatGptLogin();
+      setChatGptStatus({ isLoggedIn: false });
+    } catch (err) {
+      console.error('Failed to logout ChatGPT Web:', err);
+    } finally {
+      setIsLoggingOutChatGpt(false);
     }
   };
 
@@ -90,8 +125,39 @@ export default function AiStudioSettingsTab() {
     try {
       await window.vanhsub.aiStudio.openGeminiLogin();
       await checkGeminiStatus();
+      // Polling up to 60s while login window is active
+      let polls = 0;
+      const pollTimer = setInterval(async () => {
+        polls++;
+        if (polls > 30) {
+          clearInterval(pollTimer);
+          return;
+        }
+        try {
+          const res = await window.vanhsub?.aiStudio?.checkGeminiLogin?.();
+          if (res?.isLoggedIn) {
+            setGeminiStatus(res);
+            clearInterval(pollTimer);
+          }
+        } catch {
+          // ignore
+        }
+      }, 2000);
     } finally {
       setIsOpeningGeminiLogin(false);
+    }
+  };
+
+  const handleLogoutGemini = async () => {
+    if (typeof window === 'undefined' || !window.vanhsub?.aiStudio?.logoutGeminiLogin) return;
+    setIsLoggingOutGemini(true);
+    try {
+      await window.vanhsub.aiStudio.logoutGeminiLogin();
+      setGeminiStatus({ isLoggedIn: false });
+    } catch (err) {
+      console.error('Failed to logout Gemini Web:', err);
+    } finally {
+      setIsLoggingOutGemini(false);
     }
   };
 
@@ -215,24 +281,59 @@ export default function AiStudioSettingsTab() {
                   )}
                 </div>
 
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={handleOpenChatGptLogin}
-                    disabled={isOpeningChatGptLogin}
-                    className="flex-1 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-medium py-2 px-3 text-xs transition cursor-pointer flex items-center justify-center gap-1.5 shadow-md shadow-emerald-900/30"
-                  >
-                    <Sparkles className="h-3.5 w-3.5" />
-                    {isOpeningChatGptLogin ? 'Đang mở cửa sổ...' : 'Đăng nhập ChatGPT Web'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={checkChatGptStatus}
-                    disabled={isCheckingChatGpt}
-                    className="rounded-xl border border-slate-700 bg-slate-800 hover:bg-slate-700 text-slate-300 py-2 px-3 text-xs transition cursor-pointer"
-                  >
-                    {isCheckingChatGpt ? 'Đang kiểm tra...' : 'Kiểm tra lại'}
-                  </button>
+                <div className="flex flex-wrap items-center gap-2">
+                  {chatGptStatus?.isLoggedIn ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={handleOpenChatGptLogin}
+                        disabled={isOpeningChatGptLogin}
+                        className="flex-1 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-medium py-2 px-3 text-xs transition cursor-pointer flex items-center justify-center gap-1.5 border border-slate-700"
+                        title="Mở cửa sổ ChatGPT Web để xem hoặc thao tác trực tiếp"
+                      >
+                        <ExternalLink className="h-3.5 w-3.5 text-emerald-400" />
+                        {isOpeningChatGptLogin ? 'Đang mở...' : 'Mở cửa sổ Web'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleLogoutChatGpt}
+                        disabled={isLoggingOutChatGpt}
+                        className="rounded-xl border border-rose-900/40 bg-rose-950/30 hover:bg-rose-900/50 text-rose-300 py-2 px-3 text-xs transition cursor-pointer flex items-center gap-1.5"
+                        title="Đăng xuất phiên ChatGPT Web trên máy này"
+                      >
+                        <LogOut className="h-3.5 w-3.5" />
+                        {isLoggingOutChatGpt ? 'Đang thoát...' : 'Đăng xuất'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={checkChatGptStatus}
+                        disabled={isCheckingChatGpt}
+                        className="rounded-xl border border-slate-700 bg-slate-800 hover:bg-slate-700 text-slate-300 py-2 px-3 text-xs transition cursor-pointer"
+                      >
+                        {isCheckingChatGpt ? 'Đang kiểm tra...' : 'Kiểm tra lại'}
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        onClick={handleOpenChatGptLogin}
+                        disabled={isOpeningChatGptLogin}
+                        className="flex-1 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-medium py-2 px-3 text-xs transition cursor-pointer flex items-center justify-center gap-1.5 shadow-md shadow-emerald-900/30"
+                      >
+                        <Sparkles className="h-3.5 w-3.5" />
+                        {isOpeningChatGptLogin ? 'Đang mở cửa sổ...' : 'Đăng nhập ChatGPT Web'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={checkChatGptStatus}
+                        disabled={isCheckingChatGpt}
+                        className="rounded-xl border border-slate-700 bg-slate-800 hover:bg-slate-700 text-slate-300 py-2 px-3 text-xs transition cursor-pointer"
+                      >
+                        {isCheckingChatGpt ? 'Đang kiểm tra...' : 'Kiểm tra lại'}
+                      </button>
+                    </>
+                  )}
                 </div>
 
                 <div className="pt-2 border-t border-slate-800/80">
@@ -279,24 +380,59 @@ export default function AiStudioSettingsTab() {
                   )}
                 </div>
 
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={handleOpenGeminiLogin}
-                    disabled={isOpeningGeminiLogin}
-                    className="flex-1 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-medium py-2 px-3 text-xs transition cursor-pointer flex items-center justify-center gap-1.5 shadow-md shadow-blue-900/30"
-                  >
-                    <Sparkles className="h-3.5 w-3.5" />
-                    {isOpeningGeminiLogin ? 'Đang mở cửa sổ...' : 'Đăng nhập Gemini Web'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={checkGeminiStatus}
-                    disabled={isCheckingGemini}
-                    className="rounded-xl border border-slate-700 bg-slate-800 hover:bg-slate-700 text-slate-300 py-2 px-3 text-xs transition cursor-pointer"
-                  >
-                    {isCheckingGemini ? 'Đang kiểm tra...' : 'Kiểm tra lại'}
-                  </button>
+                <div className="flex flex-wrap items-center gap-2">
+                  {geminiStatus?.isLoggedIn ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={handleOpenGeminiLogin}
+                        disabled={isOpeningGeminiLogin}
+                        className="flex-1 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-medium py-2 px-3 text-xs transition cursor-pointer flex items-center justify-center gap-1.5 border border-slate-700"
+                        title="Mở cửa sổ Gemini Web để xem hoặc thao tác trực tiếp"
+                      >
+                        <ExternalLink className="h-3.5 w-3.5 text-blue-400" />
+                        {isOpeningGeminiLogin ? 'Đang mở...' : 'Mở cửa sổ Web'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleLogoutGemini}
+                        disabled={isLoggingOutGemini}
+                        className="rounded-xl border border-rose-900/40 bg-rose-950/30 hover:bg-rose-900/50 text-rose-300 py-2 px-3 text-xs transition cursor-pointer flex items-center gap-1.5"
+                        title="Đăng xuất phiên Gemini Web trên máy này"
+                      >
+                        <LogOut className="h-3.5 w-3.5" />
+                        {isLoggingOutGemini ? 'Đang thoát...' : 'Đăng xuất'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={checkGeminiStatus}
+                        disabled={isCheckingGemini}
+                        className="rounded-xl border border-slate-700 bg-slate-800 hover:bg-slate-700 text-slate-300 py-2 px-3 text-xs transition cursor-pointer"
+                      >
+                        {isCheckingGemini ? 'Đang kiểm tra...' : 'Kiểm tra lại'}
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        onClick={handleOpenGeminiLogin}
+                        disabled={isOpeningGeminiLogin}
+                        className="flex-1 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-medium py-2 px-3 text-xs transition cursor-pointer flex items-center justify-center gap-1.5 shadow-md shadow-blue-900/30"
+                      >
+                        <Sparkles className="h-3.5 w-3.5" />
+                        {isOpeningGeminiLogin ? 'Đang mở cửa sổ...' : 'Đăng nhập Gemini Web'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={checkGeminiStatus}
+                        disabled={isCheckingGemini}
+                        className="rounded-xl border border-slate-700 bg-slate-800 hover:bg-slate-700 text-slate-300 py-2 px-3 text-xs transition cursor-pointer"
+                      >
+                        {isCheckingGemini ? 'Đang kiểm tra...' : 'Kiểm tra lại'}
+                      </button>
+                    </>
+                  )}
                 </div>
 
                 <div className="pt-2 border-t border-slate-800/80">

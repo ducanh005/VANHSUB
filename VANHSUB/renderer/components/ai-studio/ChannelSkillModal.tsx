@@ -177,7 +177,16 @@ Bắt đầu ngay bằng mục 1 SYSTEM ROLE.`;
 
 export function generateFilledSkillPrompt(channelProfile?: Partial<ChannelProfileConfig>): string {
   const channelName = channelProfile?.projectName || channelProfile?.channelNiche || 'kênh test';
-  const engineName = 'Google Flow (Veo & Imagen)';
+  let engineName = 'Google Flow (Veo & Imagen)';
+  if (channelProfile?.aiProvider === 'gemini_web') {
+    engineName = 'Gemini Web (Google DeepMind)';
+  } else if (channelProfile?.aiProvider === 'chatgpt_web') {
+    engineName = 'ChatGPT Web (OpenAI)';
+  } else if (channelProfile?.aiProvider === 'deepseek') {
+    engineName = 'DeepSeek AI';
+  } else if (channelProfile?.aiProvider === 'openai') {
+    engineName = 'OpenAI GPT-4o';
+  }
   const niche = channelProfile?.channelNiche || 'Chưa thiết lập ngách';
   const brief = channelProfile?.channelDescription || 'Kênh tài liệu, khám phá và câu chuyện chuyên sâu.';
   const orientation = channelProfile?.channelOrientation || 'Kịch tính, lôi cuốn, đào sâu dữ kiện lịch sử và nhân vật.';

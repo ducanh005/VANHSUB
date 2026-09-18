@@ -632,11 +632,13 @@ export interface VanhsubAiStudioBridge {
   checkChatGptLogin?: () => Promise<{ isLoggedIn: boolean; userEmail?: string; sessionCheckedAt: number }>;
   openChatGptLogin?: () => Promise<{ success: boolean }>;
   closeChatGptLogin?: () => Promise<{ success: boolean }>;
+  logoutChatGptLogin?: () => Promise<{ success: boolean }>;
 
   // Gemini Web Automation
   checkGeminiLogin?: () => Promise<{ isLoggedIn: boolean; userEmail?: string; sessionCheckedAt: number }>;
   openGeminiLogin?: () => Promise<{ success: boolean }>;
   closeGeminiLogin?: () => Promise<{ success: boolean }>;
+  logoutGeminiLogin?: () => Promise<{ success: boolean }>;
 
   onPipelineProgress?: (callback: (event: PipelineProgressEvent) => void) => () => void;
   onProgress?: (callback: (event: PipelineProgressEvent) => void) => () => void;

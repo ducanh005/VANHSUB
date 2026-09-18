@@ -257,52 +257,90 @@ export class ChatGptWebSessionManager {
 
   /**
    * Opens a visible BrowserWindow for the user to log in with their ChatGPT account.
+   * When waitForCompletion is false (default, for UI button), returns true immediately so UI does not freeze.
+   * When waitForCompletion is true (for auto-generation), polls until user logs in or closes window.
    */
-  public async openLoginWindow(): Promise<boolean> {
+  public async openLoginWindow(waitForCompletion = false): Promise<boolean> {
     if (this.browserWindow && !this.browserWindow.isDestroyed()) {
       this.browserWindow.setPosition(100, 100);
       this.browserWindow.setSize(950, 750);
       this.browserWindow.show();
       this.browserWindow.focus();
-      return true;
-    }
+      this.isOffscreen = false;
+      if (!waitForCompletion) {
+        return true;
+      }
+    } else {
+      const ses = this.getSession();
+      if (!ses || typeof BrowserWindow === 'undefined') {
+        throw new Error('Môi trường Electron không khả dụng để mở trình duyệt ChatGPT.');
+      }
 
-    const ses = this.getSession();
-    if (!ses || typeof BrowserWindow === 'undefined') {
-      throw new Error('Môi trường Electron không khả dụng để mở trình duyệt ChatGPT.');
-    }
+      this.browserWindow = new BrowserWindow({
+        width: 950,
+        height: 750,
+        title: 'Đăng nhập ChatGPT Web — Vanhsub AI Studio (Chế độ Tiết kiệm)',
+        backgroundColor: '#ffffff',
+        autoHideMenuBar: true,
+        show: true,
+        webPreferences: {
+          session: ses,
+          nodeIntegration: false,
+          contextIsolation: true,
+          backgroundThrottling: false,
+        },
+      });
 
-    this.browserWindow = new BrowserWindow({
-      width: 950,
-      height: 750,
-      title: 'Đăng nhập ChatGPT Web — Vanhsub AI Studio (Chế độ Tiết kiệm)',
-      backgroundColor: '#ffffff',
-      autoHideMenuBar: true,
-      show: true,
-      webPreferences: {
-        session: ses,
-        nodeIntegration: false,
-        contextIsolation: true,
-        backgroundThrottling: false,
-      },
-    });
+      this.configureWebContents(this.browserWindow);
+      this.isOffscreen = false;
 
-    this.configureWebContents(this.browserWindow);
-    this.isOffscreen = false;
-
-    // Load ChatGPT home
-    this.browserWindow.loadURL(CHATGPT_HOME_URL).catch((err) => {
-      console.warn('[ChatGptWebSession] loadURL warning:', err?.message || err);
-    });
-
-    return new Promise((resolve) => {
-      if (!this.browserWindow) return resolve(false);
+      // Load ChatGPT home
+      this.browserWindow.loadURL(CHATGPT_HOME_URL).catch((err) => {
+        console.warn('[ChatGptWebSession] loadURL warning:', err?.message || err);
+      });
 
       this.browserWindow.on('closed', () => {
         this.browserWindow = null;
-        resolve(true);
+      });
+
+      if (!waitForCompletion) {
+        return true;
+      }
+    }
+
+    return new Promise((resolve) => {
+      const pollInterval = setInterval(async () => {
+        if (!this.browserWindow || this.browserWindow.isDestroyed()) {
+          clearInterval(pollInterval);
+          resolve(false);
+          return;
+        }
+        const status = await this.checkLoginStatus();
+        if (status.isLoggedIn) {
+          clearInterval(pollInterval);
+          resolve(true);
+        }
+      }, 1500);
+
+      this.browserWindow?.on('closed', () => {
+        clearInterval(pollInterval);
+        resolve(false);
       });
     });
+  }
+
+  /**
+   * Logs out of ChatGPT Web by clearing cookies & storage data in the session partition.
+   */
+  public async logout(): Promise<void> {
+    if (this.browserWindow && !this.browserWindow.isDestroyed()) {
+      this.browserWindow.close();
+      this.browserWindow = null;
+    }
+    const ses = this.getSession();
+    if (ses) {
+      await ses.clearStorageData();
+    }
   }
 
   /**
@@ -368,35 +406,43 @@ export class ChatGptWebSessionManager {
   ): Promise<string> {
     onProgress?.('Đang truyền prompt vào ChatGPT Web...');
 
+    if (!win || win.isDestroyed() || win.webContents.isDestroyed()) {
+      throw new Error('Cửa sổ phiên ChatGPT Web không khả dụng hoặc đã bị đóng.');
+    }
+
     const injected = await win.webContents.executeJavaScript(`
       (async () => {
-        const textarea = document.querySelector('#prompt-textarea') ||
-                         document.querySelector('div[contenteditable="true"]') ||
-                         document.querySelector('textarea');
-        if (!textarea) return { success: false, error: 'Không tìm thấy ô nhập prompt trên ChatGPT Web' };
+        try {
+          const textarea = document.querySelector('#prompt-textarea') ||
+                           document.querySelector('div[contenteditable="true"]') ||
+                           document.querySelector('textarea');
+          if (!textarea) return { success: false, error: 'Không tìm thấy ô nhập prompt trên ChatGPT Web' };
 
-        textarea.focus();
-        if (textarea.tagName === 'DIV' || textarea.getAttribute('contenteditable') === 'true') {
-          document.execCommand('selectAll', false, null);
-          document.execCommand('insertText', false, ${JSON.stringify(prompt)});
-        } else {
-          textarea.value = ${JSON.stringify(prompt)};
-          textarea.dispatchEvent(new Event('input', { bubbles: true }));
-        }
+          textarea.focus();
+          if (textarea.tagName === 'DIV' || textarea.getAttribute('contenteditable') === 'true') {
+            document.execCommand('selectAll', false, null);
+            document.execCommand('insertText', false, ${JSON.stringify(prompt)});
+          } else {
+            textarea.value = ${JSON.stringify(prompt)};
+            textarea.dispatchEvent(new Event('input', { bubbles: true }));
+          }
 
-        await new Promise(r => setTimeout(r, 600));
+          await new Promise(r => setTimeout(r, 600));
 
-        const sendBtn = document.querySelector('button[data-testid="send-button"]') ||
-                        document.querySelector('button[aria-label="Send prompt"]') ||
-                        document.querySelector('button[data-testid="fruitjuice-send-button"]');
-        if (sendBtn && !sendBtn.disabled) {
-          sendBtn.click();
+          const sendBtn = document.querySelector('button[data-testid="send-button"]') ||
+                          document.querySelector('button[aria-label="Send prompt"]') ||
+                          document.querySelector('button[data-testid="fruitjuice-send-button"]');
+          if (sendBtn && !sendBtn.disabled) {
+            sendBtn.click();
+            return { success: true };
+          }
+
+          const enterEvent = new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true });
+          textarea.dispatchEvent(enterEvent);
           return { success: true };
+        } catch (err) {
+          return { success: false, error: String(err) };
         }
-
-        const enterEvent = new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true });
-        textarea.dispatchEvent(enterEvent);
-        return { success: true };
       })()
     `);
 
@@ -427,7 +473,7 @@ export class ChatGptWebSessionManager {
       const loginStatus = await this.checkLoginStatus();
       if (!loginStatus.isLoggedIn) {
         onProgress?.('Chưa phát hiện đăng nhập ChatGPT Web. Đang mở cửa sổ đăng nhập...');
-        await this.openLoginWindow();
+        await this.openLoginWindow(true);
         const recheck = await this.checkLoginStatus();
         if (!recheck.isLoggedIn) {
           throw new Error('Vui lòng hoàn tất đăng nhập tài khoản ChatGPT Web để sử dụng Chế độ Tiết kiệm.');
@@ -504,7 +550,7 @@ CHÚ Ý: Chỉ trả về các dòng bắt đầu bằng "CÂU X: ...", không t
       const loginStatus = await this.checkLoginStatus();
       if (!loginStatus.isLoggedIn) {
         onProgress?.('Chưa phát hiện đăng nhập ChatGPT Web. Đang mở cửa sổ đăng nhập...');
-        await this.openLoginWindow();
+        await this.openLoginWindow(true);
         const recheck = await this.checkLoginStatus();
         if (!recheck.isLoggedIn) {
           throw new Error('Vui lòng hoàn tất đăng nhập tài khoản ChatGPT Web để sử dụng Chế độ Tiết kiệm.');
@@ -545,16 +591,24 @@ CHÚ Ý: Chỉ trả về các dòng bắt đầu bằng "CÂU X: ...", không t
     let stableCount = 0;
 
     while (Date.now() - startTime < maxWaitMs) {
+      if (webContents.isDestroyed()) {
+        throw new Error('Phiên ChatGPT Web đã bị đóng trong lúc chờ phản hồi.');
+      }
+
       const state = await webContents.executeJavaScript(`
         (() => {
-          const stopBtn = document.querySelector('button[data-testid="stop-button"]');
-          const isStreaming = Boolean(stopBtn) || Boolean(document.querySelector('.result-streaming'));
-          
-          const assistantMessages = Array.from(document.querySelectorAll('[data-message-author-role="assistant"]'));
-          const lastMsg = assistantMessages[assistantMessages.length - 1];
-          const text = lastMsg ? lastMsg.innerText : '';
+          try {
+            const stopBtn = document.querySelector('button[data-testid="stop-button"]');
+            const isStreaming = Boolean(stopBtn) || Boolean(document.querySelector('.result-streaming'));
+            
+            const assistantMessages = Array.from(document.querySelectorAll('[data-message-author-role="assistant"]'));
+            const lastMsg = assistantMessages[assistantMessages.length - 1];
+            const text = lastMsg ? (lastMsg.innerText || lastMsg.textContent || '') : '';
 
-          return { isStreaming, text, messageCount: assistantMessages.length };
+            return { isStreaming, text, messageCount: assistantMessages.length };
+          } catch (err) {
+            return { isStreaming: false, text: '', messageCount: 0, error: String(err) };
+          }
         })()
       `);
 

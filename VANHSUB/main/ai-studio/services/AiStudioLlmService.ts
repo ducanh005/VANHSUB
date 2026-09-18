@@ -974,11 +974,23 @@ Chấm điểm trên thang 100 và trả về JSON DUY NHẤT:
     const durationLong = channelProfile.targetLongDuration || '3_5_min';
     const targetMinutes = durationLong.replace('_', '–').replace('min', 'phút');
 
-    const aiModelName = config?.model || (
-      config?.provider === 'chatgpt_web' ? 'ChatGPT Web (Zero-API Cost)' :
-      config?.provider === 'gemini_web' ? 'Gemini Web (Zero-API Cost)' :
-      config?.provider || 'AI Studio LLM'
-    );
+    const effectiveProvider =
+      channelProfile?.aiProvider && channelProfile.aiProvider !== 'default'
+        ? channelProfile.aiProvider
+        : config?.provider || 'deepseek';
+
+    let aiModelName = 'AI Studio LLM';
+    if (effectiveProvider === 'gemini_web') {
+      aiModelName = 'Gemini Web (Zero-API Cost)';
+    } else if (effectiveProvider === 'chatgpt_web') {
+      aiModelName = 'ChatGPT Web (Zero-API Cost)';
+    } else if (effectiveProvider === 'deepseek') {
+      aiModelName = `DeepSeek (${config?.model || 'deepseek-chat'})`;
+    } else if (effectiveProvider === 'openai') {
+      aiModelName = `OpenAI (${config?.model || 'gpt-4o'})`;
+    } else {
+      aiModelName = config?.model || effectiveProvider;
+    }
 
     // 10-Section Fallback Template complying 100% with the user's Master Prompt Standard
     const promptTemplate = `1. SYSTEM ROLE
@@ -1070,9 +1082,14 @@ NARRATION DIRECTION:
 Output NOTHING else. No analysis, no planning, no alternative titles, no word counts, no visual or music instructions, no commentary.`;
 
     // Nếu người dùng có LLM provider sẵn sàng, chạy prompt meta chuyên gia để sinh prompt tối ưu
-    if (config && (config.apiKey || config.provider === 'chatgpt_web' || config.provider === 'gemini_web')) {
+    const hasActiveLlm =
+      effectiveProvider === 'chatgpt_web' ||
+      effectiveProvider === 'gemini_web' ||
+      Boolean(config?.apiKey);
+
+    if (hasActiveLlm) {
       try {
-        onProgress?.('Đang kết nối AI Provider để tạo Production Master Prompt...');
+        onProgress?.(`Đang kết nối AI Provider (${aiModelName}) để tạo Production Master Prompt...`);
         const userPrompt = `Bạn là chuyên gia viết PRODUCTION MASTER PROMPT cho kênh YouTube kể chuyện dài.
 
 Nhiệm vụ: từ mô tả kênh dưới đây, viết ra MỘT master prompt hoàn chỉnh — loại prompt mà người ta dán
@@ -1087,7 +1104,7 @@ PHẦN A — KHUÔN BẮT BUỘC
 Master prompt bạn viết phải có đủ 10 mục, đúng thứ tự này:
 
 1. SYSTEM ROLE — model đóng vai ai, viết cho kênh nào (GỌI ĐÚNG TÊN KÊNH), khán giả nào, hứa hẹn gì
-   với người xem.
+   với người xem. Mô hình AI chỉ định: "${aiModelName}".
 2. INPUT — vùng nhận nguồn, bọc bằng marker (xem PHẦN B).
 3. PRIMARY OBJECTIVE — độ dài mục tiêu theo phút và theo số từ; phải giống cái gì, và phải KHÔNG
    giống cái gì (nêu 3-5 thứ cụ thể như "một bài báo đọc to", "truyện Reddit đổi tên").
@@ -1240,29 +1257,36 @@ Viết master prompt bằng ngôn ngữ Tiếng Việt (vì kịch bản nó sin
 Trả về DUY NHẤT nội dung master prompt. Không lời dẫn, không giải thích, không bọc trong khối code.
 Bắt đầu ngay bằng mục 1 SYSTEM ROLE.`;
 
-        if (config.provider === 'chatgpt_web') {
+        let resultText = '';
+        if (effectiveProvider === 'chatgpt_web') {
           const { ChatGptWebSessionManager } = await import('../chatgpt/ChatGptWebSessionManager');
           const mgr = ChatGptWebSessionManager.getInstance();
-          const mode = config.chatgptWebMode || 'offscreen';
-          const res = await mgr.executePromptTurn(userPrompt, mode, onProgress);
-          if (res && res.length >= 100) return res.trim();
-        } else if (config.provider === 'gemini_web') {
+          const mode = config?.chatgptWebMode || 'offscreen';
+          resultText = await mgr.executePromptTurn(userPrompt, mode, onProgress);
+        } else if (effectiveProvider === 'gemini_web') {
           const { GeminiWebSessionManager } = await import('../gemini/GeminiWebSessionManager');
           const mgr = GeminiWebSessionManager.getInstance();
-          const mode = config.geminiWebMode || 'offscreen';
-          const res = await mgr.executePromptTurn(userPrompt, mode, onProgress);
-          if (res && res.length >= 100) return res.trim();
-        } else {
-          const clientBundle = this.createClient(config);
+          const mode = config?.geminiWebMode || 'offscreen';
+          resultText = await mgr.executePromptTurn(userPrompt, mode, onProgress);
+        } else if (config) {
+          const clientBundle = this.createClient({ ...config, provider: effectiveProvider });
           if (clientBundle) {
             const resp = await clientBundle.client.chat.completions.create({
               model: clientBundle.model,
               messages: [{ role: 'user', content: userPrompt }],
               temperature: 0.7,
             });
-            const text = resp.choices[0]?.message?.content;
-            if (text && text.length >= 100) return text.trim();
+            resultText = resp.choices[0]?.message?.content || '';
           }
+        }
+
+        if (resultText && resultText.trim().length >= 100) {
+          // Chuẩn hóa tên AI model nếu model trả về tên cũ hoặc hallucination
+          const cleanText = resultText.trim().replace(
+            /(Bạn là nhà biên kịch lồng tiếng cao cấp chạy trên mô hình AI\s*")[^"]+("\s*cho)/i,
+            `$1${aiModelName}$2`
+          );
+          return cleanText;
         }
       } catch (err) {
         console.warn('[AiStudioLlmService] Remote master prompt generation error, using modular template:', err);

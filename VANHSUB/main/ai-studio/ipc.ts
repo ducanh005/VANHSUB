@@ -320,9 +320,15 @@ export function registerAiStudioIpc(): void {
     ): Promise<GenerateMasterPromptResult> => {
       try {
         const config = getDecryptedAiStudioConfig();
+        const effectiveLlmConfig = {
+          ...config.llm,
+          ...(payload.channelProfile?.aiProvider && payload.channelProfile.aiProvider !== 'default'
+            ? { provider: payload.channelProfile.aiProvider }
+            : {}),
+        };
         const masterPrompt = await aiStudioLlmService.generateMasterPromptForChannel(
           payload.channelProfile,
-          config.llm
+          effectiveLlmConfig
         );
         return { masterPrompt };
       } catch (err: any) {
@@ -402,6 +408,11 @@ export function registerAiStudioIpc(): void {
     return { success: true };
   });
 
+  safeHandle('aiStudio:chatgpt:logout', async () => {
+    await ChatGptWebSessionManager.getInstance().logout();
+    return { success: true };
+  });
+
   // --------------------------------------------------------------------------
   // Gemini Web Automation Channels (Zero API Cost Mode)
   // --------------------------------------------------------------------------
@@ -418,5 +429,10 @@ export function registerAiStudioIpc(): void {
     return { success: true };
   });
 
-  console.log('[AI Studio] Registered 16 IPC channels successfully (including ChatGPT & Gemini Web).');
+  safeHandle('aiStudio:gemini:logout', async () => {
+    await GeminiWebSessionManager.getInstance().logout();
+    return { success: true };
+  });
+
+  console.log('[AI Studio] Registered 18 IPC channels successfully (including ChatGPT & Gemini Web).');
 }

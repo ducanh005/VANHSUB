@@ -96,13 +96,24 @@ export default function ChannelConfigModal({
     setPromptMessage(`Đang kết nối Model AI (${aiProvider}) để tạo Master Prompt cho project "${projectName}"...`);
 
     try {
+      const aiModelDisplayName =
+        aiProvider === 'gemini_web'
+          ? 'Gemini Web (Zero-API Cost)'
+          : aiProvider === 'chatgpt_web'
+          ? 'ChatGPT Web (Zero-API Cost)'
+          : aiProvider === 'deepseek'
+          ? 'DeepSeek'
+          : aiProvider === 'openai'
+          ? 'OpenAI'
+          : aiProvider;
+
       if (window.vanhsub?.aiStudio?.generateMasterPrompt) {
         const result = await window.vanhsub.aiStudio.generateMasterPrompt({
-          channelProfile: { ...profile, projectName },
+          channelProfile: { ...profile, projectName, aiProvider },
         });
         if (result?.masterPrompt) {
           handleChange('masterPrompt', result.masterPrompt);
-          setPromptMessage(`✨ Đã sinh Master Prompt cho project "${projectName}" bằng ${aiProvider}!`);
+          setPromptMessage(`✨ Đã sinh Master Prompt cho project "${projectName}" bằng ${aiModelDisplayName}!`);
         }
       } else {
         // Fallback generator directly in renderer complying with the 10-section contract
@@ -113,7 +124,7 @@ export default function ChannelConfigModal({
         const targetMinutes = profile.targetLongDuration.replace('_', '–').replace('min', 'phút');
 
         const generated = `1. SYSTEM ROLE
-Bạn là nhà biên kịch lồng tiếng cao cấp chạy trên mô hình AI "${aiProvider}" cho project / kênh YouTube "${projectName}".
+Bạn là nhà biên kịch lồng tiếng cao cấp chạy trên mô hình AI "${aiModelDisplayName}" cho project / kênh YouTube "${projectName}".
 Khán giả của kênh là những người yêu thích tìm hiểu sâu, khao khát những góc nhìn chân thực, sắc sảo và kịch tính.
 Lời hứa của kênh với người xem: mỗi câu chuyện đều được bóc tách đến tận cùng sự thật, cuốn hút từng giây và không bao giờ lãng phí thời gian của bạn.
 

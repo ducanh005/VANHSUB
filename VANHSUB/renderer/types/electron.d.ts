@@ -454,11 +454,13 @@ export interface VanhsubAPI {
     checkChatGptLogin: () => Promise<{ isLoggedIn: boolean; userEmail?: string; sessionCheckedAt: number }>;
     openChatGptLogin: () => Promise<boolean>;
     closeChatGptLogin: () => Promise<{ success: boolean }>;
+    logoutChatGptLogin: () => Promise<{ success: boolean }>;
 
     // Gemini Web Automation (Zero API Cost Mode)
     checkGeminiLogin: () => Promise<{ isLoggedIn: boolean; userEmail?: string; sessionCheckedAt: number }>;
     openGeminiLogin: () => Promise<boolean>;
     closeGeminiLogin: () => Promise<{ success: boolean }>;
+    logoutGeminiLogin: () => Promise<{ success: boolean }>;
 
     // Push Event Subscription
     onPipelineProgress: (callback: (event: PipelineProgressEvent) => void) => () => void;

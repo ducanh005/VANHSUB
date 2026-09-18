@@ -175,52 +175,89 @@ export class GeminiWebSessionManager {
 
   /**
    * Opens a visible BrowserWindow for the user to log in with their Google account.
+   * When waitForCompletion is false (default, for UI button), returns true immediately so UI does not freeze.
+   * When waitForCompletion is true (for auto-generation), polls until user logs in or closes window.
    */
-  public async openLoginWindow(): Promise<boolean> {
+  public async openLoginWindow(waitForCompletion = false): Promise<boolean> {
     if (this.browserWindow && !this.browserWindow.isDestroyed()) {
       this.browserWindow.setPosition(100, 100);
       this.browserWindow.setSize(950, 750);
       this.browserWindow.show();
       this.browserWindow.focus();
-      return true;
-    }
+      this.isOffscreen = false;
+      if (!waitForCompletion) {
+        return true;
+      }
+    } else {
+      const ses = this.getSession();
+      if (!ses || typeof BrowserWindow === 'undefined') {
+        throw new Error('Môi trường Electron không khả dụng để mở trình duyệt Gemini.');
+      }
 
-    const ses = this.getSession();
-    if (!ses || typeof BrowserWindow === 'undefined') {
-      throw new Error('Môi trường Electron không khả dụng để mở trình duyệt Gemini.');
-    }
+      this.browserWindow = new BrowserWindow({
+        width: 950,
+        height: 750,
+        title: 'Đăng nhập Gemini Web — Vanhsub AI Studio (Chế độ Tiết kiệm)',
+        backgroundColor: '#ffffff',
+        autoHideMenuBar: true,
+        show: true,
+        webPreferences: {
+          session: ses,
+          nodeIntegration: false,
+          contextIsolation: true,
+          backgroundThrottling: false,
+        },
+      });
 
-    this.browserWindow = new BrowserWindow({
-      width: 950,
-      height: 750,
-      title: 'Đăng nhập Gemini Web — Vanhsub AI Studio (Chế độ Tiết kiệm)',
-      backgroundColor: '#ffffff',
-      autoHideMenuBar: true,
-      show: true,
-      webPreferences: {
-        session: ses,
-        nodeIntegration: false,
-        contextIsolation: true,
-        backgroundThrottling: false,
-      },
-    });
+      this.configureWebContents(this.browserWindow);
+      this.isOffscreen = false;
 
-    this.configureWebContents(this.browserWindow);
-    this.isOffscreen = false;
-
-    // Load Gemini home
-    this.browserWindow.loadURL(GEMINI_HOME_URL).catch((err) => {
-      console.warn('[GeminiWebSession] loadURL warning:', err?.message || err);
-    });
-
-    return new Promise((resolve) => {
-      if (!this.browserWindow) return resolve(false);
+      this.browserWindow.loadURL(GEMINI_HOME_URL).catch((err) => {
+        console.warn('[GeminiWebSession] loadURL warning:', err?.message || err);
+      });
 
       this.browserWindow.on('closed', () => {
         this.browserWindow = null;
-        resolve(true);
+      });
+
+      if (!waitForCompletion) {
+        return true;
+      }
+    }
+
+    return new Promise((resolve) => {
+      const pollInterval = setInterval(async () => {
+        if (!this.browserWindow || this.browserWindow.isDestroyed()) {
+          clearInterval(pollInterval);
+          resolve(false);
+          return;
+        }
+        const status = await this.checkLoginStatus();
+        if (status.isLoggedIn) {
+          clearInterval(pollInterval);
+          resolve(true);
+        }
+      }, 1500);
+
+      this.browserWindow?.on('closed', () => {
+        clearInterval(pollInterval);
+        resolve(false);
       });
     });
+  }
+
+  /**
+   * Logs out of Gemini Web by clearing cookies & storage data in the session partition.
+   */
+  public async logout(): Promise<void> {
+    if (this.browserWindow && !this.browserWindow.isDestroyed()) {
+      this.browserWindow.close();
+      this.browserWindow = null;
+    }
+    const ses = this.getSession();
+    if (ses) {
+      await ses.clearStorageData();
+    }
   }
 
   /**
@@ -286,34 +323,42 @@ export class GeminiWebSessionManager {
   ): Promise<string> {
     onProgress?.('Đang truyền prompt vào Gemini Web...');
 
+    if (!win || win.isDestroyed() || win.webContents.isDestroyed()) {
+      throw new Error('Cửa sổ phiên Gemini Web không khả dụng hoặc đã bị đóng.');
+    }
+
     const injected = await win.webContents.executeJavaScript(`
       (async () => {
-        const editor = document.querySelector('rich-textarea div[contenteditable="true"]') ||
-                       document.querySelector('div.ql-editor[contenteditable="true"]') ||
-                       document.querySelector('div[contenteditable="true"]') ||
-                       document.querySelector('textarea');
-        if (!editor) return { success: false, error: 'Không tìm thấy ô nhập prompt trên Gemini Web' };
+        try {
+          const editor = document.querySelector('rich-textarea div[contenteditable="true"]') ||
+                         document.querySelector('div.ql-editor[contenteditable="true"]') ||
+                         document.querySelector('div[contenteditable="true"]') ||
+                         document.querySelector('textarea');
+          if (!editor) return { success: false, error: 'Không tìm thấy ô nhập prompt trên Gemini Web' };
 
-        editor.focus();
-        document.execCommand('selectAll', false, null);
-        document.execCommand('insertText', false, ${JSON.stringify(prompt)});
-        editor.dispatchEvent(new Event('input', { bubbles: true }));
+          editor.focus();
+          document.execCommand('selectAll', false, null);
+          document.execCommand('insertText', false, ${JSON.stringify(prompt)});
+          editor.dispatchEvent(new Event('input', { bubbles: true }));
 
-        await new Promise(r => setTimeout(r, 600));
+          await new Promise(r => setTimeout(r, 600));
 
-        const sendBtn = document.querySelector('button[aria-label*="Gửi"]') ||
-                        document.querySelector('button[aria-label*="Send"]') ||
-                        document.querySelector('button.send-button') ||
-                        document.querySelector('button[mattooltip*="Send"]') ||
-                        document.querySelector('button[data-test-id="send-button"]');
-        if (sendBtn && !sendBtn.disabled) {
-          sendBtn.click();
+          const sendBtn = document.querySelector('button[aria-label*="Gửi"]') ||
+                          document.querySelector('button[aria-label*="Send"]') ||
+                          document.querySelector('button.send-button') ||
+                          document.querySelector('button[mattooltip*="Send"]') ||
+                          document.querySelector('button[data-test-id="send-button"]');
+          if (sendBtn && !sendBtn.disabled) {
+            sendBtn.click();
+            return { success: true };
+          }
+
+          const enterEvent = new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true });
+          editor.dispatchEvent(enterEvent);
           return { success: true };
+        } catch (err) {
+          return { success: false, error: String(err) };
         }
-
-        const enterEvent = new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true });
-        editor.dispatchEvent(enterEvent);
-        return { success: true };
       })()
     `);
 
@@ -344,7 +389,7 @@ export class GeminiWebSessionManager {
       const loginStatus = await this.checkLoginStatus();
       if (!loginStatus.isLoggedIn) {
         onProgress?.('Chưa phát hiện đăng nhập Google / Gemini Web. Đang mở cửa sổ đăng nhập...');
-        await this.openLoginWindow();
+        await this.openLoginWindow(true);
         const recheck = await this.checkLoginStatus();
         if (!recheck.isLoggedIn) {
           throw new Error('Vui lòng hoàn tất đăng nhập tài khoản Google để sử dụng Gemini Web.');
@@ -421,7 +466,7 @@ CHÚ Ý: Chỉ trả về các dòng bắt đầu bằng "CÂU X: ...", không t
       const loginStatus = await this.checkLoginStatus();
       if (!loginStatus.isLoggedIn) {
         onProgress?.('Chưa phát hiện đăng nhập Google. Đang mở cửa sổ đăng nhập...');
-        await this.openLoginWindow();
+        await this.openLoginWindow(true);
         const recheck = await this.checkLoginStatus();
         if (!recheck.isLoggedIn) {
           throw new Error('Vui lòng hoàn tất đăng nhập tài khoản Google để sử dụng Gemini Web.');
@@ -462,25 +507,33 @@ CHÚ Ý: Chỉ trả về các dòng bắt đầu bằng "CÂU X: ...", không t
     let stableCount = 0;
 
     while (Date.now() - startTime < maxWaitMs) {
+      if (webContents.isDestroyed()) {
+        throw new Error('Phiên Gemini Web đã bị đóng trong lúc chờ phản hồi.');
+      }
+
       const state = await webContents.executeJavaScript(`
         (() => {
-          const stopBtn = document.querySelector('button[aria-label*="Dừng"]') ||
-                          document.querySelector('button[aria-label*="Stop"]');
-          const isStreaming = Boolean(stopBtn) || Boolean(document.querySelector('.sparkle-anim'));
-          
-          const responseContainers = Array.from(
-            document.querySelectorAll('message-content, model-response')
-          );
-          let lastMsg = responseContainers[responseContainers.length - 1];
-          if (!lastMsg) {
-            const fallbacks = Array.from(
-              document.querySelectorAll('.model-response-text, .response-container, .markdown')
+          try {
+            const stopBtn = document.querySelector('button[aria-label*="Dừng"]') ||
+                            document.querySelector('button[aria-label*="Stop"]');
+            const isStreaming = Boolean(stopBtn) || Boolean(document.querySelector('.sparkle-anim'));
+            
+            const responseContainers = Array.from(
+              document.querySelectorAll('message-content, model-response')
             );
-            lastMsg = fallbacks[fallbacks.length - 1];
-          }
-          const text = lastMsg ? lastMsg.innerText : '';
+            let lastMsg = responseContainers[responseContainers.length - 1];
+            if (!lastMsg) {
+              const fallbacks = Array.from(
+                document.querySelectorAll('.model-response-text, .response-container, .markdown')
+              );
+              lastMsg = fallbacks[fallbacks.length - 1];
+            }
+            const text = lastMsg ? (lastMsg.innerText || lastMsg.textContent || '') : '';
 
-          return { isStreaming, text, messageCount: assistantMessages.length };
+            return { isStreaming, text, messageCount: responseContainers.length };
+          } catch (err) {
+            return { isStreaming: false, text: '', messageCount: 0, error: String(err) };
+          }
         })()
       `);
 
