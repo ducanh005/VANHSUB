@@ -468,10 +468,16 @@ CHÚ Ý: Chỉ trả về các dòng bắt đầu bằng "CÂU X: ...", không t
                           document.querySelector('button[aria-label*="Stop"]');
           const isStreaming = Boolean(stopBtn) || Boolean(document.querySelector('.sparkle-anim'));
           
-          const assistantMessages = Array.from(
-            document.querySelectorAll('message-content, model-response, .model-response-text, .response-container, .markdown')
+          const responseContainers = Array.from(
+            document.querySelectorAll('message-content, model-response')
           );
-          const lastMsg = assistantMessages[assistantMessages.length - 1];
+          let lastMsg = responseContainers[responseContainers.length - 1];
+          if (!lastMsg) {
+            const fallbacks = Array.from(
+              document.querySelectorAll('.model-response-text, .response-container, .markdown')
+            );
+            lastMsg = fallbacks[fallbacks.length - 1];
+          }
           const text = lastMsg ? lastMsg.innerText : '';
 
           return { isStreaming, text, messageCount: assistantMessages.length };

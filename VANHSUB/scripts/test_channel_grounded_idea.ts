@@ -101,7 +101,55 @@ async function runTests() {
     );
   }
   assert.ok(threwError, 'Missing credentials must throw an explicit error');
-  console.log('✓ [PASS] Zero silent mock verified when API Key is missing.');
+  console.log('=== TEST 4: Recovery from Gemini Web {{ template syntax in response ===');
+  // Exact simulation of Gemini Web returning text mentioning {{CHANNEL_NAME}} before the JSON block
+  const geminiProblematicResponse = `Dưới đây là kế hoạch chi tiết cho kênh {{CHANNEL_NAME}}:
+
+\`\`\`json
+{
+  "title": "Bí Ẩn Tam Giác Vàng 2026",
+  "hookConcept": "Bạn có biết bí mật kinh hoàng đằng sau vùng đất này?",
+  "narrativeAngle": "Điều tra độc quyền",
+  "outline": [
+    "[00:00 - 01:00] Phân đoạn 1: Mở đầu sự việc",
+    "[01:00 - 02:30] Phân đoạn 2: Lần theo dấu vết"
+  ],
+  "thumbnailConcept": "Bản đồ cổ phát sáng trong sương mù",
+  "thumbnailPrompt": "Cinematic mysterious map, golden light, 8k"
+}
+\`\`\`
+Hy vọng bạn hài lòng với kế hoạch này!`;
+
+  const parsedGemini = aiStudioLlmService.parseBlueprintJson(
+    geminiProblematicResponse,
+    'Tam Giác Vàng',
+    '16:9',
+    profileLong
+  );
+
+  assert.strictEqual(parsedGemini.title, 'Bí Ẩn Tam Giác Vàng 2026');
+  assert.strictEqual(parsedGemini.outline.length, 2);
+  assert.strictEqual(parsedGemini.estimatedDurationSec, 600);
+  console.log('✓ [PASS] Gemini response with {{ template syntax cleanly parsed without "Unexpected character" error.');
+
+  console.log('=== TEST 5: Fallback regex extraction on non-JSON response ===');
+  const plainTextResponse = `Tiêu đề: Cuộc Sống Trong Lòng Đất 2050
+Hook: Liệu con người có thể sống dưới lòng đất 50 năm?
+Góc nhìn: Khoa học viễn tưởng thực tế
+Phân đoạn 1 [00:00 - 01:00]: Xây dựng thành phố ngầm
+Phân đoạn 2 [01:00 - 03:00]: Thách thức về năng lượng và không khí
+Thumbnail: Thành phố ngầm lung linh ánh đèn neon`;
+
+  const parsedPlainText = aiStudioLlmService.parseBlueprintJson(
+    plainTextResponse,
+    'Thành phố ngầm',
+    '16:9',
+    profileLong
+  );
+
+  assert.strictEqual(parsedPlainText.title, 'Cuộc Sống Trong Lòng Đất 2050');
+  assert.ok(parsedPlainText.outline.length >= 2, 'Must extract outline beats from plain text');
+  console.log('✓ [PASS] Non-JSON plain text response successfully rescued via regex fallback.');
 
   console.log('\nALL CHANNEL GROUNDED IDEA TESTS PASSED SUCCESSFULLY! ✅');
 }

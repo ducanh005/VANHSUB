@@ -123,16 +123,102 @@ export class AiStudioLlmService {
     aspectRatio: '16:9' | '9:16' = '16:9',
     channelProfile?: Partial<ChannelProfileConfig>
   ): IdeaBlueprint {
-    const cleaned = rawText
-      .replace(/```json/gi, '')
-      .replace(/```/g, '')
-      .trim();
+    // 1. Loại bỏ các ký tự template placeholder như {{CHANNEL_NAME}}
+    // để tránh làm sai lệch bộ bắt dấu ngoặc nhọn hoặc lỗi cú pháp JSON
+    let sanitizedText = (rawText || '')
+      .replace(/\{\{\s*CHANNEL_NAME\s*\}\}/gi, channelProfile?.projectName || channelProfile?.channelNiche || 'Kênh')
+      .replace(/\{\{\s*SOURCE_MATERIAL\s*\}\}/gi, topic || 'Chủ đề')
+      .replace(/\{\{\s*[^}]*\s*\}\}/g, ''); // Loại bỏ các cụm {{...}} tự do khác
 
-    const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
-    const candidate = jsonMatch ? jsonMatch[0] : cleaned;
+    // 2. Tìm khối markdown ```json ... ``` hoặc ``` ... ``` trước
+    let candidate = '';
+    const codeBlockMatch = sanitizedText.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+    if (codeBlockMatch && codeBlockMatch[1].includes('{')) {
+      candidate = codeBlockMatch[1].trim();
+    }
 
-    const repaired = jsonrepair(candidate);
-    const parsed = JSON.parse(repaired);
+    // 3. Nếu không có code block hoặc candidate không bắt đầu bằng '{',
+    // tìm vị trí chứa từ khóa JSON đặc trưng ("title", "hookConcept", "outline")
+    // và dò ngược lại dấu '{' mở khối chính xác
+    if (!candidate || !candidate.startsWith('{')) {
+      const keyIndex = sanitizedText.search(/"(?:title|hookConcept|narrativeAngle|outline|keyBeats)"/i);
+      if (keyIndex !== -1) {
+        const startBrace = sanitizedText.lastIndexOf('{', keyIndex);
+        if (startBrace !== -1) {
+          const sub = sanitizedText.slice(startBrace);
+          const endBrace = sub.lastIndexOf('}');
+          if (endBrace !== -1) {
+            candidate = sub.slice(0, endBrace + 1).trim();
+          }
+        }
+      }
+    }
+
+    // 4. Dự phòng: tìm khối ngoặc nhọn ngoài cùng
+    if (!candidate) {
+      const generalMatch = sanitizedText.match(/\{[\s\S]*\}/);
+      if (generalMatch) {
+        candidate = generalMatch[0].trim();
+      }
+    }
+
+    let parsed: any = {};
+    try {
+      if (candidate) {
+        const repaired = jsonrepair(candidate);
+        parsed = JSON.parse(repaired);
+      } else {
+        throw new Error('Không tìm thấy khối JSON trong văn bản phản hồi');
+      }
+    } catch (parseErr) {
+      console.warn('[AiStudioLlmService] parseBlueprintJson: jsonrepair failed, recovering via regex field extraction:', parseErr);
+
+      const extractField = (pattern: RegExp): string => {
+        const match = sanitizedText.match(pattern);
+        return match ? match[1].trim() : '';
+      };
+
+      const title =
+        extractField(/"title"\s*:\s*"([^"]+)"/i) ||
+        extractField(/(?:^|\n)(?:Tiêu đề|Title)[:\-]\s*(.+)/i) ||
+        topic;
+
+      const hookConcept =
+        extractField(/"hookConcept"\s*:\s*"([^"]+)"/i) ||
+        extractField(/(?:^|\n)(?:Hook|Câu mở đầu)[:\-]\s*(.+)/i);
+
+      const narrativeAngle =
+        extractField(/"narrativeAngle"\s*:\s*"([^"]+)"/i) ||
+        extractField(/(?:^|\n)(?:Góc nhìn|Angle)[:\-]\s*(.+)/i);
+
+      const thumbnailConcept =
+        extractField(/"thumbnailConcept"\s*:\s*"([^"]+)"/i) ||
+        extractField(/(?:^|\n)(?:Thumbnail|Ảnh bìa)[:\-]\s*(.+)/i);
+
+      const thumbnailPrompt =
+        extractField(/"thumbnailPrompt"\s*:\s*"([^"]+)"/i) ||
+        extractField(/(?:^|\n)(?:Thumbnail prompt|Prompt ảnh)[:\-]\s*(.+)/i);
+
+      const outlineMatches = sanitizedText
+        .split('\n')
+        .map((l) => l.trim())
+        .filter(
+          (l) =>
+            /^\[?\d+[\.:\-\]]/i.test(l) ||
+            /^Phân đoạn\s*\d+/i.test(l) ||
+            /^Beat\s*\d+/i.test(l) ||
+            /^[•\-\*]\s+/i.test(l)
+        );
+
+      parsed = {
+        title: title || topic,
+        hookConcept: hookConcept || `Bạn có tin vào sự thật đằng sau ${topic}?`,
+        narrativeAngle: narrativeAngle || 'Góc tiếp cận độc đáo, đột phá của kênh',
+        outline: outlineMatches.length >= 2 ? outlineMatches : undefined,
+        thumbnailConcept,
+        thumbnailPrompt,
+      };
+    }
 
     const outlineArray: string[] = Array.isArray(parsed.outline)
       ? parsed.outline
@@ -312,8 +398,12 @@ export class AiStudioLlmService {
     }
 
     if (masterPrompt && masterPrompt.trim().length >= 40) {
+      const sanitizedMasterPrompt = masterPrompt
+        .replace(/\{\{\s*CHANNEL_NAME\s*\}\}/gi, projectName || channelNiche || 'Kênh Vanhsub Studio')
+        .replace(/\{\{\s*SOURCE_MATERIAL\s*\}\}/gi, topic || 'Chủ đề video')
+        .replace(/\{\{\s*[^}]*\s*\}\}/g, '');
       channelContextParts.push(
-        `=== 3. MASTER PROMPT & NGUYÊN TẮC KÊNH ===\nKịch bản và dàn ý phải tuyệt đối tuân thủ tinh thần và phong cách chỉ đạo từ Master Prompt của kênh:\n"""\n${masterPrompt.slice(0, 1200)}\n"""`
+        `=== 3. MASTER PROMPT & NGUYÊN TẮC KÊNH ===\nKịch bản và dàn ý phải tuyệt đối tuân thủ tinh thần và phong cách chỉ đạo từ Master Prompt của kênh:\n"""\n${sanitizedMasterPrompt.slice(0, 1200)}\n"""`
       );
     }
 
