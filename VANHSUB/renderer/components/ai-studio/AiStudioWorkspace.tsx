@@ -1,10 +1,9 @@
 import React, { useState } from 'react';
-import { Sparkles, Play, Sliders, Settings, Video } from 'lucide-react';
+import { Sparkles, Play, Settings } from 'lucide-react';
 import AutoPilotView from './AutoPilotView';
-import CustomStudioView from './CustomStudioView';
 import AiStudioSettingsTab from './AiStudioSettingsTab';
 
-export type AiStudioMode = 'auto' | 'custom' | 'settings';
+export type AiStudioMode = 'auto' | 'settings';
 
 export default function AiStudioWorkspace() {
   const [activeMode, setActiveMode] = useState<AiStudioMode>('auto');
@@ -44,19 +43,6 @@ export default function AiStudioWorkspace() {
 
           <button
             type="button"
-            onClick={() => setActiveMode('custom')}
-            className={`flex items-center gap-2 rounded-xl px-4 py-1.5 text-xs font-semibold transition cursor-pointer ${
-              activeMode === 'custom'
-                ? 'bg-gradient-to-r from-brand-cyan to-brand-indigo text-white shadow-md'
-                : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            <Sliders className="h-3.5 w-3.5" />
-            <span>Tự Workflow (Custom)</span>
-          </button>
-
-          <button
-            type="button"
             onClick={() => setActiveMode('settings')}
             className={`flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-medium transition cursor-pointer ${
               activeMode === 'settings'
@@ -74,7 +60,6 @@ export default function AiStudioWorkspace() {
       {/* Main Studio Viewport */}
       <div className="flex-1 min-h-0 overflow-hidden">
         {activeMode === 'auto' && <AutoPilotView />}
-        {activeMode === 'custom' && <CustomStudioView />}
         {activeMode === 'settings' && <AiStudioSettingsTab />}
       </div>
     </div>
