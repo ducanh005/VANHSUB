@@ -11,8 +11,12 @@
  */
 
 import { BrowserWindow, session, type WebContents } from 'electron';
-import type { ScriptBeatLine } from '../types';
-import { parseChatGptScriptResponse } from '../chatgpt/ChatGptWebSessionManager';
+import type { ScriptBeatLine, IdeaBlueprint, ChannelProfileConfig } from '../types';
+import {
+  parseChatGptScriptResponse,
+  buildScriptPromptForWeb,
+  calculateScriptPacingMetrics,
+} from '../chatgpt/ChatGptWebSessionManager';
 
 const GEMINI_HOME_URL = 'https://gemini.google.com/app';
 const CHROME_DESKTOP_UA =
@@ -378,7 +382,9 @@ export class GeminiWebSessionManager {
     topic: string,
     preset: string,
     mode: 'offscreen' | 'visible' = 'offscreen',
-    onProgress?: (msg: string) => void
+    onProgress?: (msg: string) => void,
+    blueprint?: IdeaBlueprint,
+    channelProfile?: Partial<ChannelProfileConfig>
   ): Promise<string> {
     if (this.isBusy) {
       throw new Error('Gemini Web đang bận thực hiện tác vụ khác. Vui lòng thử lại sau giây lát.');
@@ -405,37 +411,43 @@ export class GeminiWebSessionManager {
         await new Promise((r) => setTimeout(r, 4000));
       }
 
-      const turn1Prompt = `Bạn là biên kịch video chuyên nghiệp cho kênh video triệu view (YouTube Shorts / TikTok).
-Chủ đề video: "${topic}".
-Phong cách: ${preset}.
-
-Nhiệm vụ: Viết kịch bản lồng tiếng tiếng Việt gồm chính xác 4 đến 6 câu ngắn gọn, súc tích, câu từ lôi cuốn, dành cho người nghe.
-Quy định định dạng bắt buộc:
-Mỗi câu viết trên 1 dòng riêng biệt theo đúng cú pháp:
-CÂU 1: [Câu thoại mở đầu giật gân, cuốn hút người xem trong 3 giây đầu]
-CÂU 2: [Câu thoại giới thiệu bối cảnh / dữ kiện bất ngờ]
-CÂU 3: [Câu thoại cao trào, thông tin then chốt hấp dẫn]
-CÂU 4: [Câu thoại phân tích hoặc mở rộng chi tiết]
-CÂU 5: [Câu thoại kết luận và kêu gọi hành động đăng ký kênh]
-
-CHÚ Ý: Chỉ trả về các dòng bắt đầu bằng "CÂU X: ...", không thêm lời chào, không thêm markdown phụ.`;
+      const { prompt: turn1Prompt, metrics } = buildScriptPromptForWeb(topic, preset, blueprint, channelProfile);
+      onProgress?.(`Đang yêu cầu Gemini Web viết kịch bản mục tiêu ${metrics.targetMinutesText} (${metrics.targetSentenceRange})...`);
 
       const turn1Response = await this.sendPromptTurn(win, turn1Prompt, onProgress);
       let combinedResponse = turn1Response;
 
       const turn1Parsed = parseChatGptScriptResponse(turn1Response, topic);
-      if (turn1Parsed.length < 4) {
-        onProgress?.('Kịch bản chưa đủ số phân cảnh. Đang gửi lượt yêu cầu tiếp nối (Multi-turn chunking)...');
+      const targetMin = metrics.minSentences;
+
+      // Multi-Turn continuation if script has not reached target sentence count
+      if (turn1Parsed.length < targetMin) {
+        onProgress?.(
+          `Kịch bản lượt 1 đạt ${turn1Parsed.length}/${targetMin} câu. Đang gửi yêu cầu viết tiếp các phân cảnh (Multi-turn)...`
+        );
         const nextStart = turn1Parsed.length + 1;
-        const turn2Prompt = `Hãy tiếp tục viết các câu tiếp theo từ CÂU ${nextStart} đến CÂU ${Math.max(
-          5,
-          nextStart + 2
-        )} để hoàn thiện kịch bản về chủ đề "${topic}". Giữ nguyên định dạng mỗi dòng "CÂU X: [Nội dung]".`;
+        const targetEnd = Math.min(
+          metrics.maxSentences,
+          nextStart + Math.max(18, targetMin - turn1Parsed.length + 4)
+        );
+        const turn2Prompt = `Kịch bản đang rất hấp dẫn. Hãy viết tiếp liền mạch các phân cảnh tiếp theo từ CÂU ${nextStart} đến CÂU ${targetEnd} để phát triển trọn vẹn các phần còn lại của dàn ý cho chủ đề "${topic}". Đảm bảo tổng độ dài đạt mục tiêu ${metrics.targetMinutesText}. CÂU ${targetEnd} là phần kết luận và kêu gọi đăng ký kênh.
+Giữ nguyên đúng định dạng mỗi dòng:
+CÂU X: [Nội dung câu thoại]`;
         try {
           const turn2Response = await this.sendPromptTurn(win, turn2Prompt, onProgress);
           combinedResponse = `${turn1Response}\n${turn2Response}`;
+
+          // If still significantly short for long form videos (e.g. 8-12 min), send turn 3
+          const turn2Parsed = parseChatGptScriptResponse(combinedResponse, topic);
+          if (turn2Parsed.length < targetMin - 8 && metrics.targetDurationSec >= 600) {
+            onProgress?.(`Đang gửi lượt 3 để hoàn tất kịch bản dài (${turn2Parsed.length}/${targetMin} câu)...`);
+            const nextStart3 = turn2Parsed.length + 1;
+            const turn3Prompt = `Hãy viết tiếp các phân cảnh cao trào và kết thúc từ CÂU ${nextStart3} đến CÂU ${metrics.maxSentences} để hoàn tất kịch bản. CÂU ${metrics.maxSentences} là lời kết và kêu gọi đăng ký kênh. Định dạng: CÂU X: [Nội dung].`;
+            const turn3Response = await this.sendPromptTurn(win, turn3Prompt, onProgress);
+            combinedResponse = `${combinedResponse}\n${turn3Response}`;
+          }
         } catch (turn2Err) {
-          console.warn('[GeminiWebSession] Turn 2 continuation failed, proceeding with Turn 1 response:', turn2Err);
+          console.warn('[GeminiWebSession] Turn 2 continuation failed, proceeding with received text:', turn2Err);
         }
       }
 

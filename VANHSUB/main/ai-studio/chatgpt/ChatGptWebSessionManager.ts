@@ -11,7 +11,7 @@
 
 import { BrowserWindow, session, type WebContents } from 'electron';
 import crypto from 'crypto';
-import type { ScriptBeatLine } from '../types';
+import type { ScriptBeatLine, IdeaBlueprint, ChannelProfileConfig } from '../types';
 
 const CHATGPT_HOME_URL = 'https://chatgpt.com';
 const CHROME_DESKTOP_UA =
@@ -32,7 +32,14 @@ export interface ChatGptLoginStatus {
 export function parseChatGptScriptResponse(rawText: string, topic: string): ScriptBeatLine[] {
   if (!rawText || typeof rawText !== 'string') return [];
 
-  const lines = rawText
+  // Extract SCRIPT block if Master Prompt format is present
+  let processedText = rawText;
+  const scriptMatch = rawText.match(/SCRIPT:\s*([\s\S]*?)(?:---\s*END OF SCRIPT\s*---|NARRATION DIRECTION:|$)/i);
+  if (scriptMatch && scriptMatch[1].trim().length >= 20) {
+    processedText = scriptMatch[1].trim();
+  }
+
+  const lines = processedText
     .split('\n')
     .map((l) => l.trim())
     .filter(Boolean);
@@ -53,8 +60,8 @@ export function parseChatGptScriptResponse(rawText: string, topic: string): Scri
       content = content.replace(/^\[.*?\]\s*/, '').trim();
 
       if (content.length >= 8) {
-        const wordCount = content.split(/\s+/).length;
-        const estDuration = Math.max(3.5, Math.round((wordCount / 3.2) * 10) / 10);
+        const wordCount = content.split(/\s+/).filter(Boolean).length;
+        const estDuration = Math.max(3.0, Math.round((wordCount / 3.2) * 10) / 10);
         parsedBeats.push({
           id: `line-${idx}-${crypto.randomBytes(3).toString('hex')}`,
           index: idx,
@@ -66,34 +73,53 @@ export function parseChatGptScriptResponse(rawText: string, topic: string): Scri
     }
   }
 
-  // Fallback if formatting was not strictly numbered
+  // Fallback if formatting was not strictly numbered: full sentence boundary extraction
   if (parsedBeats.length < 3) {
     parsedBeats.length = 0;
     const meaningfulLines = lines.filter((l) => {
       const lower = l.toLowerCase();
-      if (lower.startsWith('#') || lower.startsWith('>') || lower.startsWith('-')) return false;
+      if (lower.startsWith('#') || lower.startsWith('>') || lower.startsWith('---')) return false;
       if (
         lower.includes('dưới đây là') ||
         lower.includes('chúc bạn') ||
         lower.includes('hy vọng kịch bản') ||
-        lower.includes('bạn có thể tham khảo')
+        lower.includes('bạn có thể tham khảo') ||
+        lower.startsWith('title:') ||
+        lower.startsWith('tiêu đề:') ||
+        lower.startsWith('status:')
       ) {
         return false;
       }
-      return l.length >= 15;
+      return l.length >= 10;
     });
 
-    meaningfulLines.slice(0, 8).forEach((text, i) => {
+    const sentences: string[] = [];
+    for (const chunk of meaningfulLines) {
+      const parts = chunk
+        .split(/(?<=[.!?…])\s+(?=[A-ZÀÁẢÃẠĂẮẰẲẴẶÂẤẦẨẪẬĐÈÉẺẼẸÊẾỀỂỄỆÌÍỈĨỊÒÓỎÕỌÔỐỒỔỖỘƠỚỜỞỠỢÙÚỦŨỤƯỨỪỬỮỰỲÝỶỸỴ0-9"“'\[])/u)
+        .map((p) => p.trim())
+        .filter(Boolean);
+
+      if (parts.length > 0) {
+        sentences.push(...parts);
+      } else if (chunk.length > 0) {
+        sentences.push(chunk);
+      }
+    }
+
+    sentences.forEach((text, i) => {
       let cleanText = text.replace(/^\d+[\.\-\)]\s*/, '').replace(/\*\*/g, '').trim();
       cleanText = cleanText.replace(/^[\*_"“”'`]+|[\*_"“”'`]+$/g, '').trim();
-      const wordCount = cleanText.split(/\s+/).length;
-      parsedBeats.push({
-        id: `line-${i + 1}-${crypto.randomBytes(3).toString('hex')}`,
-        index: i + 1,
-        text: cleanText,
-        estimatedDurationSec: Math.max(3.5, Math.round((wordCount / 3.2) * 10) / 10),
-        beatType: 'body',
-      });
+      if (cleanText.length >= 8) {
+        const wordCount = cleanText.split(/\s+/).filter(Boolean).length;
+        parsedBeats.push({
+          id: `line-${i + 1}-${crypto.randomBytes(3).toString('hex')}`,
+          index: i + 1,
+          text: cleanText,
+          estimatedDurationSec: Math.max(3.0, Math.round((wordCount / 3.2) * 10) / 10),
+          beatType: 'body',
+        });
+      }
     });
   }
 
@@ -104,12 +130,209 @@ export function parseChatGptScriptResponse(rawText: string, topic: string): Scri
       if (i === 0) beat.beatType = 'hook';
       else if (i === 1) beat.beatType = 'intro';
       else if (i === parsedBeats.length - 1) beat.beatType = 'outro';
-      else if (i === parsedBeats.length - 2) beat.beatType = 'climax';
+      else if (i >= parsedBeats.length - 3 && i >= parsedBeats.length - 2) beat.beatType = 'climax';
       else beat.beatType = 'body';
     });
   }
 
   return parsedBeats;
+}
+
+export interface ScriptPacingMetrics {
+  isShorts: boolean;
+  targetDurationSec: number;
+  targetMinutesText: string;
+  targetWordRange: string;
+  targetSentenceRange: string;
+  minSentences: number;
+  maxSentences: number;
+  targetWords: number;
+}
+
+export function calculateScriptPacingMetrics(
+  blueprint?: IdeaBlueprint,
+  channelProfile?: Partial<ChannelProfileConfig>
+): ScriptPacingMetrics {
+  const isShorts =
+    blueprint?.aspectRatio === '9:16' ||
+    channelProfile?.channelOrientation?.toLowerCase().includes('shorts') ||
+    false;
+
+  let targetDurationSec = 390; // Default: ~6.5 min (5_8_min)
+  let targetMinutesText = '5 đến 8 phút';
+  let minSentences = 40;
+  let maxSentences = 60;
+  let targetWords = 1250;
+  let targetWordRange = '1.100 - 1.450 từ';
+  let targetSentenceRange = '40 đến 60 câu phân cảnh';
+
+  if (isShorts) {
+    const shortDur = channelProfile?.targetShortDuration || '60_90_sec';
+    if (shortDur === '30_60_sec') {
+      targetDurationSec = 45;
+      targetMinutesText = '30 đến 60 giây';
+      targetWords = 140;
+      targetWordRange = '100 - 160 từ';
+      targetSentenceRange = '5 đến 8 câu phân cảnh';
+      minSentences = 5;
+      maxSentences = 8;
+    } else {
+      targetDurationSec = 75;
+      targetMinutesText = '60 đến 90 giây';
+      targetWords = 230;
+      targetWordRange = '180 - 270 từ';
+      targetSentenceRange = '8 đến 14 câu phân cảnh';
+      minSentences = 8;
+      maxSentences = 14;
+    }
+  } else {
+    const longDur = channelProfile?.targetLongDuration || '5_8_min';
+    if (longDur === '1_3_min') {
+      targetDurationSec = 120;
+      targetMinutesText = '1 đến 3 phút';
+      targetWords = 380;
+      targetWordRange = '300 - 550 từ';
+      targetSentenceRange = '14 đến 22 câu phân cảnh';
+      minSentences = 14;
+      maxSentences = 22;
+    } else if (longDur === '3_5_min') {
+      targetDurationSec = 240;
+      targetMinutesText = '3 đến 5 phút';
+      targetWords = 750;
+      targetWordRange = '650 - 900 từ';
+      targetSentenceRange = '25 đến 38 câu phân cảnh';
+      minSentences = 25;
+      maxSentences = 38;
+    } else if (longDur === '5_8_min') {
+      targetDurationSec = 390;
+      targetMinutesText = '5 đến 8 phút';
+      targetWords = 1250;
+      targetWordRange = '1.100 - 1.450 từ';
+      targetSentenceRange = '40 đến 60 câu phân cảnh';
+      minSentences = 40;
+      maxSentences = 60;
+    } else if (longDur === '8_12_min') {
+      targetDurationSec = 600;
+      targetMinutesText = '8 đến 12 phút';
+      targetWords = 1900;
+      targetWordRange = '1.650 - 2.300 từ';
+      targetSentenceRange = '60 đến 90 câu phân cảnh';
+      minSentences = 60;
+      maxSentences = 90;
+    } else if (longDur === '12_18_min') {
+      targetDurationSec = 900;
+      targetMinutesText = '12 đến 18 phút';
+      targetWords = 2800;
+      targetWordRange = '2.500 - 3.400 từ';
+      targetSentenceRange = '90 đến 130 câu phân cảnh';
+      minSentences = 90;
+      maxSentences = 130;
+    } else if (longDur === '18_28_min') {
+      targetDurationSec = 1400;
+      targetMinutesText = '18 đến 28 phút';
+      targetWords = 4400;
+      targetWordRange = '3.800 - 5.000 từ';
+      targetSentenceRange = '130 đến 190 câu phân cảnh';
+      minSentences = 130;
+      maxSentences = 190;
+    }
+  }
+
+  // If blueprint explicitly has estimatedDurationSec, adjust target sentences proportionally
+  if (
+    blueprint?.estimatedDurationSec &&
+    blueprint.estimatedDurationSec > 0 &&
+    Math.abs(blueprint.estimatedDurationSec - targetDurationSec) > 30
+  ) {
+    targetDurationSec = blueprint.estimatedDurationSec;
+    targetWords = Math.round(targetDurationSec * 3.1);
+    minSentences = Math.max(5, Math.round(targetWords / 25));
+    maxSentences = Math.max(minSentences + 3, Math.round(targetWords / 18));
+    targetWordRange = `${Math.round(targetWords * 0.85)} - ${Math.round(targetWords * 1.15)} từ`;
+    targetSentenceRange = `${minSentences} đến ${maxSentences} câu phân cảnh`;
+    const mins = Math.floor(targetDurationSec / 60);
+    const secs = targetDurationSec % 60;
+    targetMinutesText = mins > 0 ? `khoảng ${mins} phút ${secs > 0 ? `${secs}s` : ''}` : `${secs} giây`;
+  }
+
+  return {
+    isShorts,
+    targetDurationSec,
+    targetMinutesText,
+    targetWordRange,
+    targetSentenceRange,
+    minSentences,
+    maxSentences,
+    targetWords,
+  };
+}
+
+export function buildScriptPromptForWeb(
+  topic: string,
+  preset: string,
+  blueprint?: IdeaBlueprint,
+  channelProfile?: Partial<ChannelProfileConfig>
+): { prompt: string; metrics: ScriptPacingMetrics } {
+  const metrics = calculateScriptPacingMetrics(blueprint, channelProfile);
+
+  const title = blueprint?.title || topic;
+  const projectName = channelProfile?.projectName || channelProfile?.channelNiche || 'Kênh Kể Chuyện AI';
+  const orientation = channelProfile?.channelOrientation || preset || 'Kịch tính, sâu sắc, lôi cuốn, tư liệu thực tế';
+
+  let prompt = '';
+
+  if (metrics.isShorts) {
+    prompt = `Bạn là biên kịch video ngắn chuyên nghiệp cho kênh video triệu view (YouTube Shorts / TikTok).
+KÊNH: "${projectName}".
+CHỦ ĐỀ: "${title}".
+PHONG CÁCH: ${orientation}.
+${blueprint?.hookConcept ? `HOOK 3S: "${blueprint.hookConcept}".` : ''}
+
+NHIỆM VỤ:
+Viết kịch bản lồng tiếng tiếng Việt hoàn chỉnh cho video ngắn độ dài ${metrics.targetMinutesText} (khoảng ${metrics.targetWordRange}, từ ${metrics.minSentences} đến ${metrics.maxSentences} câu).
+
+QUY ĐỊNH ĐỊNH DẠNG BẮT BUỘC:
+Mỗi câu viết trên 1 dòng riêng biệt theo đúng cú pháp:
+CÂU 1: [Câu thoại mở đầu giật gân, cuốn hút người xem trong 3 giây đầu]
+CÂU 2: [Câu thoại giới thiệu bối cảnh / dữ kiện bất ngờ]
+...
+CÂU ${metrics.maxSentences}: [Câu thoại kết luận và kêu gọi hành động đăng ký kênh]
+
+CHÚ Ý: Chỉ trả về các dòng bắt đầu bằng "CÂU X: ...", không thêm lời chào, không thêm markdown phụ.`;
+  } else {
+    // LONG VIDEO (e.g. 5-8 minutes, 8-12 minutes)
+    const outlineBlock =
+      blueprint?.outline && blueprint.outline.length > 0
+        ? `\nDÀN Ý PHÂN ĐOẠN CHI TIẾT (BẮT BUỘC BÁM SÁT VÀ PHÁT TRIỂN ĐỦ TẤT CẢ CÁC ĐOẠN NÀY):\n${blueprint.outline.join('\n')}\n`
+        : '';
+
+    prompt = `Bạn là nhà biên kịch YouTube cao cấp chuyên viết kịch bản lồng tiếng kể chuyện tài liệu dài triệu view.
+KÊNH: "${projectName}"
+CHỦ ĐỀ TẬP PHIM: "${title}"
+${blueprint?.hookConcept ? `HOOK 3S BÚA BỔ MỞ ĐẦU: "${blueprint.hookConcept}"` : ''}
+${blueprint?.narrativeAngle ? `GÓC NHÌN TIẾP CẬN: "${blueprint.narrativeAngle}"` : ''}
+${channelProfile?.hostName ? `NGƯỜI DẪN / LỒNG TIẾNG (HOST): ${channelProfile.hostName}${channelProfile.hostDescription ? ` - ${channelProfile.hostDescription}` : ''}` : ''}
+PHONG CÁCH KỂ CHUYỆN: ${orientation}
+${outlineBlock}
+NHIỆM VỤ CỐT TỬ VỀ ĐỘ DÀI VÀ NỘI DUNG:
+- Độ dài mục tiêu: ${metrics.targetMinutesText} (${metrics.targetWordRange}).
+- Kịch bản PHẢI ĐỦ DÀI, chia thành ${metrics.targetSentenceRange} độc lập.
+- TUYỆT ĐỐI KHÔNG tóm tắt ngắn ngủn hay viết sơ sài vài câu. Phải đào sâu chi tiết, đưa ra bằng chứng thực tế, diễn biến kịch tính từng bước theo dàn ý.
+
+QUY ĐỊNH ĐỊNH DẠNG BẮT BUỘC:
+1. Viết kịch bản theo từng câu phân cảnh độc lập, mỗi câu trên 1 dòng riêng biệt theo cú pháp chính xác:
+CÂU 1: [Hook mở đầu búa bổ bằng danh từ riêng hoặc con số chấn động trong 6 giây đầu]
+CÂU 2: [Phát triển bối cảnh...]
+...
+CÂU ${metrics.minSentences}: ...
+...
+CÂU ${metrics.maxSentences}: [Đúc kết lắng đọng và lời kết kêu gọi đăng ký kênh ${projectName}]
+
+2. Mỗi câu có độ dài khoảng 18 đến 30 từ, viết cho TAI nghe (tự nhiên, giàu hình ảnh, nhịp ngắt nghỉ rõ ràng).
+3. KHÔNG thêm lời chào mừng AI, KHÔNG thêm tiêu đề markdown phụ. Chỉ trả về danh sách các dòng bắt đầu bằng "CÂU X: ...".`;
+  }
+
+  return { prompt, metrics };
 }
 
 export class ChatGptWebSessionManager {
@@ -462,7 +685,9 @@ export class ChatGptWebSessionManager {
     topic: string,
     preset: string,
     mode: 'offscreen' | 'visible' = 'offscreen',
-    onProgress?: (msg: string) => void
+    onProgress?: (msg: string) => void,
+    blueprint?: IdeaBlueprint,
+    channelProfile?: Partial<ChannelProfileConfig>
   ): Promise<string> {
     if (this.isBusy) {
       throw new Error('ChatGPT Web đang bận thực hiện tác vụ khác. Vui lòng thử lại sau giây lát.');
@@ -489,37 +714,43 @@ export class ChatGptWebSessionManager {
         await new Promise((r) => setTimeout(r, 4000));
       }
 
-      const turn1Prompt = `Bạn là biên kịch video chuyên nghiệp cho kênh video triệu view (YouTube Shorts / TikTok).
-Chủ đề video: "${topic}".
-Phong cách: ${preset}.
-
-Nhiệm vụ: Viết kịch bản lồng tiếng tiếng Việt gồm chính xác 4 đến 6 câu ngắn gọn, súc tích, câu từ lôi cuốn, dành cho người nghe.
-Quy định định dạng bắt buộc:
-Mỗi câu viết trên 1 dòng riêng biệt theo đúng cú pháp:
-CÂU 1: [Câu thoại mở đầu giật gân, cuốn hút người xem trong 3 giây đầu]
-CÂU 2: [Câu thoại giới thiệu bối cảnh / dữ kiện bất ngờ]
-CÂU 3: [Câu thoại cao trào, thông tin then chốt hấp dẫn]
-CÂU 4: [Câu thoại phân tích hoặc mở rộng chi tiết]
-CÂU 5: [Câu thoại kết luận và kêu gọi hành động đăng ký kênh]
-
-CHÚ Ý: Chỉ trả về các dòng bắt đầu bằng "CÂU X: ...", không thêm lời chào, không thêm markdown phụ.`;
+      const { prompt: turn1Prompt, metrics } = buildScriptPromptForWeb(topic, preset, blueprint, channelProfile);
+      onProgress?.(`Đang yêu cầu AI viết kịch bản mục tiêu ${metrics.targetMinutesText} (${metrics.targetSentenceRange})...`);
 
       const turn1Response = await this.sendPromptTurn(win, turn1Prompt, onProgress);
       let combinedResponse = turn1Response;
 
       const turn1Parsed = parseChatGptScriptResponse(turn1Response, topic);
-      if (turn1Parsed.length < 4) {
-        onProgress?.('Kịch bản chưa đủ số phân cảnh. Đang gửi lượt yêu cầu tiếp nối (Multi-turn chunking)...');
+      const targetMin = metrics.minSentences;
+
+      // Multi-Turn continuation if script has not reached target sentence count
+      if (turn1Parsed.length < targetMin) {
+        onProgress?.(
+          `Kịch bản lượt 1 đạt ${turn1Parsed.length}/${targetMin} câu. Đang gửi yêu cầu viết tiếp các phân cảnh (Multi-turn)...`
+        );
         const nextStart = turn1Parsed.length + 1;
-        const turn2Prompt = `Hãy tiếp tục viết các câu tiếp theo từ CÂU ${nextStart} đến CÂU ${Math.max(
-          5,
-          nextStart + 2
-        )} để hoàn thiện kịch bản về chủ đề "${topic}". Giữ nguyên định dạng mỗi dòng "CÂU X: [Nội dung]".`;
+        const targetEnd = Math.min(
+          metrics.maxSentences,
+          nextStart + Math.max(18, targetMin - turn1Parsed.length + 4)
+        );
+        const turn2Prompt = `Kịch bản đang rất hấp dẫn. Hãy viết tiếp liền mạch các phân cảnh tiếp theo từ CÂU ${nextStart} đến CÂU ${targetEnd} để phát triển trọn vẹn các phần còn lại của dàn ý cho chủ đề "${topic}". Đảm bảo tổng độ dài đạt mục tiêu ${metrics.targetMinutesText}. CÂU ${targetEnd} là phần kết luận và kêu gọi đăng ký kênh.
+Giữ nguyên đúng định dạng mỗi dòng:
+CÂU X: [Nội dung câu thoại]`;
         try {
           const turn2Response = await this.sendPromptTurn(win, turn2Prompt, onProgress);
           combinedResponse = `${turn1Response}\n${turn2Response}`;
+
+          // If still significantly short for long form videos (e.g. 8-12 min), send turn 3
+          const turn2Parsed = parseChatGptScriptResponse(combinedResponse, topic);
+          if (turn2Parsed.length < targetMin - 8 && metrics.targetDurationSec >= 600) {
+            onProgress?.(`Đang gửi lượt 3 để hoàn tất kịch bản dài (${turn2Parsed.length}/${targetMin} câu)...`);
+            const nextStart3 = turn2Parsed.length + 1;
+            const turn3Prompt = `Hãy viết tiếp các phân cảnh cao trào và kết thúc từ CÂU ${nextStart3} đến CÂU ${metrics.maxSentences} để hoàn tất kịch bản. CÂU ${metrics.maxSentences} là lời kết và kêu gọi đăng ký kênh. Định dạng: CÂU X: [Nội dung].`;
+            const turn3Response = await this.sendPromptTurn(win, turn3Prompt, onProgress);
+            combinedResponse = `${combinedResponse}\n${turn3Response}`;
+          }
         } catch (turn2Err) {
-          console.warn('[ChatGptWebSession] Turn 2 continuation failed, proceeding with Turn 1 response:', turn2Err);
+          console.warn('[ChatGptWebSession] Turn 2 continuation failed, proceeding with received text:', turn2Err);
         }
       }
 

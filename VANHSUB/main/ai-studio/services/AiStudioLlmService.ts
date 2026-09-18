@@ -538,7 +538,9 @@ Yêu cầu nghiêm ngặt: Trả về DUY NHẤT một khối JSON hợp lệ th
           effectiveTopic,
           config.systemPromptPreset || 'youtube_story',
           mode,
-          onProgress
+          onProgress,
+          blueprint,
+          channelProfile
         );
         const parsedLines = parseChatGptScriptResponse(rawText, topic);
         if (parsedLines.length >= 3) {
@@ -562,7 +564,9 @@ Yêu cầu nghiêm ngặt: Trả về DUY NHẤT một khối JSON hợp lệ th
           effectiveTopic,
           config.systemPromptPreset || 'youtube_story',
           mode,
-          onProgress
+          onProgress,
+          blueprint,
+          channelProfile
         );
         const parsedLines = parseChatGptScriptResponse(rawText, topic);
         if (parsedLines.length >= 3) {
@@ -582,13 +586,16 @@ Yêu cầu nghiêm ngặt: Trả về DUY NHẤT một khối JSON hợp lệ th
     }
 
     try {
+      const { calculateScriptPacingMetrics } = await import('../chatgpt/ChatGptWebSessionManager');
+      const metrics = calculateScriptPacingMetrics(blueprint, channelProfile);
+
       const blueprintSource = blueprint
         ? `TIÊU ĐỀ VIDEO: ${blueprint.title || topic}
 HOOK 3S: ${blueprint.hookConcept || ''}
 GÓC NHÌN: ${blueprint.narrativeAngle || ''}
-DÀN Ý PHÂN CẢNH:
+DÀN Ý PHÂN CẢNH CHI TIẾT:
 ${(blueprint.outline || []).join('\n')}
-THỜI LƯỢNG MỤC TIÊU: ${blueprint.estimatedDurationSec || 300} giây`
+THỜI LƯỢNG MỤC TIÊU: ${metrics.targetMinutesText} (${metrics.targetDurationSec} giây, ${metrics.targetWordRange})`
         : topic;
 
       const masterPrompt = (channelProfile?.masterPrompt || '').trim();
@@ -596,15 +603,17 @@ THỜI LƯỢNG MỤC TIÊU: ${blueprint.estimatedDurationSec || 300} giây`
         ? masterPrompt
             .replace(/\{\{CHANNEL_NAME\}\}/g, channelProfile?.channelNiche || channelProfile?.projectName || 'Kênh Vanhsub AI Studio')
             .replace(/\{\{SOURCE_MATERIAL\}\}/g, blueprintSource)
-        : `Bạn là nhà biên kịch video ngắn chuyên nghiệp.
+        : `Bạn là nhà biên kịch YouTube chuyên nghiệp cho kênh kể chuyện tài liệu ${metrics.isShorts ? 'ngắn' : 'dài'}.
+KÊNH: "${channelProfile?.projectName || channelProfile?.channelNiche || 'Kênh Kể Chuyện AI'}"
 Nhiệm vụ: Viết kịch bản lồng tiếng tiếng Việt hoàn chỉnh cho chủ đề: "${blueprint?.title || topic}".
 ${blueprint?.hookConcept ? `Hook 3 giây đầu: "${blueprint.hookConcept}".` : ''}
 ${blueprint?.narrativeAngle ? `Góc nhìn: "${blueprint.narrativeAngle}".` : ''}
 ${blueprint?.outline && blueprint.outline.length > 0 ? `Dàn ý các phân cảnh:\n${blueprint.outline.join('\n')}` : ''}
-Phong cách preset: "${config.systemPromptPreset || 'youtube_story'}".
+Phong cách: "${channelProfile?.channelOrientation || config.systemPromptPreset || 'youtube_story'}".
+Độ dài mục tiêu: ${metrics.targetMinutesText} (khoảng ${metrics.targetWordRange}).
 
 Yêu cầu nghiêm ngặt:
-1. Chia kịch bản thành từng câu ngắn (6 - 15 câu), mỗi câu là 1 phân cảnh độc lập có ít nhất 15 từ.
+1. Chia kịch bản thành các câu phân cảnh độc lập (${metrics.minSentences} - ${metrics.maxSentences} câu), mỗi câu có từ 15 đến 30 từ, viết cho người nghe, đảm bảo tổng thời lượng đạt mục tiêu ${metrics.targetMinutesText}.
 2. Câu mở đầu (index 1) PHẢI là "hook" cuốn hút gây tò mò trong 3 giây đầu.
 3. Câu kết thúc PHẢI là "outro" kêu gọi hành động (đăng ký kênh, theo dõi).
 4. Phân loại beatType: "hook" | "intro" | "body" | "climax" | "outro".
