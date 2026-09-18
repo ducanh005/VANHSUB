@@ -432,6 +432,7 @@ export interface VanhsubAPI {
     autoFillIdea: (payload: {
       topic: string;
       aspectRatio?: '16:9' | '9:16';
+      channelProfile?: Partial<ChannelProfileConfig>;
     }) => Promise<{
       title: string;
       hookConcept: string;

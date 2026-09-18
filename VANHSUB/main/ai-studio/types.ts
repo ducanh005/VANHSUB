@@ -549,6 +549,7 @@ export interface StartPipelineResult {
 export interface AutoFillIdeaPayload {
   topic: string;
   aspectRatio?: '16:9' | '9:16';
+  channelProfile?: Partial<ChannelProfileConfig>;
 }
 
 export interface AutoFillIdeaResult {

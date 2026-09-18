@@ -291,10 +291,16 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
 
   public async autoFillIdea(payload: AutoFillIdeaPayload): Promise<AutoFillIdeaResult> {
     const config = getDecryptedAiStudioConfig();
+    const effectiveChannelProfile = {
+      ...(config.channelProfile || {}),
+      ...(payload.channelProfile || {}),
+    };
     const blueprint = await aiStudioLlmService.analyzeIdeaBlueprint(
       payload.topic,
       config.llm,
-      payload.aspectRatio || '16:9'
+      payload.aspectRatio || '16:9',
+      undefined,
+      effectiveChannelProfile
     );
     return {
       title: blueprint.title || blueprint.topic,
@@ -541,7 +547,8 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
                     status: 'running',
                     message: msg,
                   });
-                }
+                },
+                config.channelProfile
               );
               session.artifacts.blueprint = blueprint;
               session.artifacts.ideaSummary = blueprint.rawSummary;

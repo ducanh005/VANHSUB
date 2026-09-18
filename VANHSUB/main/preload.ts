@@ -205,7 +205,7 @@ const vanhsub = {
       ipcRenderer.invoke('aiStudio:step:renderVideo', payload),
 
     // Chế độ từng bước & Tự động điền ý tưởng
-    autoFillIdea: (payload: { topic: string; aspectRatio?: '16:9' | '9:16' }) =>
+    autoFillIdea: (payload: { topic: string; aspectRatio?: '16:9' | '9:16'; channelProfile?: any }) =>
       ipcRenderer.invoke('aiStudio:idea:autoFill', payload),
     approveStage: (payload: { sessionId: string; currentStage: number; updatedArtifacts?: any }) =>
       ipcRenderer.invoke('aiStudio:pipeline:approveStage', payload),

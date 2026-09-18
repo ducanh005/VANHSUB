@@ -10,6 +10,10 @@ import {
   AlertCircle,
   CheckCircle2,
   Info,
+  Tv,
+  Clock,
+  User,
+  Image as ImageIcon,
 } from 'lucide-react';
 import { useAiStudioStore } from '../../lib/store/aiStudioStore';
 import type { IdeaBlueprint } from '../../types/aiStudio';
@@ -46,9 +50,37 @@ export default function IdeaGenerationModal({
 
   if (!isOpen) return null;
 
+  const getTargetDurationText = () => {
+    if (aspectRatio === '9:16') {
+      const s = config.channelProfile?.targetShortDuration;
+      if (s === '30_60_sec') return '30 - 60 giây';
+      if (s === '60_90_sec') return '60 - 90 giây';
+      if (s === '90_120_sec') return '90 - 120 giây';
+      if (s === '120_180_sec') return '2 - 3 phút';
+      return '30 - 60 giây';
+    } else {
+      const l = config.channelProfile?.targetLongDuration;
+      if (l === '1_3_min') return '1 - 3 phút';
+      if (l === '3_5_min') return '3 - 5 phút';
+      if (l === '5_8_min') return '5 - 8 phút';
+      if (l === '8_12_min') return '8 - 12 phút';
+      if (l === '12_18_min') return '12 - 18 phút';
+      if (l === '18_28_min') return '18 - 28 phút';
+      return '3 - 5 phút';
+    }
+  };
+
   const handleAutoFill = async () => {
-    if (!topic.trim()) {
-      setErrorMessage('Vui lòng nhập Tiêu đề video / Ý tưởng ban đầu để AI có dữ kiện sinh mẫu.');
+    const effectiveTopic =
+      topic.trim() ||
+      config.channelProfile?.channelNiche ||
+      config.channelProfile?.projectName ||
+      '';
+
+    if (!effectiveTopic) {
+      setErrorMessage(
+        'Vui lòng nhập Tiêu đề video / Ý tưởng ban đầu hoặc cấu hình Tên Project / Ngách kênh trong Cấu hình Kênh trước khi sinh mẫu.'
+      );
       return;
     }
 
@@ -62,8 +94,9 @@ export default function IdeaGenerationModal({
       }
 
       const result = await window.vanhsub.aiStudio.autoFillIdea({
-        topic: topic.trim(),
+        topic: effectiveTopic,
         aspectRatio,
+        channelProfile: config.channelProfile,
       });
 
       if (result.title) setTopic(result.title);
@@ -76,7 +109,7 @@ export default function IdeaGenerationModal({
       if (result.thumbnailPrompt) setThumbnailPrompt(result.thumbnailPrompt);
 
       setSuccessMessage(
-        `AI (${config.llm.provider === 'chatgpt_web' ? 'ChatGPT Web' : config.llm.provider === 'gemini_web' ? 'Gemini Web' : config.llm.provider.toUpperCase()}) đã sinh mẫu ý tưởng thành công!`
+        `AI (${config.llm.provider === 'chatgpt_web' ? 'ChatGPT Web' : config.llm.provider === 'gemini_web' ? 'Gemini Web' : config.llm.provider.toUpperCase()}) đã sinh mẫu ý tưởng thành công theo Cấu hình Kênh [${config.channelProfile?.projectName || 'Mặc định'}]!`
       );
       setTimeout(() => setSuccessMessage(null), 4000);
     } catch (err: any) {
@@ -102,6 +135,27 @@ export default function IdeaGenerationModal({
       .map((l) => l.trim())
       .filter(Boolean);
 
+    const targetDurationSec =
+      aspectRatio === '9:16'
+        ? config.channelProfile?.targetShortDuration === '60_90_sec'
+          ? 75
+          : config.channelProfile?.targetShortDuration === '90_120_sec'
+          ? 105
+          : config.channelProfile?.targetShortDuration === '120_180_sec'
+          ? 150
+          : 45
+        : config.channelProfile?.targetLongDuration === '1_3_min'
+        ? 120
+        : config.channelProfile?.targetLongDuration === '5_8_min'
+        ? 390
+        : config.channelProfile?.targetLongDuration === '8_12_min'
+        ? 600
+        : config.channelProfile?.targetLongDuration === '12_18_min'
+        ? 900
+        : config.channelProfile?.targetLongDuration === '18_28_min'
+        ? 1400
+        : 240;
+
     const blueprint: IdeaBlueprint = {
       topic: topic.trim(),
       title: topic.trim(),
@@ -109,16 +163,16 @@ export default function IdeaGenerationModal({
       hookConcept: hookConcept.trim() || `Bạn có tin vào sự thật đằng sau ${topic.trim()}?`,
       narrativeAngle: narrativeAngle.trim() || 'Góc tiếp cận độc đáo, đột phá của kênh',
       outline: outlineArray.length > 0 ? outlineArray : [
-        'Phân đoạn 1: Mở đầu sự cố / bối cảnh bất ngờ...',
-        'Phân đoạn 2: Diễn biến kịch tính / xung đột cao trào...',
-        'Phân đoạn 3: Bước ngoặt / giải mã sự thật...',
-        'Phân đoạn 4: Bài học & Lối thoát...',
+        'Phân đoạn 1 [00:00 - 00:45]: Mở đầu sự cố / bối cảnh bất ngờ...',
+        'Phân đoạn 2 [00:45 - 01:30]: Diễn biến kịch tính / xung đột cao trào...',
+        'Phân đoạn 3 [01:30 - 02:15]: Bước ngoặt / giải mã sự thật...',
+        'Phân đoạn 4 [02:15 - 03:00]: Bài học & Lối thoát...',
       ],
       existingScript: existingScript.trim() || undefined,
       thumbnailConcept: thumbnailConcept.trim() || undefined,
       thumbnailPrompt: thumbnailPrompt.trim() || undefined,
       pacing: aspectRatio === '9:16' ? 'fast' : 'moderate',
-      estimatedDurationSec: aspectRatio === '9:16' ? 45 : 90,
+      estimatedDurationSec: targetDurationSec,
       rawSummary: `Video "${topic.trim()}" định dạng ${aspectRatio}. ${narrativeAngle.trim()}`,
     };
 
@@ -209,6 +263,52 @@ export default function IdeaGenerationModal({
             </button>
           </div>
 
+          {/* Active Channel Profile Grounding Card */}
+          {config.channelProfile && (
+            <div className="flex flex-col gap-2 rounded-2xl border border-indigo-500/20 bg-gradient-to-r from-indigo-950/40 to-slate-950/60 p-3.5 text-xs text-indigo-200">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5 font-bold text-indigo-300">
+                  <Sparkles className="h-4 w-4 text-indigo-400" />
+                  <span>Căn cứ cấu hình kênh đang áp dụng cho AI:</span>
+                </div>
+                {config.channelProfile.masterPrompt && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 border border-emerald-500/30 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-300">
+                    ✨ Master Prompt: Đã kích hoạt
+                  </span>
+                )}
+              </div>
+              <div className="flex flex-wrap items-center gap-2 pt-0.5">
+                {config.channelProfile.projectName && (
+                  <span className="inline-flex items-center gap-1.5 rounded-xl bg-slate-900/90 border border-slate-700/80 px-2.5 py-1 text-[11px] text-slate-300">
+                    <Tv className="h-3.5 w-3.5 text-brand-cyan" />
+                    <span>Dự án: <strong className="text-white">{config.channelProfile.projectName}</strong></span>
+                  </span>
+                )}
+                {config.channelProfile.channelNiche && (
+                  <span className="inline-flex items-center gap-1.5 rounded-xl bg-slate-900/90 border border-slate-700/80 px-2.5 py-1 text-[11px] text-slate-300">
+                    <span>Ngách: <strong className="text-white">{config.channelProfile.channelNiche}</strong></span>
+                  </span>
+                )}
+                <span className="inline-flex items-center gap-1.5 rounded-xl bg-slate-900/90 border border-slate-700/80 px-2.5 py-1 text-[11px] text-slate-300">
+                  <Clock className="h-3.5 w-3.5 text-amber-400" />
+                  <span>Thời lượng: <strong className="text-white">{getTargetDurationText()}</strong></span>
+                </span>
+                {(config.channelProfile.hostName || config.channelProfile.channelCharacters?.[0]?.name) && (
+                  <span className="inline-flex items-center gap-1.5 rounded-xl bg-slate-900/90 border border-slate-700/80 px-2.5 py-1 text-[11px] text-slate-300">
+                    <User className="h-3.5 w-3.5 text-pink-400" />
+                    <span>Nhân vật: <strong className="text-white">{config.channelProfile.hostName || config.channelProfile.channelCharacters?.[0]?.name}</strong></span>
+                  </span>
+                )}
+                {(config.channelProfile.imageModel || config.channelProfile.videoModel) && (
+                  <span className="inline-flex items-center gap-1.5 rounded-xl bg-slate-900/90 border border-slate-700/80 px-2.5 py-1 text-[11px] text-slate-300">
+                    <ImageIcon className="h-3.5 w-3.5 text-violet-400" />
+                    <span>Model: <strong className="text-white">{config.channelProfile.imageModel || 'Nano Banana 2'} / {config.channelProfile.videoModel || 'Omni 1.1 Flash'}</strong></span>
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* Feedback & Error Banners */}
           {errorMessage && (
             <div className="flex items-start gap-2.5 rounded-2xl border border-rose-500/40 bg-rose-500/10 p-3.5 text-xs text-rose-300">
@@ -237,7 +337,11 @@ export default function IdeaGenerationModal({
               type="text"
               value={topic}
               onChange={(e) => setTopic(e.target.value)}
-              placeholder="Ví dụ: Cú sốc tài chính toàn cầu 2026 - Sự thật chưa ai kể"
+              placeholder={
+                config.channelProfile?.projectName
+                  ? `Ví dụ: Chủ đề cho dự án "${config.channelProfile.projectName}" (hoặc để trống bấm 🤖 AI Tự Động Sinh Mẫu)`
+                  : 'Ví dụ: Cú sốc tài chính toàn cầu 2026 - Sự thật chưa ai kể'
+              }
               className="w-full rounded-2xl border border-slate-800 bg-slate-950/80 px-4 py-3 text-sm text-white placeholder:text-slate-600 focus:border-brand-cyan focus:ring-1 focus:ring-brand-cyan focus:outline-none transition"
             />
           </div>

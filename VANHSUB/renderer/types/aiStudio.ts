@@ -411,6 +411,7 @@ export type StartPipelineResult = PipelineStartResponse;
 export interface AutoFillIdeaInput {
   topic: string;
   aspectRatio?: '16:9' | '9:16';
+  channelProfile?: Partial<ChannelProfileConfig>;
 }
 export type AutoFillIdeaPayload = AutoFillIdeaInput;
 
@@ -421,6 +422,7 @@ export interface AutoFillIdeaResponse {
   outline: string[];
   thumbnailConcept: string;
   thumbnailPrompt: string;
+  error?: string;
 }
 export type AutoFillIdeaResult = AutoFillIdeaResponse;
 
@@ -590,6 +592,7 @@ export interface GenerateMasterPromptResponse {
   error?: string;
 }
 export type GenerateMasterPromptResult = GenerateMasterPromptResponse;
+
 
 // ============================================================================
 // 5. IPC BRIDGE INTERFACE (GIAO DIỆN window.vanhsub.aiStudio)

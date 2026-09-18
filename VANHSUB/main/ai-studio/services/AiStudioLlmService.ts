@@ -120,7 +120,8 @@ export class AiStudioLlmService {
   public parseBlueprintJson(
     rawText: string,
     topic: string,
-    aspectRatio: '16:9' | '9:16' = '16:9'
+    aspectRatio: '16:9' | '9:16' = '16:9',
+    channelProfile?: Partial<ChannelProfileConfig>
   ): IdeaBlueprint {
     const cleaned = rawText
       .replace(/```json/gi, '')
@@ -138,11 +139,48 @@ export class AiStudioLlmService {
       : Array.isArray(parsed.keyBeats)
       ? parsed.keyBeats
       : [
-          'Phân đoạn 1: Mở đầu sự cố / bối cảnh bất ngờ...',
-          'Phân đoạn 2: Diễn biến kịch tính / xung đột cao trào...',
-          'Phân đoạn 3: Bước ngoặt / giải mã sự thật...',
-          'Phân đoạn 4: Bài học & Lối thoát...',
+          'Phân đoạn 1 [00:00 - 00:45]: Mở đầu sự cố / bối cảnh bất ngờ...',
+          'Phân đoạn 2 [00:45 - 01:30]: Diễn biến kịch tính / xung đột cao trào...',
+          'Phân đoạn 3 [01:30 - 02:15]: Bước ngoặt / giải mã sự thật...',
+          'Phân đoạn 4 [02:15 - 03:00]: Bài học & Lối thoát...',
         ];
+
+    // Tính toán thời lượng mục tiêu từ Cấu hình kênh
+    let targetDurationSec = aspectRatio === '9:16' ? 45 : 240;
+    if (channelProfile) {
+      if (aspectRatio === '9:16') {
+        if (channelProfile.targetShortDuration === '30_60_sec') targetDurationSec = 45;
+        else if (channelProfile.targetShortDuration === '60_90_sec') targetDurationSec = 75;
+        else if (channelProfile.targetShortDuration === '90_120_sec') targetDurationSec = 105;
+        else if (channelProfile.targetShortDuration === '120_180_sec') targetDurationSec = 150;
+      } else {
+        if (channelProfile.targetLongDuration === '1_3_min') targetDurationSec = 120;
+        else if (channelProfile.targetLongDuration === '3_5_min') targetDurationSec = 240;
+        else if (channelProfile.targetLongDuration === '5_8_min') targetDurationSec = 390;
+        else if (channelProfile.targetLongDuration === '8_12_min') targetDurationSec = 600;
+        else if (channelProfile.targetLongDuration === '12_18_min') targetDurationSec = 900;
+        else if (channelProfile.targetLongDuration === '18_28_min') targetDurationSec = 1400;
+      }
+    }
+
+    const estimatedDurationSec =
+      Number(parsed.estimatedDurationSec) > 0
+        ? Number(parsed.estimatedDurationSec)
+        : targetDurationSec;
+
+    // Thiết lập thumbnailPrompt dự phòng chuẩn theo Nhân vật và Model của Kênh
+    const hostName =
+      channelProfile?.hostName?.trim() ||
+      channelProfile?.channelCharacters?.[0]?.name?.trim();
+    const hostDesc =
+      channelProfile?.hostDescription?.trim() ||
+      channelProfile?.channelCharacters?.[0]?.descriptionEn?.trim();
+    const imageModel = channelProfile?.imageModel?.trim() || 'Nano Banana 2';
+
+    let defaultThumbnailPrompt = `Cinematic high resolution photography for video thumbnail of ${parsed.title || topic}, dramatic lighting, 8k, photorealistic, optimized for ${imageModel}`;
+    if (hostName && hostDesc) {
+      defaultThumbnailPrompt = `Cinematic high resolution photography featuring character ${hostName} (${hostDesc}), dramatic lighting, 8k, photorealistic, optimized for ${imageModel}`;
+    }
 
     return {
       topic,
@@ -152,16 +190,14 @@ export class AiStudioLlmService {
       narrativeAngle: parsed.narrativeAngle || 'Góc tiếp cận độc đáo, đột phá của kênh',
       hookConcept: parsed.hookConcept || `Bạn có tin vào sự thật đằng sau ${topic}?`,
       pacing: parsed.pacing || (aspectRatio === '9:16' ? 'fast' : 'moderate'),
-      estimatedDurationSec: Number(parsed.estimatedDurationSec) || (aspectRatio === '9:16' ? 45 : 90),
+      estimatedDurationSec,
       keyBeats: outlineArray,
       outline: outlineArray,
       thumbnailConcept: parsed.thumbnailConcept || `Ý tưởng thumbnail ấn tượng về ${topic}`,
-      thumbnailPrompt:
-        parsed.thumbnailPrompt ||
-        `Cinematic high resolution photography for video thumbnail of ${topic}, dramatic lighting, 8k, photorealistic`,
+      thumbnailPrompt: parsed.thumbnailPrompt || defaultThumbnailPrompt,
       rawSummary:
         parsed.rawSummary ||
-        `Chiến lược sản xuất video "${parsed.title || topic}" với tỷ lệ ${aspectRatio}.`,
+        `Chiến lược sản xuất video "${parsed.title || topic}" với tỷ lệ ${aspectRatio}, thời lượng dự kiến ${Math.round((estimatedDurationSec / 60) * 10) / 10} phút.`,
     };
   }
 
@@ -172,25 +208,155 @@ export class AiStudioLlmService {
     topic: string,
     config: AiStudioLlmConfig,
     aspectRatio: '16:9' | '9:16' = '16:9',
-    onProgress?: (msg: string) => void
+    onProgress?: (msg: string) => void,
+    channelProfile?: Partial<ChannelProfileConfig>
   ): Promise<IdeaBlueprint> {
-    const prompt = `Bạn là giám đốc sáng tạo video triệu view.
-Dựa trên chủ đề/ý tưởng: "${topic}" và định dạng khung hình ${aspectRatio === '9:16' ? 'Video Ngắn (9:16 / TikTok / Shorts)' : 'Video Dài (16:9 / YouTube)'}, hãy lập kế hoạch và sinh mẫu ý tưởng sản xuất video hoàn chỉnh.
+    const projectName = channelProfile?.projectName?.trim() || '';
+    const channelNiche = channelProfile?.channelNiche?.trim() || '';
+    const channelOrientation = channelProfile?.channelOrientation?.trim() || '';
+    const channelHook = channelProfile?.channelHook?.trim() || '';
+    const masterPrompt = channelProfile?.masterPrompt?.trim() || '';
+    const imageModel = channelProfile?.imageModel?.trim() || 'Nano Banana 2';
+    const videoModel = channelProfile?.videoModel?.trim() || 'Omni 1.1 Flash';
+
+    const hostName =
+      channelProfile?.hostName?.trim() ||
+      channelProfile?.channelCharacters?.[0]?.name?.trim() ||
+      '';
+    const hostDescription =
+      channelProfile?.hostDescription?.trim() ||
+      channelProfile?.channelCharacters?.[0]?.descriptionEn?.trim() ||
+      '';
+    const characterRole = channelProfile?.characterRole?.trim() || 'Nhân vật dẫn dắt / tâm điểm';
+
+    // Tính toán mục tiêu thời lượng và số lượng phân đoạn dàn ý
+    let durationLabel = '3 - 5 phút';
+    let targetSec = 240;
+    let minBeats = 6;
+    let maxBeats = 8;
+
+    if (aspectRatio === '9:16') {
+      const shortDur = channelProfile?.targetShortDuration || '30_60_sec';
+      if (shortDur === '30_60_sec') {
+        durationLabel = '30 - 60 giây (~45 giây)';
+        targetSec = 45;
+        minBeats = 4;
+        maxBeats = 6;
+      } else if (shortDur === '60_90_sec') {
+        durationLabel = '60 - 90 giây (~75 giây)';
+        targetSec = 75;
+        minBeats = 6;
+        maxBeats = 8;
+      } else if (shortDur === '90_120_sec') {
+        durationLabel = '90 - 120 giây (~105 giây)';
+        targetSec = 105;
+        minBeats = 8;
+        maxBeats = 10;
+      } else if (shortDur === '120_180_sec') {
+        durationLabel = '2 - 3 phút (~150 giây)';
+        targetSec = 150;
+        minBeats = 10;
+        maxBeats = 12;
+      }
+    } else {
+      const longDur = channelProfile?.targetLongDuration || '3_5_min';
+      if (longDur === '1_3_min') {
+        durationLabel = '1 - 3 phút (~250 - 500 từ)';
+        targetSec = 120;
+        minBeats = 4;
+        maxBeats = 6;
+      } else if (longDur === '3_5_min') {
+        durationLabel = '3 - 5 phút (~600 - 900 từ)';
+        targetSec = 240;
+        minBeats = 6;
+        maxBeats = 8;
+      } else if (longDur === '5_8_min') {
+        durationLabel = '5 - 8 phút (~1000 - 1500 từ)';
+        targetSec = 390;
+        minBeats = 8;
+        maxBeats = 10;
+      } else if (longDur === '8_12_min') {
+        durationLabel = '8 - 12 phút (~1500 - 2200 từ)';
+        targetSec = 600;
+        minBeats = 10;
+        maxBeats = 14;
+      } else if (longDur === '12_18_min') {
+        durationLabel = '12 - 18 phút (~2200 - 3200 từ)';
+        targetSec = 900;
+        minBeats = 14;
+        maxBeats = 18;
+      } else if (longDur === '18_28_min') {
+        durationLabel = '18 - 28 phút (~3200 - 5000 từ)';
+        targetSec = 1400;
+        minBeats = 18;
+        maxBeats = 24;
+      }
+    }
+
+    const channelContextParts: string[] = [];
+
+    if (projectName || channelNiche) {
+      channelContextParts.push(
+        `=== 1. ĐỊNH DANH DỰ ÁN & KÊNH ===\n- Tên Dự Án/Kênh: "${projectName || 'Chưa đặt tên'}"\n- Ngách nội dung (Niche): "${channelNiche || 'Nội dung đại chúng'}"\n- Định hướng phong cách: "${channelOrientation || 'Kịch tính, sâu sắc, cuốn hút'}"`
+      );
+    }
+
+    channelContextParts.push(
+      `=== 2. THỜI LƯỢNG MỤC TIÊU & QUY CHUẨN DÀN Ý ===\n- Định dạng: ${aspectRatio === '9:16' ? 'Video Ngắn dọc (9:16 Shorts/TikTok/Reels)' : 'Video Dài ngang (16:9 YouTube)'}\n- Thời lượng mục tiêu: ${durationLabel} (ước tính ~${targetSec} giây)\n- Yêu cầu số lượng phân đoạn trong dàn ý: BẮT BUỘC có ĐỦ từ ${minBeats} đến ${maxBeats} phân đoạn cụ thể để bao quát toàn bộ thời lượng yêu cầu.`
+    );
+
+    if (channelHook) {
+      channelContextParts.push(
+        `- Hook thương hiệu của kênh: "${channelHook}" (hãy lồng ghép hoặc sáng tạo dựa trên hook này).`
+      );
+    }
+
+    if (masterPrompt && masterPrompt.trim().length >= 40) {
+      channelContextParts.push(
+        `=== 3. MASTER PROMPT & NGUYÊN TẮC KÊNH ===\nKịch bản và dàn ý phải tuyệt đối tuân thủ tinh thần và phong cách chỉ đạo từ Master Prompt của kênh:\n"""\n${masterPrompt.slice(0, 1200)}\n"""`
+      );
+    }
+
+    channelContextParts.push(
+      `=== 4. MODEL HÌNH ẢNH & VIDEO ===\n- Model hình ảnh: "${imageModel}"\n- Model video: "${videoModel}"\n- Prompt tạo ảnh bìa (thumbnailPrompt) PHẢI được viết bằng tiếng Anh chi tiết, tối ưu hóa các từ khóa ánh sáng cinematic, framing, camera angle, 8k photorealistic phù hợp với model [${imageModel}].`
+    );
+
+    if (hostName || hostDescription) {
+      channelContextParts.push(
+        `=== 5. KHÓA NHÂN VẬT ĐẠI DIỆN (CHARACTER CONSISTENCY) ===\n- Tên nhân vật: ${hostName || 'Nhân vật chính'}\n- Mô tả ngoại hình & phong cách: "${hostDescription}"\n- Vai trò: "${characterRole}"\n=> BẮT BUỘC: Cả "thumbnailConcept" (tiếng Việt) và "thumbnailPrompt" (tiếng Anh) PHẢI đặt nhân vật ${hostName} làm tâm điểm thị giác với đúng đặc điểm diện mạo, trang phục và phong cách vẽ/chụp đã thiết lập để đảm bảo tính nhất quán (Character Consistency)!`
+      );
+    }
+
+    const channelContextText = channelContextParts.join('\n\n');
+
+    const prompt = `Bạn là Giám đốc Sáng tạo & Biên kịch trưởng cho kênh YouTube/TikTok triệu view.
+Nhiệm vụ: Dựa trên chủ đề/ý tưởng đầu vào: "${topic || channelNiche || projectName || 'Ý tưởng mới'}" và toàn bộ CẤU HÌNH KÊNH dưới đây, hãy lập kế hoạch chi tiết và sinh mẫu ý tưởng sản xuất video hoàn chỉnh.
+
+${channelContextText}
+
 Preset phong cách: "${config.systemPromptPreset || 'youtube_story'}".
+
+QUY TẮC BẮT BUỘC:
+1. TIÊU ĐỀ (title): Phải liên quan trực tiếp đến Tên Dự Án "${projectName || channelNiche}", lôi cuốn, giật gân, chuẩn SEO click-through-rate cao.
+2. DÀN Ý (outline): BẮT BUỘC trả về mảng có ĐÚNG từ ${minBeats} đến ${maxBeats} phân đoạn (mỗi phần tử là một phân đoạn có mốc thời gian rõ ràng, ví dụ "[00:00 - 00:45] Phân đoạn 1: Mở đầu...").
+3. HÌNH ẢNH THUMBNAIL (thumbnailConcept & thumbnailPrompt): ${
+  hostName || hostDescription
+    ? `BẮT BUỘC xuất hiện nhân vật ${hostName || 'đại diện'} (${hostDescription}) với phong cách hình ảnh chuẩn model ${imageModel}.`
+    : `Bắt mắt, ánh sáng cinematic, tối ưu cho model ${imageModel}.`
+}
 
 Yêu cầu nghiêm ngặt: Trả về DUY NHẤT một khối JSON hợp lệ theo đúng cấu trúc sau (không kèm lời chào, không markdown thừa):
 {
-  "title": "Tiêu đề video cuốn hút, chuẩn SEO viral",
+  "title": "Tiêu đề video cuốn hút, gắn với dự án và chủ đề",
   "hookConcept": "Câu mở đầu 3 giây gây tò mò, giật gân, giữ chân khán giả",
   "narrativeAngle": "Góc nhìn/tiếp cận độc đáo của kênh",
   "outline": [
-    "Phân đoạn 1: Mở đầu sự cố / bối cảnh bất ngờ...",
-    "Phân đoạn 2: Diễn biến kịch tính / xung đột cao trào...",
-    "Phân đoạn 3: Bước ngoặt / giải mã sự thật...",
-    "Phân đoạn 4: Bài học & Lối thoát / kêu gọi hành động..."
+    "Phân đoạn 1 [00:00 - 00:45]: Mở đầu sự cố / bối cảnh bất ngờ...",
+    "Phân đoạn 2 [00:45 - 01:30]: Diễn biến kịch tính / xung đột cao trào..."
   ],
-  "thumbnailConcept": "Mô tả ý tưởng hình ảnh bìa thumbnail cực kỳ bắt mắt",
-  "thumbnailPrompt": "Detailed English image prompt for thumbnail generation, cinematic lighting, 8k, photorealistic"
+  "estimatedDurationSec": ${targetSec},
+  "thumbnailConcept": "Mô tả ý tưởng hình ảnh bìa thumbnail cực kỳ bắt mắt${hostName ? ` có sự xuất hiện của ${hostName}` : ''}",
+  "thumbnailPrompt": "Detailed English image prompt for thumbnail generation, cinematic lighting, 8k, photorealistic${hostName && hostDescription ? `, featuring ${hostName}: ${hostDescription}` : ''}, optimized for ${imageModel}"
 }`;
 
     // 1. ChatGPT Web Automation
@@ -201,7 +367,7 @@ Yêu cầu nghiêm ngặt: Trả về DUY NHẤT một khối JSON hợp lệ th
         const mode = config.chatgptWebMode || 'offscreen';
         onProgress?.('Đang gửi yêu cầu sinh ý tưởng tới ChatGPT Web...');
         const rawText = await mgr.executePromptTurn(prompt, mode, onProgress);
-        return this.parseBlueprintJson(rawText, topic, aspectRatio);
+        return this.parseBlueprintJson(rawText, topic, aspectRatio, channelProfile);
       } catch (err: any) {
         console.error('[AiStudioLlmService] ChatGPT Web blueprint error:', err);
         throw new Error(`Lỗi sinh ý tưởng qua ChatGPT Web: ${err?.message || err}`);
@@ -216,7 +382,7 @@ Yêu cầu nghiêm ngặt: Trả về DUY NHẤT một khối JSON hợp lệ th
         const mode = config.geminiWebMode || 'offscreen';
         onProgress?.('Đang gửi yêu cầu sinh ý tưởng tới Gemini Web...');
         const rawText = await mgr.executePromptTurn(prompt, mode, onProgress);
-        return this.parseBlueprintJson(rawText, topic, aspectRatio);
+        return this.parseBlueprintJson(rawText, topic, aspectRatio, channelProfile);
       } catch (err: any) {
         console.error('[AiStudioLlmService] Gemini Web blueprint error:', err);
         throw new Error(`Lỗi sinh ý tưởng qua Gemini Web: ${err?.message || err}`);
@@ -237,7 +403,7 @@ Yêu cầu nghiêm ngặt: Trả về DUY NHẤT một khối JSON hợp lệ th
       });
 
       const rawText = response.choices[0]?.message?.content || '';
-      return this.parseBlueprintJson(rawText, topic, aspectRatio);
+      return this.parseBlueprintJson(rawText, topic, aspectRatio, channelProfile);
     } catch (err: any) {
       console.error(`[AiStudioLlmService] Remote LLM error (${config.provider}):`, err);
       throw new Error(`Lỗi kết nối API ${config.provider}: ${err?.message || err}`);
