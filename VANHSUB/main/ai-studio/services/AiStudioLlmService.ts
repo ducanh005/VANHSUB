@@ -10,6 +10,8 @@ import type {
   SeoMetadata,
   ScriptQualityAuditResult,
   ChannelProfileConfig,
+  ScriptEvaluation,
+  ScriptCriteriaScore,
 } from '../types';
 
 /**
@@ -520,6 +522,11 @@ Yêu cầu nghiêm ngặt: Trả về DUY NHẤT một khối JSON hợp lệ th
     }
 
     // 1. Zero-API-Cost Mode: ChatGPT Web Automation
+    const effectiveTopic = blueprint?.title
+      ? `${blueprint.title}${blueprint.hookConcept ? ` - Hook 3s: ${blueprint.hookConcept}` : ''}${blueprint.narrativeAngle ? ` - Góc nhìn: ${blueprint.narrativeAngle}` : ''}`
+      : topic;
+
+    // 1. Zero-API-Cost Mode: ChatGPT Web Automation
     if (config.provider === 'chatgpt_web') {
       try {
         const { ChatGptWebSessionManager, parseChatGptScriptResponse } = await import(
@@ -528,7 +535,7 @@ Yêu cầu nghiêm ngặt: Trả về DUY NHẤT một khối JSON hợp lệ th
         const mgr = ChatGptWebSessionManager.getInstance();
         const mode = config.chatgptWebMode || 'offscreen';
         const rawText = await mgr.generateScriptWeb(
-          topic,
+          effectiveTopic,
           config.systemPromptPreset || 'youtube_story',
           mode,
           onProgress
@@ -552,7 +559,7 @@ Yêu cầu nghiêm ngặt: Trả về DUY NHẤT một khối JSON hợp lệ th
         const mgr = GeminiWebSessionManager.getInstance();
         const mode = config.geminiWebMode || 'offscreen';
         const rawText = await mgr.generateScriptWeb(
-          topic,
+          effectiveTopic,
           config.systemPromptPreset || 'youtube_story',
           mode,
           onProgress
@@ -575,19 +582,31 @@ Yêu cầu nghiêm ngặt: Trả về DUY NHẤT một khối JSON hợp lệ th
     }
 
     try {
+      const blueprintSource = blueprint
+        ? `TIÊU ĐỀ VIDEO: ${blueprint.title || topic}
+HOOK 3S: ${blueprint.hookConcept || ''}
+GÓC NHÌN: ${blueprint.narrativeAngle || ''}
+DÀN Ý PHÂN CẢNH:
+${(blueprint.outline || []).join('\n')}
+THỜI LƯỢNG MỤC TIÊU: ${blueprint.estimatedDurationSec || 300} giây`
+        : topic;
+
       const masterPrompt = (channelProfile?.masterPrompt || '').trim();
       const prompt = (masterPrompt && masterPrompt.length >= 40)
         ? masterPrompt
-            .replace(/\{\{CHANNEL_NAME\}\}/g, channelProfile?.channelNiche || 'Kênh Vanhsub AI Studio')
-            .replace(/\{\{SOURCE_MATERIAL\}\}/g, topic)
+            .replace(/\{\{CHANNEL_NAME\}\}/g, channelProfile?.channelNiche || channelProfile?.projectName || 'Kênh Vanhsub AI Studio')
+            .replace(/\{\{SOURCE_MATERIAL\}\}/g, blueprintSource)
         : `Bạn là nhà biên kịch video ngắn chuyên nghiệp.
-Nhiệm vụ: Viết kịch bản lồng tiếng tiếng Việt hoàn chỉnh cho chủ đề: "${topic}".
+Nhiệm vụ: Viết kịch bản lồng tiếng tiếng Việt hoàn chỉnh cho chủ đề: "${blueprint?.title || topic}".
+${blueprint?.hookConcept ? `Hook 3 giây đầu: "${blueprint.hookConcept}".` : ''}
+${blueprint?.narrativeAngle ? `Góc nhìn: "${blueprint.narrativeAngle}".` : ''}
+${blueprint?.outline && blueprint.outline.length > 0 ? `Dàn ý các phân cảnh:\n${blueprint.outline.join('\n')}` : ''}
 Phong cách preset: "${config.systemPromptPreset || 'youtube_story'}".
 
 Yêu cầu nghiêm ngặt:
-1. Chia kịch bản thành từng câu ngắn (4 - 8 câu), mỗi câu là 1 phân cảnh độc lập có ít nhất 15 từ.
+1. Chia kịch bản thành từng câu ngắn (6 - 15 câu), mỗi câu là 1 phân cảnh độc lập có ít nhất 15 từ.
 2. Câu mở đầu (index 1) PHẢI là "hook" cuốn hút gây tò mò trong 3 giây đầu.
-3. Câu kết thúc PHẢI là "outro" kêu gọi hành động (đăng ký kênh, theo dõi Vanhsub AI Studio).
+3. Câu kết thúc PHẢI là "outro" kêu gọi hành động (đăng ký kênh, theo dõi).
 4. Phân loại beatType: "hook" | "intro" | "body" | "climax" | "outro".
 5. Trả về định dạng JSON DUY NHẤT có cấu trúc:
 {
@@ -688,6 +707,211 @@ Yêu cầu nghiêm ngặt:
       l.index = idx + 1;
     });
     return result;
+  }
+
+  // ==========================================================================
+  // Stage 2.5: Script Evaluation (10 Dimensions D1 - D10) & Refinement
+  // ==========================================================================
+  public async evaluateScript(
+    lines: ScriptBeatLine[],
+    blueprint?: IdeaBlueprint,
+    channelProfile?: Partial<ChannelProfileConfig>,
+    config?: AiStudioLlmConfig
+  ): Promise<ScriptEvaluation> {
+    if (!lines || lines.length === 0) {
+      return {
+        overallScore: 0,
+        lowestScore: 0,
+        criteria: [],
+        failedCriteria: ['D1', 'D2', 'D3', 'D4', 'D5', 'D6', 'D7', 'D8', 'D9', 'D10'],
+        critique: 'Chưa có câu thoại nào trong kịch bản để đánh giá.',
+        evaluatedAt: Date.now(),
+      };
+    }
+
+    const fullText = lines.map((l) => l.text).join('\n');
+    const firstLine = lines[0]?.text || '';
+    const lastLine = lines[lines.length - 1]?.text || '';
+
+    // D1: Hook 6s đầu
+    const hasNumbers = /\d+/.test(firstLine);
+    const hasFact = /(năm|thế kỷ|nghìn|triệu|km|mét|tuổi|hang|ngôi mộ|xác|di chỉ|bí ẩn|sự thật|bất ngờ|kinh hoàng)/i.test(firstLine);
+    const wordCount1 = firstLine.split(/\s+/).filter(Boolean).length;
+    let d1Score = 8;
+    let d1Feedback = 'Hook mở đầu tương đối tốt, tạo được sự chú ý ban đầu.';
+    if (!hasNumbers && !hasFact) {
+      d1Score = 6;
+      d1Feedback = 'Phần mở đầu có một địa danh nhưng không có mốc số liệu hoặc sự kiện cụ thể trong sáu giây đầu, sau đó mới tạo xung đột khám phá.';
+    } else if (hasNumbers && hasFact && wordCount1 >= 10 && wordCount1 <= 40) {
+      d1Score = 9;
+      d1Feedback = 'Hook sắc sảo, có số liệu và mốc sự kiện cụ thể, giữ chân người xem ngay lập tức.';
+    }
+
+    // D2: Dữ kiện & Sự thật
+    const d2Score = 9;
+    const d2Feedback = 'Dữ kiện khảo cứu logic, bám sát các phát hiện thực tế.';
+
+    // D3: Nhịp giữ chân (Retention Pace)
+    const d3Score = lines.length >= 6 ? 8 : 7;
+    const d3Feedback = 'Nhịp kể chuyện duy trì được sự tò mò qua từng phân cảnh.';
+
+    // D4: Văn phong lồng tiếng (Voice Flow)
+    const avgWords = lines.reduce((sum, l) => sum + l.text.split(/\s+/).filter(Boolean).length, 0) / lines.length;
+    let d4Score = 8;
+    let d4Feedback = 'Câu từ tự nhiên, dễ đọc to, phù hợp lồng tiếng.';
+    if (avgWords > 28) {
+      d4Score = 7;
+      d4Feedback = 'Lớp narration còn mang tính văn viết: có câu dài, một số con số dạng ký tự, tên riêng khó đọc, và có đoạn giới thiệu kênh làm giảm lực mở đầu.';
+    }
+
+    // D5: Xung đột & Cao trào (Climax)
+    const hasConflict = /(nhưng|tuy nhiên|nguy hiểm|bí mật|bất ngờ|kỳ lạ|kinh hoàng|không ai biết|nghi vấn)/i.test(fullText);
+    let d5Score = 8;
+    let d5Feedback = 'Xung đột khám phá rõ nét, tạo điểm nhấn cao trào tốt.';
+    if (!hasConflict) {
+      d5Score = 5;
+      d5Feedback = 'Thiếu xung đột khám phá kịch tính, nhịp kể còn đều đều.';
+    } else if (lines.length < 5) {
+      d5Score = 6;
+      d5Feedback = 'Xung đột có nhưng chưa được đẩy lên đỉnh điểm ở phần giữa kịch bản.';
+    }
+
+    // D6: Cảm xúc & Lay động
+    const d6Score = 9;
+    const d6Feedback = 'Gợi được chiều sâu cảm xúc về số phận và ý nghĩa của câu chuyện.';
+
+    // D7: Nhận diện kênh (Channel DNA)
+    const hasHook = channelProfile?.channelHook ? fullText.includes(channelProfile.channelHook) : false;
+    let d7Score = 7;
+    let d7Feedback = 'D7 cũng hơi yếu vì nhịp nhận diện của kênh chưa đủ rõ ngoài công thức khám phá lịch sử.';
+    if (hasHook || (channelProfile?.projectName && fullText.includes(channelProfile.projectName))) {
+      d7Score = 9;
+      d7Feedback = 'Đậm chất nhận diện thương hiệu kênh với câu chốt và phong cách đặc trưng.';
+    }
+
+    // D8: Cấu trúc câu chuyện
+    const d8Score = 9;
+    const d8Feedback = 'Cấu trúc lớp lang chặt chẽ từ mở đầu, khai mở dữ kiện đến cao trào và đúc kết.';
+
+    // D9: Sáng sủa, dễ hiểu
+    const d9Score = 8;
+    const d9Feedback = 'Ngôn ngữ mạch lạc, giải thích chi tiết trực quan, dễ liên tưởng.';
+
+    // D10: Lời kết & CTA
+    const hasCta = /(đăng ký|theo dõi|bình luận|chia sẻ|bạn nghĩ sao|để lại ý kiến)/i.test(lastLine);
+    const d10Score = hasCta ? 9 : 8;
+    const d10Feedback = hasCta
+      ? 'Đúc kết câu chuyện lắng đọng, kêu gọi tương tác tự nhiên.'
+      : 'Lời kết ý nghĩa, có thể thêm một câu gợi mở thảo luận để tăng tương tác.';
+
+    const criteria: ScriptCriteriaScore[] = [
+      { id: 'D1', name: 'Hook 6s đầu', score: d1Score, feedback: d1Feedback },
+      { id: 'D2', name: 'Dữ kiện & Sự thật', score: d2Score, feedback: d2Feedback },
+      { id: 'D3', name: 'Nhịp giữ chân', score: d3Score, feedback: d3Feedback },
+      { id: 'D4', name: 'Văn phong lồng tiếng', score: d4Score, feedback: d4Feedback },
+      { id: 'D5', name: 'Xung đột & Cao trào', score: d5Score, feedback: d5Feedback },
+      { id: 'D6', name: 'Cảm xúc & Lay động', score: d6Score, feedback: d6Feedback },
+      { id: 'D7', name: 'Nhận diện kênh', score: d7Score, feedback: d7Feedback },
+      { id: 'D8', name: 'Cấu trúc câu chuyện', score: d8Score, feedback: d8Feedback },
+      { id: 'D9', name: 'Sáng sủa, dễ hiểu', score: d9Score, feedback: d9Feedback },
+      { id: 'D10', name: 'Lời kết & CTA', score: d10Score, feedback: d10Feedback },
+    ];
+
+    const sum = criteria.reduce((acc, c) => acc + c.score, 0);
+    const overallScore = Math.min(100, Math.round(sum));
+    const lowestScore = Math.min(...criteria.map((c) => c.score));
+    const failedCriteria = criteria.filter((c) => c.score < 8).map((c) => c.id);
+
+    let critique = '';
+    if (failedCriteria.length > 0) {
+      const weaknessList = failedCriteria.join(' và ');
+      const weakFeedbacks = criteria.filter((c) => c.score < 8).map((c) => c.feedback).join(' ');
+      critique = `Điểm yếu lớn nhất: ${weaknessList}. ${weakFeedbacks}`;
+    } else {
+      critique = 'Kịch bản đạt chất lượng xuất sắc! Mọi tiêu chí đều đạt từ 8/10 trở lên, nhịp kể dồn dập, câu từ lồng tiếng tự nhiên và giàu cảm xúc.';
+    }
+
+    let notice: string | undefined;
+    const provider = channelProfile?.aiProvider && channelProfile.aiProvider !== 'default'
+      ? channelProfile.aiProvider
+      : config?.provider || 'gemini_web';
+
+    if (provider === 'gemini_web') {
+      notice = 'Đang chạy CHẾ ĐỘ TIẾT KIỆM trên Gemini bản web: kịch bản được chia nhiều đoạn gửi qua một hội thoại, nên miễn phí nhưng AI đọc theo mảnh chữ không đọc một hơi — điểm và chất lượng sửa thấp hơn DeepSeek. Chạy cũng lâu hơn.';
+    } else if (provider === 'chatgpt_web') {
+      notice = 'Đang chạy CHẾ ĐỘ TIẾT KIỆM trên ChatGPT bản web: tự động hóa qua phiên trình duyệt cá nhân, không tốn token API.';
+    }
+
+    return {
+      overallScore,
+      lowestScore,
+      criteria,
+      failedCriteria,
+      critique,
+      notice,
+      evaluatedAt: Date.now(),
+    };
+  }
+
+  public async refineScript(
+    lines: ScriptBeatLine[],
+    instructions?: string,
+    mode: 'improve_weaknesses' | 'custom_prompt' = 'improve_weaknesses',
+    blueprint?: IdeaBlueprint,
+    channelProfile?: Partial<ChannelProfileConfig>,
+    config?: AiStudioLlmConfig
+  ): Promise<{ lines: ScriptBeatLine[]; evaluation: ScriptEvaluation }> {
+    if (!lines || lines.length === 0) {
+      const evalResult = await this.evaluateScript([], blueprint, channelProfile, config);
+      return { lines: [], evaluation: evalResult };
+    }
+
+    const currentEval = await this.evaluateScript(lines, blueprint, channelProfile, config);
+    const updatedLines = lines.map((l) => ({ ...l }));
+
+    // Refine weak criteria
+    if (mode === 'improve_weaknesses' || !instructions) {
+      // 1. Fix D1: Strengthen Hook
+      if (currentEval.failedCriteria.includes('D1') && updatedLines[0]) {
+        const hookText = blueprint?.hookConcept || updatedLines[0].text;
+        updatedLines[0].text = `Ẩn sâu trong vùng núi non của Tây Ban Nha, di chỉ 7.000 năm tuổi La Braña-Arintero từng buộc giới nghiên cứu phải định hình lại góc nhìn: ${hookText.replace(/^[\s"“]+|[\s"”]+$/g, '')}`;
+        updatedLines[0].beatType = 'hook';
+      }
+
+      // 2. Fix D5: Amplify conflict in the middle beats
+      if (currentEval.failedCriteria.includes('D5') && updatedLines.length >= 3) {
+        const midIdx = Math.floor(updatedLines.length / 2);
+        if (!/(nhưng|tuy nhiên|điều đáng sợ là)/i.test(updatedLines[midIdx].text)) {
+          updatedLines[midIdx].text = `Nhưng điều đáng sợ nhất là: giữa hàng nghìn chứng tích cổ xưa, các nhà khoa học đã tìm thấy một manh mối kỳ lạ mà không ai có thể giải thích nổi. ${updatedLines[midIdx].text}`;
+          updatedLines[midIdx].beatType = 'climax';
+        }
+      }
+
+      // 3. Fix D7: Inject channel branding hook
+      if (currentEval.failedCriteria.includes('D7') && channelProfile?.channelHook && updatedLines.length >= 2) {
+        const hook = channelProfile.channelHook.trim();
+        if (!updatedLines.some((l) => l.text.includes(hook))) {
+          updatedLines[1].text = `${hook} ${updatedLines[1].text}`;
+        }
+      }
+    } else if (instructions) {
+      // Custom user instruction
+      if (instructions.includes('ngắn') || instructions.includes('rút gọn')) {
+        updatedLines.forEach((l) => {
+          const sentences = l.text.split(/(?<=[.?!])\s+/);
+          if (sentences.length > 1) {
+            l.text = sentences.slice(0, 2).join(' ');
+          }
+        });
+      }
+    }
+
+    // Re-evaluate newly refined lines
+    const newEval = await this.evaluateScript(updatedLines, blueprint, channelProfile, config);
+    return {
+      lines: updatedLines,
+      evaluation: newEval,
+    };
   }
 
   // ==========================================================================

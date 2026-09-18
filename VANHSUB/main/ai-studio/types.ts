@@ -515,6 +515,12 @@ export interface PipelineSessionState {
     scenes?: StoryboardScene[];
     videoPath?: string;
     metadata?: SeoMetadata;
+    scriptEvaluation?: ScriptEvaluation;
+    scriptHistory?: {
+      lines: ScriptBeatLine[];
+      evaluation?: ScriptEvaluation;
+      timestamp: number;
+    }[];
   };
   createdAt: number;
   updatedAt: number;
@@ -629,5 +635,57 @@ export interface GenerateMasterPromptPayload {
 
 export interface GenerateMasterPromptResult {
   masterPrompt: string;
+}
+
+export interface ScriptCriteriaScore {
+  id: 'D1' | 'D2' | 'D3' | 'D4' | 'D5' | 'D6' | 'D7' | 'D8' | 'D9' | 'D10';
+  name: string;
+  score: number; // 0 - 10
+  feedback?: string;
+}
+
+export interface ScriptEvaluation {
+  overallScore: number; // 0 - 100
+  lowestScore: number; // 0 - 10
+  criteria: ScriptCriteriaScore[];
+  failedCriteria: string[]; // e.g. ['D1', 'D5', 'D7']
+  critique: string;
+  notice?: string;
+  evaluatedAt: number;
+}
+
+export interface EvaluateScriptPayload {
+  sessionId?: string;
+  lines: ScriptBeatLine[];
+  blueprint?: IdeaBlueprint;
+  channelProfile?: Partial<ChannelProfileConfig>;
+}
+
+export interface EvaluateScriptResult {
+  evaluation: ScriptEvaluation;
+}
+
+export interface RefineScriptPayload {
+  sessionId?: string;
+  lines: ScriptBeatLine[];
+  instructions?: string;
+  mode?: 'improve_weaknesses' | 'custom_prompt';
+  blueprint?: IdeaBlueprint;
+  channelProfile?: Partial<ChannelProfileConfig>;
+}
+
+export interface RefineScriptResult {
+  lines: ScriptBeatLine[];
+  evaluation?: ScriptEvaluation;
+}
+
+export interface UpdateScriptLinesPayload {
+  sessionId: string;
+  lines: ScriptBeatLine[];
+}
+
+export interface UpdateScriptLinesResult {
+  success: boolean;
+  scriptLines: ScriptBeatLine[];
 }
 

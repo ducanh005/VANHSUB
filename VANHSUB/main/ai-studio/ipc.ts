@@ -40,6 +40,12 @@ import type {
   ApproveStageResult,
   GenerateMasterPromptPayload,
   GenerateMasterPromptResult,
+  EvaluateScriptPayload,
+  EvaluateScriptResult,
+  RefineScriptPayload,
+  RefineScriptResult,
+  UpdateScriptLinesPayload,
+  UpdateScriptLinesResult,
 } from './types';
 
 // ============================================================================
@@ -60,6 +66,8 @@ export interface IAiStudioPipelineEngineDelegate {
   cancel(payload: CancelPipelinePayload): Promise<CancelPipelineResult>;
 
   getState(payload: GetPipelineStatePayload): Promise<PipelineSessionState | null>;
+
+  persistSessionStateAtomic?(state: PipelineSessionState): void;
 
   autoFillIdea?(payload: AutoFillIdeaPayload): Promise<AutoFillIdeaResult>;
 
@@ -334,6 +342,127 @@ export function registerAiStudioIpc(): void {
       } catch (err: any) {
         console.error('[AI-Studio-IPC] Error generating master prompt:', err);
         throw new Error(`Lỗi tạo Master Prompt cho kênh: ${err?.message || err}`);
+      }
+    }
+  );
+
+  /**
+   * Channel: aiStudio:script:evaluate
+   * Evaluates dialogue script lines across 10 dimensions D1 - D10.
+   */
+  safeHandle(
+    'aiStudio:script:evaluate',
+    async (
+      _event,
+      payload: EvaluateScriptPayload
+    ): Promise<EvaluateScriptResult> => {
+      try {
+        const config = getDecryptedAiStudioConfig();
+        const evaluation = await aiStudioLlmService.evaluateScript(
+          payload.lines || [],
+          payload.blueprint,
+          payload.channelProfile || config.channelProfile,
+          config.llm
+        );
+
+        if (payload.sessionId && pipelineEngineDelegate) {
+          const session = await pipelineEngineDelegate.getState({ sessionId: payload.sessionId });
+          if (session) {
+            session.artifacts = session.artifacts || {};
+            session.artifacts.scriptEvaluation = evaluation;
+            if (typeof pipelineEngineDelegate.persistSessionStateAtomic === 'function') {
+              pipelineEngineDelegate.persistSessionStateAtomic(session);
+            }
+          }
+        }
+
+        return { evaluation };
+      } catch (err: any) {
+        console.error('[AI-Studio-IPC] Error evaluating script:', err);
+        throw new Error(`Lỗi chấm điểm kịch bản: ${err?.message || err}`);
+      }
+    }
+  );
+
+  /**
+   * Channel: aiStudio:script:refine
+   * Refines script lines to improve weak criteria or follow custom instructions.
+   */
+  safeHandle(
+    'aiStudio:script:refine',
+    async (
+      _event,
+      payload: RefineScriptPayload
+    ): Promise<RefineScriptResult> => {
+      try {
+        const config = getDecryptedAiStudioConfig();
+        const refined = await aiStudioLlmService.refineScript(
+          payload.lines || [],
+          payload.instructions,
+          payload.mode || 'improve_weaknesses',
+          payload.blueprint,
+          payload.channelProfile || config.channelProfile,
+          config.llm
+        );
+
+        if (payload.sessionId && pipelineEngineDelegate) {
+          const session = await pipelineEngineDelegate.getState({ sessionId: payload.sessionId });
+          if (session) {
+            session.artifacts = session.artifacts || {};
+            if (session.artifacts.scriptLines) {
+              session.artifacts.scriptHistory = session.artifacts.scriptHistory || [];
+              session.artifacts.scriptHistory.push({
+                lines: session.artifacts.scriptLines,
+                evaluation: session.artifacts.scriptEvaluation,
+                timestamp: Date.now(),
+              });
+            }
+            session.artifacts.scriptLines = refined.lines;
+            session.artifacts.scriptEvaluation = refined.evaluation;
+            if (typeof pipelineEngineDelegate.persistSessionStateAtomic === 'function') {
+              pipelineEngineDelegate.persistSessionStateAtomic(session);
+            }
+          }
+        }
+
+        return refined;
+      } catch (err: any) {
+        console.error('[AI-Studio-IPC] Error refining script:', err);
+        throw new Error(`Lỗi cải thiện kịch bản: ${err?.message || err}`);
+      }
+    }
+  );
+
+  /**
+   * Channel: aiStudio:script:updateLines
+   * Updates dialogue script lines directly (inline editing) and persists to session.
+   */
+  safeHandle(
+    'aiStudio:script:updateLines',
+    async (
+      _event,
+      payload: UpdateScriptLinesPayload
+    ): Promise<UpdateScriptLinesResult> => {
+      try {
+        if (!payload.sessionId) {
+          throw new Error('Thiếu sessionId khi cập nhật câu thoại kịch bản.');
+        }
+
+        if (pipelineEngineDelegate) {
+          const session = await pipelineEngineDelegate.getState({ sessionId: payload.sessionId });
+          if (session) {
+            session.artifacts = session.artifacts || {};
+            session.artifacts.scriptLines = payload.lines || [];
+            if (typeof pipelineEngineDelegate.persistSessionStateAtomic === 'function') {
+              pipelineEngineDelegate.persistSessionStateAtomic(session);
+            }
+          }
+        }
+
+        return { success: true, scriptLines: payload.lines };
+      } catch (err: any) {
+        console.error('[AI-Studio-IPC] Error updating script lines:', err);
+        throw new Error(`Lỗi cập nhật câu thoại kịch bản: ${err?.message || err}`);
       }
     }
   );

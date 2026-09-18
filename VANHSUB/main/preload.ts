@@ -212,6 +212,14 @@ const vanhsub = {
     generateMasterPrompt: (payload: { channelProfile: any }) =>
       ipcRenderer.invoke('aiStudio:channel:generateMasterPrompt', payload),
 
+    // Chấm điểm kịch bản & Chỉnh sửa kịch bản bằng AI
+    evaluateScript: (payload: { sessionId?: string; lines: any[]; blueprint?: any; channelProfile?: any }) =>
+      ipcRenderer.invoke('aiStudio:script:evaluate', payload),
+    refineScript: (payload: { sessionId?: string; lines: any[]; instructions?: string; mode?: string; blueprint?: any; channelProfile?: any }) =>
+      ipcRenderer.invoke('aiStudio:script:refine', payload),
+    updateScriptLines: (payload: { sessionId: string; lines: any[] }) =>
+      ipcRenderer.invoke('aiStudio:script:updateLines', payload),
+
     // ChatGPT Web Automation (Zero API Cost Mode)
     checkChatGptLogin: () => ipcRenderer.invoke('aiStudio:chatgpt:checkLogin'),
     openChatGptLogin: () => ipcRenderer.invoke('aiStudio:chatgpt:openLogin'),

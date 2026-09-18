@@ -450,6 +450,26 @@ export interface VanhsubAPI {
       channelProfile: Partial<ChannelProfileConfig>;
     }) => Promise<{ masterPrompt: string }>;
 
+    // Chấm điểm kịch bản & Chỉnh sửa kịch bản bằng AI
+    evaluateScript: (payload: {
+      sessionId?: string;
+      lines: any[];
+      blueprint?: any;
+      channelProfile?: any;
+    }) => Promise<{ evaluation: any }>;
+    refineScript: (payload: {
+      sessionId?: string;
+      lines: any[];
+      instructions?: string;
+      mode?: 'improve_weaknesses' | 'custom_prompt';
+      blueprint?: any;
+      channelProfile?: any;
+    }) => Promise<{ lines: any[]; evaluation?: any }>;
+    updateScriptLines: (payload: {
+      sessionId: string;
+      lines: any[];
+    }) => Promise<{ success: boolean; scriptLines: any[] }>;
+
     // ChatGPT Web Automation (Zero API Cost Mode)
     checkChatGptLogin: () => Promise<{ isLoggedIn: boolean; userEmail?: string; sessionCheckedAt: number }>;
     openChatGptLogin: () => Promise<boolean>;

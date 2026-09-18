@@ -575,6 +575,17 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
               config.channelProfile
             );
             session.artifacts.scriptLines = scriptLines;
+            try {
+              const evaluation = await aiStudioLlmService.evaluateScript(
+                scriptLines,
+                session.artifacts.blueprint,
+                config.channelProfile,
+                config.llm
+              );
+              session.artifacts.scriptEvaluation = evaluation;
+            } catch (evalErr) {
+              console.warn('[AiStudioPipelineEngine] Script auto-evaluation error (non-fatal):', evalErr);
+            }
             break;
           }
 

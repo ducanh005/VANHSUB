@@ -524,6 +524,12 @@ export interface PipelineSessionArtifacts {
     hashtags: string[];
     thumbnailPrompt?: string;
   };
+  scriptEvaluation?: ScriptEvaluation;
+  scriptHistory?: {
+    lines: ScriptBeatLine[];
+    evaluation?: ScriptEvaluation;
+    timestamp: number;
+  }[];
   [key: string]: unknown;
 }
 
@@ -624,6 +630,11 @@ export interface VanhsubAiStudioBridge {
   approveStage?: (input: ApproveStageInput) => Promise<ApproveStageResponse>;
   generateMasterPrompt?: (input: GenerateMasterPromptPayload) => Promise<GenerateMasterPromptResult>;
 
+  // Chấm điểm kịch bản & Chỉnh sửa kịch bản bằng AI
+  evaluateScript?: (input: EvaluateScriptPayload) => Promise<EvaluateScriptResult>;
+  refineScript?: (input: RefineScriptPayload) => Promise<RefineScriptResult>;
+  updateScriptLines?: (input: UpdateScriptLinesPayload) => Promise<UpdateScriptLinesResult>;
+
   renderSingleLineVoice?: (input: RenderSingleLineVoiceInput) => Promise<RenderSingleLineVoiceResponse>;
   regenerateSceneAsset?: (input: RegenerateSceneAssetInput) => Promise<RegenerateSceneAssetResponse>;
   renderVideo?: (input: RenderVideoInput) => Promise<RenderVideoResponse>;
@@ -643,3 +654,56 @@ export interface VanhsubAiStudioBridge {
   onPipelineProgress?: (callback: (event: PipelineProgressEvent) => void) => () => void;
   onProgress?: (callback: (event: PipelineProgressEvent) => void) => () => void;
 }
+
+export interface ScriptCriteriaScore {
+  id: 'D1' | 'D2' | 'D3' | 'D4' | 'D5' | 'D6' | 'D7' | 'D8' | 'D9' | 'D10';
+  name: string;
+  score: number; // 0 - 10
+  feedback?: string;
+}
+
+export interface ScriptEvaluation {
+  overallScore: number; // 0 - 100
+  lowestScore: number; // 0 - 10
+  criteria: ScriptCriteriaScore[];
+  failedCriteria: string[]; // e.g. ['D1', 'D5', 'D7']
+  critique: string;
+  notice?: string;
+  evaluatedAt: number;
+}
+
+export interface EvaluateScriptPayload {
+  sessionId?: string;
+  lines: ScriptBeatLine[];
+  blueprint?: IdeaBlueprint;
+  channelProfile?: Partial<ChannelProfileConfig>;
+}
+
+export interface EvaluateScriptResult {
+  evaluation: ScriptEvaluation;
+}
+
+export interface RefineScriptPayload {
+  sessionId?: string;
+  lines: ScriptBeatLine[];
+  instructions?: string;
+  mode?: 'improve_weaknesses' | 'custom_prompt';
+  blueprint?: IdeaBlueprint;
+  channelProfile?: Partial<ChannelProfileConfig>;
+}
+
+export interface RefineScriptResult {
+  lines: ScriptBeatLine[];
+  evaluation?: ScriptEvaluation;
+}
+
+export interface UpdateScriptLinesPayload {
+  sessionId: string;
+  lines: ScriptBeatLine[];
+}
+
+export interface UpdateScriptLinesResult {
+  success: boolean;
+  scriptLines: ScriptBeatLine[];
+}
+

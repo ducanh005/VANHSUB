@@ -32,6 +32,7 @@ import type {
 } from '../../types/aiStudio';
 import IdeaGenerationModal from './IdeaGenerationModal';
 import ChannelConfigModal from './ChannelConfigModal';
+import ScriptWorkspaceView from './ScriptWorkspaceView';
 
 const STAGES = [
   { id: 1, name: 'Dữ kiện', icon: FileText },
@@ -64,6 +65,7 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
   const [selectedFormat, setSelectedFormat] = useState<'16:9' | '9:16'>('16:9');
   const [ideas, setIdeas] = useState<IdeaBlueprint[]>([]);
   const [selectedIdea, setSelectedIdea] = useState<IdeaBlueprint | null>(null);
+  const [centerTab, setCenterTab] = useState<'script' | 'visual' | 'character'>('script');
 
   // Host & Character States
   const [newCharName, setNewCharName] = useState('');
@@ -117,6 +119,7 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
   const handleStartWithBlueprint = async (blueprint: IdeaBlueprint) => {
     setErrorMessage(null);
     setIsRunning(true);
+    setCenterTab('script');
     setTopic(blueprint.title || blueprint.topic);
     setSelectedIdea(blueprint);
 
@@ -546,219 +549,325 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
         </div>
 
         {/* ------------------------------------------------------------------ */}
-        {/* CỘT 2 (CENTER - 5 COLS): NHÂN VẬT ĐẠI DIỆN KÊNH & ĐỒNG BỘ CẢNH     */}
+        {/* CỘT 2 (CENTER - 5 COLS): KỊCH BẢN & GIỌNG / NHÂN VẬT / VISUAL       */}
         {/* ------------------------------------------------------------------ */}
-        <div className="lg:col-span-5 flex flex-col h-full border-r border-slate-800/80 bg-[#080D17] overflow-y-auto custom-scrollbar p-5 space-y-4">
-          {/* Top Instruction or Selected Idea Card */}
-          {selectedIdea ? (
-            <div className="rounded-2xl border border-orange-500/30 bg-[#121826] p-4 space-y-2 animate-in fade-in duration-200 shadow-lg">
-              <div className="flex items-center justify-between">
-                <span className="text-[11px] font-bold uppercase tracking-wider text-orange-400 flex items-center gap-1.5">
-                  <Lightbulb className="h-3.5 w-3.5" />
-                  Ý tưởng đang chọn:
-                </span>
-                <span className="text-[10px] font-mono text-slate-400 bg-slate-800/80 px-2 py-0.5 rounded">
-                  {selectedIdea.aspectRatio}
-                </span>
-              </div>
-              <h4 className="text-sm font-bold text-white">{selectedIdea.title}</h4>
-              <p className="text-xs text-slate-300">
-                <strong className="text-amber-400">Hook 3s:</strong> {selectedIdea.hookConcept}
-              </p>
-              <p className="text-xs text-slate-400">
-                <strong className="text-cyan-400">Góc nhìn:</strong> {selectedIdea.narrativeAngle}
-              </p>
-              <div className="pt-2 flex justify-end">
-                <button
-                  type="button"
-                  onClick={() => handleStartWithBlueprint(selectedIdea)}
-                  disabled={isRunning}
-                  className="rounded-xl bg-[#FA5252] hover:bg-[#e04545] px-4 py-2 text-xs font-bold text-white shadow-md transition active:scale-95 disabled:opacity-50 cursor-pointer flex items-center gap-1.5"
-                >
-                  <Play className="h-3.5 w-3.5 fill-white" />
-                  <span>Sản xuất ý tưởng này</span>
-                </button>
-              </div>
-            </div>
+        <div className="lg:col-span-5 flex flex-col h-full border-r border-slate-800/80 bg-[#080D17] overflow-hidden">
+          {session && centerTab === 'script' ? (
+            <ScriptWorkspaceView
+              session={session}
+              blueprint={selectedIdea}
+              activeCenterTab={centerTab}
+              onSwitchTab={setCenterTab}
+              onProceedToVoice={handleApproveStage}
+              onRegenerateScript={handleRetryCurrentStage}
+              onBackToIdeas={() => {
+                setSelectedIdea(null);
+              }}
+              onDeleteVideo={() => {
+                if (session) {
+                  if (window.vanhsub?.aiStudio?.cancelPipeline) {
+                    window.vanhsub.aiStudio.cancelPipeline({ sessionId: session.sessionId });
+                  }
+                  setSession(null);
+                }
+              }}
+            />
           ) : (
-            <div className="text-center text-xs text-slate-500 py-1 font-medium">
-              Chọn một ý tưởng bên trái để xem chi tiết.
-            </div>
-          )}
-
-          {/* Toast thông báo host */}
-          {hostToast && (
-            <div className="rounded-xl border border-amber-500/40 bg-amber-950/40 px-3.5 py-2 text-xs text-amber-200 animate-in fade-in duration-200 flex items-center gap-2">
-              <Sparkles className="h-3.5 w-3.5 text-amber-400 shrink-0" />
-              <span>{hostToast}</span>
-            </div>
-          )}
-
-          {/* Box 1: Nhân vật đại diện kênh (Exact UI: media_1789652444948.png) */}
-          <div className="rounded-2xl border border-slate-800/80 bg-[#0B101E] p-4 space-y-3 shadow-md">
-            <div className="flex items-center justify-between">
-              <span className="text-amber-400 font-bold text-xs flex items-center gap-1.5">
-                <span>⭐</span> Nhân vật đại diện kênh
-              </span>
-              <span className="text-[11px] text-slate-500 flex items-center gap-1">
-                <Lock className="h-3 w-3" /> Cố định — không tự sinh lại
-              </span>
-            </div>
-
-            <p className="text-xs text-slate-400 leading-relaxed">
-              Xuất hiện LỚN ở thumbnail và trong video, giúp kênh dễ nhận diện. Kênh không cần thì bỏ trống.
-            </p>
-
-            {/* Avatar thumbnail preview if available */}
-            {config.channelProfile?.hostAvatarUrl ? (
-              <div className="flex items-center gap-3 p-2.5 rounded-xl border border-slate-800 bg-[#070B14]">
-                <img
-                  src={config.channelProfile.hostAvatarUrl}
-                  alt="Host Avatar"
-                  className="h-12 w-12 rounded-xl object-cover border border-amber-500/40"
-                />
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs font-bold text-white truncate">
-                    {config.channelProfile.hostName || 'Host đại diện kênh'}
-                  </p>
-                  <p className="text-[11px] text-slate-400 line-clamp-1">
-                    {config.channelProfile.hostDescription || 'Chưa có mô tả ngoại hình'}
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => updateChannelProfileConfig({ hostAvatarUrl: '' })}
-                  className="text-[11px] text-rose-400 hover:underline px-2 cursor-pointer"
-                >
-                  Gỡ ảnh
-                </button>
-              </div>
-            ) : (
-              <p className="text-xs text-slate-500 italic">
-                Chưa có nhân vật đại diện. Import ảnh của bạn hoặc để AI tạo.
-              </p>
-            )}
-
-            {/* Inputs: Tên host & Mô tả host để AI tạo */}
-            <div className="grid grid-cols-1 sm:grid-cols-12 gap-2">
-              <div className="sm:col-span-4">
-                <input
-                  type="text"
-                  placeholder="Tên host"
-                  value={config.channelProfile?.hostName || ''}
-                  onChange={(e) => updateChannelProfileConfig({ hostName: e.target.value })}
-                  className="w-full rounded-lg border border-slate-800 bg-[#070B14] px-3 py-2 text-xs text-white placeholder:text-slate-600 focus:border-orange-500 focus:outline-none"
-                />
-              </div>
-              <div className="sm:col-span-8">
-                <input
-                  type="text"
-                  placeholder="Mô tả host để AI tạo (vd: một chú sói đội mũ, mặc vest, phong cách điện ảnh)"
-                  value={config.channelProfile?.hostDescription || ''}
-                  onChange={(e) => updateChannelProfileConfig({ hostDescription: e.target.value })}
-                  className="w-full rounded-lg border border-slate-800 bg-[#070B14] px-3 py-2 text-xs text-white placeholder:text-slate-600 focus:border-orange-500 focus:outline-none"
-                />
-              </div>
-            </div>
-
-            {/* Action Buttons: Tải ảnh lên & AI tạo host */}
-            <div className="flex items-center gap-2">
-              <input
-                type="file"
-                ref={fileInputRef}
-                accept="image/*"
-                className="hidden"
-                onChange={handleHostAvatarUpload}
-              />
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                className="rounded-lg border border-slate-700/60 bg-[#162032] hover:bg-[#1E2B43] px-4 py-2 text-xs font-semibold text-slate-200 transition cursor-pointer"
-              >
-                Tải ảnh lên
-              </button>
-              <button
-                type="button"
-                onClick={handleAiGenerateHost}
-                className="rounded-lg bg-[#FA5252] hover:bg-[#e04545] px-4 py-2 text-xs font-bold text-white transition shadow cursor-pointer"
-              >
-                AI tạo host
-              </button>
-            </div>
-          </div>
-
-          {/* Box 2: Đồng bộ Nhân vật ↔ Cảnh (Exact copy: media_1789652444948.png) */}
-          <div className="rounded-2xl border border-amber-950/40 bg-[#151312]/70 p-4 text-xs text-slate-300 leading-relaxed shadow-sm">
-            <span className="font-bold text-amber-300">Đồng bộ Nhân vật ↔ Cảnh:</span>{' '}
-            tạo/khoá ảnh nhân vật một lần ở đây (upload ảnh thật{' '}
-            <span className="font-semibold text-white">hoặc</span> để Flow tự sinh khi sản xuất) —
-            mọi cảnh có nhân vật đó sẽ dùng đúng ảnh này làm <i>ingredient</i> nên khuôn mặt/trang
-            phục nhất quán. AI cũng tự thêm nhân vật mới khi đọc kịch bản.
-          </div>
-
-          {/* Box 3: + Thêm nhân vật cho kênh (Exact copy: media_1789652444948.png) */}
-          <div className="rounded-2xl border border-slate-800/80 bg-[#0B101E] p-4 space-y-3 shadow-md">
-            <h4 className="text-xs font-bold text-slate-300">+ Thêm nhân vật cho kênh</h4>
-
-            <div className="flex flex-col sm:flex-row items-center gap-2">
-              <input
-                type="text"
-                placeholder="Tên (vd: Host)"
-                value={newCharName}
-                onChange={(e) => setNewCharName(e.target.value)}
-                className="w-full sm:w-1/3 rounded-lg border border-slate-800 bg-[#070B14] px-3 py-2 text-xs text-white placeholder:text-slate-600 focus:border-orange-500 focus:outline-none"
-              />
-              <input
-                type="text"
-                placeholder="Mô tả ngoại hình (tiếng Anh tốt hơn cho sinh ảnh)"
-                value={newCharDesc}
-                onChange={(e) => setNewCharDesc(e.target.value)}
-                className="w-full sm:flex-1 rounded-lg border border-slate-800 bg-[#070B14] px-3 py-2 text-xs text-white placeholder:text-slate-600 focus:border-orange-500 focus:outline-none"
-              />
-              <button
-                type="button"
-                onClick={handleAddCharacter}
-                className="w-full sm:w-auto rounded-lg bg-[#FA5252] hover:bg-[#e04545] px-4 py-2 text-xs font-bold text-white shadow transition cursor-pointer"
-              >
-                Thêm
-              </button>
-            </div>
-
-            {/* Character List / Empty state */}
-            {!config.channelProfile?.channelCharacters ||
-            config.channelProfile.channelCharacters.length === 0 ? (
-              <div className="rounded-xl border border-dashed border-slate-800/80 bg-[#080C14] p-4 text-center text-xs text-slate-500">
-                Chưa có nhân vật. Thêm ở trên (vd người dẫn cố định), hoặc cứ sản xuất — AI sẽ tự rút
-                nhân vật từ kịch bản.
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {config.channelProfile.channelCharacters.map((char, idx) => (
-                  <div
-                    key={idx}
-                    className="flex items-center justify-between rounded-xl border border-slate-800 bg-[#070B14] p-2.5 text-xs"
+            <div className="flex flex-col h-full overflow-hidden">
+              {/* Top Sub-Navigation Tabs */}
+              <div className="flex items-center justify-between px-5 pt-3 pb-2 border-b border-slate-800/80 bg-[#090E1A] shrink-0">
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setCenterTab('script')}
+                    className={`rounded-xl px-4 py-1.5 text-xs font-bold transition cursor-pointer ${
+                      centerTab === 'script'
+                        ? 'bg-[#1C263A] text-white border border-slate-700 shadow-sm'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
                   >
-                    <div>
-                      <span className="font-bold text-white">{char.name}</span>
-                      {char.descriptionEn && (
-                        <span className="text-slate-400 ml-2 text-[11px]">
-                          ({char.descriptionEn})
+                    Kịch bản &amp; Giọng
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCenterTab('visual')}
+                    className={`rounded-xl px-4 py-1.5 text-xs font-semibold transition cursor-pointer ${
+                      centerTab === 'visual'
+                        ? 'bg-[#1C263A] text-white border border-slate-700 shadow-sm'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    Phân cảnh Visual
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCenterTab('character')}
+                    className={`rounded-xl px-4 py-1.5 text-xs font-semibold transition cursor-pointer ${
+                      centerTab === 'character'
+                        ? 'bg-[#1C263A] text-white border border-slate-700 shadow-sm'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    Nhân vật
+                  </button>
+                </div>
+
+                <span className="rounded-full bg-slate-800/80 px-3 py-0.5 text-[11px] font-mono text-slate-400 border border-slate-700">
+                  {session ? session.status : 'ready'}
+                </span>
+              </div>
+
+              {/* Viewport for CenterTab */}
+              <div className="flex-1 overflow-y-auto custom-scrollbar p-5 space-y-4">
+                {centerTab === 'script' && (
+                  <div className="space-y-4">
+                    {selectedIdea ? (
+                      <div className="rounded-2xl border border-orange-500/30 bg-[#121826] p-5 space-y-3 animate-in fade-in duration-200 shadow-lg">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[11px] font-bold uppercase tracking-wider text-orange-400 flex items-center gap-1.5">
+                            <Lightbulb className="h-3.5 w-3.5" />
+                            Ý tưởng đang chọn:
+                          </span>
+                          <span className="text-[10px] font-mono text-slate-400 bg-slate-800/80 px-2 py-0.5 rounded">
+                            {selectedIdea.aspectRatio}
+                          </span>
+                        </div>
+                        <h4 className="text-sm font-bold text-white leading-snug">
+                          {selectedIdea.title}
+                        </h4>
+                        <p className="text-xs text-slate-300">
+                          <strong className="text-amber-400">Hook 3s:</strong> {selectedIdea.hookConcept}
+                        </p>
+                        <p className="text-xs text-slate-400">
+                          <strong className="text-cyan-400">Góc nhìn:</strong> {selectedIdea.narrativeAngle}
+                        </p>
+                        <div className="pt-2 flex justify-end">
+                          <button
+                            type="button"
+                            onClick={() => handleStartWithBlueprint(selectedIdea)}
+                            disabled={isRunning}
+                            className="rounded-xl bg-gradient-to-r from-[#FA5252] via-orange-500 to-amber-500 hover:brightness-110 px-5 py-2.5 text-xs font-bold text-white shadow-md transition active:scale-95 disabled:opacity-50 cursor-pointer flex items-center gap-2"
+                          >
+                            <Play className="h-3.5 w-3.5 fill-white" />
+                            <span>Sản xuất ý tưởng này (Tạo Kịch Bản)</span>
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="text-center text-xs text-slate-500 py-12 space-y-2">
+                        <Lightbulb className="h-8 w-8 mx-auto text-slate-600 stroke-[1.5]" />
+                        <p>Chọn một ý tưởng bên trái hoặc bấm &quot;✨ Sinh&quot; để bắt đầu kịch bản.</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {centerTab === 'character' && (
+                  <>
+                    {/* Toast thông báo host */}
+                    {hostToast && (
+                      <div className="rounded-xl border border-amber-500/40 bg-amber-950/40 px-3.5 py-2 text-xs text-amber-200 animate-in fade-in duration-200 flex items-center gap-2">
+                        <Sparkles className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+                        <span>{hostToast}</span>
+                      </div>
+                    )}
+
+                    {/* Box 1: Nhân vật đại diện kênh (Exact UI: media_1789652444948.png) */}
+                    <div className="rounded-2xl border border-slate-800/80 bg-[#0B101E] p-4 space-y-3 shadow-md">
+                      <div className="flex items-center justify-between">
+                        <span className="text-amber-400 font-bold text-xs flex items-center gap-1.5">
+                          <span>⭐</span> Nhân vật đại diện kênh
                         </span>
+                        <span className="text-[11px] text-slate-500 flex items-center gap-1">
+                          <Lock className="h-3 w-3" /> Cố định — không tự sinh lại
+                        </span>
+                      </div>
+
+                      <p className="text-xs text-slate-400 leading-relaxed">
+                        Xuất hiện LỚN ở thumbnail và trong video, giúp kênh dễ nhận diện. Kênh không cần thì bỏ trống.
+                      </p>
+
+                      {/* Avatar thumbnail preview if available */}
+                      {config.channelProfile?.hostAvatarUrl ? (
+                        <div className="flex items-center gap-3 p-2.5 rounded-xl border border-slate-800 bg-[#070B14]">
+                          <img
+                            src={config.channelProfile.hostAvatarUrl}
+                            alt="Host Avatar"
+                            className="h-12 w-12 rounded-xl object-cover border border-amber-500/40"
+                          />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-bold text-white truncate">
+                              {config.channelProfile.hostName || 'Host đại diện kênh'}
+                            </p>
+                            <p className="text-[11px] text-slate-400 line-clamp-1">
+                              {config.channelProfile.hostDescription || 'Chưa có mô tả ngoại hình'}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => updateChannelProfileConfig({ hostAvatarUrl: '' })}
+                            className="text-[11px] text-rose-400 hover:underline px-2 cursor-pointer"
+                          >
+                            Gỡ ảnh
+                          </button>
+                        </div>
+                      ) : (
+                        <p className="text-xs text-slate-500 italic">
+                          Chưa có nhân vật đại diện. Import ảnh của bạn hoặc để AI tạo.
+                        </p>
+                      )}
+
+                      {/* Inputs: Tên host & Mô tả host để AI tạo */}
+                      <div className="grid grid-cols-1 sm:grid-cols-12 gap-2">
+                        <div className="sm:col-span-4">
+                          <input
+                            type="text"
+                            placeholder="Tên host"
+                            value={config.channelProfile?.hostName || ''}
+                            onChange={(e) => updateChannelProfileConfig({ hostName: e.target.value })}
+                            className="w-full rounded-lg border border-slate-800 bg-[#070B14] px-3 py-2 text-xs text-white placeholder:text-slate-600 focus:border-orange-500 focus:outline-none"
+                          />
+                        </div>
+                        <div className="sm:col-span-8">
+                          <input
+                            type="text"
+                            placeholder="Mô tả host để AI tạo (vd: một chú sói đội mũ, mặc vest, phong cách điện ảnh)"
+                            value={config.channelProfile?.hostDescription || ''}
+                            onChange={(e) => updateChannelProfileConfig({ hostDescription: e.target.value })}
+                            className="w-full rounded-lg border border-slate-800 bg-[#070B14] px-3 py-2 text-xs text-white placeholder:text-slate-600 focus:border-orange-500 focus:outline-none"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Action Buttons: Tải ảnh lên & AI tạo host */}
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="file"
+                          ref={fileInputRef}
+                          accept="image/*"
+                          className="hidden"
+                          onChange={handleHostAvatarUpload}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => fileInputRef.current?.click()}
+                          className="rounded-lg border border-slate-700/60 bg-[#162032] hover:bg-[#1E2B43] px-4 py-2 text-xs font-semibold text-slate-200 transition cursor-pointer"
+                        >
+                          Tải ảnh lên
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleAiGenerateHost}
+                          className="rounded-lg bg-[#FA5252] hover:bg-[#e04545] px-4 py-2 text-xs font-bold text-white transition shadow cursor-pointer"
+                        >
+                          AI tạo host
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Box 2: Đồng bộ Nhân vật ↔ Cảnh (Exact copy: media_1789652444948.png) */}
+                    <div className="rounded-2xl border border-amber-950/40 bg-[#151312]/70 p-4 text-xs text-slate-300 leading-relaxed shadow-sm">
+                      <span className="font-bold text-amber-300">Đồng bộ Nhân vật ↔ Cảnh:</span>{' '}
+                      tạo/khoá ảnh nhân vật một lần ở đây (upload ảnh thật{' '}
+                      <span className="font-semibold text-white">hoặc</span> để Flow tự sinh khi sản xuất) —
+                      mọi cảnh có nhân vật đó sẽ dùng đúng ảnh này làm <i>ingredient</i> nên khuôn mặt/trang
+                      phục nhất quán. AI cũng tự thêm nhân vật mới khi đọc kịch bản.
+                    </div>
+
+                    {/* Box 3: + Thêm nhân vật cho kênh (Exact copy: media_1789652444948.png) */}
+                    <div className="rounded-2xl border border-slate-800/80 bg-[#0B101E] p-4 space-y-3 shadow-md">
+                      <h4 className="text-xs font-bold text-slate-300">+ Thêm nhân vật cho kênh</h4>
+
+                      <div className="flex flex-col sm:flex-row items-center gap-2">
+                        <input
+                          type="text"
+                          placeholder="Tên (vd: Host)"
+                          value={newCharName}
+                          onChange={(e) => setNewCharName(e.target.value)}
+                          className="w-full sm:w-1/3 rounded-lg border border-slate-800 bg-[#070B14] px-3 py-2 text-xs text-white placeholder:text-slate-600 focus:border-orange-500 focus:outline-none"
+                        />
+                        <input
+                          type="text"
+                          placeholder="Mô tả ngoại hình (tiếng Anh tốt hơn cho sinh ảnh)"
+                          value={newCharDesc}
+                          onChange={(e) => setNewCharDesc(e.target.value)}
+                          className="w-full sm:flex-1 rounded-lg border border-slate-800 bg-[#070B14] px-3 py-2 text-xs text-white placeholder:text-slate-600 focus:border-orange-500 focus:outline-none"
+                        />
+                        <button
+                          type="button"
+                          onClick={handleAddCharacter}
+                          className="w-full sm:w-auto rounded-lg bg-[#FA5252] hover:bg-[#e04545] px-4 py-2 text-xs font-bold text-white shadow transition cursor-pointer"
+                        >
+                          Thêm
+                        </button>
+                      </div>
+
+                      {/* Character List / Empty state */}
+                      {!config.channelProfile?.channelCharacters ||
+                      config.channelProfile.channelCharacters.length === 0 ? (
+                        <div className="rounded-xl border border-dashed border-slate-800/80 bg-[#080C14] p-4 text-center text-xs text-slate-500">
+                          Chưa có nhân vật. Thêm ở trên (vd người dẫn cố định), hoặc cứ sản xuất — AI sẽ tự rút
+                          nhân vật từ kịch bản.
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          {config.channelProfile.channelCharacters.map((char, idx) => (
+                            <div
+                              key={idx}
+                              className="flex items-center justify-between rounded-xl border border-slate-800 bg-[#070B14] p-2.5 text-xs"
+                            >
+                              <div>
+                                <span className="font-bold text-white">{char.name}</span>
+                                {char.descriptionEn && (
+                                  <span className="text-slate-400 ml-2 text-[11px]">
+                                    ({char.descriptionEn})
+                                  </span>
+                                )}
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveCharacter(idx)}
+                                className="text-slate-500 hover:text-rose-400 p-1 text-xs transition cursor-pointer"
+                                title="Xoá nhân vật"
+                              >
+                                ✕
+                              </button>
+                            </div>
+                          ))}
+                        </div>
                       )}
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveCharacter(idx)}
-                      className="text-slate-500 hover:text-rose-400 p-1 text-xs transition cursor-pointer"
-                      title="Xoá nhân vật"
-                    >
-                      ✕
-                    </button>
+                  </>
+                )}
+
+                {centerTab === 'visual' && (
+                  <div className="space-y-4">
+                    {session?.artifacts?.scenes && session.artifacts.scenes.length > 0 ? (
+                      <div className="space-y-3">
+                        {session.artifacts.scenes.map((scene, sIdx) => (
+                          <div key={scene.id || sIdx} className="rounded-xl border border-slate-800 bg-[#0B101E] p-3 space-y-2 text-xs">
+                            <div className="flex items-center justify-between font-mono text-slate-400 text-[11px]">
+                              <span>Phân cảnh #{sIdx + 1}</span>
+                              <span>{Math.round((scene.durationMs || 4000) / 1000)}s</span>
+                            </div>
+                            <p className="text-white font-medium">{scene.lineText}</p>
+                            <p className="text-slate-400 text-[11px] italic bg-slate-900/60 p-2 rounded border border-slate-800/60">
+                              {scene.visualPrompt}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-center text-xs text-slate-500 py-12 space-y-2">
+                        <Film className="h-8 w-8 mx-auto text-slate-600 stroke-[1.5]" />
+                        <p>Chưa có phân cảnh visual. Visual sẽ được sinh sau khi duyệt kịch bản và lồng tiếng.</p>
+                      </div>
+                    )}
                   </div>
-                ))}
+                )}
               </div>
-            )}
-          </div>
+            </div>
+          )}
         </div>
 
         {/* ------------------------------------------------------------------ */}
