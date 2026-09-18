@@ -11,9 +11,13 @@ import {
   AlertCircle,
   Zap,
   Flame,
+  Folder,
+  Plus,
+  Trash2,
+  Edit3,
 } from 'lucide-react';
 import { useAiStudioStore } from '../../lib/store/aiStudioStore';
-import type { ChannelEvaluationLlm, ChannelLongDuration } from '../../types/aiStudio';
+import type { ChannelEvaluationLlm, ChannelLongDuration, SavedProjectProfile } from '../../types/aiStudio';
 
 interface ProjectSetupScreenProps {
   onEnterStudio: () => void;
@@ -42,7 +46,18 @@ export default function ProjectSetupScreen({
   onEnterStudio,
   onOpenDetailedConfig,
 }: ProjectSetupScreenProps) {
-  const { config, updateChannelProfileConfig, updateLlmConfig, updateFlowConfig, isSaving } = useAiStudioStore();
+  const {
+    config,
+    updateLlmConfig,
+    updateFlowConfig,
+    saveProject,
+    deleteProject,
+    switchProject,
+    isSaving,
+  } = useAiStudioStore();
+
+  const savedProjects = config.savedProjects || [];
+  const [editingProjectId, setEditingProjectId] = useState<string | null>(config.activeProjectId || null);
 
   const [projectName, setProjectName] = useState(config.channelProfile?.projectName || '');
   const [channelNiche, setChannelNiche] = useState(config.channelProfile?.channelNiche || '');
@@ -80,6 +95,9 @@ export default function ProjectSetupScreen({
     if (config.channelProfile?.aiProvider && config.channelProfile.aiProvider !== 'default') {
       setSelectedProvider(config.channelProfile.aiProvider);
     }
+    if (config.activeProjectId && !editingProjectId) {
+      setEditingProjectId(config.activeProjectId);
+    }
   }, [config]);
 
   const handleApplyPreset = (preset: typeof NICHE_PRESETS[0]) => {
@@ -91,6 +109,45 @@ export default function ProjectSetupScreen({
     setValidationError(null);
   };
 
+  const handleLoadProjectIntoForm = (p: SavedProjectProfile) => {
+    setEditingProjectId(p.id);
+    setProjectName(p.name);
+    setChannelNiche(p.channelProfile.channelNiche || '');
+    setChannelOrientation(p.channelProfile.channelOrientation || '');
+    if (p.channelProfile.targetLongDuration) {
+      setDuration(p.channelProfile.targetLongDuration);
+    }
+    if (p.flowConfig?.aspectRatio) {
+      setAspectRatio(p.flowConfig.aspectRatio as '16:9' | '9:16');
+    }
+    if (p.channelProfile.aiProvider && p.channelProfile.aiProvider !== 'default') {
+      setSelectedProvider(p.channelProfile.aiProvider);
+    }
+    setValidationError(null);
+  };
+
+  const handleCreateNewProject = () => {
+    setEditingProjectId(null);
+    setProjectName('');
+    setChannelNiche('');
+    setChannelOrientation('');
+    setValidationError(null);
+  };
+
+  const handleQuickEnterProject = async (p: SavedProjectProfile) => {
+    await switchProject(p.id);
+    onEnterStudio();
+  };
+
+  const handleDeleteProject = async (id: string, name: string) => {
+    if (window.confirm(`Bạn có chắc muốn xóa dự án "${name}"?`)) {
+      await deleteProject(id);
+      if (editingProjectId === id) {
+        handleCreateNewProject();
+      }
+    }
+  };
+
   const handleSaveAndEnter = async () => {
     const trimmedName = projectName.trim();
     if (!trimmedName) {
@@ -100,12 +157,22 @@ export default function ProjectSetupScreen({
 
     setValidationError(null);
 
-    await updateChannelProfileConfig({
+    const projId = editingProjectId || config.activeProjectId || `proj_${Date.now()}`;
+    const updatedChannelProfile = {
+      ...(config.channelProfile || ({} as any)),
       projectName: trimmedName,
       channelNiche: channelNiche.trim(),
       channelOrientation: channelOrientation.trim(),
       aiProvider: selectedProvider,
       targetLongDuration: duration,
+    };
+
+    await saveProject({
+      id: projId,
+      name: trimmedName,
+      channelProfile: updatedChannelProfile,
+      flowConfig: { aspectRatio },
+      updatedAt: Date.now(),
     });
 
     if (selectedProvider) {
@@ -176,9 +243,147 @@ export default function ProjectSetupScreen({
           </div>
         )}
 
+        {/* Section: Danh Sách Dự Án Đã Lưu (Nếu có) */}
+        {savedProjects.length > 0 && (
+          <div className="rounded-3xl border border-slate-800/90 bg-[#0B1120]/90 p-5 md:p-6 space-y-4 shadow-xl backdrop-blur-sm">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2">
+                <Folder className="h-5 w-5 text-amber-400" />
+                <h2 className="text-sm font-bold uppercase tracking-wider text-slate-200">
+                  Dự Án Đã Lưu ({savedProjects.length})
+                </h2>
+              </div>
+              <button
+                type="button"
+                onClick={handleCreateNewProject}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-brand-cyan/40 bg-brand-cyan/10 px-3 py-1.5 text-xs font-bold text-brand-cyan hover:bg-brand-cyan/20 transition cursor-pointer active:scale-95"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                <span>Tạo Dự Án Mới</span>
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+              {savedProjects.map((p) => {
+                const isActive = config.activeProjectId === p.id || config.channelProfile?.projectName === p.name;
+                const isCurrentEditing = editingProjectId === p.id;
+                return (
+                  <div
+                    key={p.id}
+                    className={`rounded-2xl border p-4 flex flex-col justify-between gap-3 transition ${
+                      isCurrentEditing
+                        ? 'border-brand-cyan/80 bg-brand-cyan/10 shadow-md shadow-brand-cyan/10 ring-1 ring-brand-cyan/50'
+                        : isActive
+                        ? 'border-emerald-500/50 bg-emerald-950/20 shadow-md'
+                        : 'border-slate-800 bg-slate-900/50 hover:border-slate-700'
+                    }`}
+                  >
+                    <div className="space-y-1.5">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="font-bold text-sm text-white truncate flex items-center gap-1.5" title={p.name}>
+                          <Folder className="h-4 w-4 text-amber-400 shrink-0" />
+                          <span className="truncate">{p.name}</span>
+                        </div>
+                        {isCurrentEditing ? (
+                          <span className="shrink-0 rounded-full bg-cyan-500/20 px-2 py-0.5 text-[10px] font-extrabold text-cyan-300">
+                            Đang sửa
+                          </span>
+                        ) : isActive ? (
+                          <span className="shrink-0 rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px] font-extrabold text-emerald-400">
+                            Đang chọn
+                          </span>
+                        ) : null}
+                      </div>
+
+                      {p.channelProfile.channelNiche && (
+                        <p className="text-xs text-slate-300 font-medium truncate">
+                          🏷️ {p.channelProfile.channelNiche}
+                        </p>
+                      )}
+
+                      <div className="flex flex-wrap gap-1.5 pt-1">
+                        {p.channelProfile.targetLongDuration && (
+                          <span className="rounded bg-slate-800 px-2 py-0.5 text-[10px] text-slate-400 font-mono">
+                            ⏱ {DURATION_OPTIONS.find(d => d.id === p.channelProfile.targetLongDuration)?.label.split(' ')[0] || p.channelProfile.targetLongDuration}
+                          </span>
+                        )}
+                        {p.channelProfile.aiProvider && (
+                          <span className="rounded bg-slate-800 px-2 py-0.5 text-[10px] text-slate-400 font-mono">
+                            🤖 {p.channelProfile.aiProvider}
+                          </span>
+                        )}
+                        {p.flowConfig?.aspectRatio && (
+                          <span className="rounded bg-slate-800 px-2 py-0.5 text-[10px] text-slate-400 font-mono">
+                            📐 {p.flowConfig.aspectRatio}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-800/60">
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => handleLoadProjectIntoForm(p)}
+                          className="rounded-lg border border-slate-700 bg-slate-800/80 px-2.5 py-1 text-[11px] font-semibold text-slate-300 hover:text-white hover:bg-slate-700 transition cursor-pointer"
+                          title="Nạp thông tin vào form để chỉnh sửa"
+                        >
+                          ✏️ Sửa
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteProject(p.id, p.name)}
+                          className="rounded-lg border border-slate-800 bg-slate-800/40 p-1 text-slate-500 hover:text-rose-400 hover:bg-rose-950/30 transition cursor-pointer"
+                          title="Xoá dự án này"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => handleQuickEnterProject(p)}
+                        className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 px-3 py-1 text-xs font-bold text-white shadow transition cursor-pointer active:scale-95"
+                      >
+                        <Play className="h-3 w-3 fill-current" />
+                        <span>Vào Studio</span>
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {/* Main Setup Card Form */}
         <div className="rounded-3xl border border-slate-800 bg-[#0B1120]/90 p-6 md:p-8 space-y-6 shadow-xl backdrop-blur-sm">
           
+          {/* Header indicator when editing a project */}
+          {editingProjectId ? (
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <div className="flex items-center gap-2 text-xs font-bold text-amber-400">
+                <Edit3 className="h-4 w-4" />
+                <span>Đang chỉnh sửa thông tin dự án: "{projectName || 'Dự án'}"</span>
+              </div>
+              <button
+                type="button"
+                onClick={handleCreateNewProject}
+                className="text-xs font-semibold text-brand-cyan hover:underline cursor-pointer flex items-center gap-1"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                <span>Chuyển sang tạo dự án mới</span>
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <div className="flex items-center gap-2 text-xs font-bold text-slate-300">
+                <Plus className="h-4 w-4 text-brand-cyan" />
+                <span>Thiết lập dự án mới</span>
+              </div>
+            </div>
+          )}
+
           {/* Section 1: Tên Project / Kênh */}
           <div className="space-y-2">
             <label className="block text-xs font-bold uppercase tracking-wider text-slate-300">

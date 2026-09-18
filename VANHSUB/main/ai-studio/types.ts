@@ -195,6 +195,14 @@ export interface ChannelProfileConfig {
   imageModel: string;
 }
 
+export interface SavedProjectProfile {
+  id: string;
+  name: string;
+  channelProfile: ChannelProfileConfig;
+  flowConfig?: Partial<AiStudioFlowEngineConfig>;
+  updatedAt: number;
+}
+
 export interface AiStudioConfig {
   /** 1. LLM Settings (Kịch bản & Phân tích) */
   llm: AiStudioLlmConfig;
@@ -208,6 +216,10 @@ export interface AiStudioConfig {
   subtitles: AiStudioSubtitleConfig;
   /** 6. Channel Profile Settings (Cấu hình Kênh & Bộ não) */
   channelProfile?: ChannelProfileConfig;
+  /** 7. Danh sách các project / kênh đã lưu */
+  savedProjects?: SavedProjectProfile[];
+  /** ID của project đang được kích hoạt */
+  activeProjectId?: string;
 }
 
 /** Deep partial type for safe partial updates */
@@ -338,6 +350,8 @@ export const DEFAULT_AI_STUDIO_CONFIG: Readonly<AiStudioConfig> = Object.freeze(
   rendering: DEFAULT_RENDERING_CONFIG,
   subtitles: DEFAULT_SUBTITLE_CONFIG,
   channelProfile: DEFAULT_CHANNEL_PROFILE_CONFIG,
+  savedProjects: [],
+  activeProjectId: '',
 });
 
 // ============================================================================

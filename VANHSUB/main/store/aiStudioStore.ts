@@ -263,6 +263,8 @@ export function getAiStudioConfig(options?: { decrypted?: boolean }): AiStudioCo
       ...(DEFAULT_AI_STUDIO_CONFIG.channelProfile || ({} as any)),
       ...(isPlainRecord(config.channelProfile) ? config.channelProfile : {}),
     },
+    savedProjects: Array.isArray(config.savedProjects) ? config.savedProjects : [],
+    activeProjectId: typeof config.activeProjectId === 'string' ? config.activeProjectId : '',
   };
 
   if (options?.decrypted) {
@@ -321,6 +323,12 @@ export function updateAiStudioConfig(
       ...(current.channelProfile || DEFAULT_AI_STUDIO_CONFIG.channelProfile || ({} as any)),
       ...(isPlainRecord(partial.channelProfile) ? partial.channelProfile : {}),
     },
+    savedProjects: Array.isArray(partial.savedProjects)
+      ? (partial.savedProjects as any)
+      : (current.savedProjects || []),
+    activeProjectId: typeof partial.activeProjectId === 'string'
+      ? partial.activeProjectId
+      : (current.activeProjectId || ''),
   };
 
   // Encrypt llm.apiKey if modified

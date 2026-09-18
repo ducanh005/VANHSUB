@@ -9,6 +9,7 @@ import {
   AiStudioRenderingConfig,
   AiStudioSubtitleConfig,
   ChannelProfileConfig,
+  SavedProjectProfile,
 } from '../../types/aiStudio';
 
 // ============================================================================
@@ -56,6 +57,12 @@ export function mergeAiStudioConfig(
       ...(base.channelProfile || DEFAULT_AI_STUDIO_CONFIG.channelProfile || ({} as any)),
       ...(patch.channelProfile || {}),
     },
+    savedProjects: Array.isArray(patch.savedProjects)
+      ? (patch.savedProjects as SavedProjectProfile[])
+      : (base.savedProjects || []),
+    activeProjectId: typeof patch.activeProjectId === 'string'
+      ? patch.activeProjectId
+      : (base.activeProjectId || ''),
   };
 }
 
@@ -104,6 +111,11 @@ export interface AiStudioStoreActions {
   updateRenderingConfig: (partial: Partial<AiStudioRenderingConfig>) => Promise<boolean>;
   updateSubtitleConfig: (partial: Partial<AiStudioSubtitleConfig>) => Promise<boolean>;
   updateChannelProfileConfig: (partial: Partial<ChannelProfileConfig>) => Promise<boolean>;
+
+  // Quản lý lưu trữ & Chuyển đổi nhiều Project
+  saveProject: (project: SavedProjectProfile) => Promise<boolean>;
+  deleteProject: (projectId: string) => Promise<boolean>;
+  switchProject: (projectId: string) => Promise<boolean>;
 }
 
 export type AiStudioStore = AiStudioStoreState & AiStudioStoreActions;
@@ -314,5 +326,89 @@ export const useAiStudioStore = create<AiStudioStore>((set, get) => ({
 
   updateChannelProfileConfig: async (partial: Partial<ChannelProfileConfig>): Promise<boolean> => {
     return get().updateConfig({ channelProfile: partial });
+  },
+
+  // ==========================================================================
+  // MULTI-PROJECT MANAGEMENT (LƯU TỪNG PROJECT & CHUYỂN ĐỔI)
+  // ==========================================================================
+
+  saveProject: async (project: SavedProjectProfile): Promise<boolean> => {
+    const currentConfig = get().config;
+    const existingList = currentConfig.savedProjects || [];
+    const index = existingList.findIndex((p) => p.id === project.id);
+
+    let updatedList: SavedProjectProfile[];
+    if (index >= 0) {
+      updatedList = [...existingList];
+      updatedList[index] = { ...project, updatedAt: Date.now() };
+    } else {
+      updatedList = [{ ...project, updatedAt: Date.now() }, ...existingList];
+    }
+
+    const patch: DeepPartial<AiStudioConfig> = {
+      savedProjects: updatedList,
+      activeProjectId: project.id,
+      channelProfile: project.channelProfile,
+    };
+
+    if (project.flowConfig?.aspectRatio) {
+      patch.flowEngine = { aspectRatio: project.flowConfig.aspectRatio };
+    }
+
+    if (project.channelProfile.aiProvider && project.channelProfile.aiProvider !== 'default') {
+      patch.llm = { provider: project.channelProfile.aiProvider as any };
+    }
+
+    return get().updateConfig(patch);
+  },
+
+  deleteProject: async (projectId: string): Promise<boolean> => {
+    const currentConfig = get().config;
+    const existingList = currentConfig.savedProjects || [];
+    const updatedList = existingList.filter((p) => p.id !== projectId);
+
+    const patch: DeepPartial<AiStudioConfig> = {
+      savedProjects: updatedList,
+    };
+
+    if (currentConfig.activeProjectId === projectId) {
+      if (updatedList.length > 0) {
+        const nextActive = updatedList[0];
+        patch.activeProjectId = nextActive.id;
+        patch.channelProfile = nextActive.channelProfile;
+        if (nextActive.flowConfig?.aspectRatio) {
+          patch.flowEngine = { aspectRatio: nextActive.flowConfig.aspectRatio };
+        }
+        if (nextActive.channelProfile.aiProvider && nextActive.channelProfile.aiProvider !== 'default') {
+          patch.llm = { provider: nextActive.channelProfile.aiProvider as any };
+        }
+      } else {
+        patch.activeProjectId = '';
+      }
+    }
+
+    return get().updateConfig(patch);
+  },
+
+  switchProject: async (projectId: string): Promise<boolean> => {
+    const currentConfig = get().config;
+    const existingList = currentConfig.savedProjects || [];
+    const target = existingList.find((p) => p.id === projectId);
+    if (!target) return false;
+
+    const patch: DeepPartial<AiStudioConfig> = {
+      activeProjectId: target.id,
+      channelProfile: target.channelProfile,
+    };
+
+    if (target.flowConfig?.aspectRatio) {
+      patch.flowEngine = { aspectRatio: target.flowConfig.aspectRatio };
+    }
+
+    if (target.channelProfile.aiProvider && target.channelProfile.aiProvider !== 'default') {
+      patch.llm = { provider: target.channelProfile.aiProvider as any };
+    }
+
+    return get().updateConfig(patch);
   },
 }));

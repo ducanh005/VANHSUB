@@ -24,6 +24,7 @@ import type {
   ApproveStagePayload,
   ApproveStageResult,
   AiStudioConfig,
+  AiStudioVoiceConfig,
   AiStudioStageId,
   AiStudioStageName,
 } from './types';
@@ -593,13 +594,24 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
             // Stage 3: Lồng tiếng (Edge-TTS Voiceover)
             const voiceoverPath = path.join(assetsDir, 'voiceover.mp3');
             const scriptLines = session.artifacts.scriptLines || [];
+
+            // Ưu tiên giọng đọc cụ thể trong ChannelProfile nếu đã cấu hình
+            const voiceConfig: AiStudioVoiceConfig = {
+              ...config.voice,
+              voiceId: config.channelProfile?.specificVoice || config.voice.voiceId || 'vi-VN-HoaiMyNeural',
+            };
+
             const ttsResult = await aiStudioTtsService.synthesizeVoiceover(
               scriptLines,
-              config.voice,
+              voiceConfig,
               voiceoverPath,
               signal
             );
             session.artifacts.audioPath = ttsResult.audioPath;
+            session.artifacts.scriptLines = scriptLines;
+            if (ttsResult.wordTimestamps && ttsResult.wordTimestamps.length > 0) {
+              session.artifacts.wordsAlignment = ttsResult.wordTimestamps;
+            }
             // Cache raw metadata in memory for stage 4
             this.memorySessions.set(`${session.sessionId}:ttsMetadata`, ttsResult.rawMetadata);
             break;

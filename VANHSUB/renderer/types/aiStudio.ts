@@ -238,6 +238,14 @@ export interface ChannelProfileConfig {
   imageModel: string;
 }
 
+export interface SavedProjectProfile {
+  id: string;
+  name: string;
+  channelProfile: ChannelProfileConfig;
+  flowConfig?: Partial<AiStudioFlowEngineConfig>;
+  updatedAt: number;
+}
+
 /**
  * Toàn bộ cấu hình AI Video Studio
  */
@@ -248,6 +256,10 @@ export interface AiStudioConfig {
   rendering: AiStudioRenderingConfig;
   subtitles: AiStudioSubtitleConfig;
   channelProfile?: ChannelProfileConfig;
+  /** Danh sách các project / kênh đã lưu */
+  savedProjects?: SavedProjectProfile[];
+  /** ID của project đang kích hoạt */
+  activeProjectId?: string;
 }
 
 export type PartialAiStudioConfig = DeepPartial<AiStudioConfig>;
@@ -357,6 +369,8 @@ export const DEFAULT_AI_STUDIO_CONFIG: AiStudioConfig = {
     positionY: 80,
   },
   channelProfile: DEFAULT_CHANNEL_PROFILE_CONFIG,
+  savedProjects: [],
+  activeProjectId: '',
 };
 
 // ============================================================================
