@@ -283,7 +283,7 @@ export const EnsureProjectContextState: FlowAutomationState = {
     }
 
     if (localImagePath && fs.existsSync(localImagePath)) {
-      console.log(`[FlowImageState] 📤 Nạp ảnh cục bộ lên Flow: "${localImagePath}"`);
+      console.log(`[FlowImageState] 🖼️ Canvas dự án mới chưa có ảnh — nạp ảnh starter để kích hoạt Image Editor: "${localImagePath}"`);
       const injected = await FlowFileInputInjector.injectViaCDPDragDrop(ctx.win, localImagePath);
       if (injected) {
         // Đợi thẻ ảnh xuất hiện (tối đa 12s)
@@ -560,52 +560,125 @@ export const FindPromptInputState: FlowAutomationState = {
 /**
  * STATE 7B: HANDLE_IMAGE_REFERENCE
  * Nạp ảnh tham chiếu cục bộ (Character / Style Reference) từ đĩa vào Prompt Box nếu có referenceImagePath/initFrameUrl.
- * Trong Image Editor (/edit/), drag-drop CDP trực tiếp vào vùng ProseMirror — không dùng clipboard paste.
+ * Kiểm tra xác nhận chip ảnh xuất hiện trong DOM thực tế; fail cứng nếu không gắn được reference image.
  */
 export const HandleImageReferenceState: FlowAutomationState = {
   name: 'HANDLE_IMAGE_REFERENCE',
-  timeoutMs: 25000,
+  timeoutMs: 30000,
 
   async enter(ctx: FlowStateContext): Promise<void> {
     const refPath = ctx.referenceImagePath || ctx.initFrameUrl;
     if (refPath) {
-      ctx.onProgress?.(18, 'Đang nạp ảnh tham chiếu cục bộ vào Google Flow...');
+      const fileName = path.basename(refPath);
+      ctx.onProgress?.(18, `Đang nạp ảnh tham chiếu cục bộ "${fileName}" vào Google Flow...`);
     }
   },
 
   async execute(ctx: FlowStateContext): Promise<ActionResult> {
     const refPath = ctx.referenceImagePath || ctx.initFrameUrl;
     if (!refPath) {
-      return { ok: true, data: { hasRefImage: false } };
+      return { ok: true, data: { hasRefImage: false, attachmentConfirmed: true, uploadMethodUsed: 'none' } };
     }
 
     let localPath = refPath;
     if (localPath.startsWith('file://')) {
       localPath = localPath.replace(/^file:\/\/\/?/, '');
     }
+    localPath = path.resolve(localPath);
 
     if (!fs.existsSync(localPath) || fs.statSync(localPath).size === 0) {
-      console.warn(`[FlowImageState] File ảnh tham chiếu không tồn tại trên đĩa: "${localPath}"`);
-      return { ok: true, data: { hasRefImage: false, error: 'file_not_found' } };
+      console.error(`[FlowImageState] ❌ File ảnh tham chiếu không tồn tại trên đĩa hoặc rỗng: "${localPath}"`);
+      return {
+        ok: false,
+        error: 'IMAGE_REFERENCE_ATTACH_FAILED',
+        errorDetail: `IMAGE_REFERENCE_ATTACH_FAILED: File ảnh tham chiếu không tồn tại trên đĩa hoặc rỗng: "${localPath}"`,
+        data: { hasRefImage: true, attachmentConfirmed: false, fileName: path.basename(localPath), localPath }
+      };
     }
 
-    // 1. Kiểm tra nếu chip ảnh đã có sẵn trong prompt box
+    const fileName = path.basename(localPath);
+    const fileSizeKb = (fs.statSync(localPath).size / 1024).toFixed(1);
+    console.log(`[FlowImageState] 📤 [HANDLE_IMAGE_REFERENCE] Bắt đầu nạp ảnh tham chiếu cục bộ: "${localPath}" (${fileSizeKb} KB)`);
+
+    // Selector nhận diện chip ảnh tham chiếu / ingredient chip trong prompt box
     const checkExistingChipJs = `
       (function() {
-        const chip = document.querySelector(
-          'flow-image-ingredient-chip, flow-ingredient-chip, .chip-container, mat-chip-row, [data-ingredient-type], flow-chip, .chip-image-wrapper, flow-prompt-box mat-chip, .frame-trigger, button[aria-label*="Thành phần tạo hình ảnh" i]'
-        );
-        return !!chip;
+        const selectors = [
+          'flow-image-ingredient-chip',
+          'flow-ingredient-chip',
+          '.chip-container',
+          'mat-chip-row',
+          '[data-ingredient-type]',
+          'flow-chip',
+          '.chip-image-wrapper',
+          'flow-prompt-box mat-chip',
+          '.frame-trigger',
+          'button[aria-label*="Thành phần tạo hình ảnh" i]',
+          'flow-prompt-box img',
+          'flow-base-prompt-box img',
+          '.ProseMirror img',
+          'flow-prompt-box [class*="chip"]',
+          'flow-prompt-box [class*="ingredient"]',
+          '[data-ingredient-name]'
+        ];
+        for (const sel of selectors) {
+          const el = document.querySelector(sel);
+          if (el) {
+            const r = el.getBoundingClientRect();
+            if (r && r.width > 0 && r.height > 0) {
+              return { hasChip: true, selector: sel, tag: el.tagName };
+            }
+          }
+        }
+        return { hasChip: false };
       })()
     `;
-    const alreadyHasChip = await safeExecuteJs<boolean>(ctx.win, checkExistingChipJs);
-    if (alreadyHasChip) {
-      return { ok: true, data: { hasRefImage: true, alreadyPresent: true } };
+
+    // 1. Kiểm tra nếu chip ảnh đã có sẵn trong prompt box
+    const alreadyHasChip = await safeExecuteJs<any>(ctx.win, checkExistingChipJs, 1500);
+    if (alreadyHasChip?.hasChip) {
+      console.log(`[FlowImageState] ℹ️ Chip ảnh tham chiếu đã có sẵn trong prompt box (selector: ${alreadyHasChip.selector}).`);
+      return {
+        ok: true,
+        data: {
+          hasRefImage: true,
+          attachmentConfirmed: true,
+          fileName,
+          uploadMethodUsed: 'already_present',
+          chipSelector: alreadyHasChip.selector
+        }
+      };
     }
 
-    // 2. Lấy tọa độ của ProseMirror editor để drag-drop ảnh vào đúng vùng prompt
-    // Trong Image Editor (/edit/), ảnh tham chiếu được nạp bằng cách kéo thả file trực tiếp
-    // vào vùng ProseMirror hoặc vùng chứa prompt box
+    // 2. Phương thức A: Thử nạp qua file input nếu có trong DOM
+    try {
+      const cdpFileInput = await FlowFileInputInjector.injectIntoBrowserWindow(ctx.win, localPath, {
+        inputSelector: 'flow-prompt-box input[type="file"], flow-base-prompt-box input[type="file"], input[type="file"]'
+      });
+      if (cdpFileInput.success) {
+        for (let i = 0; i < 6; i++) {
+          await new Promise((r) => setTimeout(r, 400));
+          const chipRes = await safeExecuteJs<any>(ctx.win, checkExistingChipJs, 1000);
+          if (chipRes?.hasChip) {
+            console.log(`[FlowImageState] ✅ Chip ảnh tham chiếu xuất hiện sau file input injection: ${chipRes.selector}`);
+            return {
+              ok: true,
+              data: {
+                hasRefImage: true,
+                attachmentConfirmed: true,
+                fileName,
+                uploadMethodUsed: cdpFileInput.methodUsed,
+                chipSelector: chipRes.selector
+              }
+            };
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('[FlowImageState] File input injection warning:', e);
+    }
+
+    // 3. Phương thức B: Drag-drop file bằng CDP trực tiếp vào toạ độ ProseMirror editor
     const getEditorRectJs = `
       (function() {
         const selectors = [
@@ -629,8 +702,6 @@ export const HandleImageReferenceState: FlowAutomationState = {
       })()
     `;
     const editorRect = await safeExecuteJs<any>(ctx.win, getEditorRectJs, 2000);
-
-    // 3. Drag-drop file trực tiếp vào prompt editor bằng CDP (phương pháp chính xác nhất cho Image Editor)
     const dropX = editorRect?.x ?? 720;
     const dropY = editorRect?.y ?? 450;
     console.log(`[FlowImageState] 📎 Drag-drop ảnh tham chiếu vào editor tại (${dropX}, ${dropY}): "${localPath}"`);
@@ -638,32 +709,53 @@ export const HandleImageReferenceState: FlowAutomationState = {
     try {
       const dropped = await FlowFileInputInjector.injectViaCDPDragDrop(ctx.win, localPath, dropX, dropY);
       if (dropped) {
-        await new Promise((r) => setTimeout(r, 1500));
-        const chipAppeared = await safeExecuteJs<boolean>(ctx.win, checkExistingChipJs);
-        if (chipAppeared) {
-          console.log('[FlowImageState] ✅ Chip ảnh tham chiếu đã xuất hiện trong prompt box.');
-          return { ok: true, data: { hasRefImage: true, source: 'cdp_drag_drop_editor' } };
+        for (let i = 0; i < 8; i++) {
+          await new Promise((r) => setTimeout(r, 500));
+          const chipRes = await safeExecuteJs<any>(ctx.win, checkExistingChipJs, 1000);
+          if (chipRes?.hasChip) {
+            console.log(`[FlowImageState] ✅ Chip ảnh tham chiếu xuất hiện sau CDP drag-drop vào editor: ${chipRes.selector}`);
+            return {
+              ok: true,
+              data: {
+                hasRefImage: true,
+                attachmentConfirmed: true,
+                fileName,
+                uploadMethodUsed: 'cdp_drag_drop_editor',
+                chipSelector: chipRes.selector
+              }
+            };
+          }
         }
       }
     } catch (dragErr) {
       console.warn('[FlowImageState] CDP Drag-drop vào editor lỗi:', dragErr);
     }
 
-    // 4. Fallback: Thử kéo thả vào vùng tile upload mặc định (viewport center)
+    // 4. Phương thức C: Fallback Drag-drop vào viewport center
     try {
       const dropped2 = await FlowFileInputInjector.injectViaCDPDragDrop(ctx.win, localPath, 720, 450);
       if (dropped2) {
-        await new Promise((r) => setTimeout(r, 1500));
-        const chipAppeared2 = await safeExecuteJs<boolean>(ctx.win, checkExistingChipJs);
-        if (chipAppeared2) {
-          return { ok: true, data: { hasRefImage: true, source: 'cdp_drag_drop_fallback' } };
+        for (let i = 0; i < 6; i++) {
+          await new Promise((r) => setTimeout(r, 500));
+          const chipRes = await safeExecuteJs<any>(ctx.win, checkExistingChipJs, 1000);
+          if (chipRes?.hasChip) {
+            console.log(`[FlowImageState] ✅ Chip ảnh tham chiếu xuất hiện sau fallback drag-drop: ${chipRes.selector}`);
+            return {
+              ok: true,
+              data: {
+                hasRefImage: true,
+                attachmentConfirmed: true,
+                fileName,
+                uploadMethodUsed: 'cdp_drag_drop_fallback',
+                chipSelector: chipRes.selector
+              }
+            };
+          }
         }
       }
-    } catch {
-      // Fall through to clipboard paste
-    }
+    } catch {}
 
-    // 5. Fallback cuối cùng: Dán ảnh từ đường dẫn cục bộ vào clipboard OS và paste vào ProseMirror
+    // 5. Phương thức D: Fallback clipboard nativeImage paste vào ProseMirror
     let electron: any = null;
     try {
       electron = (ctx as any).electron || require('electron');
@@ -677,51 +769,148 @@ export const HandleImageReferenceState: FlowAutomationState = {
           const natImg = electron.nativeImage.createFromPath(localPath);
           if (!natImg.isEmpty()) {
             electron.clipboard.writeImage(natImg);
-            // Focus vào editor trước khi paste
             await safeExecuteJs(
               ctx.win,
-              `
-              (function() {
+              `(function() {
                 const el = document.querySelector('flow-prompt-box .ProseMirror, .prosemirror-editor, [contenteditable="true"]');
                 if (el) { el.focus(); }
-              })()
-            `
+              })()`,
+              1000
             );
             ctx.win.focus();
             ctx.win.webContents.paste();
-            await new Promise((r) => setTimeout(r, 1500));
           }
         } catch (pasteErr) {
           console.warn('[FlowImageState] Cảnh báo paste referenceImagePath:', pasteErr);
         }
       });
+
+      for (let i = 0; i < 6; i++) {
+        await new Promise((r) => setTimeout(r, 500));
+        const chipRes = await safeExecuteJs<any>(ctx.win, checkExistingChipJs, 1000);
+        if (chipRes?.hasChip) {
+          console.log(`[FlowImageState] ✅ Chip ảnh tham chiếu xuất hiện sau clipboard paste: ${chipRes.selector}`);
+          return {
+            ok: true,
+            data: {
+              hasRefImage: true,
+              attachmentConfirmed: true,
+              fileName,
+              uploadMethodUsed: 'clipboard',
+              chipSelector: chipRes.selector
+            }
+          };
+        }
+      }
     }
 
-    return { ok: true, data: { hasRefImage: true, source: 'clipboard' } };
+    console.error(`[FlowImageState] ❌ Không phát hiện chip ảnh tham chiếu sau khi thử tất cả phương thức nạp: "${localPath}"`);
+    return {
+      ok: false,
+      error: 'IMAGE_REFERENCE_ATTACH_FAILED',
+      errorDetail: `IMAGE_REFERENCE_ATTACH_FAILED: Không thể đính kèm ảnh tham chiếu "${fileName}" vào Google Flow (chip ảnh/thumbnail không xuất hiện trong DOM).`,
+      data: {
+        hasRefImage: true,
+        attachmentConfirmed: false,
+        fileName,
+        uploadMethodUsed: 'none',
+      }
+    };
   },
 
-  async verify(ctx: FlowStateContext): Promise<VerifyResult> {
+  async verify(ctx: FlowStateContext, actionRes: ActionResult): Promise<VerifyResult> {
     const refPath = ctx.referenceImagePath || ctx.initFrameUrl;
-    if (!refPath) return { ok: true };
+    if (!refPath) {
+      return {
+        ok: true,
+        criteria: {
+          hasRefImage: false,
+          attachmentConfirmed: true,
+          uploadMethodUsed: 'none',
+        }
+      };
+    }
 
+    const fileName = path.basename(refPath);
+
+    // Kiểm tra kết quả thực thi
+    if (!actionRes.ok || !actionRes.data?.attachmentConfirmed) {
+      return {
+        ok: false,
+        error: 'IMAGE_REFERENCE_ATTACH_FAILED',
+        errorDetail: actionRes.errorDetail || `IMAGE_REFERENCE_ATTACH_FAILED: Đính kèm ảnh tham chiếu "${fileName}" thất bại ở bước thực thi.`,
+        criteria: {
+          hasRefImage: true,
+          uploadMethodUsed: actionRes.data?.uploadMethodUsed || 'none',
+          fileName,
+          attachmentConfirmed: false,
+          chipSelector: 'none',
+        },
+        reason: `IMAGE_REFERENCE_ATTACH_FAILED: Chip ảnh tham chiếu "${fileName}" chưa xuất hiện trong prompt box của Google Flow.`,
+      };
+    }
+
+    // Quét lại DOM lần cuối để đảm bảo chip vẫn tồn tại ổn định
     const checkChipJs = `
       (function() {
-        const chip = document.querySelector(
-          'flow-image-ingredient-chip, flow-ingredient-chip, .chip-container, mat-chip-row, [data-ingredient-type], flow-chip, .chip-image-wrapper, flow-prompt-box mat-chip, flow-prompt-box img, flow-base-prompt-box img, .ProseMirror img, flow-prompt-box [class*="chip"], flow-prompt-box [class*="ingredient"], .frame-trigger, button[aria-label*="Thành phần tạo hình ảnh" i]'
-        );
-        return {
-          hasChip: !!chip,
-          chipTag: chip ? chip.tagName : 'none'
-        };
+        const selectors = [
+          'flow-image-ingredient-chip',
+          'flow-ingredient-chip',
+          '.chip-container',
+          'mat-chip-row',
+          '[data-ingredient-type]',
+          'flow-chip',
+          '.chip-image-wrapper',
+          'flow-prompt-box mat-chip',
+          '.frame-trigger',
+          'button[aria-label*="Thành phần tạo hình ảnh" i]',
+          'flow-prompt-box img',
+          'flow-base-prompt-box img',
+          '.ProseMirror img',
+          'flow-prompt-box [class*="chip"]',
+          'flow-prompt-box [class*="ingredient"]',
+          '[data-ingredient-name]'
+        ];
+        for (const sel of selectors) {
+          const el = document.querySelector(sel);
+          if (el) {
+            const r = el.getBoundingClientRect();
+            if (r && r.width > 0 && r.height > 0) {
+              return { hasChip: true, selector: sel, tag: el.tagName };
+            }
+          }
+        }
+        return { hasChip: false };
       })()
     `;
     const res = await safeExecuteJs<any>(ctx.win, checkChipJs, 2000);
+    const hasChip = Boolean(res?.hasChip);
+
+    if (!hasChip) {
+      return {
+        ok: false,
+        error: 'IMAGE_REFERENCE_ATTACH_FAILED',
+        errorDetail: `IMAGE_REFERENCE_ATTACH_FAILED: Xác minh thất bại: Chip ảnh tham chiếu "${fileName}" không còn tồn tại trong DOM sau khi nạp.`,
+        criteria: {
+          hasRefImage: true,
+          uploadMethodUsed: actionRes.data?.uploadMethodUsed || 'unknown',
+          fileName,
+          attachmentConfirmed: false,
+          chipSelector: 'none',
+        },
+        reason: `IMAGE_REFERENCE_ATTACH_FAILED: Không tìm thấy chip ảnh tham chiếu "${fileName}" trong prompt box.`,
+      };
+    }
+
     return {
-      ok: true, // Soft verify: không block pipeline nếu UI animate chậm
+      ok: true,
       criteria: {
-        hasChip: Boolean(res?.hasChip),
-        chipTag: res?.chipTag || 'none',
-      },
+        hasRefImage: true,
+        uploadMethodUsed: actionRes.data?.uploadMethodUsed || 'unknown',
+        fileName,
+        attachmentConfirmed: true,
+        chipSelector: res?.selector || actionRes.data?.chipSelector || 'chip_detected',
+      }
     };
   },
 
@@ -730,179 +919,247 @@ export const HandleImageReferenceState: FlowAutomationState = {
 
 /**
  * STATE 8: ENTER_PROMPT
- * Điền nội dung prompt vào ô soạn thảo
+ * Điền nội dung prompt vào ô soạn thảo ProseMirror bằng Chromium native IME insertText
+ * và kiểm tra nghiêm ngặt tooltip "cần cung cấp câu lệnh" để fail sớm (PROMPT_NOT_RECOGNIZED_BY_APP)
  */
 export const EnterPromptState: FlowAutomationState = {
   name: 'ENTER_PROMPT',
-  timeoutMs: 12000,
+  timeoutMs: 15000,
 
   async enter(ctx: FlowStateContext): Promise<void> {
-    ctx.onProgress?.(20, 'Đang nộp prompt sinh ảnh vào Google Flow...');
+    ctx.onProgress?.(20, 'Đang nhập prompt sinh ảnh vào Google Flow...');
   },
 
   async execute(ctx: FlowStateContext): Promise<ActionResult> {
-    let electron: any = null;
-    try {
-      electron = (ctx as any).electron || require('electron');
-    } catch {
-      electron = (ctx as any).electron || null;
-    }
     const promptClean = (ctx.prompt || '').trim();
-    const promptJson = JSON.stringify(promptClean);
+    if (!promptClean) {
+      return { ok: false, error: 'INVALID_INPUT', errorDetail: 'Nội dung prompt rỗng' };
+    }
 
-    // 1. Focus ProseMirror và chọn nội dung trước khi paste
+    console.log(`[FlowImageState] ✍️ [ENTER_PROMPT] Chuẩn bị nhập prompt (${promptClean.length} chars): "${promptClean.slice(0, 60)}..."`);
+
+    // 1. Focus ProseMirror và chọn nội dung cũ để ghi đè sạch sẽ
     await safeExecuteJs(
       ctx.win,
       `(function() {
         const promptBox = document.querySelector(
-          'flow-prompt-box, flow-base-prompt-box, .prompt-box-container, .base-prompt-box'
-        ) || document;
-        const promptEl = promptBox.querySelector('.ProseMirror, [contenteditable="true"]');
-        if (promptEl) {
-          promptEl.focus();
-          const sel = window.getSelection();
-          const range = document.createRange();
-          range.selectNodeContents(promptEl);
-          sel.removeAllRanges();
-          sel.addRange(range);
-        }
-      })()`,
-      1000
-    );
-
-    // 2. Native paste qua clipboard với cơ chế bảo tồn clipboard OS (Snapshot -> Paste -> Restore)
-    if (electron && typeof electron === 'object' && electron.clipboard) {
-      await FlowClipboardGuard.withPreservedClipboard(electron, async () => {
-        try {
-          electron.clipboard.writeText(promptClean);
-          ctx.win.focus();
-          ctx.win.webContents.paste();
-        } catch (e) {
-          console.warn('[FlowStateMachine] Clipboard paste warning:', e);
-        }
-        await new Promise((r) => setTimeout(r, 200));
-      });
-    }
-
-    // 3. Dispatch ClipboardEvent paste với DataTransfer (kích hoạt ProseMirror transaction 100% chuẩn xác cho Google Flow)
-    const pasteEventJs = `
-      (function() {
-        const promptBox = document.querySelector(
-          'flow-prompt-box, flow-base-prompt-box, .prompt-box-container, .base-prompt-box'
-        ) || document;
-        const promptEl = promptBox.querySelector('.ProseMirror, [contenteditable="true"]');
-        if (!promptEl) return { ok: false };
-        promptEl.focus();
-        const text = ${promptJson};
-        const dt = new DataTransfer();
-        dt.setData('text/plain', text);
-        const pasteEv = new ClipboardEvent('paste', {
-          bubbles: true,
-          cancelable: true,
-          clipboardData: dt
-        });
-        promptEl.dispatchEvent(pasteEv);
-        return { ok: true, textLen: (promptEl.innerText || '').trim().length };
-      })()
-    `;
-    await safeExecuteJs<any>(ctx.win, pasteEventJs, 2000);
-    await new Promise((r) => setTimeout(r, 200));
-
-    // 4. DOM insertText gia cố nếu text vẫn chưa vào
-    const fillPromptJs = `
-      (async function() {
-        const promptBox = document.querySelector(
           'flow-prompt-box, flow-base-prompt-box, flow-creative-agent-prompt-box, .prompt-box-container, .base-prompt-box'
         ) || document;
-        const selectors = [
-          'flow-rich-text-editor .ProseMirror',
-          '.prosemirror-editor .ProseMirror',
-          '.ProseMirror',
-          '[contenteditable="true"]',
-          'textarea:not(.g-recaptcha-response)',
-          'input[type="text"]'
-        ];
-        let promptEl = null;
-        for (const sel of selectors) {
-          const el = promptBox.querySelector(sel) || document.querySelector(sel);
-          if (el && (el.isContentEditable || el.tagName === 'TEXTAREA' || el.tagName === 'INPUT')) {
-            promptEl = el;
-            break;
-          }
-        }
-        if (!promptEl) return { ok: false, error: 'no_prompt_input' };
-
-        promptEl.focus();
-        let currentText = (promptEl.innerText || promptEl.textContent || promptEl.value || '').trim();
-
-        if (!currentText || currentText.length < 5) {
-          try {
+        const promptEl = promptBox.querySelector('.ProseMirror, [contenteditable="true"], textarea:not(.g-recaptcha-response), input[type="text"]');
+        if (promptEl) {
+          promptEl.focus();
+          if (promptEl.isContentEditable) {
             const sel = window.getSelection();
             const range = document.createRange();
             range.selectNodeContents(promptEl);
             sel.removeAllRanges();
             sel.addRange(range);
-            document.execCommand('delete', false, null);
-            document.execCommand('insertText', false, ${promptJson});
-            promptEl.dispatchEvent(new Event('input', { bubbles: true }));
-            promptEl.dispatchEvent(new Event('change', { bubbles: true }));
-          } catch (e) {}
-
-          if (promptEl.tagName === 'TEXTAREA' || promptEl.tagName === 'INPUT') {
-            promptEl.value = ${promptJson};
-            promptEl.dispatchEvent(new Event('input', { bubbles: true }));
-            promptEl.dispatchEvent(new Event('change', { bubbles: true }));
           }
-          await new Promise(r => setTimeout(r, 200));
-          currentText = (promptEl.innerText || promptEl.textContent || promptEl.value || '').trim();
         }
+      })()`,
+      1000
+    );
 
-        if (!currentText && promptEl.isContentEditable) {
-          promptEl.innerHTML = '<p>' + ${JSON.stringify(promptClean)} + '</p>';
-          promptEl.dispatchEvent(new Event('input', { bubbles: true }));
-          await new Promise(r => setTimeout(r, 200));
-          currentText = (promptEl.innerText || promptEl.textContent || promptEl.value || '').trim();
-        }
+    // 2. Kích hoạt native focus trên cửa sổ Electron
+    ctx.win.focus();
 
-        return { ok: true, textLen: currentText.length };
+    // 3. Phương thức chính: ctx.win.webContents.insertText(promptClean)
+    // Đây là Native Chromium IME input API trong Electron, kích hoạt trực tiếp editing pipeline của Chromium,
+    // đảm bảo ProseMirror transactions và Angular View binding ghi nhận 100% chuẩn xác.
+    try {
+      await ctx.win.webContents.insertText(promptClean);
+    } catch (insertErr) {
+      console.warn('[FlowImageState] webContents.insertText warning:', insertErr);
+    }
+
+    // 4. Kiểm tra độ dài văn bản sau insertText
+    const checkTextJs = `
+      (function() {
+        const promptBox = document.querySelector(
+          'flow-prompt-box, flow-base-prompt-box, flow-creative-agent-prompt-box, .prompt-box-container, .base-prompt-box'
+        ) || document;
+        const promptEl = promptBox.querySelector('.ProseMirror, [contenteditable="true"], textarea:not(.g-recaptcha-response), input[type="text"]');
+        if (!promptEl) return { found: false, textLen: 0 };
+        const t = (promptEl.innerText || promptEl.textContent || promptEl.value || '').trim();
+        return { found: true, textLen: t.length };
       })()
     `;
+    let textStatus = await safeExecuteJs<any>(ctx.win, checkTextJs, 1500);
 
-    const fillRes = await safeExecuteJs<any>(ctx.win, fillPromptJs, 5000);
-    return { ok: Boolean(fillRes?.ok) };
+    // 5. Fallback nếu textLength < 5 (insertText không vào được do focus)
+    if (!textStatus?.textLen || textStatus.textLen < 5) {
+      console.warn('[FlowImageState] insertText chưa đạt độ dài tối thiểu, thử fallback qua DataTransfer và execCommand...');
+      const promptJson = JSON.stringify(promptClean);
+      const fallbackJs = `
+        (function() {
+          const promptBox = document.querySelector(
+            'flow-prompt-box, flow-base-prompt-box, flow-creative-agent-prompt-box, .prompt-box-container, .base-prompt-box'
+          ) || document;
+          const promptEl = promptBox.querySelector('.ProseMirror, [contenteditable="true"], textarea:not(.g-recaptcha-response), input[type="text"]');
+          if (!promptEl) return { ok: false };
+          promptEl.focus();
+
+          try {
+            const dt = new DataTransfer();
+            dt.setData('text/plain', ${promptJson});
+            const pasteEv = new ClipboardEvent('paste', {
+              bubbles: true,
+              cancelable: true,
+              clipboardData: dt
+            });
+            promptEl.dispatchEvent(pasteEv);
+          } catch (e) {}
+
+          let curLen = (promptEl.innerText || promptEl.textContent || promptEl.value || '').trim().length;
+          if (curLen < 5) {
+            try {
+              document.execCommand('insertText', false, ${promptJson});
+            } catch (e) {}
+          }
+          return { ok: true };
+        })()
+      `;
+      await safeExecuteJs(ctx.win, fallbackJs, 2000);
+    }
+
+    // 6. Phát sinh InputEvent và Change Event để đảm bảo Angular Change Detection kích hoạt
+    await safeExecuteJs(
+      ctx.win,
+      `(function() {
+        const promptBox = document.querySelector(
+          'flow-prompt-box, flow-base-prompt-box, flow-creative-agent-prompt-box, .prompt-box-container, .base-prompt-box'
+        ) || document;
+        const promptEl = promptBox.querySelector('.ProseMirror, [contenteditable="true"], textarea:not(.g-recaptcha-response), input[type="text"]');
+        if (promptEl) {
+          try {
+            promptEl.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: ${JSON.stringify(promptClean)} }));
+          } catch (e) {
+            promptEl.dispatchEvent(new Event('input', { bubbles: true }));
+          }
+          promptEl.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+      })()`,
+      1000
+    );
+
+    // 7. Settling pause 400ms để ProseMirror và Angular component cập nhật trạng thái
+    await new Promise((r) => setTimeout(r, 400));
+
+    return { ok: true, data: { promptLength: promptClean.length } };
   },
 
   async verify(ctx: FlowStateContext): Promise<VerifyResult> {
-    // BẮT BUỘC: Đọc lại text từ editor để đảm bảo prompt thực sự đã được điền
     const readPromptJs = `
       (function() {
         const promptBox = document.querySelector(
           'flow-prompt-box, flow-base-prompt-box, flow-creative-agent-prompt-box, .prompt-box-container, .base-prompt-box'
         ) || document;
         const promptEl = promptBox.querySelector('.ProseMirror, [contenteditable="true"], textarea:not(.g-recaptcha-response), input[type="text"]');
-        if (!promptEl) return { ok: false, reason: 'no_prompt_el' };
+        if (!promptEl) return { found: false, textLength: 0 };
         const text = (promptEl.innerText || promptEl.textContent || promptEl.value || '').trim();
         const isFocused = document.activeElement === promptEl || promptEl.contains(document.activeElement);
+
+        // Quét tooltip cảnh báo thiếu prompt
+        const tooltipSelectors = [
+          '.mat-mdc-tooltip',
+          '[role="tooltip"]',
+          '.cdk-overlay-pane',
+          'mat-tooltip-component'
+        ];
+        let missingPromptTooltip = false;
+        let tooltipText = '';
+        for (const sel of tooltipSelectors) {
+          const tooltips = document.querySelectorAll(sel);
+          for (const t of tooltips) {
+            const tt = (t.textContent || t.innerText || '').toLowerCase();
+            if (
+              tt.includes('phải cung cấp câu lệnh') ||
+              tt.includes('cung cấp câu lệnh') ||
+              tt.includes('provide a prompt') ||
+              tt.includes('enter a prompt') ||
+              tt.includes('prompt is required')
+            ) {
+              missingPromptTooltip = true;
+              tooltipText = (t.textContent || '').trim();
+              break;
+            }
+          }
+          if (missingPromptTooltip) break;
+        }
+
+        // Quét thêm tooltip hoặc attribute disabled trên nút Generate
+        const btn = document.querySelector(
+          'button.generate-icon-button, button.generate-button, flow-generate-icon-button button, button[aria-label*="Bắt đầu tạo" i], button[aria-label*="Tạo ảnh" i], button[aria-label*="Generate" i], button[type="submit"]'
+        );
+        if (btn) {
+          const btnTip = (btn.getAttribute('mattooltip') || btn.getAttribute('aria-label') || btn.getAttribute('title') || '').toLowerCase();
+          if (
+            btnTip.includes('phải cung cấp câu lệnh') ||
+            btnTip.includes('cung cấp câu lệnh') ||
+            btnTip.includes('provide a prompt') ||
+            btnTip.includes('enter a prompt')
+          ) {
+            missingPromptTooltip = true;
+            tooltipText = btnTip;
+          }
+        }
+
         return {
-          ok: text.length > 0,
+          found: true,
           textLength: text.length,
-          sample: text.slice(0, 45) + (text.length > 45 ? '...' : ''),
+          sample: text.slice(0, 50) + (text.length > 50 ? '...' : ''),
           isFocused,
-          tagName: promptEl.tagName
+          tagName: promptEl.tagName,
+          missingPromptTooltip,
+          tooltipText
         };
       })()
     `;
-    const res = await safeExecuteJs<any>(ctx.win, readPromptJs, 2000);
-    const ok = Boolean(res?.ok && res.textLength > 0);
+    const res = await safeExecuteJs<any>(ctx.win, readPromptJs, 2500);
+
+    if (!res?.found || !res.textLength) {
+      return {
+        ok: false,
+        error: 'INVALID_INPUT',
+        errorDetail: 'Nội dung prompt đọc lại từ DOM đang rỗng hoặc không tìm thấy ô nhập prompt.',
+        criteria: {
+          textLength: 0,
+          sample: '',
+          missingPromptTooltip: Boolean(res?.missingPromptTooltip),
+          elementTag: res?.tagName || 'none',
+        },
+        reason: 'Nội dung prompt đọc lại từ DOM đang rỗng hoặc không tìm thấy ô nhập prompt',
+      };
+    }
+
+    if (res.missingPromptTooltip) {
+      console.error(
+        `[FlowImageState] ❌ Tooltip yêu cầu câu lệnh vẫn hiển thị dù textLength=${res.textLength} ("${res.tooltipText}"). Flow/ProseMirror chưa công nhận prompt!`
+      );
+      return {
+        ok: false,
+        error: 'PROMPT_NOT_RECOGNIZED_BY_APP',
+        errorDetail: `PROMPT_NOT_RECOGNIZED_BY_APP: Google Flow hiển thị tooltip "${res.tooltipText}" cho biết prompt chưa được ứng dụng công nhận, dù DOM có textLength=${res.textLength}.`,
+        criteria: {
+          textLength: res.textLength,
+          sample: res.sample,
+          missingPromptTooltip: true,
+          tooltipText: res.tooltipText,
+          elementTag: res.tagName,
+        },
+        reason: `PROMPT_NOT_RECOGNIZED_BY_APP: Tooltip "${res.tooltipText}" vẫn xuất hiện — ProseMirror/Angular chưa kích hoạt transaction ghi nhận prompt.`,
+      };
+    }
+
     return {
-      ok,
+      ok: true,
       criteria: {
-        textLength: res?.textLength || 0,
-        sample: res?.sample || '',
-        isFocused: Boolean(res?.isFocused),
-        elementTag: res?.tagName || 'none',
-      },
-      reason: ok ? undefined : 'Nội dung prompt đọc lại từ DOM đang rỗng hoặc không tìm thấy ô nhập',
+        textLength: res.textLength,
+        sample: res.sample,
+        missingPromptTooltip: false,
+        isFocused: Boolean(res.isFocused),
+        elementTag: res.tagName,
+      }
     };
   },
 
@@ -2469,10 +2726,10 @@ export const FlowImageGenerationStatePipeline: FlowAutomationState[] = [
   EnsureProjectContextState,
   CleanCanvasState,
   FindEditorState,
+  ConfigureOptionsState,
   FindPromptInputState,
   HandleImageReferenceState,
   EnterPromptState,
-  ConfigureOptionsState,
   CaptureBaselineState,
   CheckIdempotencyBeforeGenerateState,
   FindGenerateButtonState,

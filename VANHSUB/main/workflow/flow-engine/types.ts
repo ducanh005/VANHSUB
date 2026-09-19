@@ -85,6 +85,8 @@ export interface VerifyResult {
   ok: boolean;
   criteria?: Record<string, any>;
   reason?: string;
+  error?: string;
+  errorDetail?: string;
 }
 
 export interface FlowAutomationState {
@@ -114,6 +116,8 @@ export type FlowErrorCode =
   | 'BROWSER_WINDOW_DESTROYED'
   | 'CLICK_GENERATE_NO_EFFECT'
   | 'CLICK_GENERATE_REJECTED'
+  | 'PROMPT_NOT_RECOGNIZED_BY_APP'
+  | 'IMAGE_REFERENCE_ATTACH_FAILED'
   | 'UNKNOWN_ERROR';
 
 export interface ClassifiedError {

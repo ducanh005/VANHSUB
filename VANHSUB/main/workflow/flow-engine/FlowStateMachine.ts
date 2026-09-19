@@ -109,7 +109,10 @@ export class FlowStateMachine {
           const criteria = typeof rawVerify === 'object' && rawVerify ? rawVerify.criteria : undefined;
 
           if (!isOk) {
-            const failReason = typeof rawVerify === 'object' ? rawVerify?.reason : undefined;
+            const failReason =
+              typeof rawVerify === 'object'
+                ? rawVerify?.reason || rawVerify?.errorDetail || rawVerify?.error
+                : undefined;
             throw new Error(
               `[VERIFY_FAILED] Kiểm tra trạng thái UI sau hành động tại [${state.name}] không đạt yêu cầu! ${failReason ? `Chi tiết: ${failReason}` : ''}`
             );

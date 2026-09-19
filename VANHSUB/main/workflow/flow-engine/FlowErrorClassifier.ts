@@ -319,6 +319,41 @@ export class FlowErrorClassifier {
       };
     }
 
+    // 13b. KIỂM TRA LỖI PROMPT CHƯA ĐƯỢC ỨNG DỤNG CÔNG NHẬN (PROMPT_NOT_RECOGNIZED_BY_APP) — RETRYABLE
+    if (
+      lowerMsg.includes('prompt_not_recognized_by_app') ||
+      lowerMsg.includes('phải cung cấp câu lệnh') ||
+      lowerMsg.includes('provide a prompt')
+    ) {
+      return {
+        category: 'RETRYABLE',
+        code: 'PROMPT_NOT_RECOGNIZED_BY_APP',
+        message: 'Google Flow chưa công nhận prompt trong ProseMirror/Angular (nút Generate bị khóa do thiếu câu lệnh).',
+        originalError,
+        canRetry: true,
+        suggestedAction: 'RETRY_WITH_BACKOFF',
+        recommendedDelayMs: 2000,
+        details: { rawMsg },
+      };
+    }
+
+    // 13c. KIỂM TRA LỖI NẠP ẢNH THAM CHIẾU THẤT BẠI (IMAGE_REFERENCE_ATTACH_FAILED) — RETRYABLE
+    if (
+      lowerMsg.includes('image_reference_attach_failed') ||
+      lowerMsg.includes('reference_attach_failed')
+    ) {
+      return {
+        category: 'RETRYABLE',
+        code: 'IMAGE_REFERENCE_ATTACH_FAILED',
+        message: 'Không thể đính kèm ảnh tham chiếu (chip ảnh không xuất hiện trong Google Flow).',
+        originalError,
+        canRetry: true,
+        suggestedAction: 'RETRY_WITH_BACKOFF',
+        recommendedDelayMs: 2500,
+        details: { rawMsg },
+      };
+    }
+
     // 14. KIỂM TRA LỖI PHẦN TỬ DOM BẬN / QUÁ THỜI GIAN CHỜ TẠM THỜI (ELEMENT_TRANSIENT_BUSY)
     if (
       lowerMsg.includes('quá thời gian chờ') ||
