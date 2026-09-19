@@ -17,10 +17,14 @@
  * Dùng cho các hàm cập nhật cấu hình từng phần (updateConfig).
  */
 export type DeepPartial<T> = {
-  [P in keyof T]?: T[P] extends (infer U)[]
-    ? DeepPartial<U>[]
+  [P in keyof T]?: NonNullable<T[P]> extends (infer U)[]
+    ? T[P]
+    : NonNullable<T[P]> extends ReadonlyArray<infer U>
+    ? T[P]
+    : NonNullable<T[P]> extends Function
+    ? T[P]
     : NonNullable<T[P]> extends object
-    ? DeepPartial<NonNullable<T[P]>>
+    ? DeepPartial<NonNullable<T[P]>> | (null extends T[P] ? null : never)
     : T[P];
 };
 
@@ -87,6 +91,8 @@ export type FlowOutputMode = 'image' | 'video';
 export type FlowOutputsPerScene = 1 | 2 | 4;
 
 export interface AiStudioFlowEngineConfig {
+  /** Chế độ hiển thị cửa sổ sảnh Flow: 'offscreen' | 'live_window' */
+  uiMode?: 'offscreen' | 'live_window';
   /** Tỷ lệ khung hình tạo hình ảnh/clip */
   aspectRatio: FlowAspectRatio;
   /** Chế độ đầu ra: sinh ảnh tĩnh (kèm Ken Burns) hoặc sinh video chuyển động */
@@ -187,6 +193,14 @@ export interface ChannelProfileConfig {
   hostAvatarUrl?: string;
   /** Danh sách nhân vật đại diện kênh */
   channelCharacters?: Array<{ id: string; name: string; descriptionEn: string; avatarUrl?: string }>;
+  /** Phong cách bối cảnh & vũ trụ thị giác toàn dự án (áp dụng cố định cho Storyboard) */
+  projectBackgroundPrompt?: string;
+  /** Preset phong cách nghệ thuật thị giác đã chọn */
+  visualArtStylePreset?: 'cinematic' | 'anime_ghibli' | 'dark_fantasy' | 'cyberpunk' | 'history_doc' | '3d_pixar' | 'custom' | string;
+  /** Thư mục cục bộ tùy chọn để lưu ảnh và video (rỗng = mặc định thư mục dự án) */
+  customMediaDir?: string;
+  /** Chế độ hiển thị cửa sổ Google Flow: 'live_window' (mở cửa sổ trực tiếp) | 'offscreen' (chạy ngầm) */
+  flowUiMode?: 'offscreen' | 'live_window';
   /** 1. Nguồn hình */
   imageSource: ChannelImageSource;
   /** 2. Kiểu video (bộ não AI) đã chọn */
@@ -251,6 +265,14 @@ export interface SavedProjectProfile {
   channelProfile: ChannelProfileConfig;
   flowConfig?: Partial<AiStudioFlowEngineConfig>;
   updatedAt: number;
+  /** Danh sách các ý tưởng đã sinh/thiết lập cho project này */
+  ideas?: IdeaBlueprint[];
+  /** Ý tưởng đang chọn hoặc sản xuất gần nhất */
+  selectedIdea?: IdeaBlueprint | null;
+  /** ID phiên pipeline gần nhất của project */
+  lastSessionId?: string;
+  /** Trạng thái phiên làm việc gần nhất (Kịch bản, phân cảnh, điểm số, v.v.) */
+  savedSession?: PipelineSessionState | null;
 }
 
 /**
@@ -517,6 +539,7 @@ export interface WordTimestamp {
 
 export interface StoryboardScene {
   id: string;
+  shotId?: string;
   lineIndex: number;
   startMs: number;
   endMs: number;
@@ -526,6 +549,8 @@ export interface StoryboardScene {
   negativePrompt?: string;
   motionType: 'ken_burns' | 'video';
   assetPath?: string;
+  imagePath?: string;
+  videoPath?: string;
   status: 'pending' | 'generating' | 'ready' | 'error';
   error?: string;
 }
@@ -538,6 +563,7 @@ export interface PipelineSessionArtifacts {
   srtPath?: string;
   wordsAlignment?: WordTimestamp[];
   scenes?: StoryboardScene[];
+  mediaDir?: string;
   videoPath?: string;
   metadata?: {
     title: string;
@@ -588,14 +614,35 @@ export interface RegenerateSceneAssetInput {
   sceneId: string;
   visualPrompt: string;
   flowConfig?: Partial<AiStudioFlowEngineConfig>;
+  sessionId?: string;
+  mode?: 'image' | 'video' | 'both';
 }
 export type RegenerateSceneAssetPayload = RegenerateSceneAssetInput;
 
 export interface RegenerateSceneAssetResponse {
   assetPath: string;
+  imagePath?: string;
+  videoPath?: string;
   error?: string;
 }
 export type RegenerateSceneAssetResult = RegenerateSceneAssetResponse;
+
+export interface ImportSceneMediaInput {
+  sessionId: string;
+  sceneId: string;
+  filePath: string;
+  mediaType?: 'image' | 'video';
+}
+export type ImportSceneMediaPayload = ImportSceneMediaInput;
+
+export interface ImportSceneMediaResponse {
+  success: boolean;
+  assetPath: string;
+  imagePath?: string;
+  videoPath?: string;
+  error?: string;
+}
+export type ImportSceneMediaResult = ImportSceneMediaResponse;
 
 export interface RenderVideoInput {
   sessionId: string;
@@ -658,6 +705,7 @@ export interface VanhsubAiStudioBridge {
 
   renderSingleLineVoice?: (input: RenderSingleLineVoiceInput) => Promise<RenderSingleLineVoiceResponse>;
   regenerateSceneAsset?: (input: RegenerateSceneAssetInput) => Promise<RegenerateSceneAssetResponse>;
+  importSceneMedia?: (input: ImportSceneMediaInput) => Promise<ImportSceneMediaResponse>;
   renderVideo?: (input: RenderVideoInput) => Promise<RenderVideoResponse>;
 
   // ChatGPT Web Automation

@@ -303,13 +303,17 @@ export class GoogleVeoSessionManager {
       console.warn('Lỗi khi thiết lập onBeforeSendHeaders cho Google Veo:', headerErr);
     }
 
+    const initX = this.isLobbyDebugVisible ? 100 : OFFSCREEN_X;
+    const initY = this.isLobbyDebugVisible ? 100 : OFFSCREEN_Y;
+
     this.lobbyWindow = new BrowserWindow({
       width: 1100,
       height: 800,
       minWidth: 800,
       minHeight: 600,
-      x: OFFSCREEN_X,
-      y: OFFSCREEN_Y,
+      x: initX,
+      y: initY,
+      show: Boolean(this.isLobbyDebugVisible),
       title: 'Sảnh Google Flow / Veo - Đăng nhập tài khoản Google để nhận Credit miễn phí',
       // Không đặt parent để sảnh là cửa sổ độc lập, thu nhỏ (-) xuống taskbar thoải mái không bị đóng
       modal: false,
@@ -2282,25 +2286,23 @@ export class GoogleVeoSessionManager {
     return Boolean(finalCheck?.ready);
   }
 
-  /** Kéo lobby window về vị trí bình thường trên màn hình chính để debug bằng mắt */
-  public showLobbyForDebug(): boolean {
+  /** Kéo lobby window về vị trí bình thường trên màn hình chính để người dùng theo dõi hoặc debug bằng mắt */
+  public async showLobbyForDebug(): Promise<boolean> {
     this.isLobbyDebugVisible = true;
     if (!this.lobbyWindow || this.lobbyWindow.isDestroyed()) {
-      this.openLobbyWindow()
-        .then(() => {
-          if (this.lobbyWindow && !this.lobbyWindow.isDestroyed()) {
-            this.lobbyWindow.setPosition(100, 100);
-            this.lobbyWindow.show();
-            this.lobbyWindow.focus();
-          }
-        })
-        .catch(() => {});
+      try {
+        await this.openLobbyWindow();
+      } catch (err) {
+        console.warn('[GoogleVeoSessionManager] Failed to open lobby window for debug:', err);
+      }
+    }
+    if (this.lobbyWindow && !this.lobbyWindow.isDestroyed()) {
+      this.lobbyWindow.setPosition(100, 100);
+      this.lobbyWindow.show();
+      this.lobbyWindow.focus();
       return true;
     }
-    this.lobbyWindow.setPosition(100, 100);
-    this.lobbyWindow.show();
-    this.lobbyWindow.focus();
-    return true;
+    return false;
   }
 
   /** Đưa lobby window trở lại vị trí ẩn ngoài màn hình sau khi debug xong */
