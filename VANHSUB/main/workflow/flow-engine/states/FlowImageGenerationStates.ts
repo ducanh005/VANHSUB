@@ -915,7 +915,7 @@ export const EnterPromptState: FlowAutomationState = {
  */
 export const ConfigureOptionsState: FlowAutomationState = {
   name: 'CONFIGURE_OPTIONS',
-  timeoutMs: 15000,
+  timeoutMs: 25000,
 
   async enter(ctx: FlowStateContext): Promise<void> {
     ctx.onProgress?.(22, 'Đang đồng bộ thiết lập ảnh (tỉ lệ, số lượng, mô hình)...');
@@ -929,19 +929,18 @@ export const ConfigureOptionsState: FlowAutomationState = {
       imageEngine: ctx.imageEngine || 'nano-banana',
     });
 
+    // Cho giao diện ổn định sau khi popover cài đặt tỷ lệ đóng
+    await new Promise((r) => setTimeout(r, 400));
+
     // 2. Chọn model đúng theo ctx.imageEngine trong Image Editor (/edit/)
-    // Mapping từ imageEngine config → tên model hiển thị trên UI Google Flow
+    // Mapping từ imageEngine config → keyword tìm kiếm trên UI Google Flow
     const rawEngine = (ctx.imageEngine || 'nano-banana').toLowerCase().trim();
-    // Chuẩn hoá tên engine: 'banana-pro', 'banana_pro', 'pro' → 'banana-pro'
-    //                        'nano-banana', 'nano_banana', 'nano' → 'nano-banana'
     const engineNormalized =
       rawEngine.includes('pro') || rawEngine.includes('banana-pro') || rawEngine === 'banana_pro'
         ? 'banana-pro'
         : 'nano-banana';
 
-    // Tên model theo UI (Vietnamese locale của Google Flow)
-    // 'nano-banana' → "Nano Banana 2" (hoặc text tương tự)
-    // 'banana-pro'  → "Banana Pro" / "Banana 1" (text tương tự trên UI)
+    // Keyword để match: 'pro' cho Banana Pro, 'nano' cho Nano Banana
     const modelKeyword = engineNormalized === 'banana-pro' ? 'pro' : 'nano';
 
     console.log(`[FlowImageState] 🍌 Đang chọn model: ${engineNormalized} (keyword: "${modelKeyword}") cho imageEngine="${ctx.imageEngine}"`);
@@ -955,74 +954,267 @@ export const ConfigureOptionsState: FlowAutomationState = {
           );
           if (trigger) {
             trigger.click();
-            return { clicked: true, label: trigger.getAttribute('aria-label') || trigger.innerText };
+            return { clicked: true, text: (trigger.innerText || trigger.getAttribute('aria-label') || '').trim() };
           }
           return { clicked: false };
         })()
       `;
       const openRes = await safeExecuteJs<any>(ctx.win, openModelPickerJs, 2000);
-      if (openRes?.clicked) {
-        await new Promise((r) => setTimeout(r, 500));
+      if (!openRes?.clicked) {
+        console.error('[FlowImageState] ❌ Không tìm thấy nút settings trigger để mở menu chọn model!');
+        return {
+          ok: false,
+          error: 'settings_trigger_not_found',
+          errorDetail: 'Không tìm thấy nút Settings Trigger để mở menu chọn model trong Google Flow',
+          data: { modelClicked: false, keyword: modelKeyword, availableOptions: [] }
+        };
+      }
 
-        // 2b. Tìm và click đúng model option trong dropdown/panel
-        const selectModelJs = `
+      // 2b. BƯỚC WAIT: Chờ menu model options render xong (chờ ít nhất 1 option element xuất hiện trong DOM)
+      const scanOptionsJs = `
+        (function() {
+          const optionSelectors = [
+            'mat-option',
+            'mat-radio-button',
+            '[role="option"]',
+            '[role="menuitem"]',
+            '[role="radio"]',
+            '.model-option',
+            '.model-item',
+            '.mat-mdc-menu-item',
+            '.cdk-overlay-pane [role="menuitem"]',
+            '.cdk-overlay-pane button',
+            '.cdk-overlay-container mat-option',
+            '.cdk-overlay-container [role="menuitem"]',
+            '.cdk-overlay-container [role="radio"]'
+          ];
+          const elements = Array.from(document.querySelectorAll(optionSelectors.join(', '))).filter(el => {
+            const r = el.getBoundingClientRect();
+            return r.width > 0 && r.height > 0;
+          });
+
+          const options = elements.map(el => {
+            const text = (el.textContent || el.getAttribute('aria-label') || '').trim().replace(/\\s+/g, ' ');
+            return text;
+          }).filter(t => t.length > 0 && t.length < 80);
+
+          return {
+            count: elements.length,
+            options: Array.from(new Set(options))
+          };
+        })()
+      `;
+
+      let menuReady = false;
+      let menuCandidatesCount = 0;
+      let detectedOptions: string[] = [];
+      const waitStart = Date.now();
+      const maxWaitMenuMs = 4000;
+
+      while (Date.now() - waitStart < maxWaitMenuMs) {
+        const scanRes = await safeExecuteJs<any>(ctx.win, scanOptionsJs, 1500);
+        if (scanRes && scanRes.count > 0) {
+          menuReady = true;
+          menuCandidatesCount = scanRes.count;
+          detectedOptions = scanRes.options || [];
+          break;
+        }
+        await new Promise((r) => setTimeout(r, 150));
+        if (ctx.isCancelled?.()) break;
+      }
+
+      // Nếu hết thời gian chờ mà candidates vẫn = 0 -> LỖI CỨNG (hard error)
+      if (!menuReady || menuCandidatesCount === 0) {
+        const overlayDebug = await safeExecuteJs<any>(ctx.win, `
           (function() {
-            const keyword = ${JSON.stringify(modelKeyword)};
-            // Tìm trong các option/button/radio trong panel settings
-            const candidates = Array.from(document.querySelectorAll(
-              'mat-option, mat-radio-button, [role="option"], [role="menuitem"], [role="radio"], .model-option, .model-item, button[class*="model"], li[class*="model"], .cdk-option'
-            ));
-            for (const el of candidates) {
-              const text = (el.textContent || el.getAttribute('aria-label') || '').toLowerCase();
-              if (text.includes(keyword)) {
-                el.click();
-                return { selected: true, text: el.textContent?.trim()?.slice(0, 50) };
+            const container = document.querySelector('.cdk-overlay-container');
+            if (!container) return 'Không có .cdk-overlay-container trong DOM';
+            const text = (container.innerText || container.textContent || '').trim().slice(0, 250);
+            const tags = Array.from(container.querySelectorAll('*')).map(e => e.tagName.toLowerCase()).slice(0, 30);
+            return { text, tags };
+          })()
+        `, 1500);
+
+        console.error(
+          `[FlowImageState] ❌ Menu chọn model không xuất hiện hoặc chưa kịp render (candidates=0). Overlay debug:`,
+          overlayDebug
+        );
+
+        return {
+          ok: false,
+          error: 'model_menu_not_rendered',
+          errorDetail: `Menu chọn model chưa kịp render hoặc không xuất hiện sau khi click Settings Trigger (candidates=0). Keyword cần tìm="${modelKeyword}". Overlay debug: ${JSON.stringify(overlayDebug)}`,
+          data: {
+            modelClicked: false,
+            keyword: modelKeyword,
+            availableOptions: [],
+          }
+        };
+      }
+
+      console.log(`[FlowImageState] 📋 Đã phát hiện ${menuCandidatesCount} options trong menu model: [${detectedOptions.map(o => `"${o}"`).join(', ')}]`);
+
+      // 2c. Tìm và click đúng model option theo keyword
+      const selectModelJs = `
+        (function() {
+          const keyword = ${JSON.stringify(modelKeyword.toLowerCase())};
+          const optionSelectors = [
+            'mat-option',
+            'mat-radio-button',
+            '[role="option"]',
+            '[role="menuitem"]',
+            '[role="radio"]',
+            '.model-option',
+            '.model-item',
+            '.mat-mdc-menu-item',
+            '.cdk-overlay-pane [role="menuitem"]',
+            '.cdk-overlay-pane button',
+            '.cdk-overlay-container mat-option',
+            '.cdk-overlay-container [role="menuitem"]',
+            '.cdk-overlay-container [role="radio"]'
+          ];
+          const candidates = Array.from(document.querySelectorAll(optionSelectors.join(', '))).filter(el => {
+            const r = el.getBoundingClientRect();
+            return r.width > 0 && r.height > 0;
+          });
+
+          const allOptionsText = candidates.map(el => (el.textContent || el.getAttribute('aria-label') || '').trim().replace(/\\s+/g, ' '));
+
+          let matchedEl = null;
+          let matchedText = '';
+
+          // Logic match chuẩn xác:
+          // Nếu keyword là 'nano': ưu tiên chứa 'nano' VÀ KHÔNG chứa 'pro'
+          // Nếu keyword là 'pro': ưu tiên chứa 'pro'
+          for (const el of candidates) {
+            const t = (el.textContent || el.getAttribute('aria-label') || '').toLowerCase().trim();
+            if (keyword === 'nano') {
+              if (t.includes('nano') && !t.includes('pro')) {
+                matchedEl = el;
+                matchedText = el.textContent?.trim() || t;
+                break;
+              } else if (t.includes('nano') && !matchedEl) {
+                matchedEl = el;
+                matchedText = el.textContent?.trim() || t;
+              }
+            } else if (keyword === 'pro') {
+              if (t.includes('pro')) {
+                matchedEl = el;
+                matchedText = el.textContent?.trim() || t;
+                break;
               }
             }
-            // Thử tìm rộng hơn trong overlay panels
-            const overlayEls = Array.from(document.querySelectorAll(
-              '.cdk-overlay-container *, mat-dialog-container *, .mat-mdc-select-panel *, [class*="model-selector"] *, [class*="model-picker"] *'
-            )).filter(el => {
-              const t = (el.textContent || '').toLowerCase().trim();
-              return t.includes(keyword) && t.length < 100;
-            });
-            if (overlayEls.length > 0) {
-              (overlayEls[0] as HTMLElement).click();
-              return { selected: true, text: overlayEls[0].textContent?.trim()?.slice(0, 50), source: 'overlay' };
+          }
+
+          // Fallback match nếu chưa tìm ra
+          if (!matchedEl) {
+            for (const el of candidates) {
+              const t = (el.textContent || el.getAttribute('aria-label') || '').toLowerCase().trim();
+              if (t.includes(keyword)) {
+                matchedEl = el;
+                matchedText = el.textContent?.trim() || t;
+                break;
+              }
             }
-            return { selected: false, candidates: candidates.length };
-          })()
-        `;
-        const selectRes = await safeExecuteJs<any>(ctx.win, selectModelJs, 2000);
-        if (selectRes?.selected) {
-          console.log(`[FlowImageState] ✅ Đã chọn model: "${selectRes.text}"`);
-          await new Promise((r) => setTimeout(r, 300));
-        } else {
-          console.warn(`[FlowImageState] ⚠️ Không tìm thấy model option cho keyword="${modelKeyword}", candidates=${selectRes?.candidates || 0}`);
-        }
+          }
 
-        // 2c. Đóng panel sau khi chọn (Escape hoặc click backdrop)
-        await safeExecuteJs(ctx.win, `
-          (function() {
-            const bd = document.querySelector('.cdk-overlay-backdrop');
-            if (bd) { bd.click(); return; }
-          })()
-        `, 1000);
-        ctx.win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
-        await new Promise((r) => setTimeout(r, 50));
-        ctx.win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' });
-        await new Promise((r) => setTimeout(r, 200));
-      } else {
-        console.warn('[FlowImageState] ⚠️ Không tìm thấy nút settings trigger để chọn model — bỏ qua bước chọn model.');
+          if (matchedEl) {
+            matchedEl.click();
+            return {
+              selected: true,
+              clickedText: matchedText.slice(0, 80),
+              allOptions: allOptionsText
+            };
+          }
+
+          return {
+            selected: false,
+            candidatesCount: candidates.length,
+            allOptions: allOptionsText
+          };
+        })()
+      `;
+
+      const selectRes = await safeExecuteJs<any>(ctx.win, selectModelJs, 2500);
+
+      // Nếu không tìm thấy model khớp keyword -> LỖI CỨNG (hard error), KHÔNG ĐƯỢC warning rồi đi tiếp!
+      if (!selectRes?.selected) {
+        console.error(
+          `[FlowImageState] ❌ Không tìm thấy model option nào khớp keyword="${modelKeyword}". ` +
+          `Danh sách toàn bộ ${selectRes?.allOptions?.length || 0} options thực tế trên DOM: [${(selectRes?.allOptions || []).map((o: string) => `"${o}"`).join(', ')}]`
+        );
+        return {
+          ok: false,
+          error: 'model_option_not_found',
+          errorDetail: `Không tìm thấy model option khớp keyword="${modelKeyword}" (engine="${engineNormalized}"). Danh sách options thực tế trên DOM: [${(selectRes?.allOptions || []).map((o: string) => `"${o}"`).join(', ')}]`,
+          data: {
+            modelClicked: false,
+            keyword: modelKeyword,
+            availableOptions: selectRes?.allOptions || [],
+          }
+        };
       }
-    } catch (modelErr: any) {
-      console.warn('[FlowImageState] Lỗi khi chọn model:', modelErr?.message || modelErr);
-    }
 
-    return { ok: true };
+      console.log(`[FlowImageState] ✅ Đã click chọn model thành công: "${selectRes.clickedText}"`);
+      await new Promise((r) => setTimeout(r, 300));
+
+      // 2d. Đóng panel sau khi chọn (Backdrop click hoặc Escape)
+      await safeExecuteJs(ctx.win, `
+        (function() {
+          const bd = document.querySelector('.cdk-overlay-backdrop');
+          if (bd) { bd.click(); return; }
+        })()
+      `, 1000);
+      ctx.win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
+      await new Promise((r) => setTimeout(r, 50));
+      ctx.win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' });
+      await new Promise((r) => setTimeout(r, 250));
+
+      return {
+        ok: true,
+        data: {
+          modelClicked: true,
+          selectedModelText: selectRes.clickedText,
+          keyword: modelKeyword,
+          engineNormalized,
+          availableOptions: selectRes.allOptions,
+        }
+      };
+    } catch (modelErr: any) {
+      console.error('[FlowImageState] ❌ Lỗi nghiêm trọng khi chọn model:', modelErr?.message || modelErr);
+      return {
+        ok: false,
+        error: 'model_selection_exception',
+        errorDetail: `Ngoại lệ khi thực hiện chọn model: ${modelErr?.message || modelErr}`,
+        data: { modelClicked: false, keyword: modelKeyword, availableOptions: [] }
+      };
+    }
   },
 
-  async verify(ctx: FlowStateContext): Promise<VerifyResult> {
+  async verify(ctx: FlowStateContext, res: ActionResult): Promise<VerifyResult> {
+    // 1. Xác nhận (a): Hành động click chọn model ở bước EXECUTE đã thực sự xảy ra
+    const modelClicked = Boolean(res.ok && res.data?.modelClicked);
+    const selectedModelText = res.data?.selectedModelText || '';
+    if (!modelClicked) {
+      return {
+        ok: false,
+        criteria: {
+          modelClicked: false,
+          selectedModelText: '',
+          currentModelText: '',
+        },
+        reason: `Bước chọn model thất bại: không click được vào bất kỳ model option nào (modelClicked=false, error=${res.errorDetail || res.error || 'candidates=0'})`,
+      };
+    }
+
+    // 2. Xác nhận (b): currentModelText đọc từ UI sau đó phải khớp với model mong muốn
+    const rawEngine = (ctx.imageEngine || 'nano-banana').toLowerCase().trim();
+    const engineNormalized =
+      rawEngine.includes('pro') || rawEngine.includes('banana-pro') || rawEngine === 'banana_pro'
+        ? 'banana-pro'
+        : 'nano-banana';
+    const expectedKeyword = engineNormalized === 'banana-pro' ? 'pro' : 'nano';
+
     const verifySettingsJs = `
       (function() {
         let storageOk = false;
@@ -1049,27 +1241,41 @@ export const ConfigureOptionsState: FlowAutomationState = {
         const currentModelText = triggerBtn ? (triggerBtn.textContent || triggerBtn.getAttribute('aria-label') || '').trim() : '';
 
         return {
-          ok: storageOk || modeTabActive,
+          modeOk: storageOk || modeTabActive,
           mode,
           outputCount,
           aspectRatio,
           modeTabActive,
-          currentModelText: currentModelText.slice(0, 50),
+          currentModelText: currentModelText.slice(0, 80),
         };
       })()
     `;
-    const res = await safeExecuteJs<any>(ctx.win, verifySettingsJs, 2000);
-    const ok = Boolean(res?.ok);
+    const verifyRes = await safeExecuteJs<any>(ctx.win, verifySettingsJs, 2000);
+    const modeOk = Boolean(verifyRes?.modeOk);
+    const currentModelText = (verifyRes?.currentModelText || '').toLowerCase();
+    const modelTextMatches = currentModelText.includes(expectedKeyword);
+
+    const ok = modeOk && modelTextMatches;
+    let failReason: string | undefined;
+    if (!modeOk) {
+      failReason = 'Thiết lập mode trong LocalStorage/DOM không khớp IMAGE';
+    } else if (!modelTextMatches) {
+      failReason = `Model hiển thị trên UI ("${verifyRes?.currentModelText}") không khớp với model mong muốn "${engineNormalized}" (keyword="${expectedKeyword}")`;
+    }
+
     return {
       ok,
       criteria: {
-        mode: res?.mode || 'IMAGE',
-        outputCount: res?.outputCount || ctx.outputCount || 1,
-        aspectRatio: res?.aspectRatio || ctx.aspectRatio || '16:9',
-        modeTabActive: Boolean(res?.modeTabActive),
-        currentModelText: res?.currentModelText || '',
+        modelClicked,
+        selectedModelText,
+        expectedKeyword,
+        currentModelText: verifyRes?.currentModelText || '',
+        modelTextMatches,
+        mode: verifyRes?.mode || 'IMAGE',
+        outputCount: verifyRes?.outputCount || ctx.outputCount || 1,
+        aspectRatio: verifyRes?.aspectRatio || ctx.aspectRatio || '16:9',
       },
-      reason: ok ? undefined : 'Thiết lập mode trong LocalStorage/DOM không khớp IMAGE',
+      reason: failReason,
     };
   },
 
@@ -1353,7 +1559,7 @@ export const VerifyGenerateButtonState: FlowAutomationState = {
  */
 export const CheckIdempotencyBeforeGenerateState: FlowAutomationState = {
   name: 'CHECK_IDEMPOTENCY_BEFORE_GENERATE',
-  timeoutMs: 6000,
+  timeoutMs: 12000,
 
   async enter(): Promise<void> {},
 
@@ -1401,20 +1607,16 @@ export const CheckIdempotencyBeforeGenerateState: FlowAutomationState = {
         };
       })()
     `;
-    const status = await safeExecuteJs<any>(ctx.win, checkStateJs, 2500);
+    let status = await safeExecuteJs<any>(ctx.win, checkStateJs, 2500);
 
-    // Chỉ coi là đã sinh khi:
-    // 1. Có card sinh đang chạy trên canvas (hasGeneratingCard) HOẶC
-    // 2. Prompt đã được gửi (isCleared) VÀ có spinner thật HOẶC nút đã bị disabled sau khi gửi
-    const isAlreadyGenerating = Boolean(
-      status?.hasGeneratingCard ||
-      (status?.isCleared && (status?.hasSpinner || status?.btnDisabled))
-    );
+    // YÊU CẦU 1: Bắt buộc phải có ÍT NHẤT MỘT trong hai bằng chứng trực tiếp:
+    // hasSpinner === true HOẶC hasGeneratingCard === true.
+    // Nếu cả hai đều false -> TUYỆT ĐỐI KHÔNG được kết luận là đang generate, dù isCleared hay btnDisabled thế nào!
+    const hasDirectEvidence = Boolean(status?.hasSpinner || status?.hasGeneratingCard);
 
-    // Nếu đã có card đang tạo hoặc prompt đã được gửi và đang sinh -> Chuyển thẳng sang WAIT_FOR_GENERATION!
-    if (isAlreadyGenerating) {
+    if (hasDirectEvidence) {
       console.warn(
-        `[FlowStateMachine] [${ctx.taskId}#${ctx.generationAttemptId}] ⚠️ IDEMPOTENCY: Google Flow đã bắt đầu sinh từ trước! Bỏ qua CLICK_GENERATE để chống trùng lặp! Tiêu chí phát hiện:`,
+        `[FlowStateMachine] [${ctx.taskId}#${ctx.generationAttemptId}] ⚠️ IDEMPOTENCY: Google Flow đã bắt đầu sinh thật từ trước (có bằng chứng trực tiếp: hasSpinner=${status?.hasSpinner}, hasGeneratingCard=${status?.hasGeneratingCard})! Bỏ qua CLICK_GENERATE để chống trùng lặp!`,
         status
       );
       ctx.generationState = 'GENERATING';
@@ -1422,14 +1624,66 @@ export const CheckIdempotencyBeforeGenerateState: FlowAutomationState = {
       return {
         ok: true,
         skipToState: 'WAIT_FOR_GENERATION',
-        data: { ...status, decision: 'ALREADY_GENERATING_SKIP_CLICK' },
+        data: { ...status, decision: 'ALREADY_GENERATING_SKIP_CLICK', directEvidence: true },
       };
     }
 
+    // YÊU CẦU 2 & 3: Khi btnDisabled: true nhưng KHÔNG có spinner hay generating card:
+    // Đây là "transient UI lock" sau khi nhập prompt / paste ảnh, KHÔNG phải đang generate.
+    // Xử lý: Chờ thêm (poll ngắn mỗi 300ms, tối đa 4500ms) cho tới khi btnDisabled trở lại false rồi mới CLICK_GENERATE.
+    if (status?.btnDisabled) {
+      console.log(
+        `[FlowStateMachine] [${ctx.taskId}#${ctx.generationAttemptId}] ⏳ Nút Generate đang tạm khóa (btnDisabled=true, transient UI lock) nhưng KHÔNG có spinner/card. Bắt đầu chờ nút mở khóa (poll mỗi 300ms, tối đa 4500ms)...`
+      );
+
+      const pollStart = Date.now();
+      const maxWaitMs = 4500;
+      let unlocked = false;
+
+      while (Date.now() - pollStart < maxWaitMs) {
+        await new Promise((r) => setTimeout(r, 300));
+        if (ctx.isCancelled?.()) break;
+
+        const pollStatus = await safeExecuteJs<any>(ctx.win, checkStateJs, 1500);
+
+        // Nếu trong lúc chờ xuất hiện bằng chứng sinh trực tiếp -> chuyển ngay sang WAIT_FOR_GENERATION
+        if (pollStatus?.hasSpinner || pollStatus?.hasGeneratingCard) {
+          console.warn(
+            `[FlowStateMachine] [${ctx.taskId}#${ctx.generationAttemptId}] ⚠️ Trong lúc chờ transient UI lock, phát hiện generation đã bắt đầu thật (hasSpinner=${pollStatus.hasSpinner}, hasGeneratingCard=${pollStatus.hasGeneratingCard})! Chuyển sang WAIT_FOR_GENERATION.`,
+            pollStatus
+          );
+          ctx.generationState = 'GENERATING';
+          ctx.idempotencyDetectedAt = Date.now();
+          return {
+            ok: true,
+            skipToState: 'WAIT_FOR_GENERATION',
+            data: { ...pollStatus, decision: 'ALREADY_GENERATING_SKIP_CLICK', directEvidence: true },
+          };
+        }
+
+        // Nếu nút đã hết disabled
+        if (pollStatus?.hasGenBtn && !pollStatus.btnDisabled) {
+          console.log(
+            `[FlowStateMachine] [${ctx.taskId}#${ctx.generationAttemptId}] ✅ Nút Generate đã hết disabled (mở khóa) sau ${Date.now() - pollStart}ms! Tiến hành CLICK_GENERATE.`
+          );
+          unlocked = true;
+          status = pollStatus;
+          break;
+        }
+      }
+
+      if (!unlocked) {
+        console.warn(
+          `[FlowStateMachine] [${ctx.taskId}#${ctx.generationAttemptId}] ⚠️ Hết thời gian chờ transient UI lock (${maxWaitMs}ms), nút vẫn báo disabled (nhưng vẫn KHÔNG có spinner/card). VẪN TIẾP TỤC chuyển sang CLICK_GENERATE để không bị bỏ qua sinh ảnh!`
+        );
+      }
+    }
+
+    // YÊU CẦU 4: Luôn thực thi CLICK_GENERATE thật sự khi không có bằng chứng trực tiếp
     ctx.generationState = 'READY';
     return {
       ok: true,
-      data: { ...status, decision: 'SAFE_TO_GENERATE' },
+      data: { ...status, decision: 'SAFE_TO_GENERATE', directEvidence: false },
     };
   },
 
@@ -1445,6 +1699,7 @@ export const CheckIdempotencyBeforeGenerateState: FlowAutomationState = {
         hasGenBtn: Boolean(data.hasGenBtn),
         btnDisabled: Boolean(data.btnDisabled),
         decision: data.decision || 'SAFE_TO_GENERATE',
+        directEvidence: Boolean(data.directEvidence),
       },
     };
   },
