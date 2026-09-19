@@ -306,11 +306,14 @@ export class GoogleVeoSessionManager {
     const initX = this.isLobbyDebugVisible ? 100 : OFFSCREEN_X;
     const initY = this.isLobbyDebugVisible ? 100 : OFFSCREEN_Y;
 
+    const initWidth = 1440;
+    const initHeight = 900;
+
     this.lobbyWindow = new BrowserWindow({
-      width: 1100,
-      height: 800,
-      minWidth: 800,
-      minHeight: 600,
+      width: initWidth,
+      height: initHeight,
+      minWidth: 1024,
+      minHeight: 720,
       x: initX,
       y: initY,
       show: Boolean(this.isLobbyDebugVisible),
@@ -1272,28 +1275,105 @@ export class GoogleVeoSessionManager {
       if (isCancelled?.()) return false;
       await new Promise((r) => setTimeout(r, 1000));
 
-      const checkReadyJs = `
-        (function() {
-          const inProj = window.location.href.includes('/project/');
-          const promptEl = document.querySelector('.ProseMirror, [contenteditable="true"], .prompt-input');
-          return inProj && Boolean(promptEl);
-        })()
-      `;
-      const isReady = await this.safeExecuteJs<boolean>(targetWin, checkReadyJs, 2000);
-      if (isReady) {
+      const inProj = await this.safeExecuteJs<boolean>(targetWin, `Boolean(window.location.href.includes('/project/'))`, 1500);
+      if (inProj) {
         const pageUrl = (await this.safeExecuteJs<string>(targetWin, 'window.location.href', 1500)) || targetWin.webContents?.getURL?.() || '';
         const match = pageUrl.match(/\/project\/([a-zA-Z0-9_-]+)/);
         if (match && match[1]) {
           this.currentProjectId = match[1];
           console.log(`[Google Flow Browser] 📌 Đã lưu currentProjectId mới: ${this.currentProjectId}`);
         }
-        console.log(`[Google Flow Browser] ✅ Dự án mới đã sẵn sàng sau ${i + 1}s:`, pageUrl);
-        await new Promise((r) => setTimeout(r, 1000));
+        console.log(`[Google Flow Browser] ✅ Dự án mới đã được khởi tạo (${pageUrl}), đang chuẩn bị không gian làm việc...`);
+        await this.ensureSceneContext(targetWin, onProgress, isCancelled);
         return true;
       }
     }
 
     console.warn('[Google Flow Browser] ⚠️ Quá thời gian chờ khởi tạo dự án mới.');
+    return false;
+  }
+
+  /**
+   * Đảm bảo cửa sổ Flow đang ở trong một Phân cảnh (Scene) có sẵn khung soạn thảo prompt (.ProseMirror)
+   * Tránh việc bị kẹt ở trang Thư viện Media ("Tất cả nội dung nghe nhìn") với thanh prompt rỗng.
+   */
+  public async ensureSceneContext(
+    win: any,
+    onProgress?: (pct: number, msg: string) => void,
+    isCancelled?: () => boolean
+  ): Promise<boolean> {
+    if (!win || win.isDestroyed()) return false;
+
+    // Kiểm tra xem đã có sẵn ô prompt chưa
+    const checkPromptJs = `Boolean(document.querySelector('.ProseMirror, [contenteditable="true"]:not([type="text"]), flow-prompt-box .ProseMirror'))`;
+    let hasPrompt = await this.safeExecuteJs<boolean>(win, checkPromptJs, 2000);
+    if (hasPrompt) return true;
+
+    console.log('[Google Flow Browser] 🎬 Đang ở trang tổng thể dự án, kích hoạt vào Scene để mở khung Prompt...');
+    onProgress?.(19, 'Đang mở không gian phân cảnh (Scene) để chuẩn bị prompt...');
+
+    // Cách 1: Nếu đã có thẻ Scene trên trang, click vào Scene đầu tiên
+    const clickExistingSceneJs = `
+      (function() {
+        const sceneCard = document.querySelector('a[href*="/scene/"], [class*="scene-card"], flow-scene-card, .scene-card-item');
+        if (sceneCard) {
+          sceneCard.click();
+          return true;
+        }
+        return false;
+      })()
+    `;
+    const clickedScene = await this.safeExecuteJs<boolean>(win, clickExistingSceneJs, 2000);
+    if (clickedScene) {
+      for (let i = 0; i < 10; i++) {
+        if (isCancelled?.()) return false;
+        await new Promise((r) => setTimeout(r, 800));
+        hasPrompt = await this.safeExecuteJs<boolean>(win, checkPromptJs, 1500);
+        if (hasPrompt) {
+          console.log('[Google Flow Browser] ✅ Đã vào Scene hiện có thành công.');
+          return true;
+        }
+      }
+    }
+
+    // Cách 2: Nhấn nút "+" trên thanh công cụ và chọn "Cảnh mới"
+    const openAddMenuJs = `
+      (function() {
+        const addBtn = document.querySelector('button[aria-label*="thêm nội dung nghe nhìn" i], button[aria-label*="add" i], button.add-menu-trigger');
+        if (addBtn) {
+          addBtn.click();
+          return true;
+        }
+        return false;
+      })()
+    `;
+    const openedMenu = await this.safeExecuteJs<boolean>(win, openAddMenuJs, 2000);
+    if (openedMenu) {
+      await new Promise((r) => setTimeout(r, 600));
+      const clickNewSceneMenuJs = `
+        (function() {
+          const items = Array.from(document.querySelectorAll('[role="menuitem"], .mat-mdc-menu-item, button'));
+          const sceneBtn = items.find(el => (el.innerText || '').includes('Cảnh mới') || (el.innerText || '').includes('New scene'));
+          if (sceneBtn) {
+            sceneBtn.click();
+            return true;
+          }
+          return false;
+        })()
+      `;
+      await this.safeExecuteJs<boolean>(win, clickNewSceneMenuJs, 2000);
+
+      for (let i = 0; i < 15; i++) {
+        if (isCancelled?.()) return false;
+        await new Promise((r) => setTimeout(r, 800));
+        hasPrompt = await this.safeExecuteJs<boolean>(win, checkPromptJs, 1500);
+        if (hasPrompt) {
+          console.log('[Google Flow Browser] ✅ Đã tạo và vào Cảnh mới thành công, khung Prompt sẵn sàng.');
+          return true;
+        }
+      }
+    }
+
     return false;
   }
 
@@ -1326,6 +1406,7 @@ export class GoogleVeoSessionManager {
       if (!safeTargetId || safeTargetId === currentActiveId) {
         this.currentProjectId = currentActiveId;
         console.log(`[Google Flow Browser] Đang ở trong project Google Flow hợp lệ: ${currentActiveId}`);
+        await this.ensureSceneContext(win, onProgress, isCancelled);
         return true;
       }
     }
@@ -1336,6 +1417,7 @@ export class GoogleVeoSessionManager {
       this.currentProjectId = activeId;
       if (currentUrl.includes(`/project/${activeId}`)) {
         console.log(`[Google Flow Browser] Đã ở đúng project được chỉ định: ${activeId}`);
+        await this.ensureSceneContext(win, onProgress, isCancelled);
         return true;
       }
       onProgress?.(15, `Đang mở dự án ${activeId}...`);
@@ -1351,6 +1433,7 @@ export class GoogleVeoSessionManager {
           );
           if (ready) {
             console.log(`[Google Flow Browser] Đã tải xong project ${activeId} sau ${i + 1}s.`);
+            await this.ensureSceneContext(win, onProgress, isCancelled);
             return true;
           }
         }
@@ -2099,8 +2182,7 @@ export class GoogleVeoSessionManager {
 
         const overlaySelectors = [
           'flow-media-viewer', '.media-viewer-container', '.lightbox-overlay', 'flow-lightbox',
-          '[role="dialog"]', '.cdk-overlay-pane:not(:empty)', 'mat-dialog-container',
-          '.modal-backdrop', 'flow-full-screen-preview', '.media-preview-expanded'
+          'flow-full-screen-preview', '.media-preview-expanded'
         ];
 
         for (const sel of overlaySelectors) {
@@ -2318,7 +2400,11 @@ export class GoogleVeoSessionManager {
       }
     }
     if (this.lobbyWindow && !this.lobbyWindow.isDestroyed()) {
-      this.lobbyWindow.setPosition(100, 100);
+      this.lobbyWindow.setSize(1440, 900);
+      this.lobbyWindow.setPosition(100, 60);
+      try {
+        this.lobbyWindow.webContents?.setZoomFactor(1.0);
+      } catch {}
       this.lobbyWindow.show();
       this.lobbyWindow.focus();
       return true;

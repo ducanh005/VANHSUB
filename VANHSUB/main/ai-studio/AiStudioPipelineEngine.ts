@@ -971,7 +971,11 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
               await sessionMgr.showLobbyForDebug();
               lobbyWin = sessionMgr.getLobbyWindow();
               if (lobbyWin && !lobbyWin.isDestroyed()) {
-                lobbyWin.setPosition(100, 100);
+                lobbyWin.setSize(1440, 900);
+                lobbyWin.setPosition(100, 60);
+                try {
+                  lobbyWin.webContents?.setZoomFactor(1.0);
+                } catch {}
                 lobbyWin.show();
                 lobbyWin.focus();
               }
@@ -1297,7 +1301,11 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
           await sessionMgr.showLobbyForDebug();
           lobbyWin = sessionMgr.getLobbyWindow();
           if (lobbyWin && !lobbyWin.isDestroyed()) {
-            lobbyWin.setPosition(100, 100);
+            lobbyWin.setSize(1440, 900);
+            lobbyWin.setPosition(100, 60);
+            try {
+              lobbyWin.webContents?.setZoomFactor(1.0);
+            } catch {}
             lobbyWin.show();
             lobbyWin.focus();
           }
