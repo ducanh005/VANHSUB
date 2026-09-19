@@ -559,7 +559,8 @@ export const FindPromptInputState: FlowAutomationState = {
 
 /**
  * STATE 7B: HANDLE_IMAGE_REFERENCE
- * Nạp ảnh tham chiếu cục bộ (Character / Style Reference) từ đĩa vào Prompt Box nếu có referenceImagePath/initFrameUrl
+ * Nạp ảnh tham chiếu cục bộ (Character / Style Reference) từ đĩa vào Prompt Box nếu có referenceImagePath/initFrameUrl.
+ * Trong Image Editor (/edit/), drag-drop CDP trực tiếp vào vùng ProseMirror — không dùng clipboard paste.
  */
 export const HandleImageReferenceState: FlowAutomationState = {
   name: 'HANDLE_IMAGE_REFERENCE',
@@ -602,21 +603,67 @@ export const HandleImageReferenceState: FlowAutomationState = {
       return { ok: true, data: { hasRefImage: true, alreadyPresent: true } };
     }
 
-    // 2. Thử nạp trực tiếp qua FlowFileInputInjector (CDP DOM.setFileInputFiles)
+    // 2. Lấy tọa độ của ProseMirror editor để drag-drop ảnh vào đúng vùng prompt
+    // Trong Image Editor (/edit/), ảnh tham chiếu được nạp bằng cách kéo thả file trực tiếp
+    // vào vùng ProseMirror hoặc vùng chứa prompt box
+    const getEditorRectJs = `
+      (function() {
+        const selectors = [
+          '.ProseMirror',
+          '[contenteditable="true"]',
+          'flow-prompt-box',
+          'flow-base-prompt-box',
+          '.prompt-box-container',
+          '.base-prompt-box'
+        ];
+        for (const sel of selectors) {
+          const el = document.querySelector(sel);
+          if (el) {
+            const r = el.getBoundingClientRect();
+            if (r && r.width > 0 && r.height > 0) {
+              return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2), width: r.width, height: r.height, selector: sel };
+            }
+          }
+        }
+        return null;
+      })()
+    `;
+    const editorRect = await safeExecuteJs<any>(ctx.win, getEditorRectJs, 2000);
+
+    // 3. Drag-drop file trực tiếp vào prompt editor bằng CDP (phương pháp chính xác nhất cho Image Editor)
+    const dropX = editorRect?.x ?? 720;
+    const dropY = editorRect?.y ?? 450;
+    console.log(`[FlowImageState] 📎 Drag-drop ảnh tham chiếu vào editor tại (${dropX}, ${dropY}): "${localPath}"`);
+
     try {
-      const injectRes = await FlowFileInputInjector.injectIntoBrowserWindow(ctx.win, localPath);
-      if (injectRes.success) {
-        await new Promise((r) => setTimeout(r, 1000));
+      const dropped = await FlowFileInputInjector.injectViaCDPDragDrop(ctx.win, localPath, dropX, dropY);
+      if (dropped) {
+        await new Promise((r) => setTimeout(r, 1500));
         const chipAppeared = await safeExecuteJs<boolean>(ctx.win, checkExistingChipJs);
         if (chipAppeared) {
-          return { ok: true, data: { hasRefImage: true, source: 'file_input_injector' } };
+          console.log('[FlowImageState] ✅ Chip ảnh tham chiếu đã xuất hiện trong prompt box.');
+          return { ok: true, data: { hasRefImage: true, source: 'cdp_drag_drop_editor' } };
         }
       }
-    } catch (injErr) {
+    } catch (dragErr) {
+      console.warn('[FlowImageState] CDP Drag-drop vào editor lỗi:', dragErr);
+    }
+
+    // 4. Fallback: Thử kéo thả vào vùng tile upload mặc định (viewport center)
+    try {
+      const dropped2 = await FlowFileInputInjector.injectViaCDPDragDrop(ctx.win, localPath, 720, 450);
+      if (dropped2) {
+        await new Promise((r) => setTimeout(r, 1500));
+        const chipAppeared2 = await safeExecuteJs<boolean>(ctx.win, checkExistingChipJs);
+        if (chipAppeared2) {
+          return { ok: true, data: { hasRefImage: true, source: 'cdp_drag_drop_fallback' } };
+        }
+      }
+    } catch {
       // Fall through to clipboard paste
     }
 
-    // 3. Fallback: Dán ảnh từ đường dẫn cục bộ vào clipboard OS và paste vào ProseMirror
+    // 5. Fallback cuối cùng: Dán ảnh từ đường dẫn cục bộ vào clipboard OS và paste vào ProseMirror
     let electron: any = null;
     try {
       electron = (ctx as any).electron || require('electron');
@@ -875,11 +922,103 @@ export const ConfigureOptionsState: FlowAutomationState = {
   },
 
   async execute(ctx: FlowStateContext): Promise<ActionResult> {
+    // 1. Đồng bộ aspect ratio, output count, và mode qua configureGoogleFlowSettings
     await ctx.sessionMgr.configureGoogleFlowSettings(ctx.win, 'image', {
       outputCount: ctx.outputCount || 1,
       aspectRatio: ctx.aspectRatio || '16:9',
       imageEngine: ctx.imageEngine || 'nano-banana',
     });
+
+    // 2. Chọn model đúng theo ctx.imageEngine trong Image Editor (/edit/)
+    // Mapping từ imageEngine config → tên model hiển thị trên UI Google Flow
+    const rawEngine = (ctx.imageEngine || 'nano-banana').toLowerCase().trim();
+    // Chuẩn hoá tên engine: 'banana-pro', 'banana_pro', 'pro' → 'banana-pro'
+    //                        'nano-banana', 'nano_banana', 'nano' → 'nano-banana'
+    const engineNormalized =
+      rawEngine.includes('pro') || rawEngine.includes('banana-pro') || rawEngine === 'banana_pro'
+        ? 'banana-pro'
+        : 'nano-banana';
+
+    // Tên model theo UI (Vietnamese locale của Google Flow)
+    // 'nano-banana' → "Nano Banana 2" (hoặc text tương tự)
+    // 'banana-pro'  → "Banana Pro" / "Banana 1" (text tương tự trên UI)
+    const modelKeyword = engineNormalized === 'banana-pro' ? 'pro' : 'nano';
+
+    console.log(`[FlowImageState] 🍌 Đang chọn model: ${engineNormalized} (keyword: "${modelKeyword}") cho imageEngine="${ctx.imageEngine}"`);
+
+    try {
+      // 2a. Click nút settings trigger để mở model picker panel
+      const openModelPickerJs = `
+        (function() {
+          const trigger = document.querySelector(
+            'button.settings-trigger-button, button[aria-label*="Điều kiện kích hoạt cài đặt" i], button[aria-label*="settings" i][class*="trigger"], flow-prompt-box button[aria-label*="cài đặt" i]'
+          );
+          if (trigger) {
+            trigger.click();
+            return { clicked: true, label: trigger.getAttribute('aria-label') || trigger.innerText };
+          }
+          return { clicked: false };
+        })()
+      `;
+      const openRes = await safeExecuteJs<any>(ctx.win, openModelPickerJs, 2000);
+      if (openRes?.clicked) {
+        await new Promise((r) => setTimeout(r, 500));
+
+        // 2b. Tìm và click đúng model option trong dropdown/panel
+        const selectModelJs = `
+          (function() {
+            const keyword = ${JSON.stringify(modelKeyword)};
+            // Tìm trong các option/button/radio trong panel settings
+            const candidates = Array.from(document.querySelectorAll(
+              'mat-option, mat-radio-button, [role="option"], [role="menuitem"], [role="radio"], .model-option, .model-item, button[class*="model"], li[class*="model"], .cdk-option'
+            ));
+            for (const el of candidates) {
+              const text = (el.textContent || el.getAttribute('aria-label') || '').toLowerCase();
+              if (text.includes(keyword)) {
+                el.click();
+                return { selected: true, text: el.textContent?.trim()?.slice(0, 50) };
+              }
+            }
+            // Thử tìm rộng hơn trong overlay panels
+            const overlayEls = Array.from(document.querySelectorAll(
+              '.cdk-overlay-container *, mat-dialog-container *, .mat-mdc-select-panel *, [class*="model-selector"] *, [class*="model-picker"] *'
+            )).filter(el => {
+              const t = (el.textContent || '').toLowerCase().trim();
+              return t.includes(keyword) && t.length < 100;
+            });
+            if (overlayEls.length > 0) {
+              (overlayEls[0] as HTMLElement).click();
+              return { selected: true, text: overlayEls[0].textContent?.trim()?.slice(0, 50), source: 'overlay' };
+            }
+            return { selected: false, candidates: candidates.length };
+          })()
+        `;
+        const selectRes = await safeExecuteJs<any>(ctx.win, selectModelJs, 2000);
+        if (selectRes?.selected) {
+          console.log(`[FlowImageState] ✅ Đã chọn model: "${selectRes.text}"`);
+          await new Promise((r) => setTimeout(r, 300));
+        } else {
+          console.warn(`[FlowImageState] ⚠️ Không tìm thấy model option cho keyword="${modelKeyword}", candidates=${selectRes?.candidates || 0}`);
+        }
+
+        // 2c. Đóng panel sau khi chọn (Escape hoặc click backdrop)
+        await safeExecuteJs(ctx.win, `
+          (function() {
+            const bd = document.querySelector('.cdk-overlay-backdrop');
+            if (bd) { bd.click(); return; }
+          })()
+        `, 1000);
+        ctx.win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
+        await new Promise((r) => setTimeout(r, 50));
+        ctx.win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' });
+        await new Promise((r) => setTimeout(r, 200));
+      } else {
+        console.warn('[FlowImageState] ⚠️ Không tìm thấy nút settings trigger để chọn model — bỏ qua bước chọn model.');
+      }
+    } catch (modelErr: any) {
+      console.warn('[FlowImageState] Lỗi khi chọn model:', modelErr?.message || modelErr);
+    }
+
     return { ok: true };
   },
 
@@ -905,12 +1044,17 @@ export const ConfigureOptionsState: FlowAutomationState = {
           document.querySelector('mat-button-toggle[value="IMAGE"].mat-button-toggle-checked, button[role="tab"][aria-selected="true"]')
         );
 
+        // Đọc model hiện tại từ settings trigger button
+        const triggerBtn = document.querySelector('button.settings-trigger-button, button[aria-label*="Điều kiện kích hoạt cài đặt" i]');
+        const currentModelText = triggerBtn ? (triggerBtn.textContent || triggerBtn.getAttribute('aria-label') || '').trim() : '';
+
         return {
           ok: storageOk || modeTabActive,
           mode,
           outputCount,
           aspectRatio,
-          modeTabActive
+          modeTabActive,
+          currentModelText: currentModelText.slice(0, 50),
         };
       })()
     `;
@@ -923,6 +1067,7 @@ export const ConfigureOptionsState: FlowAutomationState = {
         outputCount: res?.outputCount || ctx.outputCount || 1,
         aspectRatio: res?.aspectRatio || ctx.aspectRatio || '16:9',
         modeTabActive: Boolean(res?.modeTabActive),
+        currentModelText: res?.currentModelText || '',
       },
       reason: ok ? undefined : 'Thiết lập mode trong LocalStorage/DOM không khớp IMAGE',
     };
