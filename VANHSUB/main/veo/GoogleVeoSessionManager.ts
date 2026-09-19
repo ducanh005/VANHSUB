@@ -337,7 +337,7 @@ export class GoogleVeoSessionManager {
     // Gắn Crash Watchdog (AC-7)
     this.attachCrashWatchdog(this.lobbyWindow);
 
-    // Xóa cờ automation webdriver nếu có
+    // Xóa cờ automation webdriver và chèn CSS khắc phục đè chồng giao diện
     this.lobbyWindow.webContents.on('dom-ready', () => {
       this.lobbyWindow?.webContents?.executeJavaScript(`
         try {
@@ -346,6 +346,21 @@ export class GoogleVeoSessionManager {
             Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
           }
         } catch (e) {}
+      `).catch(() => {});
+
+      // Khắc phục lỗi đè chồng tiêu đề dự án và menu Tất cả nội dung nghe nhìn ở góc trên bên trái
+      this.lobbyWindow?.webContents?.insertCSS(`
+        flow-navigation-header {
+          position: relative !important;
+          z-index: 20 !important;
+        }
+        flow-tile-view-header {
+          margin-top: 56px !important;
+        }
+        mat-sidenav.project-sidenav {
+          margin-top: 56px !important;
+          height: calc(100% - 56px) !important;
+        }
       `).catch(() => {});
     });
 
@@ -1285,8 +1300,7 @@ export class GoogleVeoSessionManager {
           this.currentProjectId = match[1];
           console.log(`[Google Flow Browser] 📌 Đã lưu currentProjectId mới: ${this.currentProjectId}`);
         }
-        console.log(`[Google Flow Browser] ✅ Dự án mới đã được khởi tạo (${pageUrl}), đang chuẩn bị không gian làm việc...`);
-        await this.ensureSceneContext(targetWin, onProgress, isCancelled);
+        console.log(`[Google Flow Browser] ✅ Dự án mới đã được khởi tạo (${pageUrl}), không gian làm việc sẵn sàng.`);
         return true;
       }
     }
@@ -1408,7 +1422,6 @@ export class GoogleVeoSessionManager {
       if (!safeTargetId || safeTargetId === currentActiveId) {
         this.currentProjectId = currentActiveId;
         console.log(`[Google Flow Browser] Đang ở trong project Google Flow hợp lệ: ${currentActiveId}`);
-        await this.ensureSceneContext(win, onProgress, isCancelled);
         return true;
       }
     }
@@ -1419,7 +1432,6 @@ export class GoogleVeoSessionManager {
       this.currentProjectId = activeId;
       if (currentUrl.includes(`/project/${activeId}`)) {
         console.log(`[Google Flow Browser] Đã ở đúng project được chỉ định: ${activeId}`);
-        await this.ensureSceneContext(win, onProgress, isCancelled);
         return true;
       }
       onProgress?.(15, `Đang mở dự án ${activeId}...`);
@@ -1435,7 +1447,6 @@ export class GoogleVeoSessionManager {
           );
           if (ready) {
             console.log(`[Google Flow Browser] Đã tải xong project ${activeId} sau ${i + 1}s.`);
-            await this.ensureSceneContext(win, onProgress, isCancelled);
             return true;
           }
         }

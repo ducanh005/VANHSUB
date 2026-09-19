@@ -209,6 +209,105 @@ export const EnsureProjectContextState: FlowAutomationState = {
     if (match && match[1]) {
       ctx.activeProjectId = match[1];
     }
+
+    // Đối với Image Generation: Đảm bảo cửa sổ đang ở chế độ chỉnh sửa ảnh (/project/<id>/edit/<asset_id>)
+    // Tránh bị kẹt ở trang Thư viện Media (/project/<id>) với thanh prompt rỗng hoặc Scene (/scene/<id>) bị khóa
+    const checkEditJs = `Boolean(window.location.href.includes('/edit/') && document.querySelector('.ProseMirror, [contenteditable="true"]:not([contenteditable="false"])'))`;
+    let inEdit = await safeExecuteJs<boolean>(ctx.win, checkEditJs, 1500);
+    if (inEdit) {
+      return { ok: true, data: { projectId: ctx.activeProjectId } };
+    }
+
+    // Nếu đang ở trong Scene (/scene/), thoát ra để về trang chính hoặc vào Image Editor
+    const inSceneJs = `Boolean(window.location.href.includes('/scene/'))`;
+    const inScene = await safeExecuteJs<boolean>(ctx.win, inSceneJs, 1500);
+    if (inScene) {
+      ctx.onProgress?.(13, 'Đang chuyển từ Scene sang không gian tạo ảnh...');
+      const exitSceneJs = `
+        (function() {
+          const backBtn = document.querySelector('button[aria-label*="Quay lại" i], button[aria-label*="Back" i], button.back-button, a[href*="/project/"]');
+          if (backBtn) { backBtn.click(); return true; }
+          return false;
+        })()
+      `;
+      await safeExecuteJs(ctx.win, exitSceneJs, 2000);
+      await new Promise((r) => setTimeout(r, 1200));
+    }
+
+    // 1. Kiểm tra xem đã có thẻ ảnh nào (flow-image-tile, img.image, .tile-container img) trong Thư viện Media chưa
+    const clickImageTileJs = `
+      (function() {
+        const img = document.querySelector('img.image, flow-image-tile img, .tile-container img, [class*="tile"] img, flow-image-tile');
+        if (img) {
+          img.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+          img.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
+          return true;
+        }
+        return false;
+      })()
+    `;
+    let hasTile = await safeExecuteJs<boolean>(ctx.win, clickImageTileJs, 2000);
+
+    if (hasTile) {
+      // Đợi trang /edit/ tải và mount .ProseMirror
+      for (let i = 0; i < 10; i++) {
+        if (ctx.isCancelled?.()) return { ok: false, error: 'cancelled' };
+        await new Promise((r) => setTimeout(r, 800));
+        inEdit = await safeExecuteJs<boolean>(ctx.win, checkEditJs, 1500);
+        if (inEdit) {
+          console.log('[FlowImageState] ✅ Đã mở Image Editor từ thẻ ảnh hiện có.');
+          return { ok: true, data: { projectId: ctx.activeProjectId } };
+        }
+      }
+    }
+
+    // 2. Nếu chưa có thẻ ảnh nào (dự án mới hoặc trống): Tải ảnh lên theo quy trình Upload cục bộ
+    ctx.onProgress?.(13, 'Đang nạp ảnh từ đĩa cục bộ lên Google Flow...');
+    let localImagePath = ctx.referenceImagePath || ctx.initFrameUrl;
+    if (localImagePath?.startsWith('file://')) {
+      localImagePath = localImagePath.replace(/^file:\/\/\/?/, '');
+    }
+
+    // Nếu không có ảnh chỉ định, tìm ảnh starter canvas trên máy
+    if (!localImagePath || !fs.existsSync(localImagePath) || fs.statSync(localImagePath).size === 0) {
+      const candidates = [
+        path.resolve('app/images/logo.png'),
+        path.resolve('renderer/public/images/logo.png'),
+      ];
+      for (const cand of candidates) {
+        if (fs.existsSync(cand) && fs.statSync(cand).size > 0) {
+          localImagePath = cand;
+          break;
+        }
+      }
+    }
+
+    if (localImagePath && fs.existsSync(localImagePath)) {
+      console.log(`[FlowImageState] 📤 Nạp ảnh cục bộ lên Flow: "${localImagePath}"`);
+      const injected = await FlowFileInputInjector.injectViaCDPDragDrop(ctx.win, localImagePath);
+      if (injected) {
+        // Đợi thẻ ảnh xuất hiện (tối đa 12s)
+        for (let i = 0; i < 12; i++) {
+          if (ctx.isCancelled?.()) return { ok: false, error: 'cancelled' };
+          await new Promise((r) => setTimeout(r, 1000));
+          const clicked = await safeExecuteJs<boolean>(ctx.win, clickImageTileJs, 1500);
+          if (clicked) {
+            // Đợi chuyển sang /edit/
+            for (let j = 0; j < 10; j++) {
+              if (ctx.isCancelled?.()) return { ok: false, error: 'cancelled' };
+              await new Promise((r) => setTimeout(r, 800));
+              inEdit = await safeExecuteJs<boolean>(ctx.win, checkEditJs, 1500);
+              if (inEdit) {
+                console.log('[FlowImageState] ✅ Tải ảnh thành công và đã vào Image Editor.');
+                return { ok: true, data: { projectId: ctx.activeProjectId } };
+              }
+            }
+            break;
+          }
+        }
+      }
+    }
+
     return { ok: true, data: { projectId: ctx.activeProjectId } };
   },
 
@@ -351,6 +450,45 @@ export const FindPromptInputState: FlowAutomationState = {
   async enter(): Promise<void> {},
 
   async execute(ctx: FlowStateContext): Promise<ActionResult> {
+    // 1. Kiểm tra nếu đang bị kẹt ở /scene/ hoặc prompt bị khóa (contenteditable="false")
+    const checkPromptStatusJs = `
+      (function() {
+        const pm = document.querySelector('.ProseMirror, [contenteditable="true"], [contenteditable="false"]');
+        return {
+          exists: Boolean(pm),
+          isContentEditable: Boolean(pm && pm.isContentEditable),
+          inScene: window.location.href.includes('/scene/'),
+          inEdit: window.location.href.includes('/edit/')
+        };
+      })()
+    `;
+    const promptStatus = await safeExecuteJs<any>(ctx.win, checkPromptStatusJs, 2000);
+
+    if (promptStatus?.exists && !promptStatus.isContentEditable) {
+      console.warn('[FlowImageState] ⚠️ Phát hiện ô prompt bị khóa (contenteditable=false), đang khôi phục vào Image Editor...');
+      // Thoát Scene nếu có
+      if (promptStatus.inScene) {
+        await safeExecuteJs(ctx.win, `
+          (function() {
+            const backBtn = document.querySelector('button[aria-label*="Quay lại" i], button[aria-label*="Back" i], button.back-button, a[href*="/project/"]');
+            if (backBtn) backBtn.click();
+          })()
+        `, 2000);
+        await new Promise(r => setTimeout(r, 1200));
+      }
+      // Click vào thẻ ảnh để vào /edit/
+      await safeExecuteJs(ctx.win, `
+        (function() {
+          const img = document.querySelector('img.image, flow-image-tile img, .tile-container img, [class*="tile"] img, flow-image-tile');
+          if (img) {
+            img.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+            img.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
+          }
+        })()
+      `, 2000);
+      await new Promise(r => setTimeout(r, 1500));
+    }
+
     const findRes = await FlowElementFinder.find(ctx.win, FlowElementFinder.getPromptInputSpec());
     if (!findRes.found || !findRes.selectedCandidate) {
       return {

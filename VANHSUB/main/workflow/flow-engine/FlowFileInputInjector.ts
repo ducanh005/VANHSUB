@@ -301,6 +301,58 @@ export class FlowFileInputInjector {
     return Boolean(res);
   }
 
+  /**
+   * Method 3: CDP Input.dispatchDragEvent
+   * Drops a file directly onto the page viewport. Highly reliable on Google Flow.
+   */
+  public static async injectViaCDPDragDrop(win: any, absoluteFilePath: string, x = 720, y = 450): Promise<boolean> {
+    if (!win || win.isDestroyed()) return false;
+    const resolvedPath = path.resolve(absoluteFilePath);
+    if (!fs.existsSync(resolvedPath) || fs.statSync(resolvedPath).size === 0) return false;
+
+    const mimeType = resolvedPath.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg';
+    const dbg = win.webContents.debugger;
+    try {
+      if (!dbg.isAttached()) {
+        dbg.attach('1.3');
+      }
+      await dbg.sendCommand('Input.dispatchDragEvent', {
+        type: 'dragEnter',
+        x,
+        y,
+        data: {
+          items: [{ mimeType, data: resolvedPath }],
+          files: [resolvedPath],
+          dragOperationsMask: 1,
+        },
+      });
+      await dbg.sendCommand('Input.dispatchDragEvent', {
+        type: 'dragOver',
+        x,
+        y,
+        data: {
+          items: [{ mimeType, data: resolvedPath }],
+          files: [resolvedPath],
+          dragOperationsMask: 1,
+        },
+      });
+      await dbg.sendCommand('Input.dispatchDragEvent', {
+        type: 'drop',
+        x,
+        y,
+        data: {
+          items: [{ mimeType, data: resolvedPath }],
+          files: [resolvedPath],
+          dragOperationsMask: 1,
+        },
+      });
+      return true;
+    } catch (err: any) {
+      console.warn('[FlowFileInputInjector] CDP Drag & Drop error:', err?.message || err);
+      return false;
+    }
+  }
+
   // ==========================================================================
   // 3. Post-Upload Verification (spec §6.2)
   // ==========================================================================
