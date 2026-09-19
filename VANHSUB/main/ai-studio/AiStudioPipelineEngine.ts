@@ -880,6 +880,11 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
 
               sc.shots.forEach((shot) => {
                 const shotDurMs = Math.round((shot.expected_duration_sec || 4.0) * 1000);
+                // Use AI-decided media_type per shot, not a global outputMode override.
+                // media_type='video' → animate via I2V; 'image' → Ken Burns static.
+                // Only override to 'ken_burns' if global config explicitly forces image-only mode.
+                const forceImageOnly = config.flowEngine.outputMode === 'image';
+                const motionType = (!forceImageOnly && shot.media_type === 'video') ? 'video' : 'ken_burns';
                 legacyScenes.push({
                   id: shot.shot_id,
                   lineIndex: scIdx,
@@ -889,7 +894,7 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
                   lineText: sc.narration || '',
                   visualPrompt: shot.image_prompt,
                   negativePrompt: config.flowEngine.negativePrompt,
-                  motionType: config.flowEngine.outputMode === 'video' ? 'video' : 'ken_burns',
+                  motionType,
                   status: 'pending',
                 });
                 shotCurrentMs += shotDurMs;
@@ -955,11 +960,17 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
                     image_prompt: s.visualPrompt,
                     motion_note: 'subtle camera motion',
                     expected_duration_sec: s.durationMs / 1000,
+                    // Fallback: derive media_type from legacy motionType field
+                    media_type: (s.motionType === 'video' ? 'video' : 'image') as 'image' | 'video',
+                    reason: `Phục hồi từ legacy scene data: motionType="${s.motionType}"`,
+                    confidence: 'low' as 'high' | 'medium' | 'low',
                   }],
                 })),
               };
               storage.saveStoryboard(storyboard);
             }
+            // storyboard is guaranteed non-null here (either loaded or just created above)
+            const resolvedStoryboard = storyboard!;
 
             // Dual UI Modes (Offscreen vs Live Window)
             const sessionMgr = GoogleVeoSessionManager.getInstance();
@@ -981,16 +992,19 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
               shot: StoryboardShotItem;
             }
             const allShots: ShotWorkItem[] = [];
-            for (const sc of storyboard.scenes) {
+            for (const sc of resolvedStoryboard.scenes) {
               for (const shot of sc.shots) {
                 allShots.push({ sceneId: sc.scene_id, shot });
               }
             }
 
             const totalShots = allShots.length;
-            const isVideoMode = config.flowEngine.outputMode === 'video';
-            const stepsPerShot = isVideoMode ? 2 : 1;
-            const totalSteps = totalShots * stepsPerShot;
+            // Per-shot video decision: count video shots to compute totalSteps correctly
+            const forceImageOnlyMode = config.flowEngine.outputMode === 'image';
+            const videoShotCount = forceImageOnlyMode
+              ? 0
+              : allShots.filter(s => s.shot.media_type === 'video').length;
+            const totalSteps = totalShots + videoShotCount; // T2I + optional I2V per video shot
             let completedSteps = 0;
 
             // Resolve primary reference image from local disk (character avatar or project reference image)
@@ -1017,7 +1031,7 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
               // Otherwise, from shot 1 onwards, use the first generated shot's image on disk as reference!
               const effectiveRefImage = primaryReferenceImagePath || (idx > 0 && firstGeneratedImagePath ? firstGeneratedImagePath : undefined);
 
-              // Step A: Text-to-Image (T2I)
+              // Step A: Text-to-Image (T2I) — always run for every shot
               const t2iProgress = 70 + Math.round((completedSteps / totalSteps) * 15);
               onProgress({
                 sessionId: session.sessionId,
@@ -1025,7 +1039,7 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
                 stageName: STAGE_CONFIG[6].label,
                 progress: Math.min(84, t2iProgress),
                 status: 'running',
-                message: `[T2I] Đang tạo ảnh cho shot ${shot.shot_id} (${completedSteps + 1}/${totalSteps})...`,
+                message: `[T2I/${shot.media_type?.toUpperCase() || 'IMG'}] Đang tạo ảnh cho shot ${shot.shot_id} (${completedSteps + 1}/${totalSteps})...`,
                 lastAction: {
                   ts: new Date().toISOString(),
                   scene_id: sceneId,
@@ -1057,8 +1071,10 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
               }
               completedSteps++;
 
-              // Step B: Image-to-Video (I2V) if video mode
-              if (isVideoMode) {
+              // Step B: Image-to-Video (I2V) — only for shots where AI decided media_type='video'
+              // and global config is not forcing image-only mode
+              const shouldGenerateVideo = !forceImageOnlyMode && shot.media_type === 'video';
+              if (shouldGenerateVideo) {
                 if (signal.aborted || (session.status as string) === 'cancelled') {
                   throw new Error('Quá trình tạo visual media đã bị hủy bởi người dùng.');
                 }

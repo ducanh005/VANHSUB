@@ -123,12 +123,27 @@ export interface PipelineTimingData {
 }
 
 /** 04_storyboard/storyboard.json */
+export type ShotMediaType = 'image' | 'video';
+export type ShotConfidence = 'high' | 'medium' | 'low';
+
 export interface StoryboardShotItem {
-  shot_id: string; // Strictly formatted as {scene_id}_shot_{n}
+  shot_id: string;             // Strictly formatted as {scene_id}_shot_{n}
   shot_index?: number;
   expected_duration_sec?: number;
   image_prompt: string;
   motion_note?: string;
+  /** AI-decided media type: 'image' (static, Ken Burns) or 'video' (animate via I2V) */
+  media_type: ShotMediaType;
+  /**
+   * Human-readable explanation of why image vs video was chosen.
+   * MANDATORY — empty string is not accepted by validateStoryboard().
+   */
+  reason: string;
+  /**
+   * AI confidence in the media_type decision.
+   * 'low' → user should review this shot manually.
+   */
+  confidence?: ShotConfidence;
 }
 
 export interface StoryboardSceneItem {
