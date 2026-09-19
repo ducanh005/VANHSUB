@@ -2103,12 +2103,9 @@ export const ClickGenerateState: FlowAutomationState = {
       };
     }
 
-    // Script tính toạ độ tức thời của nút Generate trong flow-prompt-box
+    // Script tính toạ độ tức thời của nút Generate (tìm trong container hoặc fallback toàn document)
     const freshCoordJs = `
       (function() {
-        const container = document.querySelector('flow-prompt-box');
-        if (!container) return { ok: false, error: 'prompt_box_not_found' };
-
         function isVisible(el) {
           if (!el) return false;
           const rect = el.getBoundingClientRect();
@@ -2118,20 +2115,35 @@ export const ClickGenerateState: FlowAutomationState = {
         }
 
         const genBtnSelectors = [
-          'button.generate-icon-button',
-          'flow-generate-icon-button button',
           'button[aria-label*="Bắt đầu tạo" i]',
           'button[aria-label*="Start generation" i]',
           'button[aria-label*="Tạo ảnh" i]',
           'button[aria-label*="Tạo video" i]',
+          'button[aria-label*="Generate image" i]',
+          'button[aria-label="Generate"]',
           'button[aria-label*="Generate" i]',
-          'button[aria-label*="tạo" i]',
-          'button[type="submit"]',
+          'button.generate-icon-button',
+          'flow-generate-icon-button button',
           'flow-generate-button button',
+          'button[aria-label*="tạo" i]',
+          'flow-prompt-box button[type="submit"]',
+          'flow-base-prompt-box button[type="submit"]',
+          '.prompt-box-container button[type="submit"]',
+          'button[type="submit"]',
           'button.submit-button'
         ];
 
-        const allButtons = Array.from(container.querySelectorAll(genBtnSelectors.join(', ')));
+        // 1. Thử tìm trong các container tiềm năng
+        const container = document.querySelector('flow-prompt-box, flow-base-prompt-box, flow-creative-agent-prompt-box, .prompt-box-container, .base-prompt-box');
+        let allButtons = [];
+        if (container) {
+          allButtons = Array.from(container.querySelectorAll(genBtnSelectors.join(', ')));
+        }
+
+        // 2. Fallback độc lập: Nếu không có container hoặc không có nút trong container, quét trên toàn document
+        if (allButtons.length === 0) {
+          allButtons = Array.from(document.querySelectorAll(genBtnSelectors.join(', ')));
+        }
         const valid = allButtons.filter(b => {
           if (!isVisible(b)) return false;
           if (b.classList.contains('agent-action-button') ||
@@ -2237,8 +2249,8 @@ export const ClickGenerateState: FlowAutomationState = {
         }
 
         // 4. Chẩn đoán trạng thái nút Generate
-        const box = document.querySelector('flow-prompt-box') || document;
-        const genBtn = box.querySelector('button.generate-icon-button, flow-generate-icon-button button, button[type="submit"]');
+        const box = document.querySelector('flow-prompt-box, flow-base-prompt-box, flow-creative-agent-prompt-box, .prompt-box-container, .base-prompt-box') || document;
+        const genBtn = box.querySelector('button.generate-icon-button, flow-generate-icon-button button, button[aria-label*="Bắt đầu tạo" i], button[aria-label*="Start generation" i], button[aria-label*="Tạo ảnh" i], button[aria-label*="Generate" i], button[type="submit"]');
         const btnDiag = genBtn ? {
           found: true,
           disabled: Boolean(genBtn.disabled || genBtn.getAttribute('aria-disabled') === 'true' || genBtn.classList.contains('mat-mdc-button-disabled')),
@@ -2334,11 +2346,9 @@ export const ClickGenerateState: FlowAutomationState = {
             ctx.win,
             `(function() {
               try {
-                const box = document.querySelector('flow-prompt-box');
-                if (box) {
-                  const b = box.querySelector('button.generate-icon-button, flow-generate-icon-button button, button[type="submit"]');
-                  if (b) b.click();
-                }
+                const box = document.querySelector('flow-prompt-box, flow-base-prompt-box, flow-creative-agent-prompt-box, .prompt-box-container, .base-prompt-box') || document;
+                const b = box.querySelector('button.generate-icon-button, flow-generate-icon-button button, button[aria-label*="Bắt đầu tạo" i], button[aria-label*="Start generation" i], button[aria-label*="Tạo ảnh" i], button[aria-label*="Generate" i], button[type="submit"]');
+                if (b) b.click();
               } catch {}
             })()`,
             1000
