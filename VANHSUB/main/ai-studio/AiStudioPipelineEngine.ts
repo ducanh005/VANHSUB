@@ -1020,15 +1020,33 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
               message: 'Đang kiểm tra/thiết lập style references (nhân vật & background)...',
             });
 
-            const charAvatar = config.channelProfile?.channelCharacters?.[0]?.avatarUrl;
+            // Ưu tiên: hostAvatarUrl (ảnh user upload trong AutoPilotView) -> channelCharacters[0].avatarUrl -> referenceImagePath
+            const rawCharAvatar =
+              config.channelProfile?.hostAvatarUrl ||
+              config.channelProfile?.channelCharacters?.[0]?.avatarUrl ||
+              config.flowEngine?.referenceImagePath;
+
+            const isCharSourceValid = Boolean(
+              rawCharAvatar &&
+              (rawCharAvatar.startsWith('data:image/') ||
+               rawCharAvatar.startsWith('file://') ||
+               fs.existsSync(rawCharAvatar))
+            );
+
+            const rawBgImage = config.flowEngine?.referenceImagePath;
+            const isBgSourceValid = Boolean(
+              rawBgImage &&
+              (rawBgImage.startsWith('data:image/') ||
+               rawBgImage.startsWith('file://') ||
+               fs.existsSync(rawBgImage))
+            );
+
             const styleRefsResult = await aiStudioStyleRefsService.ensureStyleRefs({
               storage,
               win: lobbyWin,
               // Pass user-provided image paths if available
-              userCharacterImagePath: (charAvatar && fs.existsSync(charAvatar)) ? charAvatar : undefined,
-              userBackgroundImagePath: config.flowEngine?.referenceImagePath && fs.existsSync(config.flowEngine.referenceImagePath)
-                ? config.flowEngine.referenceImagePath
-                : undefined,
+              userCharacterImagePath: isCharSourceValid ? rawCharAvatar : undefined,
+              userBackgroundImagePath: isBgSourceValid ? rawBgImage : undefined,
               // Text prompts for AI generation fallback
               characterStylePrompt: config.channelProfile?.hostDescription
                 || config.channelProfile?.channelCharacters?.[0]?.descriptionEn
@@ -1425,7 +1443,7 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
             return { assetPath: vidResult.videoPath, videoPath: vidResult.videoPath };
           }
         } else if (mode === 'image') {
-          const effectiveRef = payload.referenceImagePath || config.channelProfile?.channelCharacters?.[0]?.avatarUrl || config.flowEngine?.referenceImagePath;
+          const effectiveRef = payload.referenceImagePath || config.channelProfile?.hostAvatarUrl || config.channelProfile?.channelCharacters?.[0]?.avatarUrl || config.flowEngine?.referenceImagePath;
           const imgResult = await mutex.runExclusive(async () => {
             return FlowMediaAutomationEngine.generateImageForShot({
               storage,

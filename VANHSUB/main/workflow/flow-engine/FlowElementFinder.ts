@@ -940,12 +940,13 @@ export class FlowElementFinder {
           containerSelector: containerScope,
           selectors: [
             'button:has(mat-icon[fonticon*="tune"])',
+            'button:has(mat-icon[fonticon*="sliders"])',
+            'button:has(mat-icon[fonticon*="settings"])',
             'button:has(mat-icon[fonticon*="crop"])',
-            'button:has(mat-icon)',
             'button.settings-btn',
             'button.options-btn',
           ],
-          description: 'Tìm nút icon trong prompt box container (Container-Scoped)',
+          description: 'Tìm nút icon settings đặc trưng trong prompt box container (Container-Scoped)',
         },
         {
           strategy: 'TEXT_MATCH',
@@ -966,6 +967,50 @@ export class FlowElementFinder {
             'text:Tune',
           ],
           description: 'Tìm theo text ngắn (Confidence 55 < 65: Ngăn ngừa false-click)',
+        },
+      ],
+    };
+  }
+
+  /**
+   * Cấu hình chuẩn định nghĩa nút Thêm ảnh/Thành phần (+) (Add Media / Ingredient Button)
+   */
+  static getAddMediaButtonSpec(): ElementSearchSpec {
+    const containerScope = 'flow-prompt-box, flow-base-prompt-box, .prompt-box-container';
+    return {
+      name: 'ADD_MEDIA_BUTTON',
+      confidenceThreshold: 65,
+      requireStable: true,
+      stabilityMs: 150,
+      unobscuredCheck: true,
+      rules: [
+        {
+          strategy: 'ACCESSIBILITY',
+          baseConfidence: 95,
+          containerSelector: containerScope,
+          selectors: [
+            'button[aria-label*="thêm nội dung" i]',
+            'button[aria-label*="thêm thành phần" i]',
+            'button[aria-label*="thêm ảnh" i]',
+            'button[aria-label*="thêm tệp" i]',
+            'button[aria-label*="add media" i]',
+            'button[aria-label*="add image" i]',
+            'button[aria-label*="add ingredient" i]',
+            'button[aria-label*="add file" i]',
+          ],
+          description: 'Tìm nút Thêm (+) theo ARIA label',
+        },
+        {
+          strategy: 'STRICT_COMPONENT',
+          baseConfidence: 88,
+          containerSelector: containerScope,
+          selectors: [
+            'button.add-menu-trigger',
+            'flow-add-menu-trigger button',
+            'button:has(mat-icon[fonticon*="add"])',
+            'button:has(mat-icon[fonticon*="plus"])',
+          ],
+          description: 'Tìm nút Thêm (+) theo component selector',
         },
       ],
     };

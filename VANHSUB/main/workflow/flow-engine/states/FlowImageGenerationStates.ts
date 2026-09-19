@@ -234,7 +234,83 @@ export const EnsureProjectContextState: FlowAutomationState = {
       await new Promise((r) => setTimeout(r, 1200));
     }
 
-    // 1. Kiểm tra xem đã có thẻ ảnh nào (flow-image-tile, img.image, .tile-container img) trong Thư viện Media chưa
+    // 1. Quét các thẻ ảnh hiện có trên Canvas / Thư viện Media
+    const scanTilesJs = `
+      (function() {
+        function isVisible(el) {
+          if (!el) return false;
+          const r = el.getBoundingClientRect();
+          return r.width > 0 && r.height > 0;
+        }
+
+        const tiles = Array.from(document.querySelectorAll(
+          'flow-image-tile, flow-media-card, img.image, .tile-container img, [class*="tile"] img'
+        )).filter(isVisible);
+
+        const items = tiles.map(t => {
+          const img = t.tagName === 'IMG' ? t : t.querySelector('img');
+          const src = img ? (img.currentSrc || img.src || '') : '';
+          const alt = img ? (img.alt || '') : '';
+          const isStarter = src.includes('logo.png') || alt.includes('logo');
+          const isValidMedia = Boolean(src && !isStarter && (src.includes('googleusercontent.com') || src.includes('flow-content.google') || src.startsWith('blob:')));
+          return {
+            src,
+            alt,
+            isStarter,
+            isValidMedia
+          };
+        });
+
+        const validMedia = items.filter(i => i.isValidMedia);
+        return {
+          totalTiles: tiles.length,
+          validMediaCount: validMedia.length,
+          validUrls: validMedia.map(m => m.src)
+        };
+      })()
+    `;
+    const tileScan = await safeExecuteJs<any>(ctx.win, scanTilesJs, 2000);
+
+    // 1a. Cảnh báo nếu phát hiện nhiều ảnh trên canvas (nguy cơ thừa/trùng lặp do retry)
+    if (tileScan?.totalTiles && tileScan.totalTiles > 1) {
+      console.warn(
+        `[FlowImageState] ⚠️ CẢNH BÁO: Phát hiện ${tileScan.totalTiles} thẻ ảnh trên canvas dự án. Nếu có ảnh sinh thừa do các lần retry trước, người dùng nên kiểm tra và xóa bớt ảnh thừa trên Google Flow để tiết kiệm credit.`
+      );
+    }
+
+    // 1b. [RETRY RECOVERY] Nếu là lần retry (attempt > 1 hoặc có dạng 1_1, 1_2) và phát hiện đã có ảnh hợp lệ trên canvas từ lần click trước
+    const attemptStr = String(ctx.generationAttemptId || '1');
+    const isRetryAttempt = attemptStr.includes('_') || (parseInt(attemptStr, 10) || 1) > 1;
+    if (isRetryAttempt && tileScan?.validMediaCount && tileScan.validMediaCount > 0) {
+      const recoveredUrl = tileScan.validUrls[tileScan.validUrls.length - 1];
+      console.log(
+        `[FlowImageState] 🎯 [RETRY RECOVERY] Phát hiện ảnh (${recoveredUrl.slice(0, 80)}...) đã được tạo thành công từ lần click trước! Bỏ qua tạo mới, chuyển thẳng sang EXTRACT_OUTPUT.`
+      );
+      ctx.capturedMediaUrl = recoveredUrl;
+      ctx.generationState = 'COMPLETED';
+      return {
+        ok: true,
+        skipToState: 'EXTRACT_OUTPUT',
+        data: { recovered: true, imageUrl: recoveredUrl, projectId: ctx.activeProjectId }
+      };
+    }
+
+    // 2. Kiểm tra nếu ô nhập Prompt chính trên Canvas (/project/<id>) đã sẵn sàng
+    // Ưu tiên tạo ảnh trên Canvas trắng thay vì ép mở Image Editor (/edit/<id>) của ảnh cũ
+    const checkCanvasPromptJs = `
+      (function() {
+        const pb = document.querySelector('flow-prompt-box, flow-base-prompt-box, .prompt-box-container');
+        const pm = document.querySelector('.ProseMirror, [contenteditable="true"]:not([contenteditable="false"])');
+        return Boolean(pb && pm);
+      })()
+    `;
+    const hasCanvasPrompt = await safeExecuteJs<boolean>(ctx.win, checkCanvasPromptJs, 1500);
+    if (hasCanvasPrompt) {
+      console.log('[FlowImageState] ✅ Không gian làm việc dự án sẵn sàng với khung Prompt chính (Canvas mode).');
+      return { ok: true, data: { projectId: ctx.activeProjectId, mode: 'canvas' } };
+    }
+
+    // 3. Nếu chưa có Prompt Box trên Canvas, kiểm tra xem có thể vào Image Editor qua thẻ ảnh không
     const clickImageTileJs = `
       (function() {
         const img = document.querySelector('img.image, flow-image-tile img, .tile-container img, [class*="tile"] img, flow-image-tile');
@@ -256,12 +332,12 @@ export const EnsureProjectContextState: FlowAutomationState = {
         inEdit = await safeExecuteJs<boolean>(ctx.win, checkEditJs, 1500);
         if (inEdit) {
           console.log('[FlowImageState] ✅ Đã mở Image Editor từ thẻ ảnh hiện có.');
-          return { ok: true, data: { projectId: ctx.activeProjectId } };
+          return { ok: true, data: { projectId: ctx.activeProjectId, mode: 'edit' } };
         }
       }
     }
 
-    // 2. Nếu chưa có thẻ ảnh nào (dự án mới hoặc trống): Tải ảnh lên theo quy trình Upload cục bộ
+    // 4. Nếu chưa có thẻ ảnh nào (dự án mới hoặc trống): Tải ảnh lên theo quy trình Upload cục bộ
     ctx.onProgress?.(13, 'Đang nạp ảnh từ đĩa cục bộ lên Google Flow...');
     let localImagePath = ctx.referenceImagePath || ctx.initFrameUrl;
     if (localImagePath?.startsWith('file://')) {
@@ -299,7 +375,7 @@ export const EnsureProjectContextState: FlowAutomationState = {
               inEdit = await safeExecuteJs<boolean>(ctx.win, checkEditJs, 1500);
               if (inEdit) {
                 console.log('[FlowImageState] ✅ Tải ảnh thành công và đã vào Image Editor.');
-                return { ok: true, data: { projectId: ctx.activeProjectId } };
+                return { ok: true, data: { projectId: ctx.activeProjectId, mode: 'edit' } };
               }
             }
             break;
@@ -659,7 +735,7 @@ export const HandleImageReferenceState: FlowAutomationState = {
 
     const fileName = path.basename(localPath);
     const fileSizeKb = (fs.statSync(localPath).size / 1024).toFixed(1);
-    console.log(`[FlowImageState] 📤 [HANDLE_IMAGE_REFERENCE] Bắt đầu nạp ảnh tham chiếu cục bộ: "${localPath}" (${fileSizeKb} KB)`);
+    console.log(`[FlowImageState] 🎯 [HANDLE_IMAGE_REFERENCE] Chuẩn bị nạp [ẢNH THAM CHIẾU CỤC BỘ]: "${localPath}" (${fileSizeKb} KB)...`);
 
     // Selector nhận diện chip ảnh tham chiếu / ingredient chip trong prompt box
     const checkExistingChipJs = `
@@ -1267,12 +1343,41 @@ export const ConfigureOptionsState: FlowAutomationState = {
       // 2a. Click nút settings trigger để mở model picker panel
       const openModelPickerJs = `
         (function() {
-          const trigger = document.querySelector(
-            'button.settings-trigger-button, button[aria-label*="Điều kiện kích hoạt cài đặt" i], button[aria-label*="settings" i][class*="trigger"], flow-prompt-box button[aria-label*="cài đặt" i]'
-          );
-          if (trigger) {
+          function isVisible(el) {
+            if (!el) return false;
+            const r = el.getBoundingClientRect();
+            return r.width > 0 && r.height > 0;
+          }
+
+          const triggerSelectors = [
+            'button.settings-trigger-button',
+            'flow-settings-button button',
+            'button[aria-label*="Điều kiện kích hoạt cài đặt" i]',
+            'button[aria-label*="settings" i][class*="trigger"]',
+            'flow-prompt-box button[aria-label*="cài đặt" i]',
+            'button:has(mat-icon[fonticon*="tune"])',
+            'button:has(mat-icon[fonticon*="sliders"])',
+            'button:has(mat-icon[fonticon*="settings"])'
+          ];
+
+          const candidates = Array.from(document.querySelectorAll(triggerSelectors.join(', '))).filter(isVisible);
+          // Tuyệt đối loại trừ nút thêm ảnh / add-menu-trigger
+          const valid = candidates.filter(b => {
+            if (b.classList.contains('add-menu-trigger') || b.closest('.add-menu-trigger')) return false;
+            const aria = (b.getAttribute('aria-label') || '').toLowerCase();
+            if (aria.includes('thêm') || aria.includes('add')) return false;
+            return true;
+          });
+
+          if (valid.length > 0) {
+            const trigger = valid[0];
+            const rect = trigger.getBoundingClientRect();
             trigger.click();
-            return { clicked: true, text: (trigger.innerText || trigger.getAttribute('aria-label') || '').trim() };
+            return {
+              clicked: true,
+              text: (trigger.innerText || trigger.getAttribute('aria-label') || '').trim(),
+              coords: { x: Math.round(rect.left + rect.width / 2), y: Math.round(rect.top + rect.height / 2) }
+            };
           }
           return { clicked: false };
         })()
@@ -1286,6 +1391,31 @@ export const ConfigureOptionsState: FlowAutomationState = {
           errorDetail: 'Không tìm thấy nút Settings Trigger để mở menu chọn model trong Google Flow',
           data: { modelClicked: false, keyword: modelKeyword, availableOptions: [] }
         };
+      }
+
+      console.log(
+        `[FlowImageState] 🎯 [CONFIGURE_OPTIONS] Chuẩn bị bấm nút [SETTINGS TRIGGER] để chọn model tại toạ độ (${openRes.coords?.x}, ${openRes.coords?.y}): "${openRes.text}"`
+      );
+
+      // Kiểm tra xem có bị mở nhầm Add Menu (menu thêm cảnh / upload) không
+      const checkWrongMenuJs = `
+        (function() {
+          const items = Array.from(document.querySelectorAll('[role="menuitem"], .mat-mdc-menu-item'));
+          return items.some(el => {
+            const t = (el.textContent || '').toLowerCase();
+            return t.includes('cảnh mới') || t.includes('new scene') || t.includes('tải lên') || t.includes('upload');
+          });
+        })()
+      `;
+      const isWrongMenu = await safeExecuteJs<boolean>(ctx.win, checkWrongMenuJs, 1000);
+      if (isWrongMenu) {
+        console.warn('[FlowImageState] ⚠️ Phát hiện menu Thêm/Upload mở nhầm thay vì menu Settings! Đang nhấn Escape để đóng...');
+        try {
+          ctx.win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
+          await new Promise((r) => setTimeout(r, 50));
+          ctx.win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' });
+          await new Promise((r) => setTimeout(r, 300));
+        } catch {}
       }
 
       // 2b. BƯỚC WAIT: Chờ menu model options render xong (chờ ít nhất 1 option element xuất hiện trong DOM)
@@ -2371,7 +2501,7 @@ export const ClickGenerateState: FlowAutomationState = {
       // ĐIỂM 1: POLL NGẮN XÁC NHẬN TÁC DỤNG & PHÁT HIỆN LỖI TỪ CHỐI (TOAST/SNACKBAR)
       // =========================================================================
       const pollStart = Date.now();
-      const maxPollMs = 3500;
+      const maxPollMs = attempt === 1 ? 5500 : 4000;
       let hasEffect = false;
 
       while (Date.now() - pollStart < maxPollMs) {
