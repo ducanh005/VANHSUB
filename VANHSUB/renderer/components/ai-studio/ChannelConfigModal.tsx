@@ -12,6 +12,8 @@ import {
   Zap,
   ChevronRight,
   Sparkles,
+  FolderOpen,
+  Eye,
 } from 'lucide-react';
 import {
   ChannelProfileConfig,
@@ -852,6 +854,85 @@ Output NOTHING else. No analysis, no planning, no alternative titles, no word co
                   <option value="video_only">Toàn bộ là video clip</option>
                 </select>
               </div>
+            </div>
+
+            {/* Row 4.1: Thư mục lưu trữ Ảnh & Video trên máy */}
+            <div className="rounded-2xl border border-slate-800 bg-[#070B14] p-3.5 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
+                  <FolderOpen className="h-3.5 w-3.5 text-brand-cyan" />
+                  <span>Thư mục lưu trữ Ảnh &amp; Video trên máy</span>
+                </label>
+                {profile.customMediaDir && (
+                  <button
+                    type="button"
+                    onClick={() => handleChange('customMediaDir', '')}
+                    className="text-[11px] text-rose-400 hover:underline cursor-pointer"
+                  >
+                    Đặt lại mặc định
+                  </button>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  readOnly
+                  value={profile.customMediaDir || ''}
+                  placeholder="Mặc định: Tự động lưu theo thư mục session dự án (/05_media)"
+                  className="flex-1 rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2 text-xs text-slate-300 placeholder:text-slate-600 focus:outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      const selected = await (window as any).vanhsub?.dialog?.chooseDirectory?.() || await (window as any).electronAPI?.dialog?.chooseDirectory?.();
+                      if (selected) {
+                        handleChange('customMediaDir', selected);
+                      }
+                    } catch (err) {
+                      console.error('Lỗi chọn thư mục:', err);
+                    }
+                  }}
+                  className="rounded-xl border border-slate-700 bg-slate-800 hover:bg-slate-700 px-3 py-2 text-xs font-medium text-white transition cursor-pointer flex items-center gap-1 shrink-0"
+                >
+                  <FolderOpen className="h-3.5 w-3.5" />
+                  <span>Chọn thư mục...</span>
+                </button>
+                {profile.customMediaDir && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      (window as any).vanhsub?.dialog?.openFolder?.(profile.customMediaDir) || (window as any).electronAPI?.dialog?.openFolder?.(profile.customMediaDir);
+                    }}
+                    className="rounded-xl border border-cyan-800/60 bg-cyan-950/40 hover:bg-cyan-900/60 px-3 py-2 text-xs font-medium text-cyan-300 transition cursor-pointer shrink-0"
+                    title="Mở thư mục trên máy tính"
+                  >
+                    Mở
+                  </button>
+                )}
+              </div>
+              <p className="text-[11px] text-slate-500 leading-relaxed">
+                Toàn bộ ảnh (.png) và video (.mp4) sinh từ Google Flow sẽ được lưu trực tiếp vào thư mục này để tránh đầy ổ hệ thống và tiện sao chép, chỉnh sửa.
+              </p>
+            </div>
+
+            {/* Row 4.2: Chế độ hiển thị cửa sổ Google Flow */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
+                <Eye className="h-3.5 w-3.5 text-indigo-400" />
+                <span>Cửa sổ hiển thị Google Flow (Automation UI Mode)</span>
+              </label>
+              <select
+                value={profile.flowUiMode || 'live_window'}
+                onChange={(e) => handleChange('flowUiMode', e.target.value as any)}
+                className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2.5 text-xs text-white focus:border-brand-cyan focus:outline-none focus:ring-1 focus:ring-brand-cyan cursor-pointer"
+              >
+                <option value="live_window">🖥️ Mở cửa sổ trực tiếp (Live Window) — Khuyến nghị để theo dõi quá trình AI tạo ảnh &amp; video</option>
+                <option value="offscreen">👻 Chạy ngầm (Offscreen) — Ẩn hoàn toàn cửa sổ dưới nền</option>
+              </select>
+              <p className="text-[11px] text-slate-500 italic">
+                Khi chọn Live Window, bạn có thể thu nhỏ (-) cửa sổ Flow xuống Taskbar bất kỳ lúc nào mà không làm gián đoạn tiến trình.
+              </p>
             </div>
 
             {/* Row 5: Số cảnh video & Thời gian ảnh tĩnh */}

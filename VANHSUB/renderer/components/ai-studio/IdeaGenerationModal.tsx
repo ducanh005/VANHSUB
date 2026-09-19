@@ -99,14 +99,34 @@ export default function IdeaGenerationModal({
         channelProfile: config.channelProfile,
       });
 
+      const hostName =
+        config.channelProfile?.hostName?.trim() ||
+        config.channelProfile?.channelCharacters?.[0]?.name?.trim();
+      const hostDesc =
+        config.channelProfile?.hostDescription?.trim() ||
+        config.channelProfile?.channelCharacters?.[0]?.descriptionEn?.trim();
+
       if (result.title) setTopic(result.title);
       if (result.hookConcept) setHookConcept(result.hookConcept);
       if (result.narrativeAngle) setNarrativeAngle(result.narrativeAngle);
       if (Array.isArray(result.outline) && result.outline.length > 0) {
         setOutline(result.outline.join('\n'));
       }
-      if (result.thumbnailConcept) setThumbnailConcept(result.thumbnailConcept);
-      if (result.thumbnailPrompt) setThumbnailPrompt(result.thumbnailPrompt);
+
+      let finalThumbConcept = result.thumbnailConcept || '';
+      let finalThumbPrompt = result.thumbnailPrompt || '';
+
+      if (hostName && hostDesc) {
+        if (!finalThumbPrompt.toLowerCase().includes(hostName.toLowerCase())) {
+          finalThumbPrompt = `Cinematic YouTube thumbnail of ${result.title || topic}, featuring character ${hostName} (${hostDesc}), dramatic lighting, 8k resolution, photorealistic. ${finalThumbPrompt}`.trim();
+        }
+        if (!finalThumbConcept.toLowerCase().includes(hostName.toLowerCase())) {
+          finalThumbConcept = `${finalThumbConcept} (Nhân vật đại diện ${hostName}: ${hostDesc})`.trim();
+        }
+      }
+
+      setThumbnailConcept(finalThumbConcept);
+      setThumbnailPrompt(finalThumbPrompt);
 
       setSuccessMessage(
         `AI (${config.llm.provider === 'chatgpt_web' ? 'ChatGPT Web' : config.llm.provider === 'gemini_web' ? 'Gemini Web' : config.llm.provider.toUpperCase()}) đã sinh mẫu ý tưởng thành công theo Cấu hình Kênh [${config.channelProfile?.projectName || 'Mặc định'}]!`
@@ -411,23 +431,38 @@ export default function IdeaGenerationModal({
 
           {/* Field 6: Concept ảnh bìa (Thumbnail Concept) */}
           <div className="space-y-1.5">
-            <label className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
-              <span>🎨 Concept ảnh bìa (Thumbnail Concept)</span>
-            </label>
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+                <span>🎨 Concept ảnh bìa (Thumbnail Concept)</span>
+              </label>
+              {(config.channelProfile?.hostName || config.channelProfile?.channelCharacters?.[0]?.name) && (
+                <span className="text-[11px] text-pink-400 bg-pink-500/10 border border-pink-500/30 px-2 py-0.5 rounded-full flex items-center gap-1">
+                  <User className="h-3 w-3" />
+                  <span>Gắn liền nhân vật: <strong>{config.channelProfile.hostName || config.channelProfile.channelCharacters?.[0]?.name}</strong></span>
+                </span>
+              )}
+            </div>
             <input
               type="text"
               value={thumbnailConcept}
               onChange={(e) => setThumbnailConcept(e.target.value)}
-              placeholder="Mô tả ý tưởng hình ảnh bìa"
+              placeholder="Mô tả ý tưởng hình ảnh bìa (được đồng bộ cùng nhân vật của kênh)"
               className="w-full rounded-2xl border border-slate-800 bg-slate-950/80 px-4 py-2.5 text-xs text-white placeholder:text-slate-600 focus:border-brand-cyan focus:ring-1 focus:ring-brand-cyan focus:outline-none transition"
             />
           </div>
 
           {/* Field 7: Prompt ảnh bìa cho AI (Thumbnail Prompt tiếng Anh) */}
           <div className="space-y-1.5">
-            <label className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
-              <span>🖼️ Prompt ảnh bìa cho AI (Thumbnail Prompt tiếng Anh)</span>
-            </label>
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+                <span>🖼️ Prompt ảnh bìa cho AI (Thumbnail Prompt tiếng Anh)</span>
+              </label>
+              {config.channelProfile?.imageModel && (
+                <span className="text-[10px] text-violet-400 font-mono">
+                  Model: {config.channelProfile.imageModel}
+                </span>
+              )}
+            </div>
             <textarea
               rows={2}
               value={thumbnailPrompt}
@@ -435,6 +470,11 @@ export default function IdeaGenerationModal({
               placeholder="Detailed English image prompt for thumbnail generation..."
               className="w-full rounded-2xl border border-slate-800 bg-slate-950/80 px-4 py-2.5 text-xs font-mono text-white placeholder:text-slate-600 focus:border-brand-cyan focus:ring-1 focus:ring-brand-cyan focus:outline-none transition"
             />
+            {(config.channelProfile?.hostDescription || config.channelProfile?.channelCharacters?.[0]?.descriptionEn) && (
+              <p className="text-[11px] text-slate-400 italic">
+                ✨ Chi tiết nhân vật đại diện: <span className="text-pink-300">{config.channelProfile.hostDescription || config.channelProfile.channelCharacters?.[0]?.descriptionEn}</span>
+              </p>
+            )}
           </div>
         </div>
 

@@ -92,6 +92,8 @@ export interface AiStudioStoreState {
   error: string | null;
   /** Đánh dấu cấu hình đã được nạp thành công ít nhất một lần */
   hasLoaded: boolean;
+  /** Đang ở bên trong không gian làm việc của Project hay màn hình thiết lập ngoài */
+  isProjectEntered: boolean;
 }
 
 export interface AiStudioStoreActions {
@@ -103,6 +105,8 @@ export interface AiStudioStoreActions {
   resetConfig: () => Promise<boolean>;
   /** Ghi nhận hoặc xoá trạng thái lỗi */
   setError: (err: string | null) => void;
+  /** Chuyển đổi trạng thái vào/ra project */
+  setProjectEntered: (entered: boolean) => void;
 
   // Tiện ích cập nhật riêng lẻ từng phân hệ (Sub-configuration Helpers)
   updateLlmConfig: (partial: Partial<AiStudioLlmConfig>) => Promise<boolean>;
@@ -116,6 +120,10 @@ export interface AiStudioStoreActions {
   saveProject: (project: SavedProjectProfile) => Promise<boolean>;
   deleteProject: (projectId: string) => Promise<boolean>;
   switchProject: (projectId: string) => Promise<boolean>;
+  getActiveProject: () => SavedProjectProfile | null;
+  saveActiveProjectData: (
+    data: Partial<Pick<SavedProjectProfile, 'ideas' | 'selectedIdea' | 'lastSessionId' | 'savedSession'>>
+  ) => Promise<boolean>;
 }
 
 export type AiStudioStore = AiStudioStoreState & AiStudioStoreActions;
@@ -131,6 +139,9 @@ export const useAiStudioStore = create<AiStudioStore>((set, get) => ({
   isSaving: false,
   error: null,
   hasLoaded: false,
+  isProjectEntered: false,
+
+  setProjectEntered: (entered: boolean) => set({ isProjectEntered: entered }),
 
   /**
    * Đọc cấu hình từ Main process qua IPC bridge `window.vanhsub.aiStudio.getConfig()`.
@@ -340,7 +351,12 @@ export const useAiStudioStore = create<AiStudioStore>((set, get) => ({
     let updatedList: SavedProjectProfile[];
     if (index >= 0) {
       updatedList = [...existingList];
-      updatedList[index] = { ...project, updatedAt: Date.now() };
+      // Merge with existing project data so ideas, selectedIdea, lastSessionId, savedSession are preserved!
+      updatedList[index] = {
+        ...existingList[index],
+        ...project,
+        updatedAt: Date.now(),
+      };
     } else {
       updatedList = [{ ...project, updatedAt: Date.now() }, ...existingList];
     }
@@ -410,5 +426,38 @@ export const useAiStudioStore = create<AiStudioStore>((set, get) => ({
     }
 
     return get().updateConfig(patch);
+  },
+
+  getActiveProject: (): SavedProjectProfile | null => {
+    const currentConfig = get().config;
+    const existingList = currentConfig.savedProjects || [];
+    if (!currentConfig.activeProjectId) {
+      return existingList[0] || null;
+    }
+    return existingList.find((p) => p.id === currentConfig.activeProjectId) || existingList[0] || null;
+  },
+
+  saveActiveProjectData: async (
+    data: Partial<Pick<SavedProjectProfile, 'ideas' | 'selectedIdea' | 'lastSessionId' | 'savedSession'>>
+  ): Promise<boolean> => {
+    const currentConfig = get().config;
+    const existingList = currentConfig.savedProjects || [];
+    const activeId = currentConfig.activeProjectId || existingList[0]?.id;
+    if (!activeId) return false;
+
+    const index = existingList.findIndex((p) => p.id === activeId);
+    if (index < 0) return false;
+
+    const updatedList = [...existingList];
+    updatedList[index] = {
+      ...updatedList[index],
+      ...data,
+      updatedAt: Date.now(),
+    };
+
+    return get().updateConfig({
+      savedProjects: updatedList,
+      activeProjectId: activeId,
+    });
   },
 }));

@@ -158,8 +158,11 @@ export default function ProjectSetupScreen({
     setValidationError(null);
 
     const projId = editingProjectId || config.activeProjectId || `proj_${Date.now()}`;
+    const existing = (config.savedProjects || []).find((p) => p.id === projId);
+
     const updatedChannelProfile = {
       ...(config.channelProfile || ({} as any)),
+      ...(existing?.channelProfile || {}),
       projectName: trimmedName,
       channelNiche: channelNiche.trim(),
       channelOrientation: channelOrientation.trim(),
@@ -172,6 +175,10 @@ export default function ProjectSetupScreen({
       name: trimmedName,
       channelProfile: updatedChannelProfile,
       flowConfig: { aspectRatio },
+      ideas: existing?.ideas || [],
+      selectedIdea: existing?.selectedIdea || null,
+      lastSessionId: existing?.lastSessionId,
+      savedSession: existing?.savedSession,
       updatedAt: Date.now(),
     });
 
@@ -302,6 +309,22 @@ export default function ProjectSetupScreen({
                       )}
 
                       <div className="flex flex-wrap gap-1.5 pt-1">
+                        {p.ideas && p.ideas.length > 0 ? (
+                          <span className="rounded bg-amber-500/15 border border-amber-500/30 px-2 py-0.5 text-[10px] text-amber-300 font-medium">
+                            💡 {p.ideas.length} ý tưởng
+                          </span>
+                        ) : (
+                          <span className="rounded bg-slate-800/80 px-2 py-0.5 text-[10px] text-slate-500">
+                            💡 Chưa có ý tưởng
+                          </span>
+                        )}
+
+                        {p.savedSession?.artifacts?.scriptLines && p.savedSession.artifacts.scriptLines.length > 0 ? (
+                          <span className="rounded bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.5 text-[10px] text-emerald-300 font-medium">
+                            📜 Kịch bản ({p.savedSession.artifacts.scriptLines.length} câu)
+                          </span>
+                        ) : null}
+
                         {p.channelProfile.targetLongDuration && (
                           <span className="rounded bg-slate-800 px-2 py-0.5 text-[10px] text-slate-400 font-mono">
                             ⏱ {DURATION_OPTIONS.find(d => d.id === p.channelProfile.targetLongDuration)?.label.split(' ')[0] || p.channelProfile.targetLongDuration}

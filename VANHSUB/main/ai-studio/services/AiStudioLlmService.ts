@@ -270,6 +270,21 @@ export class AiStudioLlmService {
       defaultThumbnailPrompt = `Cinematic high resolution photography featuring character ${hostName} (${hostDesc}), dramatic lighting, 8k, photorealistic, optimized for ${imageModel}`;
     }
 
+    let finalThumbnailPrompt = (parsed.thumbnailPrompt || '').trim() || defaultThumbnailPrompt;
+    if (hostName && hostDesc) {
+      const lowerPrompt = finalThumbnailPrompt.toLowerCase();
+      const lowerName = hostName.toLowerCase();
+      const lowerDesc = hostDesc.toLowerCase().slice(0, Math.min(25, hostDesc.length));
+      if (!lowerPrompt.includes(lowerDesc) && !lowerPrompt.includes(lowerName)) {
+        finalThumbnailPrompt = `Cinematic YouTube thumbnail of ${parsed.title || topic}, featuring character ${hostName} (${hostDesc}), dramatic lighting, high CTR composition, 8k, photorealistic, optimized for ${imageModel}. ${finalThumbnailPrompt}`;
+      }
+    }
+
+    let finalThumbnailConcept = (parsed.thumbnailConcept || '').trim() || `Ý tưởng thumbnail ấn tượng về ${parsed.title || topic}`;
+    if (hostName && !finalThumbnailConcept.toLowerCase().includes(hostName.toLowerCase())) {
+      finalThumbnailConcept = `${finalThumbnailConcept} (Nhân vật đại diện ${hostName}: ${hostDesc || 'tâm điểm'})`;
+    }
+
     return {
       topic,
       title: parsed.title || topic,
@@ -281,8 +296,8 @@ export class AiStudioLlmService {
       estimatedDurationSec,
       keyBeats: outlineArray,
       outline: outlineArray,
-      thumbnailConcept: parsed.thumbnailConcept || `Ý tưởng thumbnail ấn tượng về ${topic}`,
-      thumbnailPrompt: parsed.thumbnailPrompt || defaultThumbnailPrompt,
+      thumbnailConcept: finalThumbnailConcept,
+      thumbnailPrompt: finalThumbnailPrompt,
       rawSummary:
         parsed.rawSummary ||
         `Chiến lược sản xuất video "${parsed.title || topic}" với tỷ lệ ${aspectRatio}, thời lượng dự kiến ${Math.round((estimatedDurationSec / 60) * 10) / 10} phút.`,
@@ -433,7 +448,7 @@ QUY TẮC BẮT BUỘC:
 2. DÀN Ý (outline): BẮT BUỘC trả về mảng có ĐÚNG từ ${minBeats} đến ${maxBeats} phân đoạn (mỗi phần tử là một phân đoạn có mốc thời gian rõ ràng, ví dụ "[00:00 - 00:45] Phân đoạn 1: Mở đầu...").
 3. HÌNH ẢNH THUMBNAIL (thumbnailConcept & thumbnailPrompt): ${
   hostName || hostDescription
-    ? `BẮT BUỘC xuất hiện nhân vật ${hostName || 'đại diện'} (${hostDescription}) với phong cách hình ảnh chuẩn model ${imageModel}.`
+    ? `BẮT BUỘC có sự xuất hiện của nhân vật ${hostName || 'đại diện'}. Cụ thể: "thumbnailPrompt" (tiếng Anh) PHẢI chứa chi tiết diện mạo và trang phục nhân vật: "featuring character ${hostName} (${hostDescription})", ánh sáng cinematic 8k, phong cách chuẩn model ${imageModel}. "thumbnailConcept" (tiếng Việt) phải mô tả rõ bối cảnh và hành động của nhân vật ${hostName}.`
     : `Bắt mắt, ánh sáng cinematic, tối ưu cho model ${imageModel}.`
 }
 
