@@ -964,31 +964,15 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
             // Dual UI Modes (Offscreen vs Live Window)
             const sessionMgr = GoogleVeoSessionManager.getInstance();
             const mutex = GoogleFlowBrowserMutex.getInstance();
-            const uiMode = config.channelProfile?.flowUiMode || config.flowEngine.uiMode || 'live_window';
+            // Mở sảnh Google Flow giống hệt tab Workflow
             let lobbyWin = sessionMgr.getLobbyWindow();
-
-            if (uiMode === 'live_window') {
-              await sessionMgr.showLobbyForDebug();
+            if (!lobbyWin || lobbyWin.isDestroyed()) {
+              await sessionMgr.openLobbyWindow();
               lobbyWin = sessionMgr.getLobbyWindow();
-              if (lobbyWin && !lobbyWin.isDestroyed()) {
-                lobbyWin.setSize(1440, 900);
-                lobbyWin.setPosition(100, 60);
-                try {
-                  lobbyWin.webContents?.setZoomFactor(1.0);
-                } catch {}
-                lobbyWin.show();
-                lobbyWin.focus();
-              }
-            } else {
-              sessionMgr.hideLobbyOffscreen();
-              lobbyWin = sessionMgr.getLobbyWindow();
-              if (!lobbyWin || lobbyWin.isDestroyed()) {
-                await sessionMgr.openLobbyWindow();
-                lobbyWin = sessionMgr.getLobbyWindow();
-              }
-              if (lobbyWin && !lobbyWin.isDestroyed()) {
-                lobbyWin.setPosition(OFFSCREEN_X, OFFSCREEN_Y);
-              }
+            }
+            if (lobbyWin && !lobbyWin.isDestroyed()) {
+              lobbyWin.show();
+              lobbyWin.focus();
             }
 
             // Flatten all shots
@@ -1294,31 +1278,15 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
         const sessionMgr = GoogleVeoSessionManager.getInstance();
         const mutex = GoogleFlowBrowserMutex.getInstance();
 
-        // Đảm bảo cửa sổ Flow sẵn sàng
-        const flowUiMode = config.channelProfile?.flowUiMode || config.flowEngine?.uiMode || 'live_window';
+        // Đảm bảo cửa sổ Flow sẵn sàng giống hệt tab Workflow
         let lobbyWin = sessionMgr.getLobbyWindow();
-        if (flowUiMode === 'live_window') {
-          await sessionMgr.showLobbyForDebug();
+        if (!lobbyWin || lobbyWin.isDestroyed()) {
+          await sessionMgr.openLobbyWindow();
           lobbyWin = sessionMgr.getLobbyWindow();
-          if (lobbyWin && !lobbyWin.isDestroyed()) {
-            lobbyWin.setSize(1440, 900);
-            lobbyWin.setPosition(100, 60);
-            try {
-              lobbyWin.webContents?.setZoomFactor(1.0);
-            } catch {}
-            lobbyWin.show();
-            lobbyWin.focus();
-          }
-        } else {
-          sessionMgr.hideLobbyOffscreen();
-          lobbyWin = sessionMgr.getLobbyWindow();
-          if (!lobbyWin || lobbyWin.isDestroyed()) {
-            await sessionMgr.openLobbyWindow();
-            lobbyWin = sessionMgr.getLobbyWindow();
-          }
-          if (lobbyWin && !lobbyWin.isDestroyed()) {
-            lobbyWin.setPosition(OFFSCREEN_X, OFFSCREEN_Y);
-          }
+        }
+        if (lobbyWin && !lobbyWin.isDestroyed()) {
+          lobbyWin.show();
+          lobbyWin.focus();
         }
 
         const mode = payload.mode || (payload.flowConfig?.outputMode === 'video' ? 'video' : 'both');

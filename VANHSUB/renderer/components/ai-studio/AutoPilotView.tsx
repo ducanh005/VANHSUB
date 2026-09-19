@@ -223,7 +223,10 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
           setIsFlowWindowOpen(false);
         }
       } else {
-        if (window.vanhsub?.veo?.showLobbyDebug) {
+        if (window.vanhsub?.veo?.openLobby) {
+          await window.vanhsub.veo.openLobby();
+          setIsFlowWindowOpen(true);
+        } else if (window.vanhsub?.veo?.showLobbyDebug) {
           await window.vanhsub.veo.showLobbyDebug();
           setIsFlowWindowOpen(true);
         }

@@ -252,11 +252,16 @@ export class GoogleVeoSessionManager {
       throw new Error('Không tìm thấy BrowserWindow trong Electron.');
     }
 
-    // Nếu cửa sổ đang mở thì focus lại
+    this.isLobbyDebugVisible = true;
+
+    // Nếu cửa sổ đang mở thì hiển thị và focus lại
     if (this.lobbyWindow && !this.lobbyWindow.isDestroyed()) {
-      if (!this.isLobbyDebugVisible) {
-        this.lobbyWindow.setPosition(OFFSCREEN_X, OFFSCREEN_Y);
-      }
+      this.lobbyWindow.setSize(1440, 900);
+      this.lobbyWindow.setPosition(100, 60);
+      try {
+        this.lobbyWindow.webContents?.setZoomFactor(1.0);
+      } catch {}
+      this.lobbyWindow.show();
       this.lobbyWindow.focus();
       return;
     }
@@ -303,9 +308,6 @@ export class GoogleVeoSessionManager {
       console.warn('Lỗi khi thiết lập onBeforeSendHeaders cho Google Veo:', headerErr);
     }
 
-    const initX = this.isLobbyDebugVisible ? 100 : OFFSCREEN_X;
-    const initY = this.isLobbyDebugVisible ? 100 : OFFSCREEN_Y;
-
     const initWidth = 1440;
     const initHeight = 900;
 
@@ -314,9 +316,9 @@ export class GoogleVeoSessionManager {
       height: initHeight,
       minWidth: 1024,
       minHeight: 720,
-      x: initX,
-      y: initY,
-      show: Boolean(this.isLobbyDebugVisible),
+      x: 100,
+      y: 60,
+      show: true,
       title: 'Sảnh Google Flow / Veo - Đăng nhập tài khoản Google để nhận Credit miễn phí',
       // Không đặt parent để sảnh là cửa sổ độc lập, thu nhỏ (-) xuống taskbar thoải mái không bị đóng
       modal: false,
