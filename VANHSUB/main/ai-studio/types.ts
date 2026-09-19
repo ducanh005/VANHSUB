@@ -72,6 +72,8 @@ export interface AiStudioFlowEngineConfig {
   outputsPerScene: 1 | 2 | 4;
   /** Thư mục tải về lưu trữ assets sinh ra (rỗng = tự động theo thư mục dự án) */
   downloadDir: string;
+  /** Đường dẫn tệp ảnh tham chiếu cục bộ (tùy chọn) */
+  referenceImagePath?: string;
   /** Số task sinh đồng thời (khuyến nghị 1) */
   concurrency: number;
 }
@@ -664,6 +666,7 @@ export interface RegenerateSceneAssetPayload {
   sceneId: string;
   visualPrompt: string;
   flowConfig?: Partial<AiStudioFlowEngineConfig>;
+  referenceImagePath?: string;
   sessionId?: string;
   mode?: 'image' | 'video' | 'both';
 }

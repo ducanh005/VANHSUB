@@ -47,6 +47,7 @@ export interface FlowStateContext {
   durationSeconds?: number;
   modelVariant?: string;
   initFrameUrl?: string;
+  referenceImagePath?: string;
   targetProjectId?: string;
 
   // Callbacks

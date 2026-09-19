@@ -1005,12 +1005,29 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
             const totalSteps = totalShots * stepsPerShot;
             let completedSteps = 0;
 
+            // Resolve primary reference image from local disk (character avatar or project reference image)
+            let primaryReferenceImagePath: string | undefined;
+            const charAvatar = config.channelProfile?.channelCharacters?.[0]?.avatarUrl;
+            if (charAvatar && fs.existsSync(charAvatar) && fs.statSync(charAvatar).size > 0) {
+              primaryReferenceImagePath = charAvatar;
+            }
+            if (!primaryReferenceImagePath && config.flowEngine?.referenceImagePath && fs.existsSync(config.flowEngine.referenceImagePath)) {
+              primaryReferenceImagePath = config.flowEngine.referenceImagePath;
+            }
+
+            let firstGeneratedImagePath: string | undefined;
+
             for (let idx = 0; idx < allShots.length; idx++) {
               const { sceneId, shot } = allShots[idx];
 
               if (signal.aborted || (session.status as string) === 'cancelled') {
                 throw new Error('Quá trình tạo visual media đã bị hủy bởi người dùng.');
               }
+
+              // Determine reference image for this shot:
+              // If character/custom reference exists, use it.
+              // Otherwise, from shot 1 onwards, use the first generated shot's image on disk as reference!
+              const effectiveRefImage = primaryReferenceImagePath || (idx > 0 && firstGeneratedImagePath ? firstGeneratedImagePath : undefined);
 
               // Step A: Text-to-Image (T2I)
               const t2iProgress = 70 + Math.round((completedSteps / totalSteps) * 15);
@@ -1040,11 +1057,15 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
                   shotId: shot.shot_id,
                   prompt: shot.image_prompt,
                   aspectRatio: config.flowEngine.aspectRatio,
+                  referenceImagePath: effectiveRefImage,
                 });
               }, `ai_studio_t2i_${shot.shot_id}`);
 
               if (!imgResult.success) {
                 throw new Error(`Tạo ảnh thất bại cho ${shot.shot_id}: ${imgResult.error || 'Unknown error'}`);
+              }
+              if (imgResult.imagePath && !firstGeneratedImagePath) {
+                firstGeneratedImagePath = imgResult.imagePath;
               }
               completedSteps++;
 
@@ -1312,6 +1333,7 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
             return { assetPath: vidResult.videoPath, videoPath: vidResult.videoPath };
           }
         } else if (mode === 'image') {
+          const effectiveRef = payload.referenceImagePath || config.channelProfile?.channelCharacters?.[0]?.avatarUrl || config.flowEngine?.referenceImagePath;
           const imgResult = await mutex.runExclusive(async () => {
             return FlowMediaAutomationEngine.generateImageForShot({
               storage,
@@ -1320,6 +1342,7 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
               shotId,
               prompt: payload.visualPrompt,
               aspectRatio: payload.flowConfig?.aspectRatio || config.flowEngine.aspectRatio,
+              referenceImagePath: effectiveRef,
               forceRegenerate: true,
             });
           }, `regenerate_img_${shotId}`);

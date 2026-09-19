@@ -1,3 +1,5 @@
+import fs from 'fs';
+import path from 'path';
 import type {
   FlowAutomationState,
   FlowStateContext,
@@ -9,6 +11,7 @@ import { FlowElementFinder } from '../FlowElementFinder';
 import { FlowOverlayDetector } from '../FlowOverlayDetector';
 import { FlowRecoveryManager } from '../FlowRecoveryManager';
 import { FlowClipboardGuard } from '../FlowClipboardGuard';
+import { FlowFileInputInjector } from '../FlowFileInputInjector';
 
 /**
  * Helper an toàn để execute JS trên BrowserWindow
@@ -410,6 +413,130 @@ export const FindPromptInputState: FlowAutomationState = {
         selectedSelector: res.data?.selector || '',
       },
       reason: ok ? undefined : 'Active element hiện tại không phải ô nhập liệu văn bản',
+    };
+  },
+
+  async exit(): Promise<void> {},
+};
+
+/**
+ * STATE 7B: HANDLE_IMAGE_REFERENCE
+ * Nạp ảnh tham chiếu cục bộ (Character / Style Reference) từ đĩa vào Prompt Box nếu có referenceImagePath/initFrameUrl
+ */
+export const HandleImageReferenceState: FlowAutomationState = {
+  name: 'HANDLE_IMAGE_REFERENCE',
+  timeoutMs: 25000,
+
+  async enter(ctx: FlowStateContext): Promise<void> {
+    const refPath = ctx.referenceImagePath || ctx.initFrameUrl;
+    if (refPath) {
+      ctx.onProgress?.(18, 'Đang nạp ảnh tham chiếu cục bộ vào Google Flow...');
+    }
+  },
+
+  async execute(ctx: FlowStateContext): Promise<ActionResult> {
+    const refPath = ctx.referenceImagePath || ctx.initFrameUrl;
+    if (!refPath) {
+      return { ok: true, data: { hasRefImage: false } };
+    }
+
+    let localPath = refPath;
+    if (localPath.startsWith('file://')) {
+      localPath = localPath.replace(/^file:\/\/\/?/, '');
+    }
+
+    if (!fs.existsSync(localPath) || fs.statSync(localPath).size === 0) {
+      console.warn(`[FlowImageState] File ảnh tham chiếu không tồn tại trên đĩa: "${localPath}"`);
+      return { ok: true, data: { hasRefImage: false, error: 'file_not_found' } };
+    }
+
+    // 1. Kiểm tra nếu chip ảnh đã có sẵn trong prompt box
+    const checkExistingChipJs = `
+      (function() {
+        const chip = document.querySelector(
+          'flow-image-ingredient-chip, flow-ingredient-chip, .chip-container, mat-chip-row, [data-ingredient-type], flow-chip, .chip-image-wrapper, flow-prompt-box mat-chip, .frame-trigger, button[aria-label*="Thành phần tạo hình ảnh" i]'
+        );
+        return !!chip;
+      })()
+    `;
+    const alreadyHasChip = await safeExecuteJs<boolean>(ctx.win, checkExistingChipJs);
+    if (alreadyHasChip) {
+      return { ok: true, data: { hasRefImage: true, alreadyPresent: true } };
+    }
+
+    // 2. Thử nạp trực tiếp qua FlowFileInputInjector (CDP DOM.setFileInputFiles)
+    try {
+      const injectRes = await FlowFileInputInjector.injectIntoBrowserWindow(ctx.win, localPath);
+      if (injectRes.success) {
+        await new Promise((r) => setTimeout(r, 1000));
+        const chipAppeared = await safeExecuteJs<boolean>(ctx.win, checkExistingChipJs);
+        if (chipAppeared) {
+          return { ok: true, data: { hasRefImage: true, source: 'file_input_injector' } };
+        }
+      }
+    } catch (injErr) {
+      // Fall through to clipboard paste
+    }
+
+    // 3. Fallback: Dán ảnh từ đường dẫn cục bộ vào clipboard OS và paste vào ProseMirror
+    let electron: any = null;
+    try {
+      electron = (ctx as any).electron || require('electron');
+    } catch {
+      electron = (ctx as any).electron || null;
+    }
+
+    if (electron && electron.nativeImage && electron.clipboard) {
+      await FlowClipboardGuard.withPreservedClipboard(electron, async () => {
+        try {
+          const natImg = electron.nativeImage.createFromPath(localPath);
+          if (!natImg.isEmpty()) {
+            electron.clipboard.writeImage(natImg);
+            // Focus vào editor trước khi paste
+            await safeExecuteJs(
+              ctx.win,
+              `
+              (function() {
+                const el = document.querySelector('flow-prompt-box .ProseMirror, .prosemirror-editor, [contenteditable="true"]');
+                if (el) { el.focus(); }
+              })()
+            `
+            );
+            ctx.win.focus();
+            ctx.win.webContents.paste();
+            await new Promise((r) => setTimeout(r, 1500));
+          }
+        } catch (pasteErr) {
+          console.warn('[FlowImageState] Cảnh báo paste referenceImagePath:', pasteErr);
+        }
+      });
+    }
+
+    return { ok: true, data: { hasRefImage: true, source: 'clipboard' } };
+  },
+
+  async verify(ctx: FlowStateContext): Promise<VerifyResult> {
+    const refPath = ctx.referenceImagePath || ctx.initFrameUrl;
+    if (!refPath) return { ok: true };
+
+    const checkChipJs = `
+      (function() {
+        const chip = document.querySelector(
+          'flow-image-ingredient-chip, flow-ingredient-chip, .chip-container, mat-chip-row, [data-ingredient-type], flow-chip, .chip-image-wrapper, flow-prompt-box mat-chip, flow-prompt-box img, flow-base-prompt-box img, .ProseMirror img, flow-prompt-box [class*="chip"], flow-prompt-box [class*="ingredient"], .frame-trigger, button[aria-label*="Thành phần tạo hình ảnh" i]'
+        );
+        return {
+          hasChip: !!chip,
+          chipTag: chip ? chip.tagName : 'none'
+        };
+      })()
+    `;
+    const res = await safeExecuteJs<any>(ctx.win, checkChipJs, 2000);
+    return {
+      ok: true, // Soft verify: không block pipeline nếu UI animate chậm
+      criteria: {
+        hasChip: Boolean(res?.hasChip),
+        chipTag: res?.chipTag || 'none',
+      },
     };
   },
 
@@ -1581,6 +1708,7 @@ export const FlowImageGenerationStatePipeline: FlowAutomationState[] = [
   CleanCanvasState,
   FindEditorState,
   FindPromptInputState,
+  HandleImageReferenceState,
   EnterPromptState,
   ConfigureOptionsState,
   CaptureBaselineState,

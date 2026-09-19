@@ -1778,6 +1778,7 @@ export class GoogleVeoSessionManager {
       projectId?: string;
       taskId?: string;
       generationAttemptId?: string;
+      referenceImagePath?: string;
     },
     onProgress?: (pct: number, msg?: string) => void,
     isCancelled?: () => boolean
@@ -1792,6 +1793,11 @@ export class GoogleVeoSessionManager {
       return null;
     }
 
+    let electron: any = null;
+    try {
+      electron = require('electron');
+    } catch {}
+
     const fsm = new FlowStateMachine(FlowImageGenerationStatePipeline);
     const ctx: FlowStateContext = {
       taskId,
@@ -1804,6 +1810,7 @@ export class GoogleVeoSessionManager {
       outputCount: params.outputCount || 1,
       imageEngine: params.imageEngine || 'nano-banana',
       targetProjectId: params.projectId,
+      referenceImagePath: params.referenceImagePath,
       onProgress,
       isCancelled,
       generationState: 'IDLE',
@@ -1814,6 +1821,7 @@ export class GoogleVeoSessionManager {
       netFilterAttached: false,
       stateHistory: [],
     };
+    (ctx as any).electron = electron;
 
     const res = await fsm.run(ctx);
 

@@ -37,6 +37,7 @@ import {
 } from '../../ai-studio/storage/AiStudioDiskStorageManager';
 import { FlowVisualConfirmGuard } from './FlowVisualConfirmGuard';
 import { FlowFileInputInjector } from './FlowFileInputInjector';
+import { GoogleVeoSessionManager } from '../../veo/GoogleVeoSessionManager';
 
 const execFileAsync = promisify(execFile);
 
@@ -54,6 +55,7 @@ export interface GenerateImageOptions {
   shotId: string;
   prompt: string;
   aspectRatio?: string;
+  referenceImagePath?: string;
   forceRegenerate?: boolean;
   maxRetries?: number;
   timeoutMs?: number;
@@ -296,47 +298,12 @@ export class FlowMediaAutomationEngine {
       };
     }
 
-    // 4. Live Browser Interaction Workflow
+    // 4. Live Browser Interaction Workflow via GoogleVeoSessionManager & FlowStateMachine
     let lastError: any = null;
+    const sessionMgr = GoogleVeoSessionManager.getInstance();
 
     for (let retry = 0; retry <= maxRetries; retry++) {
       try {
-        // Step A: Focus input with Confirm-Before-Act
-        const inputSelector = 'flow-prompt-box .ProseMirror, textarea[aria-label*="prompt"], [contenteditable="true"]';
-        const focusResult = await FlowVisualConfirmGuard.waitForElementAndSafeClick(win, inputSelector, {
-          timeoutMs: 10_000,
-          settleMs: 200,
-        });
-
-        if (!focusResult.settled) {
-          throw new Error(`Failed to safely focus prompt input (element unstable, drift: ${focusResult.driftPx}px)`);
-        }
-
-        // Step B: Enter prompt text into DOM
-        await win.webContents.executeJavaScript(`
-          (function() {
-            const el = document.querySelector(${JSON.stringify(inputSelector)});
-            if (el) {
-              el.innerText = ${JSON.stringify(prompt)};
-              el.dispatchEvent(new Event('input', { bubbles: true }));
-              el.dispatchEvent(new Event('change', { bubbles: true }));
-            }
-          })()
-        `);
-
-        // Step C: Two-way Prompt Read-Back Verification (spec §6.1)
-        const readBackValue = await win.webContents.executeJavaScript(`
-          (function() {
-            const el = document.querySelector(${JSON.stringify(inputSelector)});
-            return el ? (el.value || el.innerText || el.textContent || '') : '';
-          })()
-        `);
-
-        const match = FlowMediaAutomationEngine.verifyPromptReadBack(readBackValue, prompt);
-        if (!match) {
-          throw new Error(`Prompt read-back verification failed. Expected: "${prompt}", got: "${readBackValue}"`);
-        }
-
         storage.appendActionLog(
           FlowMediaAutomationEngine.createActionLog({
             scene_id: sceneId,
@@ -345,84 +312,71 @@ export class FlowMediaAutomationEngine {
             target: 'prompt_editor',
             retry,
             status: 'ok',
-            details: { prompt_verified: true, length: prompt.length },
+            details: { prompt, referenceImagePath: options.referenceImagePath },
           })
         );
 
-        // Step D: Confirm-Before-Act Click on Generate Button
-        const buttonSelector = 'button[flow-generate-button], button[aria-label*="Generate"], button.generate-button';
-        const buttonClick = await FlowVisualConfirmGuard.waitForElementAndSafeClick(win, buttonSelector, {
-          timeoutMs: 10_000,
-          settleMs: 250,
-        });
+        const result = await sessionMgr.generateImageViaBrowserContext(
+          {
+            prompt: prompt.trim(),
+            aspectRatio: options.aspectRatio || '16:9',
+            referenceImagePath: options.referenceImagePath,
+            projectId: storage.readIndex()?.project_id,
+            taskId: shotId,
+            generationAttemptId: `${sceneId}_${shotId}_${nextVer.version}_${retry}`,
+          },
+          (pct, msg) => {
+            // Live progress callback
+          },
+          () => false
+        );
 
-        if (!buttonClick.settled) {
-          throw new Error('Generate button unstable during Confirm-Before-Act measurement');
+        if (result?.error && !result.imageUrl && !result.base64Data) {
+          throw new Error(result.errorDetail || result.error);
         }
 
-        storage.appendActionLog(
-          FlowMediaAutomationEngine.createActionLog({
-            scene_id: sceneId,
-            shot_id: shotId,
-            action: 'click',
-            target: 'generate_button',
-            retry,
-            status: 'ok',
-            details: { coords: buttonClick.clickCoords },
-          })
-        );
+        if (result?.base64Data) {
+          const pureBase64 = result.base64Data.replace(/^data:image\/\w+;base64,/, '');
+          fs.writeFileSync(nextVer.absolutePath, Buffer.from(pureBase64, 'base64'));
+        } else if (result?.imageUrl) {
+          const imgUrl = result.imageUrl;
+          if (imgUrl.startsWith('file://')) {
+            const srcLocal = imgUrl.replace(/^file:\/\/\/?/, '');
+            fs.copyFileSync(srcLocal, nextVer.absolutePath);
+          } else if (imgUrl.startsWith('http')) {
+            const downloadedBuffer = await FlowVisualConfirmGuard.pollCondition<Buffer>(
+              async () => {
+                const base64Data = await win.webContents.executeJavaScript(`
+                  (async function() {
+                    const res = await fetch(${JSON.stringify(imgUrl)});
+                    const blob = await res.blob();
+                    return new Promise((resolve) => {
+                      const reader = new FileReader();
+                      reader.onloadend = () => resolve(reader.result);
+                      reader.readAsDataURL(blob);
+                    });
+                  })()
+                `).catch(() => null);
+                if (base64Data && typeof base64Data === 'string') {
+                  const pure = base64Data.replace(/^data:image\/\w+;base64,/, '');
+                  return Buffer.from(pure, 'base64');
+                }
+                return false;
+              },
+              { timeoutMs: 30000, initialIntervalMs: 500, maxIntervalMs: 2000, label: `download_img_${shotId}` }
+            );
+            fs.writeFileSync(nextVer.absolutePath, downloadedBuffer);
+          }
+        } else {
+          throw new Error('Google Flow không trả về URL ảnh hoặc Base64 hợp lệ');
+        }
 
-        // Step E: Dynamic DOM Polling for Generation Completion (Zero sleep, 90s timeout)
-        const downloadedBuffer = await FlowVisualConfirmGuard.pollCondition<Buffer>(
-          async () => {
-            // Check if generation spinner is finished and image card is present
-            const isGenerating = await win.webContents.executeJavaScript(`
-              (function() {
-                const spinner = document.querySelector('.generating-spinner, [data-state="generating"], mat-progress-spinner');
-                return Boolean(spinner);
-              })()
-            `).catch(() => false);
+        const stat = fs.statSync(nextVer.absolutePath);
+        if (stat.size === 0) {
+          throw new Error('Tệp ảnh tải về 0 bytes');
+        }
 
-            if (isGenerating) return false;
-
-            // Extract completed image src or data URL
-            const imageUrl = await win.webContents.executeJavaScript(`
-              (function() {
-                const imgs = Array.from(document.querySelectorAll('flow-image-tile img, .media-card img, img.generated-image'));
-                const last = imgs[imgs.length - 1];
-                return last ? last.src : null;
-              })()
-            `).catch(() => null);
-
-            if (!imageUrl) return false;
-
-            // Download image via fetch inside webContents
-            const base64Data = await win.webContents.executeJavaScript(`
-              (async function() {
-                const res = await fetch(${JSON.stringify(imageUrl)});
-                const blob = await res.blob();
-                return new Promise((resolve) => {
-                  const reader = new FileReader();
-                  reader.onloadend = () => resolve(reader.result);
-                  reader.readAsDataURL(blob);
-                });
-              })()
-            `).catch(() => null);
-
-            if (base64Data && typeof base64Data === 'string') {
-              const pureBase64 = base64Data.replace(/^data:image\/\w+;base64,/, '');
-              return Buffer.from(pureBase64, 'base64');
-            }
-
-            return false;
-          },
-          { timeoutMs, initialIntervalMs: 200, maxIntervalMs: 1500, label: `t2i_poll(${shotId})` }
-        );
-
-        // Step F: Save directly to local disk
-        fs.writeFileSync(nextVer.absolutePath, downloadedBuffer);
-
-        // Step G: Update index.json
+        // Update index.json
         storage.updateShotMetadata(sceneId, shotId, {
           current_image_version: nextVer.version,
           image_path: options.forceRegenerate ? nextVer.absolutePath : nextVer.relativePath,
@@ -439,7 +393,7 @@ export class FlowMediaAutomationEngine {
             target: nextVer.relativePath,
             retry,
             status: 'ok',
-            details: { sizeBytes: downloadedBuffer.length, version: nextVer.version },
+            details: { sizeBytes: stat.size, version: nextVer.version },
           })
         );
 
@@ -448,7 +402,7 @@ export class FlowMediaAutomationEngine {
           imagePath: nextVer.absolutePath,
           relativePath: nextVer.relativePath,
           version: nextVer.version,
-          fileSizeBytes: downloadedBuffer.length,
+          fileSizeBytes: stat.size,
         };
       } catch (err: any) {
         lastError = err;
@@ -569,18 +523,12 @@ export class FlowMediaAutomationEngine {
       };
     }
 
-    // 5. Live Browser Automation Workflow
+    // 5. Live Browser Automation Workflow via GoogleVeoSessionManager & FlowStateMachine
     let lastError: any = null;
+    const sessionMgr = GoogleVeoSessionManager.getInstance();
 
     for (let retry = 0; retry <= maxRetries; retry++) {
       try {
-        // Step A: Inject local image file directly into file input (spec §6.2)
-        // NO thumbnail clicks under any circumstances!
-        const injection = await FlowFileInputInjector.injectIntoBrowserWindow(win, sourcePath);
-        if (!injection.success) {
-          throw new Error(`Direct local file injection failed: ${injection.error}`);
-        }
-
         storage.appendActionLog(
           FlowMediaAutomationEngine.createActionLog({
             scene_id: sceneId,
@@ -589,131 +537,87 @@ export class FlowMediaAutomationEngine {
             target: 'file_input',
             retry,
             status: 'ok',
-            details: { sourceFile: path.basename(sourcePath), sizeBytes: injection.fileSizeBytes },
+            details: { sourceFile: path.basename(sourcePath) },
           })
         );
 
-        // Step B: Post-upload Verification (spec §6.2)
-        const verified = await FlowFileInputInjector.verifyUpload(
-          win,
-          path.basename(sourcePath),
-          injection.fileSizeBytes
+        const result = await sessionMgr.generateVideoViaBrowserContext(
+          {
+            prompt: motionNote || 'cinematic motion',
+            initFrameUrl: sourcePath,
+            aspectRatio: '16:9',
+            durationSeconds: Math.round(expectedDurationSec),
+            projectId: storage.readIndex()?.project_id,
+            taskId: shotId,
+            generationAttemptId: `${sceneId}_${shotId}_${nextVidVer.version}_${retry}`,
+          },
+          (pct, msg) => {
+            // Live progress callback
+          },
+          () => false
         );
-        if (!verified) {
-          throw new Error(`Post-upload verification timed out for source image "${path.basename(sourcePath)}"`);
+
+        if (result?.error && !result.videoUrl && !result.base64Data) {
+          throw new Error(result.errorDetail || result.error);
         }
 
-        // Step C: Apply Camera Motion Note (if provided)
-        if (motionNote) {
-          const motionInputSelector = 'input[aria-label*="Motion"], textarea[aria-label*="Motion"], .motion-note-input';
-          const motionClick = await FlowVisualConfirmGuard.waitForElementAndSafeClick(win, motionInputSelector, {
-            timeoutMs: 5000,
-            settleMs: 200,
-          }).catch(() => null);
-
-          if (motionClick && motionClick.settled) {
-            await win.webContents.executeJavaScript(`
-              (function() {
-                const el = document.querySelector(${JSON.stringify(motionInputSelector)});
-                if (el) {
-                  el.value = ${JSON.stringify(motionNote)};
-                  el.dispatchEvent(new Event('input', { bubbles: true }));
+        if (result?.base64Data) {
+          const pureBase64 = result.base64Data.replace(/^data:video\/\w+;base64,/, '');
+          fs.writeFileSync(nextVidVer.absolutePath, Buffer.from(pureBase64, 'base64'));
+        } else {
+          // Download video via Video Viewer or HTTP
+          let downloaded = false;
+          if (win && !win.isDestroyed()) {
+            downloaded = await sessionMgr.downloadVideoViaViewer(win, nextVidVer.absolutePath);
+          }
+          if (!downloaded && result?.videoUrl && result.videoUrl.startsWith('http')) {
+            const videoBuffer = await FlowVisualConfirmGuard.pollCondition<Buffer>(
+              async () => {
+                const base64Data = await win.webContents.executeJavaScript(`
+                  (async function() {
+                    const res = await fetch(${JSON.stringify(result.videoUrl)});
+                    const blob = await res.blob();
+                    return new Promise((resolve) => {
+                      const reader = new FileReader();
+                      reader.onloadend = () => resolve(reader.result);
+                      reader.readAsDataURL(blob);
+                    });
+                  })()
+                `).catch(() => null);
+                if (base64Data && typeof base64Data === 'string') {
+                  const pure = base64Data.replace(/^data:video\/\w+;base64,/, '');
+                  return Buffer.from(pure, 'base64');
                 }
-              })()
-            `).catch(() => {});
+                return false;
+              },
+              { timeoutMs, initialIntervalMs: 500, maxIntervalMs: 2500, label: `i2v_download_${shotId}` }
+            );
+            fs.writeFileSync(nextVidVer.absolutePath, videoBuffer);
+            downloaded = true;
+          }
+          if (!downloaded && (!fs.existsSync(nextVidVer.absolutePath) || fs.statSync(nextVidVer.absolutePath).size === 0)) {
+            throw new Error('Không tải được tệp video từ Google Flow về máy.');
           }
         }
 
-        // Step D: Trigger Generate Video with Confirm-Before-Act
-        const generateBtnSelector = 'button[flow-video-generate], button[aria-label*="Generate Video"], button.generate-video-btn';
-        const generateClick = await FlowVisualConfirmGuard.waitForElementAndSafeClick(win, generateBtnSelector, {
-          timeoutMs: 10_000,
-          settleMs: 300,
-        });
-
-        if (!generateClick.settled) {
-          throw new Error('Video generate button unstable during Confirm-Before-Act measurement');
-        }
-
-        storage.appendActionLog(
-          FlowMediaAutomationEngine.createActionLog({
-            scene_id: sceneId,
-            shot_id: shotId,
-            action: 'click',
-            target: 'generate_video_button',
-            retry,
-            status: 'ok',
-            details: { coords: generateClick.clickCoords },
-          })
-        );
-
-        // Step E: Dynamic DOM Polling for Video Completion (Zero sleep, 300s timeout)
-        const videoBuffer = await FlowVisualConfirmGuard.pollCondition<Buffer>(
-          async () => {
-            const isGenerating = await win.webContents.executeJavaScript(`
-              (function() {
-                const spinner = document.querySelector('.video-generating-spinner, [data-state="rendering-video"]');
-                return Boolean(spinner);
-              })()
-            `).catch(() => false);
-
-            if (isGenerating) return false;
-
-            const videoUrl = await win.webContents.executeJavaScript(`
-              (function() {
-                const videos = Array.from(document.querySelectorAll('flow-video-tile video, .video-player video, video[src]'));
-                const last = videos[videos.length - 1];
-                return last ? last.src : null;
-              })()
-            `).catch(() => null);
-
-            if (!videoUrl) return false;
-
-            const base64Data = await win.webContents.executeJavaScript(`
-              (async function() {
-                const res = await fetch(${JSON.stringify(videoUrl)});
-                const blob = await res.blob();
-                return new Promise((resolve) => {
-                  const reader = new FileReader();
-                  reader.onloadend = () => resolve(reader.result);
-                  reader.readAsDataURL(blob);
-                });
-              })()
-            `).catch(() => null);
-
-            if (base64Data && typeof base64Data === 'string') {
-              const pure = base64Data.replace(/^data:video\/\w+;base64,/, '');
-              return Buffer.from(pure, 'base64');
-            }
-
-            return false;
-          },
-          { timeoutMs, initialIntervalMs: 500, maxIntervalMs: 2500, label: `i2v_poll(${shotId})` }
-        );
-
-        // Step F: Save video directly to local disk
-        fs.writeFileSync(nextVidVer.absolutePath, videoBuffer);
-
-        // Step G: Probe actual video duration using ffprobe (spec §6.3)
+        // Probe actual video duration using ffprobe
         let actualDuration = expectedDurationSec;
         try {
           actualDuration = await FlowMediaAutomationEngine.probeVideoDuration(nextVidVer.absolutePath);
-        } catch {
-          // If probe fails, fallback to expected
-        }
+        } catch {}
 
-        // Step H: Check duration deviation against ±15% threshold
+        // Check duration deviation against ±15% threshold
         const deviation = FlowMediaAutomationEngine.checkVideoDurationDeviation(
           expectedDurationSec,
           actualDuration,
           tolerancePct
         );
 
-        // Step I: Update master index.json with status & audit flags
+        // Update master index.json
         storage.updateShotMetadata(sceneId, shotId, {
           current_video_version: nextVidVer.version,
           video_path: options.forceRegenerate ? nextVidVer.absolutePath : nextVidVer.relativePath,
-          source_image_path: storage.resolvePath(sourcePath).replace(storage.projectDir, '').replace(/^[/\\]/, ''),
+          source_image_path: storage.resolvePath(sourcePath).replace(storage.projectDir, '').replace(/^[\/\\]/, ''),
           motion_note: motionNote,
           expected_duration_sec: expectedDurationSec,
           actual_duration_sec: actualDuration,
@@ -732,7 +636,7 @@ export class FlowMediaAutomationEngine {
             retry,
             status: 'ok',
             details: {
-              sizeBytes: videoBuffer.length,
+              sizeBytes: fs.statSync(nextVidVer.absolutePath).size,
               version: nextVidVer.version,
               actualDurationSec: actualDuration,
               expectedDurationSec,
@@ -751,7 +655,7 @@ export class FlowMediaAutomationEngine {
           expectedDurationSec,
           deviationPct: deviation.deviationPct,
           needsReview: deviation.needsReview,
-          fileSizeBytes: videoBuffer.length,
+          fileSizeBytes: fs.statSync(nextVidVer.absolutePath).size,
         };
       } catch (err: any) {
         lastError = err;

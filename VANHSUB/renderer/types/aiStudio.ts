@@ -105,6 +105,8 @@ export interface AiStudioFlowEngineConfig {
   outputsPerScene: FlowOutputsPerScene;
   /** Thư mục lưu trữ assets sinh ra (chuỗi rỗng = thư mục tạm mặc định của project) */
   downloadDir: string;
+  /** Đường dẫn tệp ảnh tham chiếu cục bộ (tùy chọn) */
+  referenceImagePath?: string;
   /** Số tác vụ sinh song song (khuyến nghị: 1 để tránh rate limit / checkpoint session) */
   concurrency: number;
 }
