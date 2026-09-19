@@ -65,26 +65,38 @@ export class FlowErrorClassifier {
       };
     }
 
+    // Nhận diện xem message có phải là lỗi kỹ thuật nội bộ của agent mô tả DOM bị che không
+    // (ví dụ: "Phần tử [PROMPT_INPUT] đang bị che bởi [SPAN.credit-cost-label]...")
+    const isInternalDomObscured =
+      lowerMsg.includes('bị che') ||
+      lowerMsg.includes('obscured') ||
+      lowerMsg.includes('element_obscured') ||
+      lowerMsg.includes('credit-cost') ||
+      lowerMsg.includes('cost-label');
+
     // 3. KIỂM TRA HẾT HẠN PHIÊN / AUTH THẤT BẠI (SESSION_EXPIRED)
     const currentUrl = (ctx?.win && !ctx.win.isDestroyed() ? ctx.win.webContents?.getURL?.() : '') || pageState?.currentUrl || '';
     const isAboutLanding = currentUrl.toLowerCase().includes('flow.google.com/about');
     const isLoginUrl = currentUrl.toLowerCase().includes('accounts.google.com') || currentUrl.toLowerCase().includes('servicelogin');
     
     if (
-      isAboutLanding ||
-      isLoginUrl ||
-      pageState?.state === 'LOGIN_PAGE' ||
-      lowerMsg.includes('flow.google.com/about') ||
-      lowerMsg.includes('session_expired') ||
-      lowerMsg.includes('session expired') ||
-      lowerMsg.includes('hết hạn phiên') ||
-      lowerMsg.includes('chưa xác thực phiên') ||
-      lowerMsg.includes('unauthorized') ||
-      lowerMsg.includes('status: 401') ||
-      lowerMsg.includes('status 401') ||
-      lowerMsg.includes('status: 403') ||
-      lowerMsg.includes('status 403') ||
-      lowerMsg.includes('reauth_required')
+      !isInternalDomObscured &&
+      (
+        isAboutLanding ||
+        isLoginUrl ||
+        pageState?.state === 'LOGIN_PAGE' ||
+        lowerMsg.includes('flow.google.com/about') ||
+        lowerMsg.includes('session_expired') ||
+        lowerMsg.includes('session expired') ||
+        lowerMsg.includes('hết hạn phiên') ||
+        lowerMsg.includes('chưa xác thực phiên') ||
+        lowerMsg.includes('unauthorized') ||
+        lowerMsg.includes('status: 401') ||
+        lowerMsg.includes('status 401') ||
+        lowerMsg.includes('status: 403') ||
+        lowerMsg.includes('status 403') ||
+        lowerMsg.includes('reauth_required')
+      )
     ) {
       return {
         category: 'NON_RETRYABLE',
@@ -98,14 +110,21 @@ export class FlowErrorClassifier {
     }
 
     // 4. KIỂM TRA HẾT TÍN DỤNG (OUT_OF_CREDITS)
+    // Phải là thông báo thực tế từ UI Google Flow, không bắt nhầm từ CSS class "credit-cost-label" hay lỗi DOM che phủ
     if (
-      lowerMsg.includes('out of credits') ||
-      lowerMsg.includes('hết tín dụng') ||
-      lowerMsg.includes('không đủ số dư') ||
-      lowerMsg.includes('insufficient credits') ||
-      lowerMsg.includes('quota exhausted') ||
-      lowerMsg.includes('mua thêm tín dụng') ||
-      lowerMsg.includes('zero balance')
+      !isInternalDomObscured &&
+      (
+        lowerMsg.includes('out of credits') ||
+        lowerMsg.includes('hết tín dụng') ||
+        lowerMsg.includes('hết credit') ||
+        lowerMsg.includes('bạn đã hết credit') ||
+        lowerMsg.includes('không đủ credit') ||
+        lowerMsg.includes('không đủ số dư') ||
+        lowerMsg.includes('insufficient credits') ||
+        lowerMsg.includes('quota exhausted') ||
+        lowerMsg.includes('mua thêm tín dụng') ||
+        lowerMsg.includes('zero balance')
+      )
     ) {
       return {
         category: 'NON_RETRYABLE',
@@ -354,8 +373,9 @@ export class FlowErrorClassifier {
       };
     }
 
-    // 14. KIỂM TRA LỖI PHẦN TỬ DOM BẬN / QUÁ THỜI GIAN CHỜ TẠM THỜI (ELEMENT_TRANSIENT_BUSY)
+    // 14. KIỂM TRA LỖI PHẦN TỬ DOM BẬN / BỊ CHE PHỦ TẠM THỜI (ELEMENT_TRANSIENT_BUSY)
     if (
+      isInternalDomObscured ||
       lowerMsg.includes('quá thời gian chờ') ||
       lowerMsg.includes('timeout') ||
       lowerMsg.includes('wait_timeout') ||
@@ -364,6 +384,7 @@ export class FlowErrorClassifier {
       lowerMsg.includes('click_prep_failed') ||
       lowerMsg.includes('obscured') ||
       lowerMsg.includes('che phủ') ||
+      lowerMsg.includes('bị che') ||
       lowerMsg.includes('không tìm thấy') ||
       lowerMsg.includes('rescan_required')
     ) {

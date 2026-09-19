@@ -188,11 +188,41 @@ export class FlowStateMachine {
         } catch (stateErr: any) {
           const errMsg = (stateErr?.message || String(stateErr)).toLowerCase();
           let errType: FlowRecoveryErrorType = 'UNKNOWN_STATE';
-          if (errMsg.includes('obscured') || errMsg.includes('che phủ') || errMsg.includes('backdrop') || errMsg.includes('dialog')) {
+          const isDomObscured =
+            errMsg.includes('obscured') ||
+            errMsg.includes('element_obscured') ||
+            errMsg.includes('bị che') ||
+            errMsg.includes('che phủ') ||
+            errMsg.includes('backdrop') ||
+            errMsg.includes('dialog') ||
+            errMsg.includes('credit-cost') ||
+            errMsg.includes('cost-label');
+
+          if (isDomObscured) {
             errType = 'OVERLAY_BLOCKING';
-          } else if (errMsg.includes('not found') || errMsg.includes('không tìm thấy') || errMsg.includes('element_not_found')) {
+          } else if (
+            errMsg.includes('not found') ||
+            errMsg.includes('không tìm thấy') ||
+            errMsg.includes('element_not_found')
+          ) {
             errType = 'ELEMENT_NOT_FOUND';
-          } else if (errMsg.includes('session') || errMsg.includes('hết hạn') || errMsg.includes('credit') || errMsg.includes('tín dụng') || errMsg.includes('about')) {
+          } else if (
+            // Tuyệt đối không match substring đơn lẻ như 'credit' hay 'about' (tránh bắt nhầm CSS class / debug text)
+            // Chỉ coi là SESSION_EXPIRED khi có thông điệp thực sự về phiên đăng nhập hoặc hết credit từ Flow
+            (
+              errMsg.includes('session_expired') ||
+              errMsg.includes('session expired') ||
+              errMsg.includes('hết hạn phiên') ||
+              errMsg.includes('chưa xác thực phiên') ||
+              errMsg.includes('hết tín dụng') ||
+              errMsg.includes('hết credit') ||
+              errMsg.includes('không đủ credit') ||
+              errMsg.includes('bạn đã hết credit') ||
+              errMsg.includes('out of credits') ||
+              errMsg.includes('insufficient credits') ||
+              errMsg.includes('reauth_required')
+            )
+          ) {
             errType = 'SESSION_EXPIRED';
           }
 

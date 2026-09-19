@@ -381,7 +381,7 @@ export class FlowElementFinder {
         x: Math.round(bestCandidate.rect.x + bestCandidate.rect.width / 2),
         y: Math.round(bestCandidate.rect.y + bestCandidate.rect.height / 2),
       };
-      const unobscuredRes = await FlowSmartWait.checkElementUnobscured(
+      let unobscuredRes = await FlowSmartWait.checkElementUnobscured(
         win,
         clickCenter,
         bestCandidate.selector,
@@ -390,14 +390,44 @@ export class FlowElementFinder {
       bestCandidate.unobscured = unobscuredRes.unobscured;
 
       if (!unobscuredRes.unobscured) {
-        return {
-          found: false,
-          selectedCandidate: bestCandidate,
-          candidatesTried,
-          allCandidates,
-          error: 'element_obscured',
-          errorDetail: `Phần tử [${spec.name}] đang bị che bởi [${unobscuredRes.topElementTag}.${unobscuredRes.topElementClass}] tại toạ độ (${clickCenter.x}, ${clickCenter.y}).`,
-        };
+        const topClass = (unobscuredRes.topElementClass || '').toLowerCase();
+        const topTag = (unobscuredRes.topElementTag || '').toUpperCase();
+        const isTemporaryOverlay =
+          topClass.includes('credit-cost') ||
+          topClass.includes('cost-label') ||
+          topClass.includes('tooltip') ||
+          topClass.includes('toast') ||
+          topTag === 'MAT-TOOLTIP-COMPONENT' ||
+          topTag === 'SPAN';
+
+        if (isTemporaryOverlay) {
+          // Di chuột ra toạ độ an toàn (10, 10) để kích hoạt tooltip Material Design tự ẩn
+          try {
+            win.webContents.sendInputEvent({ type: 'mouseMove', x: 10, y: 10 });
+          } catch {}
+
+          // Chờ 350ms cho tooltip tự ẩn
+          await new Promise((r) => setTimeout(r, 350));
+
+          unobscuredRes = await FlowSmartWait.checkElementUnobscured(
+            win,
+            clickCenter,
+            bestCandidate.selector,
+            bestCandidate.containerSelector
+          );
+          bestCandidate.unobscured = unobscuredRes.unobscured;
+        }
+
+        if (!unobscuredRes.unobscured) {
+          return {
+            found: false,
+            selectedCandidate: bestCandidate,
+            candidatesTried,
+            allCandidates,
+            error: 'element_obscured',
+            errorDetail: `Phần tử [${spec.name}] đang bị che bởi [${unobscuredRes.topElementTag}.${unobscuredRes.topElementClass}] tại toạ độ (${clickCenter.x}, ${clickCenter.y}).`,
+          };
+        }
       }
     }
 

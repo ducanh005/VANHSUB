@@ -489,8 +489,69 @@ export const FindPromptInputState: FlowAutomationState = {
       await new Promise(r => setTimeout(r, 1500));
     }
 
-    const findRes = await FlowElementFinder.find(ctx.win, FlowElementFinder.getPromptInputSpec());
+    let findRes = await FlowElementFinder.find(ctx.win, FlowElementFinder.getPromptInputSpec());
+
+    // Nếu phần tử tạm thời bị che bởi tooltip / nhãn credit, tự động cứu hộ trước khi báo lỗi
+    if (!findRes.found && (findRes.error === 'element_obscured' || (findRes.errorDetail || '').includes('che'))) {
+      console.warn(`[FlowImageState] ⚠️ [FIND_PROMPT_INPUT] Prompt input bị che: ${findRes.errorDetail}. Đang kích hoạt cứu hộ tooltip...`);
+
+      // Cách a: Di chuột ra toạ độ xa (10, 10) để kích hoạt tooltip Material Design tự ẩn
+      try {
+        ctx.win.webContents.sendInputEvent({ type: 'mouseMove', x: 10, y: 10 });
+      } catch {}
+
+      // Cách b: Chờ 400ms và thử quét lại
+      await new Promise((r) => setTimeout(r, 400));
+      findRes = await FlowElementFinder.find(ctx.win, FlowElementFinder.getPromptInputSpec());
+
+      // Cách c: Nếu vẫn bị che, kiểm tra xem có modal/backdrop thật sự chặn không
+      if (!findRes.found && (findRes.error === 'element_obscured' || (findRes.errorDetail || '').includes('che'))) {
+        const checkBackdropJs = `
+          (function() {
+            const bd = document.querySelector('.cdk-overlay-backdrop, mat-dialog-container, .modal-backdrop');
+            return Boolean(bd);
+          })()
+        `;
+        const hasTrueModal = await safeExecuteJs<boolean>(ctx.win, checkBackdropJs, 1000);
+        if (!hasTrueModal) {
+          // Chỉ là tooltip/label nổi (như credit-cost-label), chờ thêm 500ms rồi thử lại lần cuối
+          await new Promise((r) => setTimeout(r, 500));
+          findRes = await FlowElementFinder.find(ctx.win, FlowElementFinder.getPromptInputSpec());
+        }
+      }
+    }
+
     if (!findRes.found || !findRes.selectedCandidate) {
+      // Fallback cuối: Nếu chỉ bị che bởi credit-cost-label hoặc tooltip nhưng ProseMirror vẫn focus được
+      const emergencyFocusJs = `
+        (function() {
+          const pm = document.querySelector('flow-prompt-box .ProseMirror, .prosemirror-editor .ProseMirror, .ProseMirror, [contenteditable="true"]');
+          if (pm) {
+            pm.focus();
+            const r = pm.getBoundingClientRect();
+            return {
+              ok: true,
+              selector: 'flow-prompt-box .ProseMirror',
+              coords: { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }
+            };
+          }
+          return { ok: false };
+        })()
+      `;
+      const emRes = await safeExecuteJs<any>(ctx.win, emergencyFocusJs, 1000);
+      if (emRes?.ok) {
+        console.log('[FlowImageState] ℹ️ Đã focus trực tiếp vào ProseMirror qua DOM bypass overlay tooltip.');
+        return {
+          ok: true,
+          data: {
+            strategy: 'DOM_EMERGENCY_FOCUS',
+            confidence: 70,
+            selector: emRes.selector,
+            coords: emRes.coords,
+          }
+        };
+      }
+
       return {
         ok: false,
         error: findRes.error || 'prompt_input_not_found',
@@ -1426,6 +1487,55 @@ export const ConfigureOptionsState: FlowAutomationState = {
       await new Promise((r) => setTimeout(r, 50));
       ctx.win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' });
       await new Promise((r) => setTimeout(r, 250));
+
+      // 2e. BƯỚC CHỜ CÓ ĐIỀU KIỆN: Đợi tooltip credit-cost-label (hoặc overlay chi phí credit) biến mất
+      // Di chuột ra góc màn hình (10, 10) để kích hoạt tooltip Material Design tự ẩn
+      try {
+        ctx.win.webContents.sendInputEvent({ type: 'mouseMove', x: 10, y: 10 });
+      } catch {}
+
+      console.log('[FlowImageState] ⏳ Kiểm tra tooltip chi phí credit tạm thời (.credit-cost-label)...');
+      const waitCostStart = Date.now();
+      const maxWaitCostMs = 2500;
+      let costTooltipGone = false;
+
+      while (Date.now() - waitCostStart < maxWaitCostMs) {
+        const checkCostJs = `
+          (function() {
+            const selectors = [
+              '.credit-cost-label',
+              '[class*="credit-cost"]',
+              '[class*="cost-label"]',
+              'span.credit-cost-label',
+              '.mat-mdc-tooltip',
+              '[role="tooltip"]'
+            ];
+            for (const sel of selectors) {
+              const els = document.querySelectorAll(sel);
+              for (const el of els) {
+                const r = el.getBoundingClientRect();
+                if (r && r.width > 0 && r.height > 0) {
+                  return { visible: true, selector: sel, text: (el.textContent || '').trim() };
+                }
+              }
+            }
+            return { visible: false };
+          })()
+        `;
+        const costStatus = await safeExecuteJs<any>(ctx.win, checkCostJs, 1000);
+        if (!costStatus?.visible) {
+          costTooltipGone = true;
+          break;
+        }
+        await new Promise((r) => setTimeout(r, 250));
+        if (ctx.isCancelled?.()) break;
+      }
+
+      if (costTooltipGone) {
+        console.log('[FlowImageState] ✅ Không còn tooltip credit-cost-label che phủ.');
+      } else {
+        console.warn('[FlowImageState] ⚠️ Hết 2.5s chờ nhưng tooltip credit-cost-label vẫn hiển thị; tiếp tục chuyển sang FIND_PROMPT_INPUT.');
+      }
 
       return {
         ok: true,
