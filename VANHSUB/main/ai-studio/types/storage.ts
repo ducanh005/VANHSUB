@@ -15,6 +15,7 @@ export interface PipelineProjectPaths {
   timingDir: string;     // 03_timing
   storyboardDir: string; // 04_storyboard
   mediaDir: string;      // 05_media
+  styleRefsDir: string;  // style_refs (character_ref.png, background_ref.png, style_manifest.json)
   indexPath: string;     // index.json
   actionLogPath: string; // action_logs.jsonl
 }
@@ -55,6 +56,14 @@ export interface PipelineShotMetadata {
   duration_deviation_pct?: number;
   needs_review?: boolean;
   status: PipelineShotStatus;
+  /** Which model was used to generate this shot (e.g. 'banana_pro', 'veo') */
+  model_used?: string;
+  /** SHA-256 hash of style_manifest.json at generation time — for cache invalidation */
+  style_manifest_hash?: string;
+  /** Which reference images were uploaded (e.g. ['character_ref.png', 'background_ref.png']) */
+  references_used?: string[];
+  /** Whether background was sent as uploaded image or baked into text prompt */
+  background_sent_as?: 'image' | 'text_prompt';
 }
 
 export interface PipelineSceneMetadata {
@@ -144,6 +153,12 @@ export interface StoryboardShotItem {
    * 'low' → user should review this shot manually.
    */
   confidence?: ShotConfidence;
+  /**
+   * Override the default model for this specific shot.
+   * If set, takes priority over model_config.json default.
+   * Values: 'banana_pro', 'omni', 'veo', etc.
+   */
+  preferred_model?: string;
 }
 
 export interface StoryboardSceneItem {
@@ -159,11 +174,56 @@ export interface PipelineStoryboardData {
 }
 
 // ============================================================================
+// 5. Style References & Model Configuration
+// ============================================================================
+
+/** style_refs/style_manifest.json — fixed style references for the project */
+export type StyleManifestSource = 'ai_generated' | 'user_provided';
+
+export interface StyleManifest {
+  /** Relative path from project root: 'style_refs/character_ref.png' */
+  character_ref: string;
+  /** Relative path from project root: 'style_refs/background_ref.png' */
+  background_ref: string;
+  /** Text prompt describing character appearance/style — used when image cannot be uploaded */
+  character_style_prompt: string;
+  /** Text prompt describing background style — used when max_ref_images < 2 */
+  background_style_prompt: string;
+  /** How the style refs were created */
+  source: StyleManifestSource;
+  created_at: string;
+  updated_at?: string;
+}
+
+/** model_config.json — per-project model selection and capabilities */
+export interface ModelCapabilities {
+  /** Maximum number of reference images this model accepts */
+  max_ref_images: number;
+  /** Maximum video clip duration in seconds (video models only) */
+  max_duration_sec?: number;
+  /** Human-readable notes */
+  notes?: string;
+}
+
+export interface ModelGroupConfig {
+  /** Default model name to use for this media type */
+  default: string;
+  /** Map of model name → capabilities */
+  options: Record<string, ModelCapabilities>;
+}
+
+export interface ProjectModelConfig {
+  image_model: ModelGroupConfig;
+  video_model: ModelGroupConfig;
+}
+
+// ============================================================================
 // 4. Asset Versioning & Idempotency Types
 // ============================================================================
 
 export type MediaAssetType = 'img' | 'vid';
 export type AssetKind = 'voice' | 'image' | 'video';
+export type BackgroundSentAs = 'image' | 'text_prompt';
 
 export interface NextMediaVersionResult {
   version: number;
@@ -171,3 +231,4 @@ export interface NextMediaVersionResult {
   relativePath: string;
   absolutePath: string;
 }
+

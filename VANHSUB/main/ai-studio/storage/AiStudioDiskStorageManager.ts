@@ -6,6 +6,7 @@
 
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 import {
   PipelineProjectPaths,
   PipelineIndexData,
@@ -20,6 +21,8 @@ import {
   MediaAssetType,
   AssetKind,
   NextMediaVersionResult,
+  StyleManifest,
+  ProjectModelConfig,
 } from '../types/storage';
 
 // Re-export all types for convenient consumption
@@ -60,6 +63,7 @@ export class AiStudioDiskStorageManager {
       timingDir: path.join(this._projectDir, '03_timing'),
       storyboardDir: path.join(this._projectDir, '04_storyboard'),
       mediaDir,
+      styleRefsDir: path.join(this._projectDir, 'style_refs'),
       indexPath: path.join(this._projectDir, 'index.json'),
       actionLogPath: path.join(this._projectDir, 'action_logs.jsonl'),
     };
@@ -116,6 +120,7 @@ export class AiStudioDiskStorageManager {
       this._paths.timingDir,
       this._paths.storyboardDir,
       this._paths.mediaDir,
+      this._paths.styleRefsDir,
     ];
 
     for (const d of dirs) {
@@ -616,5 +621,93 @@ export class AiStudioDiskStorageManager {
       return path.resolve(this._paths.mediaDir, filename);
     }
     return path.resolve(this._projectDir, targetPath);
+  }
+
+  // ==========================================================================
+  // Style References (style_refs/ directory)
+  // ==========================================================================
+
+  /**
+   * Returns the absolute path of a style reference file.
+   * Always points to the same fixed location regardless of how the file was created.
+   * type='character' → style_refs/character_ref.png
+   * type='background' → style_refs/background_ref.png
+   */
+  public getStyleRefPath(type: 'character' | 'background'): string {
+    return path.join(this._paths.styleRefsDir, `${type}_ref.png`);
+  }
+
+  /**
+   * Reads style_refs/style_manifest.json.
+   * Returns null if not present or corrupt.
+   */
+  public readStyleManifest(): StyleManifest | null {
+    const manifestPath = path.join(this._paths.styleRefsDir, 'style_manifest.json');
+    if (!fs.existsSync(manifestPath)) return null;
+    try {
+      return JSON.parse(fs.readFileSync(manifestPath, 'utf-8')) as StyleManifest;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Atomically writes style_refs/style_manifest.json.
+   */
+  public saveStyleManifest(data: StyleManifest): void {
+    this.ensureDirectories();
+    const manifestPath = path.join(this._paths.styleRefsDir, 'style_manifest.json');
+    this.writeAtomic(manifestPath, JSON.stringify(data, null, 2));
+  }
+
+  /**
+   * Returns SHA-256 hex hash of style_manifest.json content.
+   * Used as cache key in index.json shot metadata (style_manifest_hash field).
+   * Returns empty string if manifest does not exist.
+   */
+  public hashStyleManifest(): string {
+    const manifestPath = path.join(this._paths.styleRefsDir, 'style_manifest.json');
+    if (!fs.existsSync(manifestPath)) return '';
+    try {
+      const content = fs.readFileSync(manifestPath);
+      return crypto.createHash('sha256').update(content).digest('hex').slice(0, 16);
+    } catch {
+      return '';
+    }
+  }
+
+  /**
+   * Validates both style ref images exist on disk and are non-empty.
+   */
+  public isStyleRefsReady(): boolean {
+    const charPath = this.getStyleRefPath('character');
+    const bgPath = this.getStyleRefPath('background');
+    return this.isFileValidNonEmpty(charPath) && this.isFileValidNonEmpty(bgPath);
+  }
+
+  // ==========================================================================
+  // Model Configuration (model_config.json)
+  // ==========================================================================
+
+  /**
+   * Reads model_config.json from project root.
+   * Returns null if not present or corrupt.
+   */
+  public readModelConfig(): ProjectModelConfig | null {
+    const configPath = path.join(this._paths.projectDir, 'model_config.json');
+    if (!fs.existsSync(configPath)) return null;
+    try {
+      return JSON.parse(fs.readFileSync(configPath, 'utf-8')) as ProjectModelConfig;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Atomically writes model_config.json to project root.
+   */
+  public saveModelConfig(data: ProjectModelConfig): void {
+    const configPath = path.join(this._paths.projectDir, 'model_config.json');
+    this.writeAtomic(configPath, JSON.stringify(data, null, 2));
   }
 }

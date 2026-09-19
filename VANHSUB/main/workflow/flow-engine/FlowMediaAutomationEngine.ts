@@ -55,7 +55,20 @@ export interface GenerateImageOptions {
   shotId: string;
   prompt: string;
   aspectRatio?: string;
+  /**
+   * Primary reference image path (backward-compat single ref).
+   * If referenceImagePaths is also set, this should equal referenceImagePaths[0].
+   */
   referenceImagePath?: string;
+  /**
+   * Ordered list of reference image paths to upload.
+   * Index 0 = character_ref (always), index 1 = background_ref (if model allows 2+).
+   * Drives multi-file upload to Flow — first file is injected via CDP drag-drop,
+   * subsequent files are appended if the Flow UI supports multiple references.
+   */
+  referenceImagePaths?: string[];
+  /** Whether background was sent as image or baked into text prompt (for logging) */
+  backgroundSentAs?: 'image' | 'text_prompt';
   forceRegenerate?: boolean;
   maxRetries?: number;
   timeoutMs?: number;

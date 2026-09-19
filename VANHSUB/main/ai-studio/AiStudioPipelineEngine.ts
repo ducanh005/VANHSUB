@@ -47,6 +47,8 @@ import type {
   StoryboardShotItem,
 } from './types/storage';
 import { aiStudioStoryboardService } from './services/AiStudioStoryboardService';
+import { aiStudioStyleRefsService } from './services/AiStudioStyleRefsService';
+import { aiStudioModelConfigService } from './services/AiStudioModelConfigService';
 import { FlowMediaAutomationEngine } from '../workflow/flow-engine/FlowMediaAutomationEngine';
 import { GoogleVeoSessionManager, OFFSCREEN_X, OFFSCREEN_Y } from '../veo/GoogleVeoSessionManager';
 import { GoogleFlowBrowserMutex } from '../workflow/dispatcher/GoogleFlowBrowserMutex';
@@ -999,26 +1001,62 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
             }
 
             const totalShots = allShots.length;
-            // Per-shot video decision: count video shots to compute totalSteps correctly
             const forceImageOnlyMode = config.flowEngine.outputMode === 'image';
             const videoShotCount = forceImageOnlyMode
               ? 0
               : allShots.filter(s => s.shot.media_type === 'video').length;
-            const totalSteps = totalShots + videoShotCount; // T2I + optional I2V per video shot
+            const totalSteps = totalShots + videoShotCount;
             let completedSteps = 0;
 
-            // Resolve primary reference image from local disk (character avatar or project reference image)
-            let primaryReferenceImagePath: string | undefined;
+            // ================================================================
+            // STEP 0: Ensure Style Refs (1 time per project — idempotent)
+            // ================================================================
+            onProgress({
+              sessionId: session.sessionId,
+              stage: 6,
+              stageName: STAGE_CONFIG[6].label,
+              progress: 70,
+              status: 'running',
+              message: 'Đang kiểm tra/thiết lập style references (nhân vật & background)...',
+            });
+
             const charAvatar = config.channelProfile?.channelCharacters?.[0]?.avatarUrl;
-            if (charAvatar && fs.existsSync(charAvatar) && fs.statSync(charAvatar).size > 0) {
-              primaryReferenceImagePath = charAvatar;
-            }
-            if (!primaryReferenceImagePath && config.flowEngine?.referenceImagePath && fs.existsSync(config.flowEngine.referenceImagePath)) {
-              primaryReferenceImagePath = config.flowEngine.referenceImagePath;
-            }
+            const styleRefsResult = await aiStudioStyleRefsService.ensureStyleRefs({
+              storage,
+              win: lobbyWin,
+              // Pass user-provided image paths if available
+              userCharacterImagePath: (charAvatar && fs.existsSync(charAvatar)) ? charAvatar : undefined,
+              userBackgroundImagePath: config.flowEngine?.referenceImagePath && fs.existsSync(config.flowEngine.referenceImagePath)
+                ? config.flowEngine.referenceImagePath
+                : undefined,
+              // Text prompts for AI generation fallback
+              characterStylePrompt: config.channelProfile?.hostDescription
+                || config.channelProfile?.channelCharacters?.[0]?.descriptionEn
+                || 'a professional video host character',
+              backgroundStylePrompt: config.channelProfile?.projectBackgroundPrompt
+                || 'clean modern studio background, professional lighting',
+              aspectRatio: config.flowEngine.aspectRatio,
+            });
 
-            let firstGeneratedImagePath: string | undefined;
+            // FIXED canonical reference paths for ALL shots (no chain dependency)
+            const characterRefPath = storage.getStyleRefPath('character');
+            const backgroundRefPath = storage.getStyleRefPath('background');
+            const styleManifestHash = storage.hashStyleManifest();
+            const { manifest: styleManifest } = styleRefsResult;
 
+            console.log(
+              `[Stage 6] Style refs ready (${styleRefsResult.alreadySetUp ? 'cached' : 'newly setup'}). ` +
+              `hash=${styleManifestHash}`
+            );
+
+            // ================================================================
+            // STEP 1: Get/create model_config.json for this project
+            // ================================================================
+            const modelConfig = aiStudioModelConfigService.getOrCreateModelConfig(storage);
+
+            // ================================================================
+            // STEP 2: Per-shot generation loop
+            // ================================================================
             for (let idx = 0; idx < allShots.length; idx++) {
               const { sceneId, shot } = allShots[idx];
 
@@ -1026,12 +1064,56 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
                 throw new Error('Quá trình tạo visual media đã bị hủy bởi người dùng.');
               }
 
-              // Determine reference image for this shot:
-              // If character/custom reference exists, use it.
-              // Otherwise, from shot 1 onwards, use the first generated shot's image on disk as reference!
-              const effectiveRefImage = primaryReferenceImagePath || (idx > 0 && firstGeneratedImagePath ? firstGeneratedImagePath : undefined);
+              // 2a. Resolve model for this shot (preferred_model > config default > builtin)
+              const effectiveMediaType = (forceImageOnlyMode ? 'image' : shot.media_type) as 'image' | 'video';
+              const modelInfo = aiStudioModelConfigService.resolveModelForShot(
+                modelConfig,
+                effectiveMediaType,
+                shot.preferred_model
+              );
 
-              // Step A: Text-to-Image (T2I) — always run for every shot
+              // 2b. Validate video duration limit (detection only — no auto-split here)
+              if (effectiveMediaType === 'video' && shot.expected_duration_sec) {
+                const durationError = aiStudioModelConfigService.validateVideoDuration(
+                  modelInfo,
+                  shot.shot_id,
+                  shot.expected_duration_sec
+                );
+                if (durationError) {
+                  console.error(durationError);
+                  storage.appendActionLog(FlowMediaAutomationEngine.createActionLog({
+                    scene_id: sceneId,
+                    shot_id: shot.shot_id,
+                    action: 'poll',
+                    target: 'duration_validation',
+                    status: 'failed',
+                    details: { error: durationError },
+                  }));
+                  completedSteps++; // count as processed to keep progress consistent
+                  continue; // skip this shot
+                }
+              }
+
+              // 2c. Determine which reference images to upload based on model max_ref_images
+              const { refsToUpload, backgroundSentAs } =
+                aiStudioModelConfigService.resolveReferenceUploads(
+                  modelInfo,
+                  characterRefPath,
+                  backgroundRefPath
+                );
+
+              // 2d. Compose final prompt in spec order:
+              //     character_style_prompt + [background_style_prompt if bg not uploaded] + image_prompt + [motion_note if video]
+              const compositePrompt = aiStudioModelConfigService.buildCompositePrompt({
+                characterStylePrompt: styleManifest.character_style_prompt,
+                backgroundStylePrompt: styleManifest.background_style_prompt,
+                imagePrompt: shot.image_prompt,
+                motionNote: shot.motion_note,
+                mediaType: effectiveMediaType,
+                backgroundSentAs,
+              });
+
+              // 2e: Step A — Text-to-Image (always runs for every shot)
               const t2iProgress = 70 + Math.round((completedSteps / totalSteps) * 15);
               onProgress({
                 sessionId: session.sessionId,
@@ -1039,7 +1121,7 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
                 stageName: STAGE_CONFIG[6].label,
                 progress: Math.min(84, t2iProgress),
                 status: 'running',
-                message: `[T2I/${shot.media_type?.toUpperCase() || 'IMG'}] Đang tạo ảnh cho shot ${shot.shot_id} (${completedSteps + 1}/${totalSteps})...`,
+                message: `[T2I/${effectiveMediaType.toUpperCase()}] Shot ${shot.shot_id} (${idx + 1}/${totalShots}) — model: ${modelInfo.modelName}, refs: ${refsToUpload.length} imgs, bg: ${backgroundSentAs}`,
                 lastAction: {
                   ts: new Date().toISOString(),
                   scene_id: sceneId,
@@ -1057,22 +1139,29 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
                   win: lobbyWin,
                   sceneId,
                   shotId: shot.shot_id,
-                  prompt: shot.image_prompt,
+                  prompt: compositePrompt,
                   aspectRatio: config.flowEngine.aspectRatio,
-                  referenceImagePath: effectiveRefImage,
+                  // Primary reference: character_ref (always), background_ref (if model supports 2+)
+                  referenceImagePath: refsToUpload[0],     // character_ref always at index 0
+                  referenceImagePaths: refsToUpload,       // full list for multi-ref models
                 });
               }, `ai_studio_t2i_${shot.shot_id}`);
 
               if (!imgResult.success) {
                 throw new Error(`Tạo ảnh thất bại cho ${shot.shot_id}: ${imgResult.error || 'Unknown error'}`);
               }
-              if (imgResult.imagePath && !firstGeneratedImagePath) {
-                firstGeneratedImagePath = imgResult.imagePath;
-              }
+
+              // Write style provenance metadata to index.json
+              storage.updateShotMetadata(sceneId, shot.shot_id, {
+                model_used: modelInfo.modelName,
+                style_manifest_hash: styleManifestHash,
+                references_used: refsToUpload.map(p => path.basename(p)),
+                background_sent_as: backgroundSentAs,
+              });
+
               completedSteps++;
 
-              // Step B: Image-to-Video (I2V) — only for shots where AI decided media_type='video'
-              // and global config is not forcing image-only mode
+              // 2f: Step B — Image-to-Video (only for video shots, not in force-image mode)
               const shouldGenerateVideo = !forceImageOnlyMode && shot.media_type === 'video';
               if (shouldGenerateVideo) {
                 if (signal.aborted || (session.status as string) === 'cancelled') {
@@ -1086,7 +1175,7 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
                   stageName: STAGE_CONFIG[6].label,
                   progress: Math.min(84, i2vProgress),
                   status: 'running',
-                  message: `[I2V] Đang tạo video từ ảnh cho shot ${shot.shot_id} (${completedSteps + 1}/${totalSteps})...`,
+                  message: `[I2V] Shot ${shot.shot_id} (${completedSteps + 1}/${totalSteps}) — ${shot.motion_note || 'cinematic motion'}`,
                   lastAction: {
                     ts: new Date().toISOString(),
                     scene_id: sceneId,
