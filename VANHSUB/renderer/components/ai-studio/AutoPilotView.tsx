@@ -35,6 +35,11 @@ import {
   EyeOff,
   ExternalLink,
   HardDrive,
+  Maximize2,
+  X,
+  ChevronDown,
+  Check,
+  Folder,
 } from 'lucide-react';
 import { useAiStudioStore } from '../../lib/store/aiStudioStore';
 import type {
@@ -122,7 +127,13 @@ interface AutoPilotViewProps {
 }
 
 export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = {}) {
-  const { config, updateChannelProfileConfig, getActiveProject, saveActiveProjectData } = useAiStudioStore();
+  const {
+    config,
+    updateChannelProfileConfig,
+    getActiveProject,
+    saveActiveProjectData,
+    switchProject,
+  } = useAiStudioStore();
   const [topic, setTopic] = useState('');
   const [session, setSession] = useState<PipelineSessionState | null>(null);
   const [isRunning, setIsRunning] = useState(false);
@@ -143,6 +154,20 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
   const [selectedIdea, setSelectedIdea] = useState<IdeaBlueprint | null>(null);
   const [centerTab, setCenterTab] = useState<'script' | 'visual' | 'character'>('script');
 
+  // Preview Media Modal State (Phóng to / Xem trước ảnh & video chi tiết)
+  const [previewMedia, setPreviewMedia] = useState<{
+    type: 'image' | 'video';
+    url: string;
+    shotId?: string;
+    narration?: string;
+    prompt?: string;
+    durationMs?: number;
+  } | null>(null);
+
+  // Quick Project Switcher Dropdown in Studio Header
+  const [isHeaderDropdownOpen, setIsHeaderDropdownOpen] = useState(false);
+  const headerDropdownRef = useRef<HTMLDivElement | null>(null);
+
   // Host & Character States
   const [newCharName, setNewCharName] = useState('');
   const [newCharDesc, setNewCharDesc] = useState('');
@@ -151,6 +176,34 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
   const [isFlowWindowOpen, setIsFlowWindowOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const loadedProjectIdRef = useRef<string | null>(null);
+
+  // Đóng Header Dropdown khi click ra ngoài
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (headerDropdownRef.current && !headerDropdownRef.current.contains(e.target as Node)) {
+        setIsHeaderDropdownOpen(false);
+      }
+    };
+    if (isHeaderDropdownOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isHeaderDropdownOpen]);
+
+  // Phím tắt ESC để đóng Lightbox Preview
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && previewMedia) {
+        setPreviewMedia(null);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [previewMedia]);
 
   // Kiểm tra trạng thái hiển thị cửa sổ Google Flow live
   useEffect(() => {
@@ -247,10 +300,13 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
                 scenes: updatedScenes,
               },
             };
-            void saveActiveProjectData({
-              savedSession: updatedSession,
-              lastSessionId: updatedSession.sessionId,
-            });
+            void saveActiveProjectData(
+              {
+                savedSession: updatedSession,
+                lastSessionId: updatedSession.sessionId,
+              },
+              loadedProjectIdRef.current || undefined
+            );
             return updatedSession;
           });
           showSceneNotice(`✓ Đã tạo lại thành công media cho ${targetId}!`);
@@ -319,10 +375,13 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
                 scenes: updatedScenes,
               },
             };
-            void saveActiveProjectData({
-              savedSession: updatedSession,
-              lastSessionId: updatedSession.sessionId,
-            });
+            void saveActiveProjectData(
+              {
+                savedSession: updatedSession,
+                lastSessionId: updatedSession.sessionId,
+              },
+              loadedProjectIdRef.current || undefined
+            );
             return updatedSession;
           });
           showSceneNotice(`✓ Đã nạp thành công tệp vào ${targetId}!`);
@@ -352,10 +411,13 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
               scenes: updatedScenes,
             },
           };
-          void saveActiveProjectData({
-            savedSession: updatedSession,
-            lastSessionId: updatedSession.sessionId,
-          });
+          void saveActiveProjectData(
+            {
+              savedSession: updatedSession,
+              lastSessionId: updatedSession.sessionId,
+            },
+            loadedProjectIdRef.current || undefined
+          );
           return updatedSession;
         });
         showSceneNotice(`✓ Đã nạp đường dẫn tệp vào ${targetId}!`);
@@ -383,6 +445,15 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
     if (loadedProjectIdRef.current !== activeProject.id) {
       loadedProjectIdRef.current = activeProject.id;
 
+      // 0. Clean reset old session & states immediately to avoid stale render or cross-project pollution
+      setSession(null);
+      setIsRunning(false);
+      setErrorMessage(null);
+      setRegeneratingSceneId(null);
+      setImportingSceneId(null);
+      setSceneActionNotice(null);
+      setConflictWarningModal(null);
+
       // 1. Phục hồi danh sách ý tưởng
       const projIdeas = activeProject.ideas || [];
       setIdeas(projIdeas);
@@ -391,11 +462,18 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
       const chosenIdea = activeProject.selectedIdea || projIdeas[0] || null;
       setSelectedIdea(chosenIdea);
 
-      // 3. Phục hồi trạng thái session (kịch bản, âm thanh, v.v.)
+      // 3. Phục hồi định dạng khung hình
+      if (activeProject.flowConfig?.aspectRatio) {
+        setSelectedFormat(activeProject.flowConfig.aspectRatio as '16:9' | '9:16');
+      }
+
+      // 4. Phục hồi trạng thái session (kịch bản, âm thanh, v.v.)
+      const currentProjId = activeProject.id;
       if (activeProject.lastSessionId && window.vanhsub?.aiStudio?.getPipelineState) {
         window.vanhsub.aiStudio
           .getPipelineState({ sessionId: activeProject.lastSessionId })
           .then((persistedState) => {
+            if (loadedProjectIdRef.current !== currentProjId) return;
             if (persistedState) {
               setSession(persistedState);
               if (persistedState.artifacts?.blueprint) {
@@ -412,6 +490,7 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
             }
           })
           .catch(() => {
+            if (loadedProjectIdRef.current !== currentProjId) return;
             if (activeProject.savedSession) {
               setSession(activeProject.savedSession);
               if (activeProject.savedSession.artifacts?.scriptLines && activeProject.savedSession.artifacts.scriptLines.length > 0) {
@@ -436,6 +515,11 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
     const unsubscribe = window.vanhsub.aiStudio.onPipelineProgress((event: PipelineProgressEvent) => {
       setSession((prev) => {
         if (!prev) return prev;
+        // Chặn event từ các session khác để tránh ghi đè chéo khi chuyển project
+        if (event.sessionId && prev.sessionId && event.sessionId !== prev.sessionId) {
+          return prev;
+        }
+
         const next = { ...prev };
         next.currentStage = event.stage as any;
         next.progress = event.progress;
@@ -472,10 +556,13 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
           event.status === 'error' ||
           event.stage >= 2
         ) {
-          void saveActiveProjectData({
-            savedSession: next,
-            lastSessionId: next.sessionId,
-          });
+          void saveActiveProjectData(
+            {
+              savedSession: next,
+              lastSessionId: next.sessionId,
+            },
+            loadedProjectIdRef.current || undefined
+          );
         }
 
         return next;
@@ -505,7 +592,7 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
     const targetIdea = idea || session?.artifacts?.blueprint || selectedIdea;
     if (targetIdea) {
       setSelectedIdea(targetIdea);
-      void saveActiveProjectData({ selectedIdea: targetIdea });
+      void saveActiveProjectData({ selectedIdea: targetIdea }, loadedProjectIdRef.current || undefined);
     }
     setCenterTab('script');
   };
@@ -543,10 +630,13 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
             : prev.stages,
           updatedAt: Date.now(),
         };
-        void saveActiveProjectData({
-          savedSession: updated,
-          lastSessionId: updated.sessionId,
-        });
+        void saveActiveProjectData(
+          {
+            savedSession: updated,
+            lastSessionId: updated.sessionId,
+          },
+          loadedProjectIdRef.current || undefined
+        );
         return updated;
       });
     }
@@ -557,7 +647,7 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
     const targetIdea = idea || session?.artifacts?.blueprint || selectedIdea;
     if (targetIdea) {
       setSelectedIdea(targetIdea);
-      void saveActiveProjectData({ selectedIdea: targetIdea });
+      void saveActiveProjectData({ selectedIdea: targetIdea }, loadedProjectIdRef.current || undefined);
     }
     setCenterTab('script');
     setErrorMessage(null);
@@ -607,10 +697,13 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
       setErrorMessage(null);
       setIsConfirmCancelOpen(false);
       setConflictWarningModal(null);
-      void saveActiveProjectData({
-        savedSession: null,
-        lastSessionId: undefined,
-      });
+      void saveActiveProjectData(
+        {
+          savedSession: null,
+          lastSessionId: undefined,
+        },
+        loadedProjectIdRef.current || undefined
+      );
     }
   };
 
@@ -905,26 +998,93 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
       {/* ==================================================================== */}
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800/80 bg-[#090E18] px-5 py-2.5 shrink-0">
         <div className="flex items-center gap-3">
-          {/* Tên Project / Kênh với icon lấp lánh và nút đổi project */}
-          <div className="flex items-center rounded-lg border border-slate-800 bg-[#0F1626] overflow-hidden shadow-sm">
+          {/* Tên Project / Kênh với icon lấp lánh và dropdown chuyển đổi nhanh */}
+          <div className="relative flex items-center rounded-lg border border-slate-800 bg-[#0F1626] shadow-sm" ref={headerDropdownRef}>
             <button
               type="button"
-              onClick={() => setIsChannelModalOpen(true)}
+              onClick={() => setIsHeaderDropdownOpen((prev) => !prev)}
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white hover:bg-slate-800/60 transition cursor-pointer"
-              title="Bấm để mở Cấu hình kênh & Master Prompt"
+              title="Bấm để chuyển nhanh dự án hoặc tạo dự án mới"
             >
               <Sparkles className="h-3.5 w-3.5 text-amber-400" />
-              <span>{projectName}</span>
+              <span className="truncate max-w-[160px]">{projectName}</span>
+              <ChevronDown className={`h-3 w-3 text-slate-400 transition-transform duration-200 ${isHeaderDropdownOpen ? 'rotate-180' : ''}`} />
             </button>
+
             {onSwitchProject && (
               <button
                 type="button"
                 onClick={onSwitchProject}
                 className="border-l border-slate-800/80 px-2 py-1.5 text-[11px] font-semibold text-brand-cyan hover:bg-slate-800 hover:text-white transition cursor-pointer"
-                title="Quay lại màn hình thiết lập project"
+                title="Quay lại màn hình thiết lập / quản lý project"
               >
                 Đổi
               </button>
+            )}
+
+            {/* Dropdown Menu */}
+            {isHeaderDropdownOpen && (
+              <div className="absolute top-full left-0 mt-1.5 w-64 rounded-2xl border border-slate-800 bg-[#0E1526] shadow-2xl p-2 space-y-1 z-50 animate-in fade-in zoom-in-95 duration-150 backdrop-blur-md">
+                <div className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                  Dự án đã lưu ({(config.savedProjects || []).length})
+                </div>
+
+                <div className="max-h-52 overflow-y-auto custom-scrollbar space-y-0.5">
+                  {(config.savedProjects || []).map((p) => {
+                    const isActive = config.activeProjectId === p.id || projectName === p.name;
+                    return (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={async () => {
+                          setIsHeaderDropdownOpen(false);
+                          if (!isActive) {
+                            await switchProject(p.id);
+                          }
+                        }}
+                        className={`w-full flex items-center justify-between rounded-xl px-2.5 py-2 text-xs text-left transition cursor-pointer ${
+                          isActive
+                            ? 'bg-brand-cyan/15 text-brand-cyan font-bold border border-brand-cyan/30'
+                            : 'text-slate-300 hover:bg-slate-800/80 hover:text-white'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          <Folder className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+                          <span className="truncate">{p.name}</span>
+                        </div>
+                        {isActive && <Check className="h-3.5 w-3.5 text-brand-cyan shrink-0" />}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="border-t border-slate-800/80 pt-1 mt-1 space-y-0.5">
+                  {onSwitchProject && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsHeaderDropdownOpen(false);
+                        onSwitchProject();
+                      }}
+                      className="w-full flex items-center gap-2 rounded-xl px-2.5 py-2 text-xs text-slate-300 hover:bg-slate-800/80 hover:text-white transition cursor-pointer"
+                    >
+                      <Plus className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
+                      <span>Tạo dự án mới...</span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsHeaderDropdownOpen(false);
+                      setIsChannelModalOpen(true);
+                    }}
+                    className="w-full flex items-center gap-2 rounded-xl px-2.5 py-2 text-xs text-slate-400 hover:bg-slate-800/80 hover:text-slate-200 transition cursor-pointer"
+                  >
+                    <Settings className="h-3.5 w-3.5 text-slate-500 shrink-0" />
+                    <span>Cấu hình kênh &amp; Master Prompt</span>
+                  </button>
+                </div>
+              </div>
             )}
           </div>
 
@@ -1839,13 +1999,36 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
                               {/* Hiển thị Media Thực Tế */}
                               {hasVideo ? (
                                 <div className="space-y-2 pt-1">
-                                  <div className="rounded-xl overflow-hidden border border-slate-700 bg-black aspect-video max-h-64 flex items-center justify-center">
+                                  <div
+                                    onClick={() =>
+                                      setPreviewMedia({
+                                        type: 'video',
+                                        url: videoUrl!,
+                                        shotId: scene.shotId || `Phân cảnh #${sIdx + 1}`,
+                                        narration: scene.lineText,
+                                        prompt: scene.visualPrompt,
+                                        durationMs: scene.durationMs,
+                                      })
+                                    }
+                                    className="group relative rounded-2xl overflow-hidden border border-slate-700/80 bg-black aspect-video max-h-72 flex items-center justify-center cursor-pointer shadow-lg hover:border-brand-cyan/60 transition duration-300"
+                                    title="Bấm để xem video phóng to toàn màn hình"
+                                  >
                                     <video
                                       src={toMediaUrl(videoUrl)}
                                       controls
                                       preload="metadata"
-                                      className="w-full h-full object-contain"
+                                      className="w-full h-full object-contain transition-transform duration-300 ease-out group-hover:scale-105"
                                     />
+                                    <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-transparent to-black/20 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none flex flex-col justify-between p-3">
+                                      <div className="flex items-center justify-end">
+                                        <span className="rounded-lg bg-black/80 backdrop-blur-md px-2.5 py-1 text-[10px] font-bold text-white border border-white/20 flex items-center gap-1 shadow-md">
+                                          <Maximize2 className="h-3 w-3 text-cyan-400" /> Bấm để xem lớn
+                                        </span>
+                                      </div>
+                                      <div className="text-[11px] text-slate-200 font-medium truncate">
+                                        🎬 {scene.shotId || `Phân cảnh #${sIdx + 1}`}
+                                      </div>
+                                    </div>
                                   </div>
 
                                   <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-400 px-1">
@@ -1864,11 +2047,28 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
                                   {/* Hiển thị kèm ảnh nguồn nếu có */}
                                   {scene.imagePath && (
                                     <div className="flex items-center gap-2 p-2 bg-slate-950/60 rounded-xl border border-slate-800/80 text-[11px]">
-                                      <img
-                                        src={toMediaUrl(scene.imagePath)}
-                                        alt={`Ảnh nguồn #${sIdx + 1}`}
-                                        className="h-12 w-20 object-cover rounded-lg border border-slate-700 shrink-0"
-                                      />
+                                      <div
+                                        onClick={() =>
+                                          setPreviewMedia({
+                                            type: 'image',
+                                            url: scene.imagePath!,
+                                            shotId: `${scene.shotId || `Cảnh #${sIdx + 1}`} (Ảnh nguồn Image-to-Video)`,
+                                            narration: scene.lineText,
+                                            prompt: scene.visualPrompt,
+                                          })
+                                        }
+                                        className="group relative h-12 w-20 overflow-hidden rounded-lg border border-slate-700 shrink-0 cursor-pointer hover:border-cyan-400 transition"
+                                        title="Bấm để xem ảnh nguồn phóng to"
+                                      >
+                                        <img
+                                          src={toMediaUrl(scene.imagePath)}
+                                          alt={`Ảnh nguồn #${sIdx + 1}`}
+                                          className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-110"
+                                        />
+                                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
+                                          <Maximize2 className="h-3.5 w-3.5 text-white drop-shadow" />
+                                        </div>
+                                      </div>
                                       <div className="flex-1 min-w-0">
                                         <span className="text-[10px] text-slate-400 block font-semibold">
                                           Ảnh nguồn Image-to-Video:
@@ -1887,12 +2087,35 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
                                 </div>
                               ) : hasImage ? (
                                 <div className="space-y-2 pt-1">
-                                  <div className="rounded-xl overflow-hidden border border-slate-700 bg-black max-h-64 flex items-center justify-center">
+                                  <div
+                                    onClick={() =>
+                                      setPreviewMedia({
+                                        type: 'image',
+                                        url: imageUrl!,
+                                        shotId: scene.shotId || `Phân cảnh #${sIdx + 1}`,
+                                        narration: scene.lineText,
+                                        prompt: scene.visualPrompt,
+                                        durationMs: scene.durationMs,
+                                      })
+                                    }
+                                    className="group relative rounded-2xl overflow-hidden border border-slate-700/80 bg-black max-h-72 flex items-center justify-center cursor-pointer shadow-lg hover:border-brand-cyan/60 transition duration-300"
+                                    title="Bấm để xem ảnh phóng to chi tiết"
+                                  >
                                     <img
                                       src={toMediaUrl(imageUrl)}
                                       alt={`Ảnh phân cảnh #${sIdx + 1}`}
-                                      className="max-h-64 w-full object-contain rounded-lg"
+                                      className="max-h-72 w-full object-contain rounded-lg transition-transform duration-300 ease-out group-hover:scale-105"
                                     />
+                                    <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-transparent to-black/20 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none flex flex-col justify-between p-3">
+                                      <div className="flex items-center justify-end">
+                                        <span className="rounded-lg bg-black/80 backdrop-blur-md px-2.5 py-1 text-[10px] font-bold text-white border border-white/20 flex items-center gap-1 shadow-md">
+                                          <Maximize2 className="h-3 w-3 text-cyan-400" /> Bấm để xem lớn
+                                        </span>
+                                      </div>
+                                      <div className="text-[11px] text-slate-200 font-medium truncate">
+                                        🖼️ {scene.shotId || `Phân cảnh #${sIdx + 1}`}
+                                      </div>
+                                    </div>
                                   </div>
                                   <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-400 px-1">
                                     <span className="truncate max-w-sm font-mono text-[10px]" title={imageUrl}>
@@ -2485,6 +2708,114 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
                 <Play className="h-3.5 w-3.5 fill-white" />
                 <span>Tiếp tục phiên hiện tại</span>
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ==================================================================== */}
+      {/* MODAL LIGHTBOX XEM TRƯỚC MEDIA (ẢNH / VIDEO PHÓNG TO CHI TIẾT)         */}
+      {/* ==================================================================== */}
+      {previewMedia && (
+        <div
+          className="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex flex-col items-center justify-center p-4 md:p-8 animate-in fade-in duration-200"
+          onClick={() => setPreviewMedia(null)}
+        >
+          <div
+            className="relative w-full max-w-5xl max-h-[92vh] flex flex-col rounded-3xl border border-slate-700/80 bg-[#0B1120] shadow-2xl overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="flex items-center justify-between px-6 py-3.5 border-b border-slate-800 bg-[#080D1A]/90 shrink-0">
+              <div className="flex items-center gap-3">
+                <span className="rounded-full bg-cyan-500/20 px-3 py-1 text-xs font-bold text-cyan-300 border border-cyan-500/30">
+                  {previewMedia.type === 'video' ? '📹 Video Preview' : '🖼️ Image Preview'}
+                </span>
+                {previewMedia.shotId && (
+                  <span className="font-mono text-xs font-bold text-white">
+                    {previewMedia.shotId}
+                  </span>
+                )}
+                {previewMedia.durationMs && (
+                  <span className="text-xs text-slate-400">
+                    Thời lượng: {Math.round(previewMedia.durationMs / 1000)}s
+                  </span>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleOpenFolder(previewMedia.url)}
+                  className="rounded-xl border border-slate-700 bg-slate-800/80 hover:bg-slate-700 px-3 py-1.5 text-xs font-medium text-slate-200 hover:text-white transition cursor-pointer flex items-center gap-1.5"
+                  title="Mở thư mục chứa tệp trong File Explorer"
+                >
+                  <FolderOpen className="h-3.5 w-3.5" />
+                  <span>Mở tệp</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPreviewMedia(null)}
+                  className="rounded-xl border border-slate-700 bg-slate-800/80 hover:bg-rose-950/60 hover:border-rose-700/60 p-1.5 text-slate-400 hover:text-rose-300 transition cursor-pointer"
+                  title="Đóng (ESC)"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Media Body */}
+            <div className="flex-1 min-h-0 bg-black flex items-center justify-center p-4 overflow-hidden relative">
+              {previewMedia.type === 'video' ? (
+                <video
+                  src={toMediaUrl(previewMedia.url)}
+                  controls
+                  autoPlay
+                  className="max-h-[60vh] max-w-full rounded-xl object-contain shadow-2xl"
+                />
+              ) : (
+                <img
+                  src={toMediaUrl(previewMedia.url)}
+                  alt="Media Preview"
+                  className="max-h-[60vh] max-w-full rounded-xl object-contain shadow-2xl transition-transform duration-300 hover:scale-102"
+                />
+              )}
+            </div>
+
+            {/* Modal Footer Info */}
+            <div className="px-6 py-4 border-t border-slate-800 bg-[#080D1A]/95 space-y-2 shrink-0 max-h-48 overflow-y-auto custom-scrollbar">
+              {previewMedia.narration && (
+                <div>
+                  <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">
+                    Lời thoại:
+                  </span>
+                  <p className="text-white font-medium text-xs leading-relaxed mt-0.5">
+                    {previewMedia.narration}
+                  </p>
+                </div>
+              )}
+
+              {previewMedia.prompt && (
+                <div className="bg-slate-950/80 p-2.5 rounded-xl border border-slate-800 space-y-1">
+                  <div className="flex items-center justify-between text-[10px]">
+                    <span className="font-semibold text-slate-300 flex items-center gap-1">
+                      <Sparkles className="h-3 w-3 text-amber-400" /> Prompt Flow:
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard.writeText(previewMedia.prompt || '');
+                      }}
+                      className="text-cyan-400 hover:text-cyan-300 flex items-center gap-1 text-[10px] cursor-pointer"
+                    >
+                      <Copy className="h-2.5 w-2.5" /> Sao chép prompt
+                    </button>
+                  </div>
+                  <p className="text-slate-300 italic font-mono text-[11px] leading-relaxed break-words max-h-20 overflow-y-auto custom-scrollbar">
+                    {previewMedia.prompt}
+                  </p>
+                </div>
+              )}
             </div>
           </div>
         </div>

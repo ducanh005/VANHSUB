@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import {
   AiStudioConfig,
   DEFAULT_AI_STUDIO_CONFIG,
+  DEFAULT_CHANNEL_PROFILE_CONFIG,
   DeepPartial,
   AiStudioLlmConfig,
   AiStudioVoiceConfig,
@@ -122,7 +123,8 @@ export interface AiStudioStoreActions {
   switchProject: (projectId: string) => Promise<boolean>;
   getActiveProject: () => SavedProjectProfile | null;
   saveActiveProjectData: (
-    data: Partial<Pick<SavedProjectProfile, 'ideas' | 'selectedIdea' | 'lastSessionId' | 'savedSession'>>
+    data: Partial<Pick<SavedProjectProfile, 'ideas' | 'selectedIdea' | 'lastSessionId' | 'savedSession'>>,
+    targetProjectId?: string
   ) => Promise<boolean>;
 }
 
@@ -400,6 +402,7 @@ export const useAiStudioStore = create<AiStudioStore>((set, get) => ({
         }
       } else {
         patch.activeProjectId = '';
+        patch.channelProfile = { ...DEFAULT_CHANNEL_PROFILE_CONFIG };
       }
     }
 
@@ -438,11 +441,12 @@ export const useAiStudioStore = create<AiStudioStore>((set, get) => ({
   },
 
   saveActiveProjectData: async (
-    data: Partial<Pick<SavedProjectProfile, 'ideas' | 'selectedIdea' | 'lastSessionId' | 'savedSession'>>
+    data: Partial<Pick<SavedProjectProfile, 'ideas' | 'selectedIdea' | 'lastSessionId' | 'savedSession'>>,
+    targetProjectId?: string
   ): Promise<boolean> => {
     const currentConfig = get().config;
     const existingList = currentConfig.savedProjects || [];
-    const activeId = currentConfig.activeProjectId || existingList[0]?.id;
+    const activeId = targetProjectId || currentConfig.activeProjectId || existingList[0]?.id;
     if (!activeId) return false;
 
     const index = existingList.findIndex((p) => p.id === activeId);
@@ -457,7 +461,7 @@ export const useAiStudioStore = create<AiStudioStore>((set, get) => ({
 
     return get().updateConfig({
       savedProjects: updatedList,
-      activeProjectId: activeId,
+      ...(activeId === currentConfig.activeProjectId ? { activeProjectId: activeId } : {}),
     });
   },
 }));

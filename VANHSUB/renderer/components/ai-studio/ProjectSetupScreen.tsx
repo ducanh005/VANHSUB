@@ -17,7 +17,13 @@ import {
   Edit3,
 } from 'lucide-react';
 import { useAiStudioStore } from '../../lib/store/aiStudioStore';
-import type { ChannelEvaluationLlm, ChannelLongDuration, SavedProjectProfile } from '../../types/aiStudio';
+import {
+  DEFAULT_CHANNEL_PROFILE_CONFIG,
+  type ChannelEvaluationLlm,
+  type ChannelLongDuration,
+  type SavedProjectProfile,
+  type ChannelProfileConfig,
+} from '../../types/aiStudio';
 
 interface ProjectSetupScreenProps {
   onEnterStudio: () => void;
@@ -57,48 +63,55 @@ export default function ProjectSetupScreen({
   } = useAiStudioStore();
 
   const savedProjects = config.savedProjects || [];
-  const [editingProjectId, setEditingProjectId] = useState<string | null>(config.activeProjectId || null);
+  const activeProj = config.activeProjectId
+    ? savedProjects.find((p) => p.id === config.activeProjectId) || null
+    : savedProjects[0] || null;
 
-  const [projectName, setProjectName] = useState(config.channelProfile?.projectName || '');
-  const [channelNiche, setChannelNiche] = useState(config.channelProfile?.channelNiche || '');
-  const [channelOrientation, setChannelOrientation] = useState(config.channelProfile?.channelOrientation || '');
+  const [editingProjectId, setEditingProjectId] = useState<string | null>(activeProj?.id || null);
+  const [isCreatingNew, setIsCreatingNew] = useState<boolean>(savedProjects.length === 0);
+
+  const [projectName, setProjectName] = useState(activeProj?.name || config.channelProfile?.projectName || '');
+  const [channelNiche, setChannelNiche] = useState(activeProj?.channelProfile.channelNiche || config.channelProfile?.channelNiche || '');
+  const [channelOrientation, setChannelOrientation] = useState(activeProj?.channelProfile.channelOrientation || config.channelProfile?.channelOrientation || '');
   const [selectedProvider, setSelectedProvider] = useState<ChannelEvaluationLlm>(
-    (config.channelProfile?.aiProvider && config.channelProfile.aiProvider !== 'default'
-      ? config.channelProfile.aiProvider
-      : (config.llm?.provider as ChannelEvaluationLlm)) || 'gemini_web'
+    (activeProj?.channelProfile.aiProvider && activeProj.channelProfile.aiProvider !== 'default'
+      ? activeProj.channelProfile.aiProvider
+      : (config.channelProfile?.aiProvider && config.channelProfile.aiProvider !== 'default'
+        ? config.channelProfile.aiProvider
+        : (config.llm?.provider as ChannelEvaluationLlm))) || 'gemini_web'
   );
   const [aspectRatio, setAspectRatio] = useState<'16:9' | '9:16'>(
-    (config.flowEngine?.aspectRatio as '16:9' | '9:16') || '16:9'
+    (activeProj?.flowConfig?.aspectRatio as '16:9' | '9:16') ||
+      (config.flowEngine?.aspectRatio as '16:9' | '9:16') ||
+      '16:9'
   );
   const [duration, setDuration] = useState<ChannelLongDuration>(
-    config.channelProfile?.targetLongDuration || '3_5_min'
+    activeProj?.channelProfile.targetLongDuration || config.channelProfile?.targetLongDuration || '3_5_min'
   );
   const [validationError, setValidationError] = useState<string | null>(null);
 
-  // Synchronize when store config loads from disk
+  // Chỉ đồng bộ dữ liệu vào form ở lần mount đầu tiên nếu không ở chế độ tạo mới
+  const hasInitializedRef = React.useRef<boolean>(false);
   useEffect(() => {
-    if (config.channelProfile?.projectName && !projectName) {
-      setProjectName(config.channelProfile.projectName);
+    if (hasInitializedRef.current) return;
+    if (savedProjects.length > 0 && !isCreatingNew) {
+      const target =
+        (config.activeProjectId && savedProjects.find((p) => p.id === config.activeProjectId)) ||
+        savedProjects[0];
+      if (target) {
+        setEditingProjectId(target.id);
+        setProjectName(target.name);
+        setChannelNiche(target.channelProfile.channelNiche || '');
+        setChannelOrientation(target.channelProfile.channelOrientation || '');
+        if (target.channelProfile.targetLongDuration) setDuration(target.channelProfile.targetLongDuration);
+        if (target.flowConfig?.aspectRatio) setAspectRatio(target.flowConfig.aspectRatio as '16:9' | '9:16');
+        if (target.channelProfile.aiProvider && target.channelProfile.aiProvider !== 'default') {
+          setSelectedProvider(target.channelProfile.aiProvider);
+        }
+        hasInitializedRef.current = true;
+      }
     }
-    if (config.channelProfile?.channelNiche && !channelNiche) {
-      setChannelNiche(config.channelProfile.channelNiche);
-    }
-    if (config.channelProfile?.channelOrientation && !channelOrientation) {
-      setChannelOrientation(config.channelProfile.channelOrientation);
-    }
-    if (config.channelProfile?.targetLongDuration) {
-      setDuration(config.channelProfile.targetLongDuration);
-    }
-    if (config.flowEngine?.aspectRatio) {
-      setAspectRatio(config.flowEngine.aspectRatio as '16:9' | '9:16');
-    }
-    if (config.channelProfile?.aiProvider && config.channelProfile.aiProvider !== 'default') {
-      setSelectedProvider(config.channelProfile.aiProvider);
-    }
-    if (config.activeProjectId && !editingProjectId) {
-      setEditingProjectId(config.activeProjectId);
-    }
-  }, [config]);
+  }, [config.activeProjectId, savedProjects, isCreatingNew]);
 
   const handleApplyPreset = (preset: typeof NICHE_PRESETS[0]) => {
     setChannelNiche(preset.niche);
@@ -110,6 +123,7 @@ export default function ProjectSetupScreen({
   };
 
   const handleLoadProjectIntoForm = (p: SavedProjectProfile) => {
+    setIsCreatingNew(false);
     setEditingProjectId(p.id);
     setProjectName(p.name);
     setChannelNiche(p.channelProfile.channelNiche || '');
@@ -127,6 +141,7 @@ export default function ProjectSetupScreen({
   };
 
   const handleCreateNewProject = () => {
+    setIsCreatingNew(true);
     setEditingProjectId(null);
     setProjectName('');
     setChannelNiche('');
@@ -157,12 +172,47 @@ export default function ProjectSetupScreen({
 
     setValidationError(null);
 
-    const projId = editingProjectId || config.activeProjectId || `proj_${Date.now()}`;
-    const existing = (config.savedProjects || []).find((p) => p.id === projId);
+    if (isCreatingNew || !editingProjectId) {
+      // 1. TẠO DỰ ÁN MỚI 100% (ID MỚI, KHÔNG KẾ THỪA Ý TƯỞNG CŨ)
+      const newProjId = `proj_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+      const newChannelProfile: ChannelProfileConfig = {
+        ...DEFAULT_CHANNEL_PROFILE_CONFIG,
+        projectName: trimmedName,
+        channelNiche: channelNiche.trim(),
+        channelOrientation: channelOrientation.trim(),
+        aiProvider: selectedProvider,
+        targetLongDuration: duration,
+      };
 
-    const updatedChannelProfile = {
-      ...(config.channelProfile || ({} as any)),
-      ...(existing?.channelProfile || {}),
+      await saveProject({
+        id: newProjId,
+        name: trimmedName,
+        channelProfile: newChannelProfile,
+        flowConfig: { aspectRatio },
+        ideas: [],
+        selectedIdea: null,
+        lastSessionId: undefined,
+        savedSession: null,
+        updatedAt: Date.now(),
+      });
+
+      if (selectedProvider) {
+        await updateLlmConfig({ provider: selectedProvider as any });
+      }
+      if (aspectRatio) {
+        await updateFlowConfig({ aspectRatio });
+      }
+
+      setIsCreatingNew(false);
+      setEditingProjectId(newProjId);
+      onEnterStudio();
+      return;
+    }
+
+    // 2. CẬP NHẬT DỰ ÁN CŨ ĐANG CHỌN (BẢO LƯU Ý TƯỞNG & PHIÊN LÀM VIỆC)
+    const existing = savedProjects.find((p) => p.id === editingProjectId);
+    const updatedChannelProfile: ChannelProfileConfig = {
+      ...(existing?.channelProfile || DEFAULT_CHANNEL_PROFILE_CONFIG),
       projectName: trimmedName,
       channelNiche: channelNiche.trim(),
       channelOrientation: channelOrientation.trim(),
@@ -171,7 +221,7 @@ export default function ProjectSetupScreen({
     };
 
     await saveProject({
-      id: projId,
+      id: editingProjectId,
       name: trimmedName,
       channelProfile: updatedChannelProfile,
       flowConfig: { aspectRatio },
@@ -185,7 +235,6 @@ export default function ProjectSetupScreen({
     if (selectedProvider) {
       await updateLlmConfig({ provider: selectedProvider as any });
     }
-
     if (aspectRatio) {
       await updateFlowConfig({ aspectRatio });
     }
@@ -383,7 +432,7 @@ export default function ProjectSetupScreen({
         <div className="rounded-3xl border border-slate-800 bg-[#0B1120]/90 p-6 md:p-8 space-y-6 shadow-xl backdrop-blur-sm">
           
           {/* Header indicator when editing a project */}
-          {editingProjectId ? (
+          {editingProjectId && !isCreatingNew ? (
             <div className="flex items-center justify-between pb-3 border-b border-slate-800">
               <div className="flex items-center gap-2 text-xs font-bold text-amber-400">
                 <Edit3 className="h-4 w-4" />
@@ -400,10 +449,22 @@ export default function ProjectSetupScreen({
             </div>
           ) : (
             <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-              <div className="flex items-center gap-2 text-xs font-bold text-slate-300">
-                <Plus className="h-4 w-4 text-brand-cyan" />
-                <span>Thiết lập dự án mới</span>
+              <div className="flex items-center gap-2 text-xs font-bold text-emerald-400">
+                <Plus className="h-4 w-4 text-emerald-400" />
+                <span>✨ Thiết lập dự án mới</span>
               </div>
+              {savedProjects.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const target = activeProj || savedProjects[0];
+                    if (target) handleLoadProjectIntoForm(target);
+                  }}
+                  className="text-xs font-semibold text-slate-400 hover:text-white cursor-pointer flex items-center gap-1"
+                >
+                  <span>Huỷ tạo mới, sửa dự án đã có</span>
+                </button>
+              )}
             </div>
           )}
 
@@ -679,7 +740,7 @@ export default function ProjectSetupScreen({
               disabled={isSaving}
               className="w-full sm:w-auto inline-flex items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-[#FA5252] via-orange-500 to-amber-500 hover:brightness-110 px-6 py-3 text-sm font-bold text-white shadow-xl shadow-orange-500/20 active:scale-95 transition disabled:opacity-50 cursor-pointer"
             >
-              <span>Vào Studio Sản Xuất</span>
+              <span>{isCreatingNew ? 'Tạo Dự Án & Vào Studio' : 'Lưu Thay Đổi & Vào Studio'}</span>
               <ArrowRight className="h-4 w-4" />
             </button>
           </div>
