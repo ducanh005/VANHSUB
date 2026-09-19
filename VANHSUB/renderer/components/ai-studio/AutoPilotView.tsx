@@ -279,6 +279,7 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
         });
 
         if (result && (result.assetPath || result.imagePath || result.videoPath)) {
+          let sessionToSave: PipelineSessionState | null = null;
           setSession((prev) => {
             if (!prev || !prev.artifacts?.scenes) return prev;
             const updatedScenes = prev.artifacts.scenes.map((s) => {
@@ -300,15 +301,21 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
                 scenes: updatedScenes,
               },
             };
-            void saveActiveProjectData(
-              {
-                savedSession: updatedSession,
-                lastSessionId: updatedSession.sessionId,
-              },
-              loadedProjectIdRef.current || undefined
-            );
+            sessionToSave = updatedSession;
             return updatedSession;
           });
+          if (sessionToSave) {
+            const toSave: PipelineSessionState = sessionToSave;
+            queueMicrotask(() => {
+              void saveActiveProjectData(
+                {
+                  savedSession: toSave,
+                  lastSessionId: toSave.sessionId,
+                },
+                loadedProjectIdRef.current || undefined
+              );
+            });
+          }
           showSceneNotice(`✓ Đã tạo lại thành công media cho ${targetId}!`);
         } else if (result?.error) {
           showSceneNotice(`✗ Lỗi tạo lại: ${result.error}`);
@@ -354,6 +361,7 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
         });
 
         if (importRes && importRes.success) {
+          let sessionToSave: PipelineSessionState | null = null;
           setSession((prev) => {
             if (!prev || !prev.artifacts?.scenes) return prev;
             const updatedScenes = prev.artifacts.scenes.map((s) => {
@@ -375,21 +383,28 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
                 scenes: updatedScenes,
               },
             };
-            void saveActiveProjectData(
-              {
-                savedSession: updatedSession,
-                lastSessionId: updatedSession.sessionId,
-              },
-              loadedProjectIdRef.current || undefined
-            );
+            sessionToSave = updatedSession;
             return updatedSession;
           });
+          if (sessionToSave) {
+            const toSave: PipelineSessionState = sessionToSave;
+            queueMicrotask(() => {
+              void saveActiveProjectData(
+                {
+                  savedSession: toSave,
+                  lastSessionId: toSave.sessionId,
+                },
+                loadedProjectIdRef.current || undefined
+              );
+            });
+          }
           showSceneNotice(`✓ Đã nạp thành công tệp vào ${targetId}!`);
         } else {
           showSceneNotice(`✗ Lỗi nạp tệp: ${importRes?.error || 'Không rõ nguyên nhân'}`);
         }
       } else {
         // Fallback trực tiếp nếu IPC chưa khởi động
+        let sessionToSave: PipelineSessionState | null = null;
         setSession((prev) => {
           if (!prev || !prev.artifacts?.scenes) return prev;
           const updatedScenes = prev.artifacts.scenes.map((s) => {
@@ -411,15 +426,21 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
               scenes: updatedScenes,
             },
           };
-          void saveActiveProjectData(
-            {
-              savedSession: updatedSession,
-              lastSessionId: updatedSession.sessionId,
-            },
-            loadedProjectIdRef.current || undefined
-          );
+          sessionToSave = updatedSession;
           return updatedSession;
         });
+        if (sessionToSave) {
+          const toSave: PipelineSessionState = sessionToSave;
+          queueMicrotask(() => {
+            void saveActiveProjectData(
+              {
+                savedSession: toSave,
+                lastSessionId: toSave.sessionId,
+              },
+              loadedProjectIdRef.current || undefined
+            );
+          });
+        }
         showSceneNotice(`✓ Đã nạp đường dẫn tệp vào ${targetId}!`);
       }
     } catch (err: any) {
@@ -513,6 +534,7 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
     if (typeof window === 'undefined' || !window.vanhsub?.aiStudio) return;
 
     const unsubscribe = window.vanhsub.aiStudio.onPipelineProgress((event: PipelineProgressEvent) => {
+      let sessionToSave: PipelineSessionState | null = null;
       setSession((prev) => {
         if (!prev) return prev;
         // Chặn event từ các session khác để tránh ghi đè chéo khi chuyển project
@@ -556,17 +578,24 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
           event.status === 'error' ||
           event.stage >= 2
         ) {
-          void saveActiveProjectData(
-            {
-              savedSession: next,
-              lastSessionId: next.sessionId,
-            },
-            loadedProjectIdRef.current || undefined
-          );
+          sessionToSave = next;
         }
 
         return next;
       });
+
+      if (sessionToSave) {
+        const toSave: PipelineSessionState = sessionToSave;
+        queueMicrotask(() => {
+          void saveActiveProjectData(
+            {
+              savedSession: toSave,
+              lastSessionId: toSave.sessionId,
+            },
+            loadedProjectIdRef.current || undefined
+          );
+        });
+      }
     });
 
     return () => {
@@ -613,6 +642,7 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
       setIsRunning(false);
       setIsApproving(false);
       setIsConfirmCancelOpen(false);
+      let sessionToSave: PipelineSessionState | null = null;
       setSession((prev) => {
         if (!prev) return null;
         const updated: PipelineSessionState = {
@@ -630,15 +660,21 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
             : prev.stages,
           updatedAt: Date.now(),
         };
-        void saveActiveProjectData(
-          {
-            savedSession: updated,
-            lastSessionId: updated.sessionId,
-          },
-          loadedProjectIdRef.current || undefined
-        );
+        sessionToSave = updated;
         return updated;
       });
+      if (sessionToSave) {
+        const toSave: PipelineSessionState = sessionToSave;
+        queueMicrotask(() => {
+          void saveActiveProjectData(
+            {
+              savedSession: toSave,
+              lastSessionId: toSave.sessionId,
+            },
+            loadedProjectIdRef.current || undefined
+          );
+        });
+      }
     }
   };
 
