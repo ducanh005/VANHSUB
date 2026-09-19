@@ -241,7 +241,7 @@ export class AiStudioVisualService {
       status: 'pending',
     };
 
-    await this.generateSyntheticSceneCard(mockScene, outPath, payload.flowConfig.aspectRatio, '720p');
+    await this.generateSyntheticSceneCard(mockScene, outPath, payload.flowConfig?.aspectRatio || '16:9', '720p');
     return { assetPath: outPath };
   }
 }

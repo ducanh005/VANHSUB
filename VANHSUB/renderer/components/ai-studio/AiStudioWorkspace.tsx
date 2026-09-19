@@ -10,10 +10,16 @@ export type AiStudioMode = 'auto' | 'settings';
 
 export default function AiStudioWorkspace() {
   const [activeMode, setActiveMode] = useState<AiStudioMode>('auto');
-  const [isProjectEntered, setIsProjectEntered] = useState<boolean>(false);
   const [isChannelModalOpen, setIsChannelModalOpen] = useState<boolean>(false);
 
-  const { config, loadConfig, isLoading, hasLoaded } = useAiStudioStore();
+  const {
+    config,
+    loadConfig,
+    isLoading,
+    hasLoaded,
+    isProjectEntered,
+    setProjectEntered,
+  } = useAiStudioStore();
 
   // Nạp cấu hình từ Electron Main / disk ngay khi Workspace mount
   useEffect(() => {
@@ -49,7 +55,7 @@ export default function AiStudioWorkspace() {
             </span>
             <button
               type="button"
-              onClick={() => setIsProjectEntered(false)}
+              onClick={() => setProjectEntered(false)}
               className="ml-1 rounded px-2 py-0.5 text-[11px] font-semibold text-brand-cyan hover:bg-slate-800 hover:text-white transition cursor-pointer"
               title="Quay lại màn hình thiết lập / đổi project"
             >
@@ -103,12 +109,12 @@ export default function AiStudioWorkspace() {
             {activeMode === 'auto' && (
               !isProjectEntered ? (
                 <ProjectSetupScreen
-                  onEnterStudio={() => setIsProjectEntered(true)}
+                  onEnterStudio={() => setProjectEntered(true)}
                   onOpenDetailedConfig={() => setIsChannelModalOpen(true)}
                 />
               ) : (
                 <AutoPilotView
-                  onSwitchProject={() => setIsProjectEntered(false)}
+                  onSwitchProject={() => setProjectEntered(false)}
                 />
               )
             )}

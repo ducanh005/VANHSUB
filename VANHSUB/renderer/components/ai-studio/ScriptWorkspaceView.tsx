@@ -19,6 +19,13 @@ import {
   MessageSquare,
   Send,
   Loader2,
+  Minimize2,
+  Maximize2,
+  MoveVertical,
+  Image as ImageIcon,
+  User,
+  XCircle,
+  Square,
 } from 'lucide-react';
 import type {
   PipelineSessionState,
@@ -31,23 +38,29 @@ import { useAiStudioStore } from '../../lib/store/aiStudioStore';
 interface ScriptWorkspaceViewProps {
   session: PipelineSessionState;
   blueprint?: IdeaBlueprint | null;
+  isRunning?: boolean;
   onProceedToVoice: () => void;
   onRegenerateScript: () => void;
   onBackToIdeas: () => void;
   onDeleteVideo?: () => void;
+  onCancelProcess?: () => void;
   onSwitchTab?: (tab: 'script' | 'visual' | 'character') => void;
   activeCenterTab?: 'script' | 'visual' | 'character';
+  onSessionUpdate?: (updatedSession: PipelineSessionState) => void;
 }
 
 export default function ScriptWorkspaceView({
   session,
   blueprint: propBlueprint,
+  isRunning = false,
   onProceedToVoice,
   onRegenerateScript,
   onBackToIdeas,
   onDeleteVideo,
+  onCancelProcess,
   onSwitchTab,
   activeCenterTab = 'script',
+  onSessionUpdate,
 }: ScriptWorkspaceViewProps) {
   const { config } = useAiStudioStore();
 
@@ -62,6 +75,52 @@ export default function ScriptWorkspaceView({
   const [editingLineIndex, setEditingLineIndex] = useState<number | null>(null);
   const [editingText, setEditingText] = useState('');
   const [copyToast, setCopyToast] = useState<string | null>(null);
+
+  // Script height controls (kéo dài hoặc thu ngắn kịch bản)
+  const [scriptHeight, setScriptHeight] = useState<number>(320);
+  const [isScriptExpanded, setIsScriptExpanded] = useState<boolean>(false);
+  const [isResizingScript, setIsResizingScript] = useState<boolean>(false);
+  const [copiedThumbPrompt, setCopiedThumbPrompt] = useState<boolean>(false);
+  const ideaSectionRef = useRef<HTMLDivElement>(null);
+
+  const handleMouseDownResizer = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsResizingScript(true);
+    setIsScriptExpanded(false);
+    const startY = e.clientY;
+    const startHeight = scriptHeight;
+
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      const deltaY = moveEvent.clientY - startY;
+      const newHeight = Math.max(160, Math.min(850, startHeight + deltaY));
+      setScriptHeight(newHeight);
+    };
+
+    const handleMouseUp = () => {
+      setIsResizingScript(false);
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+  };
+
+  const handleFocusIdeaSection = () => {
+    setIsIdeaAccordionOpen(true);
+    setIsScriptExpanded(false);
+    setScriptHeight(200);
+    setTimeout(() => {
+      ideaSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }, 100);
+  };
+
+  const handleCopyThumbPrompt = (promptText: string) => {
+    if (!promptText) return;
+    navigator.clipboard.writeText(promptText);
+    setCopiedThumbPrompt(true);
+    setTimeout(() => setCopiedThumbPrompt(false), 2500);
+  };
 
   // AI Action Loading states
   const [isEvaluating, setIsEvaluating] = useState(false);
@@ -119,6 +178,20 @@ export default function ScriptWorkspaceView({
     });
   }, [lines]);
 
+  const notifySessionUpdate = (newLines: ScriptBeatLine[], newEval: ScriptEvaluation | null) => {
+    if (!onSessionUpdate) return;
+    const updatedSession: PipelineSessionState = {
+      ...session,
+      artifacts: {
+        ...session.artifacts,
+        scriptLines: newLines,
+        scriptEvaluation: newEval || undefined,
+      },
+      updatedAt: Date.now(),
+    };
+    onSessionUpdate(updatedSession);
+  };
+
   // Trigger AI evaluation
   const handleEvaluate = async () => {
     if (isEvaluating || lines.length === 0 || !window.vanhsub?.aiStudio?.evaluateScript) return;
@@ -132,6 +205,7 @@ export default function ScriptWorkspaceView({
       });
       if (result?.evaluation) {
         setEvaluation(result.evaluation);
+        notifySessionUpdate(lines, result.evaluation);
       }
     } catch (err) {
       console.error('[ScriptWorkspaceView] Evaluate error:', err);
@@ -160,7 +234,9 @@ export default function ScriptWorkspaceView({
         setLines(result.lines);
         if (result.evaluation) {
           setEvaluation(result.evaluation);
+          notifySessionUpdate(result.lines, result.evaluation);
         } else {
+          notifySessionUpdate(result.lines, evaluation);
           void handleEvaluate();
         }
       }
@@ -192,7 +268,9 @@ export default function ScriptWorkspaceView({
         setLines(result.lines);
         if (result.evaluation) {
           setEvaluation(result.evaluation);
+          notifySessionUpdate(result.lines, result.evaluation);
         } else {
+          notifySessionUpdate(result.lines, evaluation);
           void handleEvaluate();
         }
       }
@@ -211,6 +289,7 @@ export default function ScriptWorkspaceView({
     setLines(previous.lines);
     setEvaluation(previous.evaluation);
     setHistory(rest);
+    notifySessionUpdate(previous.lines, previous.evaluation);
 
     if (window.vanhsub?.aiStudio?.updateScriptLines) {
       void window.vanhsub.aiStudio.updateScriptLines({
@@ -234,6 +313,7 @@ export default function ScriptWorkspaceView({
       );
       setLines(updated);
       setEditingLineIndex(null);
+      notifySessionUpdate(updated, evaluation);
 
       // Persist to session
       if (window.vanhsub?.aiStudio?.updateScriptLines) {
@@ -473,7 +553,65 @@ export default function ScriptWorkspaceView({
               </span>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              {/* Quick height buttons */}
+              <div className="flex items-center rounded-lg border border-slate-800 bg-[#090E1A] p-0.5 text-[10px]">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsScriptExpanded(false);
+                    setScriptHeight(200);
+                  }}
+                  className={`px-2 py-0.5 rounded transition cursor-pointer ${
+                    !isScriptExpanded && scriptHeight <= 220
+                      ? 'bg-brand-cyan/20 text-brand-cyan font-bold'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                  title="Thu ngắn danh sách câu kịch bản còn 200px để dễ nhìn thông tin ý tưởng"
+                >
+                  📐 Thu ngắn (200px)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsScriptExpanded(false);
+                    setScriptHeight(360);
+                  }}
+                  className={`px-2 py-0.5 rounded transition cursor-pointer ${
+                    !isScriptExpanded && scriptHeight > 220 && scriptHeight <= 450
+                      ? 'bg-brand-cyan/20 text-brand-cyan font-bold'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                  title="Độ cao vừa phải (360px)"
+                >
+                  📏 Vừa (360px)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsScriptExpanded((prev) => !prev)}
+                  className={`px-2 py-0.5 rounded transition cursor-pointer ${
+                    isScriptExpanded
+                      ? 'bg-brand-cyan/20 text-brand-cyan font-bold'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                  title={isScriptExpanded ? 'Thu lại độ cao mặc định' : 'Mở rộng hiển thị toàn bộ kịch bản'}
+                >
+                  {isScriptExpanded ? '↕ Thu lại' : '↕ Kéo dài hết'}
+                </button>
+              </div>
+
+              {blueprint && (
+                <button
+                  type="button"
+                  onClick={handleFocusIdeaSection}
+                  className="inline-flex items-center gap-1 rounded-lg border border-amber-500/40 bg-amber-950/25 px-2.5 py-1 text-[11px] font-medium text-amber-300 hover:bg-amber-900/40 hover:text-amber-100 transition cursor-pointer shadow-sm"
+                  title="Thu gọn kịch bản và cuộn tới Thông tin ý tưởng & nhân vật"
+                >
+                  <Lightbulb className="h-3 w-3 text-amber-400" />
+                  <span>💡 Xem thông tin ý tưởng</span>
+                </button>
+              )}
+
               <button
                 type="button"
                 onClick={handleCopyScript}
@@ -495,7 +633,7 @@ export default function ScriptWorkspaceView({
           </div>
 
           <p className="text-[11px] text-amber-400/90 italic">
-            Nhấp vào câu bất kỳ để sửa trực tiếp (tự động lưu)
+            Nhấp vào câu bất kỳ để sửa trực tiếp (tự động lưu) &bull; Kéo thanh bên dưới để chỉnh chiều dài khung kịch bản
           </p>
 
           {copyToast && (
@@ -504,8 +642,13 @@ export default function ScriptWorkspaceView({
             </div>
           )}
 
-          {/* Script lines list */}
-          <div className="space-y-2 divide-y divide-slate-800/50">
+          {/* Script lines list with resizable height */}
+          <div
+            style={{
+              maxHeight: isScriptExpanded ? 'none' : `${scriptHeight}px`,
+            }}
+            className="space-y-2 divide-y divide-slate-800/50 overflow-y-auto custom-scrollbar pr-1.5 transition-[max-height] duration-150"
+          >
             {lines.map((line, idx) => {
               const isEditing = editingLineIndex === idx;
               const timeLabel = timestamps[idx] || '0:00';
@@ -573,80 +716,219 @@ export default function ScriptWorkspaceView({
               );
             })}
           </div>
+
+          {/* Draggable Resizer Bar */}
+          <div
+            onMouseDown={handleMouseDownResizer}
+            onDoubleClick={() => setIsScriptExpanded((prev) => !prev)}
+            className={`w-full py-1.5 flex items-center justify-center gap-2 rounded-lg border border-dashed transition select-none cursor-row-resize ${
+              isResizingScript
+                ? 'border-brand-cyan bg-brand-cyan/10 text-brand-cyan'
+                : 'border-slate-800/80 bg-slate-900/40 text-slate-500 hover:border-slate-700 hover:bg-slate-900/80 hover:text-slate-300'
+            }`}
+            title="Kéo lên/xuống để chỉnh độ dài kịch bản • Nhấp đúp để mở rộng toàn bộ"
+          >
+            <MoveVertical className="h-3.5 w-3.5" />
+            <span className="text-[10px] font-mono tracking-wider">
+              {isScriptExpanded
+                ? 'Đang mở rộng toàn bộ kịch bản • Nhấp đúp để thu lại'
+                : `↕ Kéo để kéo dài/thu ngắn (${scriptHeight}px) • Nhấp đúp để bung hết`}
+            </span>
+          </div>
         </div>
 
-        {/* 4. Box: Thông Tin Ý Tưởng (Collapsible Accordion) */}
+        {/* 4. Box: Thông Tin Ý Tưởng & Nhân Vật (Collapsible Accordion) */}
         {blueprint && (
-          <div className="rounded-2xl border border-amber-500/40 bg-[#0B101E] overflow-hidden shadow-md">
+          <div
+            ref={ideaSectionRef}
+            className="rounded-2xl border border-amber-500/40 bg-[#0B101E] overflow-hidden shadow-md"
+          >
             <button
               type="button"
               onClick={() => setIsIdeaAccordionOpen((prev) => !prev)}
               className="w-full flex items-center justify-between p-3.5 text-xs font-bold text-white hover:bg-slate-900/60 transition cursor-pointer"
             >
-              <span className="flex items-center gap-2">
+              <div className="flex items-center gap-2">
                 <Lightbulb className="h-4 w-4 text-amber-400" />
-                <span>Thông tin ý tưởng</span>
-              </span>
-              {isIdeaAccordionOpen ? (
-                <ChevronUp className="h-4 w-4 text-amber-400" />
-              ) : (
-                <ChevronDown className="h-4 w-4 text-amber-400" />
-              )}
+                <span>Thông tin ý tưởng &amp; Thiết lập nhân vật</span>
+                {blueprint.thumbnailPrompt && (
+                  <span className="rounded bg-brand-cyan/10 border border-brand-cyan/30 px-2 py-0.5 text-[10px] font-mono text-brand-cyan">
+                    Có Thumbnail AI Prompt
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] text-amber-300/80 font-normal">
+                  {isIdeaAccordionOpen ? 'Thu gọn' : 'Xem chi tiết'}
+                </span>
+                {isIdeaAccordionOpen ? (
+                  <ChevronUp className="h-4 w-4 text-amber-400" />
+                ) : (
+                  <ChevronDown className="h-4 w-4 text-amber-400" />
+                )}
+              </div>
             </button>
 
             {isIdeaAccordionOpen && (
-              <div className="p-4 pt-1 border-t border-slate-800/80 space-y-3 text-xs">
-                <div className="grid grid-cols-12 gap-3">
-                  <span className="col-span-3 text-slate-400 font-medium">Góc nhìn</span>
-                  <span className="col-span-9 text-slate-200 leading-relaxed">
-                    {blueprint.narrativeAngle || 'Chưa có thông tin'}
-                  </span>
-                </div>
-
-                <div className="grid grid-cols-12 gap-3">
-                  <span className="col-span-3 text-slate-400 font-medium">Định dạng</span>
-                  <span className="col-span-9 text-slate-200 font-mono">
-                    {blueprint.aspectRatio === '9:16' ? 'shorts (9:16)' : 'long (16:9)'}
-                  </span>
-                </div>
-
-                {blueprint.outline && blueprint.outline.length > 0 && (
-                  <div className="grid grid-cols-12 gap-3">
-                    <span className="col-span-3 text-slate-400 font-medium">Outline</span>
-                    <div className="col-span-9 space-y-1 text-slate-300">
-                      {blueprint.outline.map((beat, bIdx) => (
-                        <div key={bIdx} className="leading-relaxed">
-                          &bull; {beat}
-                        </div>
-                      ))}
+              <div className="p-4 pt-2 border-t border-slate-800/80 space-y-4 text-xs">
+                
+                {/* 1. Host / Character details card */}
+                {(config.channelProfile?.hostName || config.channelProfile?.hostDescription || (config.channelProfile?.channelCharacters && config.channelProfile.channelCharacters.length > 0)) && (
+                  <div className="rounded-xl border border-pink-500/30 bg-pink-950/15 p-3 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="flex items-center gap-1.5 font-bold text-pink-300 text-xs">
+                        <User className="h-3.5 w-3.5 text-pink-400" />
+                        Nhân vật đại diện kênh (Character Consistency)
+                      </span>
+                      <span className="text-[10px] text-pink-400/80 bg-pink-900/30 border border-pink-700/40 px-2 py-0.5 rounded-full font-mono">
+                        Đã khóa diện mạo
+                      </span>
                     </div>
+
+                    <div className="flex items-start gap-3 pt-1">
+                      {config.channelProfile?.hostAvatarUrl ? (
+                        <img
+                          src={config.channelProfile.hostAvatarUrl}
+                          alt="Host Avatar"
+                          className="h-10 w-10 rounded-full object-cover border border-pink-500/50 shrink-0"
+                        />
+                      ) : (
+                        <div className="h-10 w-10 rounded-full bg-pink-500/20 border border-pink-500/40 flex items-center justify-center text-pink-300 font-bold shrink-0">
+                          {config.channelProfile?.hostName?.slice(0, 1)?.toUpperCase() || 'NV'}
+                        </div>
+                      )}
+
+                      <div className="space-y-1 min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-white text-xs">
+                            {config.channelProfile?.hostName || 'Nhân vật chính'}
+                          </span>
+                          <span className="text-[10px] text-slate-400 font-mono">
+                            (Host đại diện)
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-300 leading-relaxed">
+                          {config.channelProfile?.hostDescription || 'Chưa thiết lập mô tả diện mạo chi tiết.'}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Additional characters if any */}
+                    {config.channelProfile?.channelCharacters && config.channelProfile.channelCharacters.length > 0 && (
+                      <div className="pt-2 border-t border-pink-500/20 space-y-1.5">
+                        <span className="text-[11px] font-semibold text-pink-200">
+                          Nhân vật khác trong kênh:
+                        </span>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                          {config.channelProfile.channelCharacters.map((char) => (
+                            <div
+                              key={char.id}
+                              className="rounded-lg bg-black/30 border border-pink-500/20 p-2 text-[11px] space-y-0.5"
+                            >
+                              <span className="font-bold text-white">{char.name}</span>
+                              <p className="text-slate-400 text-[10px] line-clamp-2">{char.descriptionEn}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
 
-                {blueprint.thumbnailConcept && (
-                  <div className="grid grid-cols-12 gap-3">
-                    <span className="col-span-3 text-slate-400 font-medium">Thumbnail</span>
-                    <span className="col-span-9 text-slate-200 leading-relaxed">
-                      {blueprint.thumbnailConcept}
+                {/* 2. Thumbnail Concept & Prompt card */}
+                <div className="rounded-xl border border-indigo-500/30 bg-indigo-950/20 p-3 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="flex items-center gap-1.5 font-bold text-indigo-300 text-xs">
+                      <ImageIcon className="h-3.5 w-3.5 text-indigo-400" />
+                      Thumbnail &amp; Ảnh Bìa Video
                     </span>
+                    {blueprint.thumbnailPrompt && (
+                      <button
+                        type="button"
+                        onClick={() => handleCopyThumbPrompt(blueprint.thumbnailPrompt || '')}
+                        className="inline-flex items-center gap-1 rounded border border-indigo-500/40 bg-indigo-900/40 px-2.5 py-1 text-[10px] font-bold text-indigo-200 hover:bg-indigo-800 transition cursor-pointer shadow-sm"
+                      >
+                        <Copy className="h-3 w-3" />
+                        <span>{copiedThumbPrompt ? '✓ Đã sao chép prompt!' : 'Sao chép Prompt AI'}</span>
+                      </button>
+                    )}
                   </div>
-                )}
 
-                <div className="grid grid-cols-12 gap-3">
-                  <span className="col-span-3 text-slate-400 font-medium">Thời lượng</span>
-                  <span className="col-span-9 text-slate-200 font-mono">
-                    {blueprint.estimatedDurationSec || 600} giây
-                  </span>
+                  {blueprint.thumbnailConcept && (
+                    <div className="space-y-1">
+                      <span className="text-[11px] font-medium text-slate-400">
+                        Ý tưởng thị giác (Thumbnail Concept):
+                      </span>
+                      <p className="text-slate-200 text-xs leading-relaxed bg-black/30 p-2.5 rounded-lg border border-indigo-500/20">
+                        {blueprint.thumbnailConcept}
+                      </p>
+                    </div>
+                  )}
+
+                  {blueprint.thumbnailPrompt ? (
+                    <div className="space-y-1">
+                      <span className="text-[11px] font-medium text-indigo-300 flex items-center justify-between">
+                        <span>Prompt tạo ảnh AI (Tiếng Anh - chuẩn Midjourney / Flux / DALL-E 3):</span>
+                      </span>
+                      <div className="relative group">
+                        <pre className="font-mono text-[11px] text-slate-300 leading-relaxed bg-[#060913] p-2.5 rounded-lg border border-slate-800 whitespace-pre-wrap break-words max-h-36 overflow-y-auto custom-scrollbar">
+                          {blueprint.thumbnailPrompt}
+                        </pre>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-[11px] text-slate-500 italic">
+                      Chưa có prompt ảnh tiếng Anh.
+                    </p>
+                  )}
                 </div>
 
-                {blueprint.targetAudience && (
+                {/* 3. Narrative, Format & Outline */}
+                <div className="space-y-2.5 pt-1">
                   <div className="grid grid-cols-12 gap-3">
-                    <span className="col-span-3 text-slate-400 font-medium">Khán giả mục tiêu</span>
-                    <span className="col-span-9 text-slate-200">
-                      {blueprint.targetAudience}
+                    <span className="col-span-3 text-slate-400 font-medium">Góc nhìn</span>
+                    <span className="col-span-9 text-slate-200 leading-relaxed">
+                      {blueprint.narrativeAngle || 'Chưa có thông tin'}
                     </span>
                   </div>
-                )}
+
+                  <div className="grid grid-cols-12 gap-3">
+                    <span className="col-span-3 text-slate-400 font-medium">Định dạng</span>
+                    <span className="col-span-9 text-slate-200 font-mono">
+                      {blueprint.aspectRatio === '9:16' ? 'Shorts (9:16)' : 'Video dài (16:9)'}
+                    </span>
+                  </div>
+
+                  {blueprint.outline && blueprint.outline.length > 0 && (
+                    <div className="grid grid-cols-12 gap-3">
+                      <span className="col-span-3 text-slate-400 font-medium">Dàn ý phân đoạn</span>
+                      <div className="col-span-9 space-y-1 text-slate-300">
+                        {blueprint.outline.map((beat, bIdx) => (
+                          <div key={bIdx} className="leading-relaxed">
+                            &bull; {beat}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-12 gap-3">
+                    <span className="col-span-3 text-slate-400 font-medium">Thời lượng ước tính</span>
+                    <span className="col-span-9 text-slate-200 font-mono">
+                      {blueprint.estimatedDurationSec || 600} giây ({Math.round((blueprint.estimatedDurationSec || 600) / 60)} phút)
+                    </span>
+                  </div>
+
+                  {blueprint.targetAudience && (
+                    <div className="grid grid-cols-12 gap-3">
+                      <span className="col-span-3 text-slate-400 font-medium">Khán giả mục tiêu</span>
+                      <span className="col-span-9 text-slate-200">
+                        {blueprint.targetAudience}
+                      </span>
+                    </div>
+                  )}
+                </div>
+
               </div>
             )}
           </div>
@@ -657,21 +939,37 @@ export default function ScriptWorkspaceView({
       {/* 5. Bottom Action Bar matching Revo Studio */}
       <div className="p-3.5 border-t border-slate-800/80 bg-[#080C14] flex flex-wrap items-center justify-between gap-3 shrink-0">
         <div className="flex flex-wrap items-center gap-2">
-          {/* Nút Lồng tiếng & Dựng */}
+          {/* Nút Tiếp tục: Duyệt kịch bản & Lồng tiếng */}
           <button
             type="button"
             onClick={onProceedToVoice}
-            className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-[#FA5252] via-orange-500 to-amber-500 hover:brightness-110 px-4 py-2 text-xs font-bold text-white shadow-md active:scale-95 transition cursor-pointer"
+            disabled={isRunning}
+            className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:brightness-110 px-4 py-2 text-xs font-bold text-white shadow-md active:scale-95 transition cursor-pointer disabled:opacity-50"
+            title="Duyệt kịch bản hiện tại và tiếp tục sang bước Lồng tiếng"
           >
             <Mic className="h-3.5 w-3.5" />
-            <span>Lồng tiếng &amp; Dựng</span>
+            <span>Tiếp tục: Duyệt &amp; Lồng tiếng ▸</span>
           </button>
+
+          {/* Nút Hủy tiến trình đang chạy (chỉ hiện khi đang chạy) */}
+          {isRunning && onCancelProcess && (
+            <button
+              type="button"
+              onClick={onCancelProcess}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-rose-800/80 bg-rose-950/60 hover:bg-rose-900/80 px-3.5 py-2 text-xs font-bold text-rose-200 transition active:scale-95 cursor-pointer shadow-sm shadow-rose-950/40"
+              title="Dừng / Hủy tiến trình đang chạy (giữ nguyên dữ liệu kịch bản)"
+            >
+              <Square className="h-3 w-3 fill-rose-400 text-rose-400" />
+              <span>Hủy tiến trình đang chạy</span>
+            </button>
+          )}
 
           {/* Nút Tạo lại kịch bản */}
           <button
             type="button"
             onClick={onRegenerateScript}
-            className="inline-flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-900/90 hover:bg-slate-800 px-3.5 py-2 text-xs font-semibold text-slate-200 transition active:scale-95 cursor-pointer"
+            disabled={isRunning}
+            className="inline-flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-900/90 hover:bg-slate-800 px-3.5 py-2 text-xs font-semibold text-slate-200 transition active:scale-95 cursor-pointer disabled:opacity-50"
           >
             <RotateCcw className="h-3.5 w-3.5 text-brand-cyan" />
             <span>Tạo lại kịch bản</span>

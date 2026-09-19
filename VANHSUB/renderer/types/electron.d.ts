@@ -421,8 +421,16 @@ export interface VanhsubAPI {
     regenerateSceneAsset: (payload: {
       sceneId: string;
       visualPrompt: string;
-      flowConfig: AiStudioFlowEngineConfig;
-    }) => Promise<{ assetPath: string }>;
+      flowConfig?: Partial<AiStudioFlowEngineConfig>;
+      sessionId?: string;
+      mode?: 'image' | 'video' | 'both';
+    }) => Promise<{ assetPath: string; imagePath?: string; videoPath?: string; error?: string }>;
+    importSceneMedia: (payload: {
+      sessionId: string;
+      sceneId: string;
+      filePath: string;
+      mediaType?: 'image' | 'video';
+    }) => Promise<{ success: boolean; assetPath: string; imagePath?: string; videoPath?: string; error?: string }>;
     renderVideo: (payload: {
       sessionId: string;
       customSettings?: DeepPartial<AiStudioRenderingConfig & AiStudioSubtitleConfig>;

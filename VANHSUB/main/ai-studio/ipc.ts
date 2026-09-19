@@ -46,6 +46,8 @@ import type {
   RefineScriptResult,
   UpdateScriptLinesPayload,
   UpdateScriptLinesResult,
+  ImportSceneMediaPayload,
+  ImportSceneMediaResult,
 } from './types';
 
 // ============================================================================
@@ -84,6 +86,10 @@ export interface IAiStudioPipelineEngineDelegate {
     payload: RegenerateSceneAssetPayload
   ): Promise<RegenerateSceneAssetResult>;
 
+  importSceneMedia?(
+    payload: ImportSceneMediaPayload
+  ): Promise<ImportSceneMediaResult>;
+
   renderVideo(payload: RenderVideoPayload): Promise<RenderVideoResult>;
 }
 
@@ -104,6 +110,29 @@ export function setAiStudioPipelineEngine(
  */
 export function getAiStudioPipelineEngine(): IAiStudioPipelineEngineDelegate | null {
   return pipelineEngineDelegate;
+}
+
+/**
+ * Broadcasts a structured action log entry to all open Electron windows.
+ * Channel: 'aiStudio:pipeline:actionLog'
+ * Format: { ts, scene_id, shot_id, action, target, retry, status, details }
+ */
+export function broadcastPipelineActionLog(entry: any): void {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const electron = require('electron');
+    const BrowserWindow = electron?.BrowserWindow;
+    if (BrowserWindow && typeof BrowserWindow.getAllWindows === 'function') {
+      const windows = BrowserWindow.getAllWindows();
+      for (const win of windows) {
+        if (!win.isDestroyed() && win.webContents && !win.webContents.isDestroyed()) {
+          win.webContents.send('aiStudio:pipeline:actionLog', entry);
+        }
+      }
+    }
+  } catch (err) {
+    // Non-fatal if running outside Electron or in unit tests
+  }
 }
 
 // ============================================================================
@@ -501,6 +530,25 @@ export function registerAiStudioIpc(): void {
       }
       throw new Error(
         '[M2-STUB] aiStudio:step:regenerateSceneAsset is scheduled for Milestone 2 (Visual Service).'
+      );
+    }
+  );
+
+  /**
+   * Channel: aiStudio:step:importSceneMedia
+   * Imports an external image or video file into the project's media storage for a scene.
+   */
+  safeHandle(
+    'aiStudio:step:importSceneMedia',
+    async (
+      _event,
+      payload: ImportSceneMediaPayload
+    ): Promise<ImportSceneMediaResult> => {
+      if (pipelineEngineDelegate?.importSceneMedia) {
+        return pipelineEngineDelegate.importSceneMedia(payload);
+      }
+      throw new Error(
+        'aiStudio:step:importSceneMedia is not supported by current delegate.'
       );
     }
   );

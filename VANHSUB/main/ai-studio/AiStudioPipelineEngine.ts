@@ -17,6 +17,8 @@ import type {
   RenderSingleLineVoiceResult,
   RegenerateSceneAssetPayload,
   RegenerateSceneAssetResult,
+  ImportSceneMediaPayload,
+  ImportSceneMediaResult,
   RenderVideoPayload,
   RenderVideoResult,
   AutoFillIdeaPayload,
@@ -27,12 +29,28 @@ import type {
   AiStudioVoiceConfig,
   AiStudioStageId,
   AiStudioStageName,
+  StoryboardScene,
 } from './types';
 import { getDecryptedAiStudioConfig, resolveAiStudioCwd } from '../store/aiStudioStore';
 import { aiStudioLlmService } from './services/AiStudioLlmService';
 import { aiStudioTtsService } from './services/AiStudioTtsService';
 import { aiStudioVisualService } from './services/AiStudioVisualService';
 import { aiStudioVideoAssembler } from './services/AiStudioVideoAssembler';
+import { AiStudioDiskStorageManager } from './storage/AiStudioDiskStorageManager';
+import type {
+  PipelineActionLogEntry,
+  PipelineFactsData,
+  PipelineScriptData,
+  PipelineTimingData,
+  PipelineStoryboardData,
+  StoryboardSceneItem,
+  StoryboardShotItem,
+} from './types/storage';
+import { aiStudioStoryboardService } from './services/AiStudioStoryboardService';
+import { FlowMediaAutomationEngine } from '../workflow/flow-engine/FlowMediaAutomationEngine';
+import { GoogleVeoSessionManager, OFFSCREEN_X, OFFSCREEN_Y } from '../veo/GoogleVeoSessionManager';
+import { GoogleFlowBrowserMutex } from '../workflow/dispatcher/GoogleFlowBrowserMutex';
+import { broadcastPipelineActionLog } from './ipc';
 
 /**
  * Resolves the root directory where AI Studio pipeline sessions and checkpoints are persisted.
@@ -97,6 +115,29 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
     const dir = path.join(this.getSessionDir(sessionId), 'assets');
     fs.mkdirSync(dir, { recursive: true });
     return dir;
+  }
+
+  // ==========================================================================
+  // Disk Storage & Action Log Helper (spec §1.1, §1.2, §3)
+  // ==========================================================================
+  public getDiskStorageManager(sessionId: string, customMediaDir?: string): AiStudioDiskStorageManager {
+    const sessionDir = this.getSessionDir(sessionId);
+    const storage = AiStudioDiskStorageManager.forProject(sessionId, sessionDir, customMediaDir);
+    storage.ensureDirectories();
+    storage.ensureIndex();
+
+    // Intercept appendActionLog to stream to renderer via IPC channel 'aiStudio:pipeline:actionLog'
+    const originalAppend = storage.appendActionLog.bind(storage);
+    storage.appendActionLog = (entry: PipelineActionLogEntry) => {
+      originalAppend(entry);
+      this.emitActionLog(entry);
+    };
+
+    return storage;
+  }
+
+  public emitActionLog(entry: PipelineActionLogEntry): void {
+    broadcastPipelineActionLog(entry);
   }
 
   // ==========================================================================
@@ -489,6 +530,8 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
   ): Promise<void> {
     const config: AiStudioConfig = getDecryptedAiStudioConfig();
     const assetsDir = this.getSessionAssetsDir(session.sessionId);
+    const effectiveMediaDir = config.channelProfile?.customMediaDir || config.flowEngine.downloadDir || undefined;
+    const storage = this.getDiskStorageManager(session.sessionId, effectiveMediaDir);
 
     session.stages = session.stages || ({} as any);
     session.artifacts = session.artifacts || ({} as any);
@@ -554,6 +597,31 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
               session.artifacts.blueprint = blueprint;
               session.artifacts.ideaSummary = blueprint.rawSummary;
             }
+
+            // Task 1: Save facts (Stage 1) into storage (00_facts/facts.json)
+            const blueprint = session.artifacts.blueprint;
+            const outlineBeats = blueprint?.outline || blueprint?.keyBeats || [];
+            const factsList = outlineBeats.map((content: string, idx: number) => ({
+              id: `f${idx + 1}`,
+              content,
+            }));
+            if (factsList.length === 0 && session.topic) {
+              factsList.push({ id: 'f1', content: session.topic });
+            }
+            const factsData: PipelineFactsData = {
+              project_id: session.sessionId,
+              topic: session.topic,
+              facts: factsList,
+            };
+            storage.saveFacts(factsData);
+            storage.appendActionLog({
+              ts: new Date().toISOString(),
+              action: 'input',
+              target: '00_facts/facts.json',
+              retry: 0,
+              status: 'ok',
+              details: { factCount: factsList.length, topic: session.topic },
+            });
             break;
           }
 
@@ -587,6 +655,25 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
             } catch (evalErr) {
               console.warn('[AiStudioPipelineEngine] Script auto-evaluation error (non-fatal):', evalErr);
             }
+
+            // Task 1: Save script (Stage 2) into storage (01_script/script.json)
+            const scriptScenes = (scriptLines || []).map((line, idx) => ({
+              scene_id: `scene_${String(idx + 1).padStart(2, '0')}`,
+              narration: line.text,
+              visual_note: line.visualPromptEn || line.text,
+            }));
+            const scriptData: PipelineScriptData = {
+              scenes: scriptScenes,
+            };
+            storage.saveScript(scriptData);
+            storage.appendActionLog({
+              ts: new Date().toISOString(),
+              action: 'input',
+              target: '01_script/script.json',
+              retry: 0,
+              status: 'ok',
+              details: { sceneCount: scriptScenes.length },
+            });
             break;
           }
 
@@ -621,6 +708,34 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
             }
             // Cache raw metadata in memory for stage 4
             this.memorySessions.set(`${session.sessionId}:ttsMetadata`, ttsResult.rawMetadata);
+
+            // Sync per-line audio into 02_voice/{scene_id}.mp3
+            for (let i = 0; i < scriptLines.length; i++) {
+              const line = scriptLines[i];
+              const sceneId = `scene_${String(i + 1).padStart(2, '0')}`;
+              const destVoicePath = storage.getVoiceAudioPath(sceneId);
+              if (line.audioPath && fs.existsSync(line.audioPath)) {
+                try {
+                  fs.copyFileSync(line.audioPath, destVoicePath);
+                  const durSec = line.durationMs ? Math.round((line.durationMs / 1000) * 100) / 100 : 4.0;
+                  storage.updateSceneMetadata(sceneId, {
+                    voice_path: storage.getVoiceAudioRelativePath(sceneId),
+                    voice_duration_sec: durSec,
+                  });
+                } catch (copyErr) {
+                  console.warn(`[AiStudioPipelineEngine] Failed to copy voice file for ${sceneId}:`, copyErr);
+                }
+              }
+            }
+
+            storage.appendActionLog({
+              ts: new Date().toISOString(),
+              action: 'download',
+              target: '02_voice',
+              retry: 0,
+              status: 'ok',
+              details: { voiceoverPath, lineCount: scriptLines.length },
+            });
             break;
           }
 
@@ -640,40 +755,381 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
             );
             session.artifacts.wordsAlignment = alignResult.wordsAlignment;
             session.artifacts.scriptLines = alignResult.alignedLines;
+
+            // Probe timing if 02_voice exists
+            const scriptScenes = (session.artifacts.scriptLines || []).map((_, idx) => `scene_${String(idx + 1).padStart(2, '0')}`);
+            const hasVoiceFiles = fs.existsSync(storage.paths.voiceDir) &&
+              fs.readdirSync(storage.paths.voiceDir).some(f => f.endsWith('.mp3'));
+
+            if (hasVoiceFiles) {
+              try {
+                await aiStudioStoryboardService.extractTiming(storage, scriptScenes);
+              } catch (probeErr) {
+                console.warn('[AiStudioPipelineEngine] extractTiming probing warning in Stage 4:', probeErr);
+              }
+            }
+
+            storage.appendActionLog({
+              ts: new Date().toISOString(),
+              action: 'probe',
+              target: '03_timing/timing.json',
+              retry: 0,
+              status: 'ok',
+              details: { totalDurationMs, alignedLineCount: alignResult.alignedLines.length },
+            });
             break;
           }
 
           case 5: {
-            // Stage 5: Storyboard (Visual Prompts)
-            const scenes = aiStudioLlmService.generateStoryboardScenes(
-              session.artifacts.scriptLines || [],
-              config.flowEngine,
-              config.llm
-            );
-            session.artifacts.scenes = scenes;
+            // Stage 5: Storyboard (Visual Prompts & Dynamic Probed Audio Timing)
+            const scriptLines = session.artifacts.scriptLines || [];
+            const scriptScenes = scriptLines.map((line, idx) => ({
+              scene_id: `scene_${String(idx + 1).padStart(2, '0')}`,
+              narration: line.text,
+              visual_note: line.visualPromptEn || line.text,
+            }));
+            const scriptData: PipelineScriptData = { scenes: scriptScenes };
+            storage.saveScript(scriptData);
+
+            // Probing real audio timing (via 02_voice/ or audio clips) and writing 03_timing/timing.json
+            let timingData = storage.readTiming();
+            const voiceFilesExist = fs.existsSync(storage.paths.voiceDir) &&
+              fs.readdirSync(storage.paths.voiceDir).some(f => f.endsWith('.mp3'));
+
+            if (!timingData || !timingData.scenes || timingData.scenes.length === 0) {
+              if (voiceFilesExist) {
+                try {
+                  timingData = await aiStudioStoryboardService.extractTiming(
+                    storage,
+                    scriptScenes.map(s => s.scene_id)
+                  );
+                } catch (probeErr) {
+                  console.warn('[AiStudioPipelineEngine] Audio probing encountered warning, using fallback timeline:', probeErr);
+                }
+              }
+
+              if (!timingData || !timingData.scenes || timingData.scenes.length === 0) {
+                let timelineSec = 0;
+                const timingScenes = scriptScenes.map((sc, idx) => {
+                  const line = scriptLines[idx];
+                  const durationSec = line?.durationMs ? Math.round((line.durationMs / 1000) * 100) / 100 : 4.0;
+                  const startSec = Math.round(timelineSec * 100) / 100;
+                  const endSec = Math.round((timelineSec + durationSec) * 100) / 100;
+                  timelineSec += durationSec;
+                  return {
+                    scene_id: sc.scene_id,
+                    audio_file: storage.getVoiceAudioRelativePath(sc.scene_id),
+                    start_sec: startSec,
+                    end_sec: endSec,
+                    duration_sec: durationSec,
+                  };
+                });
+                timingData = {
+                  project_id: session.sessionId,
+                  probed_engine: 'ffprobe',
+                  scenes: timingScenes,
+                  total_duration_sec: Math.round(timelineSec * 100) / 100,
+                };
+                storage.saveTiming(timingData);
+              }
+            }
+
+            // Smooth progress updates from 55% to 70%
+            const numScenes = scriptScenes.length || 1;
+            for (let i = 0; i < numScenes; i++) {
+              const sc = scriptScenes[i];
+              const pct = 55 + Math.round(((i + 1) / numScenes) * 14);
+              onProgress({
+                sessionId: session.sessionId,
+                stage: 5,
+                stageName: STAGE_CONFIG[5].label,
+                progress: pct,
+                status: 'running',
+                message: `Đang sinh kịch bản hình ảnh phân cảnh ${i + 1}/${numScenes} (${sc?.scene_id || ''})...`,
+                lastAction: {
+                  ts: new Date().toISOString(),
+                  scene_id: sc?.scene_id,
+                  action: 'input',
+                  target: '04_storyboard',
+                  retry: 0,
+                  status: 'ok',
+                },
+              });
+            }
+
+            // Generate dynamic multi-shot storyboard via AiStudioStoryboardService.generateStoryboard()
+            const storyboardData = await aiStudioStoryboardService.generateStoryboard({
+              storage,
+              script: scriptData,
+              timing: timingData,
+              stylePromptPrefix: config.flowEngine.stylePromptPrefix,
+              negativePrompt: config.flowEngine.negativePrompt,
+              channelProfile: config.channelProfile,
+              backgroundPrompt: config.channelProfile?.projectBackgroundPrompt,
+            });
+
+            // Adapt storyboard shots to session.artifacts.scenes for backwards compatibility with Stage 7
+            const legacyScenes: StoryboardScene[] = [];
+            const timingScenes = timingData.scenes || [];
+            let accumulatedMs = 0;
+
+            storyboardData.scenes.forEach((sc, scIdx) => {
+              const tItem = timingScenes.find((t) => t.scene_id === sc.scene_id);
+              const sceneStartMs = tItem ? Math.round(tItem.start_sec * 1000) : accumulatedMs;
+              let shotCurrentMs = sceneStartMs;
+
+              sc.shots.forEach((shot) => {
+                const shotDurMs = Math.round((shot.expected_duration_sec || 4.0) * 1000);
+                legacyScenes.push({
+                  id: shot.shot_id,
+                  lineIndex: scIdx,
+                  startMs: shotCurrentMs,
+                  endMs: shotCurrentMs + shotDurMs,
+                  durationMs: shotDurMs,
+                  lineText: sc.narration || '',
+                  visualPrompt: shot.image_prompt,
+                  negativePrompt: config.flowEngine.negativePrompt,
+                  motionType: config.flowEngine.outputMode === 'video' ? 'video' : 'ken_burns',
+                  status: 'pending',
+                });
+                shotCurrentMs += shotDurMs;
+                accumulatedMs = Math.max(accumulatedMs, shotCurrentMs);
+              });
+            });
+
+            session.artifacts.scenes = legacyScenes;
+            session.progress = 70;
+
+            onProgress({
+              sessionId: session.sessionId,
+              stage: 5,
+              stageName: STAGE_CONFIG[5].label,
+              progress: 70,
+              status: 'running',
+              message: `Hoàn tất Storyboard (${legacyScenes.length} phân cảnh con).`,
+              artifacts: session.artifacts,
+            });
             break;
           }
 
           case 6: {
-            // Stage 6: Ảnh / Video (Visual Assets)
-            const scenes = session.artifacts.scenes || [];
-            const dispatchResult = await aiStudioVisualService.dispatchVisualAssets(
-              scenes,
-              config.flowEngine,
-              assetsDir,
-              (pct, msg) => {
+            // Stage 6: Ảnh / Video (Visual Assets via FlowMediaAutomationEngine)
+            const isFlowEngine = !config.flowEngine.engine || config.flowEngine.engine === 'flow';
+            if (!isFlowEngine) {
+              const scenes = session.artifacts.scenes || [];
+              const dispatchResult = await aiStudioVisualService.dispatchVisualAssets(
+                scenes,
+                config.flowEngine,
+                assetsDir,
+                (pct, msg) => {
+                  onProgress({
+                    sessionId: session.sessionId,
+                    stage: 6,
+                    stageName: STAGE_CONFIG[6].label,
+                    progress: 70 + Math.round(pct * 0.15),
+                    status: 'running',
+                    message: msg,
+                  });
+                },
+                signal
+              );
+              session.artifacts.scenes = dispatchResult.scenes;
+              break;
+            }
+
+            // Resolve storyboard from storage
+            let storyboard = storage.readStoryboard();
+            if (!storyboard || !storyboard.scenes || storyboard.scenes.length === 0) {
+              const scenes = session.artifacts.scenes || [];
+              if (scenes.length === 0) {
+                throw new Error('Không tìm thấy dữ liệu Storyboard trong thư mục dự án.');
+              }
+              storyboard = {
+                project_id: session.sessionId,
+                scenes: scenes.map((s) => ({
+                  scene_id: s.id.includes('_shot_') ? s.id.split('_shot_')[0] : s.id,
+                  narration: s.lineText,
+                  duration_sec: s.durationMs / 1000,
+                  shots: [{
+                    shot_id: s.id,
+                    image_prompt: s.visualPrompt,
+                    motion_note: 'subtle camera motion',
+                    expected_duration_sec: s.durationMs / 1000,
+                  }],
+                })),
+              };
+              storage.saveStoryboard(storyboard);
+            }
+
+            // Dual UI Modes (Offscreen vs Live Window)
+            const sessionMgr = GoogleVeoSessionManager.getInstance();
+            const mutex = GoogleFlowBrowserMutex.getInstance();
+            const uiMode = config.channelProfile?.flowUiMode || config.flowEngine.uiMode || 'live_window';
+            let lobbyWin = sessionMgr.getLobbyWindow();
+
+            if (uiMode === 'live_window') {
+              await sessionMgr.showLobbyForDebug();
+              lobbyWin = sessionMgr.getLobbyWindow();
+              if (lobbyWin && !lobbyWin.isDestroyed()) {
+                lobbyWin.setPosition(100, 100);
+                lobbyWin.show();
+                lobbyWin.focus();
+              }
+            } else {
+              sessionMgr.hideLobbyOffscreen();
+              lobbyWin = sessionMgr.getLobbyWindow();
+              if (!lobbyWin || lobbyWin.isDestroyed()) {
+                await sessionMgr.openLobbyWindow();
+                lobbyWin = sessionMgr.getLobbyWindow();
+              }
+              if (lobbyWin && !lobbyWin.isDestroyed()) {
+                lobbyWin.setPosition(OFFSCREEN_X, OFFSCREEN_Y);
+              }
+            }
+
+            // Flatten all shots
+            interface ShotWorkItem {
+              sceneId: string;
+              shot: StoryboardShotItem;
+            }
+            const allShots: ShotWorkItem[] = [];
+            for (const sc of storyboard.scenes) {
+              for (const shot of sc.shots) {
+                allShots.push({ sceneId: sc.scene_id, shot });
+              }
+            }
+
+            const totalShots = allShots.length;
+            const isVideoMode = config.flowEngine.outputMode === 'video';
+            const stepsPerShot = isVideoMode ? 2 : 1;
+            const totalSteps = totalShots * stepsPerShot;
+            let completedSteps = 0;
+
+            for (let idx = 0; idx < allShots.length; idx++) {
+              const { sceneId, shot } = allShots[idx];
+
+              if (signal.aborted || (session.status as string) === 'cancelled') {
+                throw new Error('Quá trình tạo visual media đã bị hủy bởi người dùng.');
+              }
+
+              // Step A: Text-to-Image (T2I)
+              const t2iProgress = 70 + Math.round((completedSteps / totalSteps) * 15);
+              onProgress({
+                sessionId: session.sessionId,
+                stage: 6,
+                stageName: STAGE_CONFIG[6].label,
+                progress: Math.min(84, t2iProgress),
+                status: 'running',
+                message: `[T2I] Đang tạo ảnh cho shot ${shot.shot_id} (${completedSteps + 1}/${totalSteps})...`,
+                lastAction: {
+                  ts: new Date().toISOString(),
+                  scene_id: sceneId,
+                  shot_id: shot.shot_id,
+                  action: 'input',
+                  target: 'prompt_input',
+                  retry: 0,
+                  status: 'ok',
+                },
+              });
+
+              const imgResult = await mutex.runExclusive(async () => {
+                return FlowMediaAutomationEngine.generateImageForShot({
+                  storage,
+                  win: lobbyWin,
+                  sceneId,
+                  shotId: shot.shot_id,
+                  prompt: shot.image_prompt,
+                  aspectRatio: config.flowEngine.aspectRatio,
+                });
+              }, `ai_studio_t2i_${shot.shot_id}`);
+
+              if (!imgResult.success) {
+                throw new Error(`Tạo ảnh thất bại cho ${shot.shot_id}: ${imgResult.error || 'Unknown error'}`);
+              }
+              completedSteps++;
+
+              // Step B: Image-to-Video (I2V) if video mode
+              if (isVideoMode) {
+                if (signal.aborted || (session.status as string) === 'cancelled') {
+                  throw new Error('Quá trình tạo visual media đã bị hủy bởi người dùng.');
+                }
+
+                const i2vProgress = 70 + Math.round((completedSteps / totalSteps) * 15);
                 onProgress({
                   sessionId: session.sessionId,
                   stage: 6,
                   stageName: STAGE_CONFIG[6].label,
-                  progress: 70 + Math.round(pct * 0.15),
+                  progress: Math.min(84, i2vProgress),
                   status: 'running',
-                  message: msg,
+                  message: `[I2V] Đang tạo video từ ảnh cho shot ${shot.shot_id} (${completedSteps + 1}/${totalSteps})...`,
+                  lastAction: {
+                    ts: new Date().toISOString(),
+                    scene_id: sceneId,
+                    shot_id: shot.shot_id,
+                    action: 'upload',
+                    target: 'file_input',
+                    retry: 0,
+                    status: 'ok',
+                  },
                 });
-              },
-              signal
-            );
-            session.artifacts.scenes = dispatchResult.scenes;
+
+                const vidResult = await mutex.runExclusive(async () => {
+                  return FlowMediaAutomationEngine.generateVideoForShot({
+                    storage,
+                    win: lobbyWin,
+                    sceneId,
+                    shotId: shot.shot_id,
+                    sourceImagePath: imgResult.imagePath,
+                    motionNote: shot.motion_note,
+                    expectedDurationSec: shot.expected_duration_sec || 4.0,
+                    tolerancePct: 15.0,
+                  });
+                }, `ai_studio_i2v_${shot.shot_id}`);
+
+                if (!vidResult.success) {
+                  console.warn(`[AiStudioPipelineEngine] I2V failed for ${shot.shot_id}, falling back to static image:`, vidResult.error);
+                } else if (vidResult.needsReview) {
+                  console.info(`[AiStudioPipelineEngine] Shot ${shot.shot_id} duration deviation flagged needs_review: true (actual: ${vidResult.actualDurationSec}s, expected: ${vidResult.expectedDurationSec}s, dev: ${vidResult.deviationPct}%)`);
+                }
+                completedSteps++;
+              }
+            }
+
+            // Refresh index.json and sync final local asset paths into session.artifacts.scenes
+            const finalIndex = storage.readIndex();
+            const updatedScenes = (session.artifacts.scenes || []).map((scene) => {
+              for (const sc of Object.values(finalIndex.scenes)) {
+                const shotMeta = sc.shots?.[scene.id];
+                if (shotMeta) {
+                  if (shotMeta.image_path) {
+                    scene.imagePath = storage.resolvePath(shotMeta.image_path);
+                  }
+                  if (shotMeta.video_path) {
+                    scene.videoPath = storage.resolvePath(shotMeta.video_path);
+                  }
+                  const relativeAsset = shotMeta.video_path || shotMeta.image_path;
+                  if (relativeAsset) {
+                    scene.assetPath = storage.resolvePath(relativeAsset);
+                    scene.status = 'ready';
+                  }
+                }
+              }
+              return scene;
+            });
+
+            session.artifacts.scenes = updatedScenes;
+            session.artifacts.mediaDir = storage.paths.mediaDir;
+            session.progress = 85;
+
+            onProgress({
+              sessionId: session.sessionId,
+              stage: 6,
+              stageName: STAGE_CONFIG[6].label,
+              progress: 85,
+              status: 'running',
+              message: `Đã hoàn tất toàn bộ media assets (${totalShots} shots).`,
+              artifacts: session.artifacts,
+            });
             break;
           }
 
@@ -803,7 +1259,233 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
   public async regenerateSceneAsset(
     payload: RegenerateSceneAssetPayload
   ): Promise<RegenerateSceneAssetResult> {
+    if (payload.sessionId) {
+      try {
+        const config = getDecryptedAiStudioConfig();
+        const customMediaDir = config.channelProfile?.customMediaDir;
+        const storage = this.getDiskStorageManager(payload.sessionId, customMediaDir);
+        const shotId = payload.sceneId;
+        const sceneId = shotId.includes('_shot_') ? shotId.split('_shot_')[0] : shotId;
+        const sessionMgr = GoogleVeoSessionManager.getInstance();
+        const mutex = GoogleFlowBrowserMutex.getInstance();
+
+        // Đảm bảo cửa sổ Flow sẵn sàng
+        let lobbyWin = sessionMgr.getLobbyWindow();
+        if (!lobbyWin) {
+          const flowUiMode = config.channelProfile?.flowUiMode || 'live_window';
+          if (flowUiMode === 'live_window') {
+            await sessionMgr.showLobbyForDebug();
+          } else {
+            await sessionMgr.openLobbyWindow();
+          }
+          lobbyWin = sessionMgr.getLobbyWindow();
+        }
+
+        const mode = payload.mode || (payload.flowConfig?.outputMode === 'video' ? 'video' : 'both');
+
+        if (mode === 'video') {
+          const session = await this.getState({ sessionId: payload.sessionId });
+          const sc = session?.artifacts.scenes?.find((s) => s.id === shotId || s.shotId === shotId);
+          const expectedDurationSec = sc ? sc.durationMs / 1000 : 4.0;
+
+          const vidResult = await mutex.runExclusive(async () => {
+            return FlowMediaAutomationEngine.generateVideoForShot({
+              storage,
+              win: lobbyWin,
+              sceneId,
+              shotId,
+              expectedDurationSec,
+              forceRegenerate: true,
+            });
+          }, `regenerate_vid_${shotId}`);
+
+          if (vidResult.success && vidResult.videoPath) {
+            if (session && session.artifacts.scenes) {
+              const targetScene = session.artifacts.scenes.find((s) => s.id === shotId || s.shotId === shotId);
+              if (targetScene) {
+                targetScene.videoPath = vidResult.videoPath;
+                targetScene.assetPath = vidResult.videoPath;
+                targetScene.status = 'ready';
+                this.persistSessionStateAtomic(session);
+              }
+            }
+            return { assetPath: vidResult.videoPath, videoPath: vidResult.videoPath };
+          }
+        } else if (mode === 'image') {
+          const imgResult = await mutex.runExclusive(async () => {
+            return FlowMediaAutomationEngine.generateImageForShot({
+              storage,
+              win: lobbyWin,
+              sceneId,
+              shotId,
+              prompt: payload.visualPrompt,
+              aspectRatio: payload.flowConfig?.aspectRatio || config.flowEngine.aspectRatio,
+              forceRegenerate: true,
+            });
+          }, `regenerate_img_${shotId}`);
+
+          if (imgResult.success && imgResult.imagePath) {
+            const session = await this.getState({ sessionId: payload.sessionId });
+            if (session && session.artifacts.scenes) {
+              const sc = session.artifacts.scenes.find((s) => s.id === shotId || s.shotId === shotId);
+              if (sc) {
+                sc.imagePath = imgResult.imagePath;
+                sc.assetPath = sc.videoPath || imgResult.imagePath;
+                sc.visualPrompt = payload.visualPrompt;
+                sc.status = 'ready';
+                this.persistSessionStateAtomic(session);
+              }
+            }
+            return { assetPath: imgResult.imagePath, imagePath: imgResult.imagePath };
+          }
+        } else {
+          // mode === 'both': Tạo ảnh mới trước, sau đó tạo video từ ảnh mới
+          const imgResult = await mutex.runExclusive(async () => {
+            return FlowMediaAutomationEngine.generateImageForShot({
+              storage,
+              win: lobbyWin,
+              sceneId,
+              shotId,
+              prompt: payload.visualPrompt,
+              aspectRatio: payload.flowConfig?.aspectRatio || config.flowEngine.aspectRatio,
+              forceRegenerate: true,
+            });
+          }, `regenerate_both_img_${shotId}`);
+
+          let imagePath = imgResult.imagePath;
+          let videoPath: string | undefined;
+
+          if (imgResult.success && imgResult.imagePath) {
+            const session = await this.getState({ sessionId: payload.sessionId });
+            const sc = session?.artifacts.scenes?.find((s) => s.id === shotId || s.shotId === shotId);
+            const expectedDurationSec = sc ? sc.durationMs / 1000 : 4.0;
+
+            const vidResult = await mutex.runExclusive(async () => {
+              return FlowMediaAutomationEngine.generateVideoForShot({
+                storage,
+                win: lobbyWin,
+                sceneId,
+                shotId,
+                expectedDurationSec,
+                forceRegenerate: true,
+              });
+            }, `regenerate_both_vid_${shotId}`);
+
+            if (vidResult.success && vidResult.videoPath) {
+              videoPath = vidResult.videoPath;
+            }
+
+            if (session && session.artifacts.scenes) {
+              const targetScene = session.artifacts.scenes.find((s) => s.id === shotId || s.shotId === shotId);
+              if (targetScene) {
+                targetScene.imagePath = imgResult.imagePath;
+                if (videoPath) {
+                  targetScene.videoPath = videoPath;
+                  targetScene.assetPath = videoPath;
+                } else {
+                  targetScene.assetPath = imgResult.imagePath;
+                }
+                targetScene.visualPrompt = payload.visualPrompt;
+                targetScene.status = 'ready';
+                this.persistSessionStateAtomic(session);
+              }
+            }
+            return {
+              assetPath: videoPath || imgResult.imagePath,
+              imagePath: imgResult.imagePath,
+              videoPath,
+            };
+          }
+        }
+      } catch (regErr) {
+        console.warn('[AiStudioPipelineEngine] Storage-backed regenerateSceneAsset error, falling back to visual service:', regErr);
+      }
+    }
     return aiStudioVisualService.regenerateSceneAsset(payload);
+  }
+
+  public async importSceneMedia(
+    payload: ImportSceneMediaPayload
+  ): Promise<ImportSceneMediaResult> {
+    const { sessionId, sceneId, filePath, mediaType } = payload;
+    if (!sessionId || !sceneId || !filePath) {
+      return { success: false, assetPath: '', error: 'Thiếu thông tin phiên, phân cảnh hoặc đường dẫn tệp' };
+    }
+
+    if (!fs.existsSync(filePath)) {
+      return { success: false, assetPath: '', error: `Tệp không tồn tại: ${filePath}` };
+    }
+
+    try {
+      const config = getDecryptedAiStudioConfig();
+      const storage = this.getDiskStorageManager(sessionId, config.channelProfile?.customMediaDir);
+      const shotId = sceneId;
+      const actualSceneId = shotId.includes('_shot_') ? shotId.split('_shot_')[0] : shotId;
+
+      const ext = path.extname(filePath).toLowerCase();
+      const isVideo = mediaType === 'video' || ['.mp4', '.mkv', '.mov', '.avi', '.webm'].includes(ext);
+      const targetKind = isVideo ? 'vid' : 'img';
+
+      // Tạo đường dẫn phiên bản mới trong thư mục media
+      const nextVer = storage.getNextMediaVersion(shotId, targetKind);
+      const destPath = nextVer.absolutePath;
+
+      // Copy tệp vào thư mục media của session
+      fs.copyFileSync(filePath, destPath);
+
+      // Cập nhật index.json
+      if (isVideo) {
+        storage.updateShotMetadata(actualSceneId, shotId, {
+          video_path: nextVer.relativePath,
+          current_video_version: nextVer.version,
+        });
+      } else {
+        storage.updateShotMetadata(actualSceneId, shotId, {
+          image_path: nextVer.relativePath,
+          current_image_version: nextVer.version,
+        });
+      }
+
+      storage.appendActionLog({
+        ts: new Date().toISOString(),
+        scene_id: actualSceneId,
+        shot_id: shotId,
+        action: 'upload',
+        target: isVideo ? 'manual_video_import' : 'manual_image_import',
+        retry: 0,
+        status: 'ok',
+        details: { message: 'Người dùng nạp tệp thủ công', source: filePath, destination: destPath },
+      });
+
+      // Cập nhật session state
+      const session = await this.getState({ sessionId });
+      if (session && session.artifacts.scenes) {
+        const targetScene = session.artifacts.scenes.find((s) => s.id === shotId || s.shotId === shotId);
+        if (targetScene) {
+          if (isVideo) {
+            targetScene.videoPath = destPath;
+            targetScene.assetPath = destPath;
+          } else {
+            targetScene.imagePath = destPath;
+            if (!targetScene.videoPath) {
+              targetScene.assetPath = destPath;
+            }
+          }
+          targetScene.status = 'ready';
+          this.persistSessionStateAtomic(session);
+        }
+      }
+
+      return {
+        success: true,
+        assetPath: destPath,
+        imagePath: !isVideo ? destPath : undefined,
+        videoPath: isVideo ? destPath : undefined,
+      };
+    } catch (err: any) {
+      console.error('[AiStudioPipelineEngine] Lỗi importSceneMedia:', err);
+      return { success: false, assetPath: '', error: err?.message || String(err) };
+    }
   }
 
   public async renderVideo(payload: RenderVideoPayload): Promise<RenderVideoResult> {

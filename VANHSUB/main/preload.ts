@@ -199,8 +199,10 @@ const vanhsub = {
     // Granular Step Operations (Milestone 2)
     renderSingleLineVoice: (payload: { lineIndex: number; text: string; voiceConfig: any }) =>
       ipcRenderer.invoke('aiStudio:step:renderSingleLineVoice', payload),
-    regenerateSceneAsset: (payload: { sceneId: string; visualPrompt: string; flowConfig: any }) =>
+    regenerateSceneAsset: (payload: { sceneId: string; visualPrompt: string; flowConfig?: any; sessionId?: string; mode?: 'image' | 'video' | 'both' }) =>
       ipcRenderer.invoke('aiStudio:step:regenerateSceneAsset', payload),
+    importSceneMedia: (payload: { sessionId: string; sceneId: string; filePath: string; mediaType?: 'image' | 'video' }) =>
+      ipcRenderer.invoke('aiStudio:step:importSceneMedia', payload),
     renderVideo: (payload: { sessionId: string; customSettings?: any }) =>
       ipcRenderer.invoke('aiStudio:step:renderVideo', payload),
 
