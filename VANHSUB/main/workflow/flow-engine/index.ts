@@ -21,3 +21,6 @@ export * from './FlowVisualFallback';
 export * from './FlowMemoryWatchdog';
 export * from './FlowStressRunner';
 export { GoogleFlowBrowserMutex } from '../dispatcher/GoogleFlowBrowserMutex';
+export * from './FlowVisualConfirmGuard';
+export * from './FlowFileInputInjector';
+export * from './FlowMediaAutomationEngine';

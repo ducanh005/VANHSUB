@@ -30,3 +30,8 @@ flow_outputs/
 *.mkv
 *.webm
 *.avi
+
+# Subagent scratch folders
+.agents/orchestrator_*
+.agents/victory_*
+TEST_READY.md

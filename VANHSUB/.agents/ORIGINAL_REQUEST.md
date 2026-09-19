@@ -152,3 +152,78 @@ Integrity mode: demo
 - [ ] Nút "Đăng nhập ChatGPT" trong Cài đặt mở đúng trang đăng nhập và ghi nhớ session sau khi tắt/bật lại app.
 - [ ] Khi chọn provider `chatgpt_web`, pipeline bước 2 (Kịch bản) tự động điều hướng sang ChatGPT Web và trích xuất kịch bản thành công vào danh sách phân cảnh.
 - [ ] Tùy chọn chuyển đổi giữa Chạy ngầm (Offscreen) và Xem trực tiếp (Live Window) hoạt động chính xác.
+
+## 2026-09-18T15:26:02Z
+
+Triển khai hệ thống tự động hóa công đoạn Storyboard (Giai đoạn 5) và Sinh Ảnh/Video AI (Giai đoạn 6) cho phân hệ AI Video Studio của Vanhsub dựa trên Browser Automation qua Google Flow, tuân thủ nghiêm ngặt kiến trúc lưu trữ đĩa cục bộ làm nguồn sự thật (Local Disk Source of Truth), cơ chế tương tác an toàn (Visual Settle & Highlight), và quy trình Image-to-Video trực tiếp bằng đường dẫn tệp theo tài liệu `spec-pipeline-video-automation.md`.
+
+Working directory: d:\DEAN\DEAN\VANHSUB
+Integrity mode: development
+
+## Requirements
+
+### R1. Lưu Trữ Đĩa Cục Bộ Là Nguồn Sự Thật (Local Disk Source of Truth & Directory Structure)
+- Khởi tạo và đồng bộ trạng thái pipeline vào thư mục phiên làm việc theo cấu trúc chuẩn trong `spec-pipeline-video-automation.md`:
+  ```
+  /project/{project_id}/ (hoặc sessions/{session_id}/)
+    00_facts/facts.json
+    01_script/script.json
+    02_voice/{scene_id}.mp3
+    03_timing/timing.json (thời lượng âm thanh thực tế qua ffprobe)
+    04_storyboard/storyboard.json
+    05_media/
+      {shot_id}_img_v1.png
+      {shot_id}_vid_v1.mp4
+    index.json (metadata bản đồ trạng thái tổng hợp)
+  ```
+- **Idempotency & Khả năng tiếp tục (Resumable):** Trước khi tạo bất kỳ asset nào, kiểm tra `index.json`. Nếu tệp cục bộ tương ứng đã tồn tại và hợp lệ (size > 0), bỏ qua việc tạo lại. Khi người dùng chủ động yêu cầu tạo lại, tự động đánh version mới (`_v2`, `_v3`) để bảo toàn lịch sử.
+- Đảm bảo `scene_id` và `shot_id` (`{scene_id}_shot_{n}`) là định danh duy nhất xuyên suốt mọi giai đoạn.
+
+### R2. Cơ Chế Tương Tác Trình Duyệt An Toàn (Visual Settle & Highlight Before Click)
+- Áp dụng nguyên tắc **Confirm-Before-Act** cho mọi tương tác click trên giao diện Google Flow:
+  1. Xác định bounding box của phần tử đích.
+  2. Hiển thị khung highlight/overlay đè lên phần tử trong khoảng 200–400ms.
+  3. Đo lại bounding box lần thứ hai. Nếu có sự xê dịch do trang đang re-render hoặc animation, hủy lệnh click và đợi ổn định.
+  4. Chỉ dispatch click thật khi vị trí ổn định qua hai lần đo liên tiếp.
+- Thay thế hoàn toàn `sleep` cố định bằng cơ chế **Polling thông minh** dựa trên DOM (theo dõi spinner, trạng thái nút tải xuống, trạng thái thẻ ảnh) hoặc lắng nghe mạng, kèm timeout tối đa (90s cho ảnh, 300s cho video) và số lần retry có giới hạn (tối đa 2 lần).
+
+### R3. Giai Đoạn 5: Storyboard Đồng Bộ Với Thời Lượng Âm Thanh Thực Tế
+- Nhận dữ liệu đầu vào từ `script.json` và `timing.json` (được trích xuất từ các file âm thanh `.mp3` thực tế bằng ffprobe/probed duration, không dùng ước lượng số ký tự).
+- Sinh danh sách phân cảnh và các shots chi tiết: `shot_id`, `image_prompt`, `motion_note`, thời lượng dự kiến cho từng shot phù hợp với độ dài narration của scene.
+- Ghi kết quả ra `04_storyboard/storyboard.json` và cập nhật `index.json`.
+
+### R4. Giai Đoạn 6: Tự Động Hóa Tạo Ảnh & Video Từ Ảnh (Image-to-Video Engine)
+- **Tạo ảnh (Text-to-Image):**
+  - Điều hướng tới khu vực tạo ảnh trên Flow với cơ chế Confirm-Before-Act.
+  - Nhập prompt an toàn, đọc lại giá trị ô nhập để xác thực đúng nội dung trước khi bấm Generate.
+  - Poll đến khi ảnh hoàn tất, tải ngay về đĩa cục bộ: `05_media/{shot_id}_img_v1.png`, cập nhật `index.json`. Không dựa vào DOM của ảnh trên trình duyệt cho các bước sau.
+- **Tạo video từ ảnh (Image-to-Video):**
+  - Điều hướng tới khu vực tạo video từ ảnh trên Flow.
+  - Tải ảnh lên bằng cách **truyền trực tiếp đường dẫn file cục bộ** (`05_media/{shot_id}_img_v1.png`) vào file input của trình duyệt, tuyệt đối không click chọn qua thumbnail trên trang web để tránh nhầm lẫn do thứ tự DOM/phân trang thay đổi.
+  - Xác thực tên và kích thước file sau khi upload.
+  - Áp dụng `motion_note` (nếu có), kích hoạt Generate video, poll trạng thái và tải video về `05_media/{shot_id}_vid_v1.mp4`.
+  - Kiểm tra độ lệch thời lượng video so với storyboard (sai số > ±15% thì đánh dấu cờ `needs_review: true`, không tự ý cắt xén).
+
+### R5. Tích Hợp Pipeline & Giao Diện Điều Khiển (Integration & UI Modes)
+- Tận dụng và mở rộng `GoogleVeoSessionManager` và `flow-engine` có sẵn để tận dụng phiên đăng nhập, cookie và cơ chế rate limit.
+- Tích hợp liền mạch vào `AiStudioPipelineEngine`: Công đoạn 5 (Storyboard) và Công đoạn 6 (Sinh ảnh/video) gọi engine mới với luồng lưu trữ đĩa cục bộ.
+- Hỗ trợ linh hoạt 2 chế độ hiển thị:
+  - **Chạy ngầm (Offscreen / Headless):** Hoạt động êm ái dưới nền.
+  - **Xem trực tiếp (Live Window):** Cửa sổ nổi hiển thị rõ nét từng thao tác highlight, nhập prompt và sinh video thời gian thực.
+- Ghi log chi tiết dạng JSON cho từng action theo chuẩn `spec-pipeline-video-automation.md`.
+
+## Acceptance Criteria
+
+### Automated Verification
+- [ ] Kiểm tra toàn bộ mã nguồn (`npx tsc --noEmit`) đạt 100% không có lỗi Type.
+- [ ] Có bộ kiểm thử tự động (`scripts/test_spec_pipeline_automation.ts`) xác minh:
+  - Khởi tạo thư mục dự án chuẩn (`00_facts` đến `05_media`) và ghi nhận file `index.json` chuẩn xác.
+  - Cơ chế Visual Settle đo lường 2 lần bounding box phát hiện chính xác trạng thái dịch chuyển và click an toàn.
+  - Giai đoạn 5 tạo `storyboard.json` với `shot_id` phân cấp duy nhất và đồng bộ thời lượng từ file audio thật.
+  - Luồng tạo ảnh và tạo video từ ảnh qua đường dẫn file cục bộ (local path injection) hoạt động thành công.
+  - Cơ chế Idempotency: Khi asset đã tồn tại, tự động skip; khi regenerate, tạo phiên bản `_v2`.
+
+### Functional Verification
+- [ ] Chế độ Offscreen và Live Window chuyển đổi linh hoạt theo cấu hình người dùng.
+- [ ] Quá trình chạy trong AI Studio cập nhật tiến độ phần trăm và ghi log action theo thời gian thực.
+
