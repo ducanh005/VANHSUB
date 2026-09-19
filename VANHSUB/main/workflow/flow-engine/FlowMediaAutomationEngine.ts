@@ -232,7 +232,7 @@ export class FlowMediaAutomationEngine {
    * immediately downloads to local disk, updates index.json, and records action logs.
    */
   public static async generateImageForShot(options: GenerateImageOptions): Promise<GenerateImageResult> {
-    const { storage, win, sceneId, shotId, prompt } = options;
+    const { storage, sceneId, shotId, prompt } = options;
     const timeoutMs = options.timeoutMs ?? FlowMediaAutomationEngine.DEFAULT_IMAGE_TIMEOUT_MS;
     const maxRetries = options.maxRetries ?? 2;
 
@@ -263,13 +263,25 @@ export class FlowMediaAutomationEngine {
     // 2. Allocate next asset version
     const nextVer = storage.getNextMediaVersion(shotId, 'img');
 
-    // 3. If running headless in tests without live browser window, simulate safe mock generation
-    if (!win) {
-      // Create valid minimal PNG placeholder
+    // 3. Resolve live Electron BrowserWindow
+    let win = options.win;
+    const sessionMgr = GoogleVeoSessionManager.getInstance();
+    if (!win || (typeof win.isDestroyed === 'function' && win.isDestroyed())) {
+      win = sessionMgr.getLobbyWindow();
+    }
+    if (!win || (typeof win.isDestroyed === 'function' && win.isDestroyed())) {
+      try {
+        await sessionMgr.ensureLobbyAtFlow();
+        win = sessionMgr.getLobbyWindow();
+      } catch {}
+    }
+
+    // If running outside Electron (e.g. pure Node.js CLI unit tests), simulate mock generation
+    const isElectronRuntime = Boolean(process.versions?.electron);
+    if (!win && !isElectronRuntime) {
       const pngHeader = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d]);
       fs.writeFileSync(nextVer.absolutePath, pngHeader);
 
-      // Update index.json
       storage.updateShotMetadata(sceneId, shotId, {
         current_image_version: nextVer.version,
         image_path: options.forceRegenerate ? nextVer.absolutePath : nextVer.relativePath,
@@ -298,9 +310,12 @@ export class FlowMediaAutomationEngine {
       };
     }
 
+    if (!win) {
+      throw new Error('Không thể kết nối hoặc khởi tạo cửa sổ Google Flow để tạo ảnh.');
+    }
+
     // 4. Live Browser Interaction Workflow via GoogleVeoSessionManager & FlowStateMachine
     let lastError: any = null;
-    const sessionMgr = GoogleVeoSessionManager.getInstance();
 
     for (let retry = 0; retry <= maxRetries; retry++) {
       try {
@@ -321,7 +336,7 @@ export class FlowMediaAutomationEngine {
             prompt: prompt.trim(),
             aspectRatio: options.aspectRatio || '16:9',
             referenceImagePath: options.referenceImagePath,
-            projectId: storage.readIndex()?.project_id,
+            projectId: undefined,
             taskId: shotId,
             generationAttemptId: `${sceneId}_${shotId}_${nextVer.version}_${retry}`,
           },
@@ -442,7 +457,7 @@ export class FlowMediaAutomationEngine {
    * checks duration deviation via ffprobe, and updates index.json.
    */
   public static async generateVideoForShot(options: GenerateVideoOptions): Promise<GenerateVideoResult> {
-    const { storage, win, sceneId, shotId, expectedDurationSec, motionNote } = options;
+    const { storage, sceneId, shotId, expectedDurationSec, motionNote } = options;
     const timeoutMs = options.timeoutMs ?? FlowMediaAutomationEngine.DEFAULT_VIDEO_TIMEOUT_MS;
     const maxRetries = options.maxRetries ?? 2;
     const tolerancePct = options.tolerancePct ?? FlowMediaAutomationEngine.DEFAULT_DEVIATION_TOLERANCE_PCT;
@@ -482,12 +497,24 @@ export class FlowMediaAutomationEngine {
     // 3. Allocate next video asset version
     const nextVidVer = storage.getNextMediaVersion(shotId, 'vid');
 
-    // 4. If running without browser window (e.g. Unit tests), simulate synthetic output
-    if (!win) {
-      // In headless test mode, probe duration if synthetic video created
+    // 4. Resolve live Electron BrowserWindow
+    let win = options.win;
+    const sessionMgr = GoogleVeoSessionManager.getInstance();
+    if (!win || (typeof win.isDestroyed === 'function' && win.isDestroyed())) {
+      win = sessionMgr.getLobbyWindow();
+    }
+    if (!win || (typeof win.isDestroyed === 'function' && win.isDestroyed())) {
+      try {
+        await sessionMgr.ensureLobbyAtFlow();
+        win = sessionMgr.getLobbyWindow();
+      } catch {}
+    }
+
+    // If running outside Electron (e.g. pure Node.js CLI unit tests), simulate synthetic output
+    const isElectronRuntime = Boolean(process.versions?.electron);
+    if (!win && !isElectronRuntime) {
       const dummyMp4Path = nextVidVer.absolutePath;
       if (!fs.existsSync(dummyMp4Path)) {
-        // Create dummy video file placeholder
         fs.writeFileSync(dummyMp4Path, Buffer.from('synthetic mp4 payload'));
       }
 
@@ -523,9 +550,12 @@ export class FlowMediaAutomationEngine {
       };
     }
 
+    if (!win) {
+      throw new Error('Không thể kết nối hoặc khởi tạo cửa sổ Google Flow để tạo video.');
+    }
+
     // 5. Live Browser Automation Workflow via GoogleVeoSessionManager & FlowStateMachine
     let lastError: any = null;
-    const sessionMgr = GoogleVeoSessionManager.getInstance();
 
     for (let retry = 0; retry <= maxRetries; retry++) {
       try {
@@ -547,7 +577,7 @@ export class FlowMediaAutomationEngine {
             initFrameUrl: sourcePath,
             aspectRatio: '16:9',
             durationSeconds: Math.round(expectedDurationSec),
-            projectId: storage.readIndex()?.project_id,
+            projectId: undefined,
             taskId: shotId,
             generationAttemptId: `${sceneId}_${shotId}_${nextVidVer.version}_${retry}`,
           },

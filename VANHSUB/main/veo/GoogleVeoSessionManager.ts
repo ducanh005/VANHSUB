@@ -1315,10 +1315,22 @@ export class GoogleVeoSessionManager {
     const currentUrl = href || win.webContents?.getURL?.() || '';
 
     // Quyết định projectId hiệu lực:
-    // 1. Ưu tiên targetProjectId nếu được truyền cụ thể
-    // 2. Nếu không có targetProjectId nhưng lobbyWindow đang ở trong một project hợp lệ hoặc có currentProjectId:
-    //    tái sử dụng project đó thay vì thoát ra tạo mới!
-    const activeId = targetProjectId || this.currentProjectId || (currentUrl.match(/\/project\/([a-zA-Z0-9_-]+)/)?.[1]);
+    // Bỏ qua nếu targetProjectId là ID cục bộ của AI Studio (bắt đầu bằng session_ hoặc proj_)
+    const isLocalId = typeof targetProjectId === 'string' && (targetProjectId.startsWith('session_') || targetProjectId.startsWith('proj_') || targetProjectId.startsWith('default'));
+    const safeTargetId = isLocalId ? undefined : targetProjectId;
+
+    // 1. Nếu cửa sổ hiện tại đã ở trong một project Google Flow hợp lệ: tái sử dụng ngay!
+    const urlMatch = currentUrl.match(/\/project\/([a-zA-Z0-9_-]+)/);
+    if (urlMatch && urlMatch[1]) {
+      const currentActiveId = urlMatch[1];
+      if (!safeTargetId || safeTargetId === currentActiveId) {
+        this.currentProjectId = currentActiveId;
+        console.log(`[Google Flow Browser] Đang ở trong project Google Flow hợp lệ: ${currentActiveId}`);
+        return true;
+      }
+    }
+
+    const activeId = safeTargetId || this.currentProjectId;
 
     if (activeId) {
       this.currentProjectId = activeId;
@@ -1329,7 +1341,7 @@ export class GoogleVeoSessionManager {
       onProgress?.(15, `Đang mở dự án ${activeId}...`);
       try {
         await win.loadURL(`https://flow.google.com/project/${activeId}`);
-        for (let i = 0; i < 20; i++) {
+        for (let i = 0; i < 15; i++) {
           if (isCancelled?.()) return false;
           await new Promise((r) => setTimeout(r, 1000));
           const ready = await this.safeExecuteJs<boolean>(
@@ -1343,10 +1355,11 @@ export class GoogleVeoSessionManager {
           }
         }
       } catch {}
-      return false;
+      console.warn(`[Google Flow Browser] ⚠️ Không mở được dự án ${activeId} trên Google Flow (có thể không tồn tại hoặc bị xóa). Tự động tạo dự án mới...`);
+      this.currentProjectId = null;
     }
 
-    // Trường hợp hoàn toàn chưa có project context nào -> Bắt buộc tạo project mới
+    // Trường hợp chưa có project hoặc mở project cũ thất bại -> Tạo project mới sạch sẽ
     return await this.createNewProject(win, onProgress, isCancelled);
   }
 

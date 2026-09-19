@@ -1291,15 +1291,26 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
         const mutex = GoogleFlowBrowserMutex.getInstance();
 
         // Đảm bảo cửa sổ Flow sẵn sàng
+        const flowUiMode = config.channelProfile?.flowUiMode || config.flowEngine?.uiMode || 'live_window';
         let lobbyWin = sessionMgr.getLobbyWindow();
-        if (!lobbyWin) {
-          const flowUiMode = config.channelProfile?.flowUiMode || 'live_window';
-          if (flowUiMode === 'live_window') {
-            await sessionMgr.showLobbyForDebug();
-          } else {
-            await sessionMgr.openLobbyWindow();
-          }
+        if (flowUiMode === 'live_window') {
+          await sessionMgr.showLobbyForDebug();
           lobbyWin = sessionMgr.getLobbyWindow();
+          if (lobbyWin && !lobbyWin.isDestroyed()) {
+            lobbyWin.setPosition(100, 100);
+            lobbyWin.show();
+            lobbyWin.focus();
+          }
+        } else {
+          sessionMgr.hideLobbyOffscreen();
+          lobbyWin = sessionMgr.getLobbyWindow();
+          if (!lobbyWin || lobbyWin.isDestroyed()) {
+            await sessionMgr.openLobbyWindow();
+            lobbyWin = sessionMgr.getLobbyWindow();
+          }
+          if (lobbyWin && !lobbyWin.isDestroyed()) {
+            lobbyWin.setPosition(OFFSCREEN_X, OFFSCREEN_Y);
+          }
         }
 
         const mode = payload.mode || (payload.flowConfig?.outputMode === 'video' ? 'video' : 'both');

@@ -372,6 +372,7 @@ export const DEFAULT_AI_STUDIO_CONFIG: AiStudioConfig = {
     autoWordAlignment: true,
   },
   flowEngine: {
+    uiMode: 'live_window',
     aspectRatio: '16:9',
     outputMode: 'image',
     stylePromptPrefix: 'Cinematic lighting, high resolution, detailed photorealistic, 4k',

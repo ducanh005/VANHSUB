@@ -290,7 +290,7 @@ export const DEFAULT_VOICE_CONFIG: Readonly<AiStudioVoiceConfig> = Object.freeze
 
 export const DEFAULT_FLOW_ENGINE_CONFIG: Readonly<AiStudioFlowEngineConfig> = Object.freeze({
   engine: 'flow',
-  uiMode: 'offscreen',
+  uiMode: 'live_window',
   aspectRatio: '16:9',
   outputMode: 'image',
   stylePromptPrefix: 'Cinematic lighting, high resolution, detailed photorealistic, 4k',
