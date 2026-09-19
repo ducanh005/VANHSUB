@@ -112,6 +112,8 @@ export type FlowErrorCode =
   | 'INVALID_INPUT'
   | 'USER_CANCELLED'
   | 'BROWSER_WINDOW_DESTROYED'
+  | 'CLICK_GENERATE_NO_EFFECT'
+  | 'CLICK_GENERATE_REJECTED'
   | 'UNKNOWN_ERROR';
 
 export interface ClassifiedError {

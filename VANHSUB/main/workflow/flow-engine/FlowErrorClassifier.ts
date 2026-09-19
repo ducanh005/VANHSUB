@@ -286,7 +286,40 @@ export class FlowErrorClassifier {
       };
     }
 
-    // 12. KIỂM TRA LỖI PHẦN TỬ DOM BẬN / QUÁ THỜI GIAN CHỜ TẠM THỜI (ELEMENT_TRANSIENT_BUSY)
+    // 12. KIỂM TRA LỖI TỪ CHỐI TẠO ẢNH (CLICK_GENERATE_REJECTED) — NON_RETRYABLE
+    if (
+      lowerMsg.includes('click_generate_rejected') ||
+      lowerMsg.includes('từ chối yêu cầu tạo ảnh') ||
+      lowerMsg.includes('generate_rejected')
+    ) {
+      return {
+        category: 'NON_RETRYABLE',
+        code: 'CLICK_GENERATE_REJECTED',
+        message: `Yêu cầu tạo ảnh đã bị Google Flow từ chối (báo lỗi toast/snackbar/chính sách): ${rawMsg}`,
+        originalError,
+        canRetry: false,
+        suggestedAction: 'ABORT_HALT',
+        details: { rawMsg },
+      };
+    }
+
+    // 13. KIỂM TRA LỖI CLICK KHÔNG CÓ TÁC DỤNG (CLICK_GENERATE_NO_EFFECT) — RETRYABLE (lỗi kỹ thuật giao diện)
+    if (
+      lowerMsg.includes('click_generate_no_effect')
+    ) {
+      return {
+        category: 'RETRYABLE',
+        code: 'CLICK_GENERATE_NO_EFFECT',
+        message: 'Click Generate không có phản hồi trên giao diện (lỗi kỹ thuật DOM/nút bấm).',
+        originalError,
+        canRetry: true,
+        suggestedAction: 'RETRY_WITH_BACKOFF',
+        recommendedDelayMs: 2500,
+        details: { rawMsg },
+      };
+    }
+
+    // 14. KIỂM TRA LỖI PHẦN TỬ DOM BẬN / QUÁ THỜI GIAN CHỜ TẠM THỜI (ELEMENT_TRANSIENT_BUSY)
     if (
       lowerMsg.includes('quá thời gian chờ') ||
       lowerMsg.includes('timeout') ||
@@ -311,7 +344,7 @@ export class FlowErrorClassifier {
       };
     }
 
-    // 13. MẶC ĐỊNH: LỖI CHƯA XÁC ĐỊNH (UNKNOWN_ERROR)
+    // 15. MẶC ĐỊNH: LỖI CHƯA XÁC ĐỊNH (UNKNOWN_ERROR)
     return {
       category: 'RETRYABLE',
       code: 'UNKNOWN_ERROR',

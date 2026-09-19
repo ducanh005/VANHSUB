@@ -1810,7 +1810,7 @@ export const ClickGenerateState: FlowAutomationState = {
       })()
     `;
 
-    // Script kiểm tra trực tiếp xem Flow đã thực sự nhận lệnh và bắt đầu sinh (spinner hoặc generating card)
+    // Script kiểm tra trực tiếp: spinner, generating card, error toast/snackbar và trạng thái nút Generate
     const checkEffectJs = `
       (function() {
         function isVisible(el) {
@@ -1819,11 +1819,13 @@ export const ClickGenerateState: FlowAutomationState = {
           return r.width > 0 && r.height > 0;
         }
 
+        // 1. Quét Spinner / Progress Bar
         const spinners = Array.from(document.querySelectorAll(
           'flow-loading-indicator, flow-progress-bar, mat-progress-spinner, mat-spinner, .generation-in-progress, [role="progressbar"], .loading-spinner, flow-generating-card'
         )).filter(isVisible);
         const hasSpinner = spinners.length > 0;
 
+        // 2. Quét Generating Media Cards
         const cards = Array.from(document.querySelectorAll('flow-media-card, flow-image-card, flow-card, flow-chat-item'));
         const hasGeneratingCard = cards.some(c => {
           const state = c.getAttribute('state') || '';
@@ -1831,7 +1833,43 @@ export const ClickGenerateState: FlowAutomationState = {
           return state.includes('generating') || cls.includes('generating') || Boolean(c.querySelector('mat-progress-spinner, [role="progressbar"], flow-loading-indicator'));
         });
 
-        // Chẩn đoán trạng thái nút Generate
+        // 3. Quét Error Toast / Snackbar / Alert thông báo bị từ chối
+        const toastSelectors = [
+          '.mat-mdc-snack-bar-label',
+          'mat-snack-bar-container',
+          '.mat-mdc-snack-bar-container',
+          '[role="alert"]',
+          '[role="alertdialog"]',
+          '.error-toast',
+          '.flow-error-toast',
+          '.flow-error-banner',
+          'flow-toast',
+          '.cdk-overlay-pane mat-snack-bar-container',
+          '.cdk-overlay-pane .error',
+          '.cdk-overlay-pane [class*="error"]',
+          'div[class*="snack-bar"]',
+          'div[class*="toast"][class*="error"]'
+        ];
+
+        let toastText = '';
+        let hasToast = false;
+        let toastSelector = '';
+
+        for (const sel of toastSelectors) {
+          const els = Array.from(document.querySelectorAll(sel)).filter(isVisible);
+          for (const el of els) {
+            const text = (el.innerText || el.textContent || el.getAttribute('aria-label') || '').trim();
+            if (text.length > 0 && text.length < 500) {
+              hasToast = true;
+              toastText = text.replace(/\\s+/g, ' ');
+              toastSelector = sel;
+              break;
+            }
+          }
+          if (hasToast) break;
+        }
+
+        // 4. Chẩn đoán trạng thái nút Generate
         const box = document.querySelector('flow-prompt-box') || document;
         const genBtn = box.querySelector('button.generate-icon-button, flow-generate-icon-button button, button[type="submit"]');
         const btnDiag = genBtn ? {
@@ -1846,18 +1884,51 @@ export const ClickGenerateState: FlowAutomationState = {
           hasSpinner,
           hasGeneratingCard,
           active: hasSpinner || hasGeneratingCard,
+          toast: {
+            found: hasToast,
+            text: toastText,
+            selector: toastSelector
+          },
           btnDiag
         };
       })()
     `;
 
+    // Lấy baseline toast trước khi click để chỉ bắt toast MỚI xuất hiện sau khi click
+    const initialStatus = await safeExecuteJs<any>(ctx.win, checkEffectJs, 1500);
+    const baselineToastText = initialStatus?.toast?.text || '';
+
     const maxAttempts = 3; // 1 lần chính + tối đa 2 lần retry
     let clickConfirmed = false;
+    let rejected = false;
+    let rejectedReason = '';
     let lastCheckResult: any = null;
     let lastClickCoords: any = null;
+    let finalAttempt = 1;
 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       if (ctx.isCancelled?.()) break;
+      finalAttempt = attempt;
+
+      // =========================================================================
+      // ĐIỂM 2: SINGLE CHECK NGAY TRƯỚC MỖI LẦN RETRY CLICK (TRÁNH DOUBLE-SUBMIT)
+      // =========================================================================
+      if (attempt > 1) {
+        console.log(
+          `[FlowStateMachine] [${ctx.taskId}#${ctx.generationAttemptId}] 🔍 [DOUBLE-SUBMIT GUARD] Kiểm tra nhanh trước retry click lần ${attempt}...`
+        );
+        const preRetryCheck = await safeExecuteJs<any>(ctx.win, checkEffectJs, 1500);
+        if (preRetryCheck?.hasSpinner || preRetryCheck?.hasGeneratingCard) {
+          console.log(
+            `[FlowStateMachine] [${ctx.taskId}#${ctx.generationAttemptId}] 🛡️ [DOUBLE-SUBMIT GUARD] Huỷ retry click lần ${attempt} vì phát hiện generate ĐÃ BẮT ĐẦU Ở PHÚT CHÓT từ lần click trước! (hasSpinner=${preRetryCheck.hasSpinner}, hasGeneratingCard=${preRetryCheck.hasGeneratingCard}). Chuyển thẳng sang WAIT_FOR_GENERATION.`
+          );
+          clickConfirmed = true;
+          ctx.generateClickedAt = Date.now();
+          ctx.generationState = 'GENERATING';
+          lastCheckResult = preRetryCheck;
+          break;
+        }
+      }
 
       console.log(
         `[FlowStateMachine] [${ctx.taskId}#${ctx.generationAttemptId}] 🖱️ [CLICK_GENERATE] Lần click ${attempt}/${maxAttempts}...`
@@ -1919,8 +1990,9 @@ export const ClickGenerateState: FlowAutomationState = {
 
       ctx.nativeClicksCount = (ctx.nativeClicksCount || 0) + 1;
 
-      // 2e. POLL NGẮN (mỗi 300ms, tối đa 3500ms) ĐỂ XÁC NHẬN CLICK CÓ TÁC DỤNG THẬT SỰ
-      // Điều kiện: hasSpinner === true HOẶC hasGeneratingCard === true
+      // =========================================================================
+      // ĐIỂM 1: POLL NGẮN XÁC NHẬN TÁC DỤNG & PHÁT HIỆN LỖI TỪ CHỐI (TOAST/SNACKBAR)
+      // =========================================================================
       const pollStart = Date.now();
       const maxPollMs = 3500;
       let hasEffect = false;
@@ -1932,6 +2004,7 @@ export const ClickGenerateState: FlowAutomationState = {
         const checkRes = await safeExecuteJs<any>(ctx.win, checkEffectJs, 1500);
         lastCheckResult = checkRes;
 
+        // 1. Kiểm tra nếu có spinner hoặc generating card -> THÀNH CÔNG
         if (checkRes?.hasSpinner || checkRes?.hasGeneratingCard) {
           hasEffect = true;
           console.log(
@@ -1939,6 +2012,21 @@ export const ClickGenerateState: FlowAutomationState = {
           );
           break;
         }
+
+        // 2. Kiểm tra nếu xuất hiện Error Toast / Snackbar mới xuất hiện sau khi click -> BỊ TỪ CHỐI
+        if (checkRes?.toast?.found && checkRes.toast.text !== baselineToastText) {
+          rejected = true;
+          rejectedReason = checkRes.toast.text;
+          console.error(
+            `[FlowStateMachine] [${ctx.taskId}#${ctx.generationAttemptId}] 🛑 CLICK_GENERATE_REJECTED: Google Flow hiển thị thông báo lỗi từ chối sau khi click: "${rejectedReason}" (selector: ${checkRes.toast.selector}). Dừng ngay, KHÔNG retry click!`
+          );
+          break;
+        }
+      }
+
+      // Nếu phát hiện bị từ chối -> Thoát ngay vòng lặp retry, KHÔNG retry click thêm!
+      if (rejected) {
+        break;
       }
 
       if (hasEffect) {
@@ -1948,7 +2036,7 @@ export const ClickGenerateState: FlowAutomationState = {
         break;
       } else {
         console.warn(
-          `[FlowStateMachine] [${ctx.taskId}#${ctx.generationAttemptId}] ⚠️ Sau lần click ${attempt}/${maxAttempts}: KHÔNG phát hiện spinner hay generating card (hasSpinner=false, hasGeneratingCard=false).`
+          `[FlowStateMachine] [${ctx.taskId}#${ctx.generationAttemptId}] ⚠️ Sau lần click ${attempt}/${maxAttempts}: KHÔNG phát hiện spinner, generating card hay thông báo từ chối.`
         );
         if (attempt < maxAttempts) {
           console.log(
@@ -1959,7 +2047,28 @@ export const ClickGenerateState: FlowAutomationState = {
       }
     }
 
-    // 3. XỬ LÝ KẾT QUẢ SAU TỐI ĐA 3 LẦN CLICK (1 CHÍNH + 2 RETRY)
+    // =========================================================================
+    // XỬ LÝ KẾT QUẢ CUỐI CÙNG
+    // =========================================================================
+
+    // Tình huống 1: Bị Google Flow từ chối (CLICK_GENERATE_REJECTED) -> Lỗi nghiệp vụ, dừng ngay
+    if (rejected) {
+      ctx.generationState = 'FAILED';
+      return {
+        ok: false,
+        error: 'CLICK_GENERATE_REJECTED',
+        errorDetail: `CLICK_GENERATE_REJECTED: Google Flow đã từ chối yêu cầu tạo ảnh. Thông báo lỗi: "${rejectedReason}".`,
+        data: {
+          rejected: true,
+          reason: rejectedReason,
+          attempts: finalAttempt,
+          lastCheckResult,
+          coords: lastClickCoords,
+        }
+      };
+    }
+
+    // Tình huống 2: Đã click tối đa số lần nhưng không có phản hồi (CLICK_GENERATE_NO_EFFECT) -> Lỗi kỹ thuật DOM
     if (!clickConfirmed) {
       const btnDiag = lastCheckResult?.btnDiag || {};
       const possibleReason = btnDiag.found
@@ -1987,6 +2096,7 @@ export const ClickGenerateState: FlowAutomationState = {
       };
     }
 
+    // Tình huống 3: Click thành công, đã có spinner hoặc card
     return {
       ok: true,
       data: {
@@ -2007,6 +2117,17 @@ export const ClickGenerateState: FlowAutomationState = {
           reason: res.data.reason,
           clickedAt: ctx.generateClickedAt,
         },
+      };
+    }
+
+    if (res.data?.rejected) {
+      return {
+        ok: false,
+        criteria: {
+          rejected: true,
+          reason: res.data.reason,
+        },
+        reason: `CLICK_GENERATE_REJECTED: ${res.data.reason}`,
       };
     }
 
