@@ -1713,32 +1713,30 @@ export const CheckIdempotencyBeforeGenerateState: FlowAutomationState = {
  */
 export const ClickGenerateState: FlowAutomationState = {
   name: 'CLICK_GENERATE',
-  timeoutMs: 12000,
+  timeoutMs: 30000,
 
   async enter(ctx: FlowStateContext): Promise<void> {
-    // 1. PREPARE IDEMPOTENCY MARKER: Ghi nhận cảnh báo nếu đã có marker từ trước
-    if (ctx.generateClickedAt > 0 || ctx.generationState === 'STARTING' || ctx.generationState === 'GENERATING') {
+    if (ctx.generationState === 'GENERATING' && (ctx.idempotencyDetectedAt || 0) > 0) {
       console.warn(
-        `[FlowStateMachine] [${ctx.taskId}#${ctx.generationAttemptId}] 🛡️ IDEMPOTENCY PRE-CHECK: Generate đã được đánh dấu khởi động trước đó (clickedAt: ${ctx.generateClickedAt}, state: ${ctx.generationState}).`
+        `[FlowStateMachine] [${ctx.taskId}#${ctx.generationAttemptId}] 🛡️ IDEMPOTENCY PRE-CHECK: Generate đã được xác nhận đang chạy từ trước (idempotencyDetectedAt: ${ctx.idempotencyDetectedAt}).`
       );
     }
   },
 
   async execute(ctx: FlowStateContext): Promise<ActionResult> {
-    // 1. NGUYÊN TẮC ZERO DUPLICATE CLICK: Nếu đã từng click Generate hoặc state đã là STARTING/GENERATING -> Bỏ qua click ngay lập tức!
-    if (ctx.generateClickedAt > 0 || ctx.generationState === 'STARTING' || ctx.generationState === 'GENERATING') {
+    // 1. NGUYÊN TẮC ZERO DUPLICATE CLICK: Chỉ bỏ qua nếu THỰC SỰ đã có bằng chứng sinh từ trước (idempotencyDetectedAt)
+    if (ctx.generationState === 'GENERATING' && (ctx.idempotencyDetectedAt || 0) > 0) {
       console.warn(
-        `[FlowStateMachine] [${ctx.taskId}#${ctx.generationAttemptId}] 🛡️ IDEMPOTENCY RESUME: Bỏ qua CLICK_GENERATE vì generation đã được kích hoạt trước đó (clickedAt: ${ctx.generateClickedAt}, state: ${ctx.generationState})!`
+        `[FlowStateMachine] [${ctx.taskId}#${ctx.generationAttemptId}] 🛡️ IDEMPOTENCY RESUME: Bỏ qua CLICK_GENERATE vì generation đã được kích hoạt trước đó!`
       );
       return {
         ok: true,
         skipToState: 'WAIT_FOR_GENERATION',
-        data: { skipped: true, reason: 'already_clicked', clickedAt: ctx.generateClickedAt },
+        data: { skipped: true, reason: 'already_generating', clickedAt: ctx.generateClickedAt },
       };
     }
 
-    // 2. VERIFY GENERATE BUTTON: BẮT BUỘC scope tìm kiếm bên trong container 'flow-prompt-box'
-    // Tuyệt đối không quét toàn trang (document-wide) để tránh bắt nhầm nút ngoài prompt box
+    // Script tính toạ độ tức thời của nút Generate trong flow-prompt-box
     const freshCoordJs = `
       (function() {
         const container = document.querySelector('flow-prompt-box');
@@ -1766,7 +1764,6 @@ export const ClickGenerateState: FlowAutomationState = {
           'button.submit-button'
         ];
 
-        // Tìm kiếm có phạm vi (container-scoped search bên trong flow-prompt-box)
         const allButtons = Array.from(container.querySelectorAll(genBtnSelectors.join(', ')));
         const valid = allButtons.filter(b => {
           if (!isVisible(b)) return false;
@@ -1792,7 +1789,6 @@ export const ClickGenerateState: FlowAutomationState = {
           target.classList.remove('mat-mdc-button-disabled');
         }
 
-        // TÍNH TOẠ ĐỘ TỨC THỜI (KHÔNG GỌI target.click() Ở ĐÂY ĐỂ TRÁNH CLICK SỚM)
         const rect = target.getBoundingClientRect();
         if (!rect || rect.width <= 0 || rect.height <= 0) {
           return { ok: false, error: 'btn_zero_rect' };
@@ -1814,82 +1810,192 @@ export const ClickGenerateState: FlowAutomationState = {
       })()
     `;
 
-    const clickInfo = await FlowSmartWait.pollUntil<any>(
-      async () => {
-        const info = await safeExecuteJs<any>(ctx.win, freshCoordJs, 1500);
-        return info?.ok && info.coords ? info : null;
-      },
-      {
-        timeoutMs: 4000,
-        initialIntervalMs: 50,
-        maxIntervalMs: 200,
-        isCancelled: ctx.isCancelled,
-        tag: 'CLICK_GEN_COORDS',
-      }
-    ).catch(() => null);
+    // Script kiểm tra trực tiếp xem Flow đã thực sự nhận lệnh và bắt đầu sinh (spinner hoặc generating card)
+    const checkEffectJs = `
+      (function() {
+        function isVisible(el) {
+          if (!el) return false;
+          const r = el.getBoundingClientRect();
+          return r.width > 0 && r.height > 0;
+        }
 
-    if (!clickInfo?.ok || !clickInfo.coords) {
+        const spinners = Array.from(document.querySelectorAll(
+          'flow-loading-indicator, flow-progress-bar, mat-progress-spinner, mat-spinner, .generation-in-progress, [role="progressbar"], .loading-spinner, flow-generating-card'
+        )).filter(isVisible);
+        const hasSpinner = spinners.length > 0;
+
+        const cards = Array.from(document.querySelectorAll('flow-media-card, flow-image-card, flow-card, flow-chat-item'));
+        const hasGeneratingCard = cards.some(c => {
+          const state = c.getAttribute('state') || '';
+          const cls = c.className || '';
+          return state.includes('generating') || cls.includes('generating') || Boolean(c.querySelector('mat-progress-spinner, [role="progressbar"], flow-loading-indicator'));
+        });
+
+        // Chẩn đoán trạng thái nút Generate
+        const box = document.querySelector('flow-prompt-box') || document;
+        const genBtn = box.querySelector('button.generate-icon-button, flow-generate-icon-button button, button[type="submit"]');
+        const btnDiag = genBtn ? {
+          found: true,
+          disabled: Boolean(genBtn.disabled || genBtn.getAttribute('aria-disabled') === 'true' || genBtn.classList.contains('mat-mdc-button-disabled')),
+          ariaDisabled: genBtn.getAttribute('aria-disabled'),
+          label: (genBtn.getAttribute('aria-label') || genBtn.innerText || '').trim(),
+          className: genBtn.className,
+        } : { found: false, disabled: true };
+
+        return {
+          hasSpinner,
+          hasGeneratingCard,
+          active: hasSpinner || hasGeneratingCard,
+          btnDiag
+        };
+      })()
+    `;
+
+    const maxAttempts = 3; // 1 lần chính + tối đa 2 lần retry
+    let clickConfirmed = false;
+    let lastCheckResult: any = null;
+    let lastClickCoords: any = null;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      if (ctx.isCancelled?.()) break;
+
+      console.log(
+        `[FlowStateMachine] [${ctx.taskId}#${ctx.generationAttemptId}] 🖱️ [CLICK_GENERATE] Lần click ${attempt}/${maxAttempts}...`
+      );
+
+      // 2a. Tính toạ độ tức thời của nút Generate
+      const clickInfo = await safeExecuteJs<any>(ctx.win, freshCoordJs, 2000);
+      if (!clickInfo?.ok || !clickInfo.coords) {
+        console.warn(
+          `[FlowStateMachine] [${ctx.taskId}#${ctx.generationAttemptId}] ⚠️ Không tính được toạ độ nút Generate ở lần click ${attempt}:`,
+          clickInfo
+        );
+      } else {
+        lastClickCoords = clickInfo.coords;
+
+        // 2b. Gửi sự kiện chuột native (mouseDown + mouseUp)
+        if (!ctx.win.isDestroyed()) {
+          ctx.win.webContents.sendInputEvent({
+            type: 'mouseDown',
+            x: clickInfo.coords.x,
+            y: clickInfo.coords.y,
+            button: 'left',
+            clickCount: 1,
+          });
+          await new Promise((r) => setTimeout(r, 60));
+          ctx.win.webContents.sendInputEvent({
+            type: 'mouseUp',
+            x: clickInfo.coords.x,
+            y: clickInfo.coords.y,
+            button: 'left',
+            clickCount: 1,
+          });
+
+          // 2c. Kích hoạt DOM click bổ trợ trên nút Generate
+          await safeExecuteJs(
+            ctx.win,
+            `(function() {
+              try {
+                const box = document.querySelector('flow-prompt-box');
+                if (box) {
+                  const b = box.querySelector('button.generate-icon-button, flow-generate-icon-button button, button[type="submit"]');
+                  if (b) b.click();
+                }
+              } catch {}
+            })()`,
+            1000
+          );
+
+          // 2d. Gửi bổ trợ Enter native nếu là lần retry thứ 2 trở lên
+          if (attempt > 1) {
+            try {
+              ctx.win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Enter' });
+              await new Promise((r) => setTimeout(r, 50));
+              ctx.win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Enter' });
+            } catch {}
+          }
+        }
+      }
+
+      ctx.nativeClicksCount = (ctx.nativeClicksCount || 0) + 1;
+
+      // 2e. POLL NGẮN (mỗi 300ms, tối đa 3500ms) ĐỂ XÁC NHẬN CLICK CÓ TÁC DỤNG THẬT SỰ
+      // Điều kiện: hasSpinner === true HOẶC hasGeneratingCard === true
+      const pollStart = Date.now();
+      const maxPollMs = 3500;
+      let hasEffect = false;
+
+      while (Date.now() - pollStart < maxPollMs) {
+        await new Promise((r) => setTimeout(r, 300));
+        if (ctx.isCancelled?.()) break;
+
+        const checkRes = await safeExecuteJs<any>(ctx.win, checkEffectJs, 1500);
+        lastCheckResult = checkRes;
+
+        if (checkRes?.hasSpinner || checkRes?.hasGeneratingCard) {
+          hasEffect = true;
+          console.log(
+            `[FlowStateMachine] [${ctx.taskId}#${ctx.generationAttemptId}] 🎯 CLICK_GENERATE ĐÃ CÓ TÁC DỤNG sau ${Date.now() - pollStart}ms (hasSpinner=${checkRes.hasSpinner}, hasGeneratingCard=${checkRes.hasGeneratingCard})!`
+          );
+          break;
+        }
+      }
+
+      if (hasEffect) {
+        clickConfirmed = true;
+        ctx.generateClickedAt = Date.now();
+        ctx.generationState = 'GENERATING';
+        break;
+      } else {
+        console.warn(
+          `[FlowStateMachine] [${ctx.taskId}#${ctx.generationAttemptId}] ⚠️ Sau lần click ${attempt}/${maxAttempts}: KHÔNG phát hiện spinner hay generating card (hasSpinner=false, hasGeneratingCard=false).`
+        );
+        if (attempt < maxAttempts) {
+          console.log(
+            `[FlowStateMachine] [${ctx.taskId}#${ctx.generationAttemptId}] 🔄 Sẽ retry click Generate (lần ${attempt + 1}/${maxAttempts}) sau 500ms...`
+          );
+          await new Promise((r) => setTimeout(r, 500));
+        }
+      }
+    }
+
+    // 3. XỬ LÝ KẾT QUẢ SAU TỐI ĐA 3 LẦN CLICK (1 CHÍNH + 2 RETRY)
+    if (!clickConfirmed) {
+      const btnDiag = lastCheckResult?.btnDiag || {};
+      const possibleReason = btnDiag.found
+        ? (btnDiag.disabled
+            ? 'Nút Generate vẫn đang bị disabled trong logic nội bộ của Google Flow'
+            : 'Nút Generate không phản hồi sự kiện click (có thể bị che bởi overlay ẩn hoặc listener bị hủy)')
+        : 'Không tìm thấy phần tử nút Generate trong container flow-prompt-box';
+
+      console.error(
+        `[FlowStateMachine] [${ctx.taskId}#${ctx.generationAttemptId}] ❌ CLICK_GENERATE_NO_EFFECT: Đã click ${maxAttempts} lần nhưng không có tác dụng. Lý do khả dĩ: ${possibleReason}. Trạng thái nút:`,
+        btnDiag
+      );
+
+      ctx.generationState = 'FAILED';
       return {
         ok: false,
-        error: 'click_prep_failed',
-        errorDetail: clickInfo?.error || 'Không thể tính toạ độ nút Generate trong flow-prompt-box.',
+        error: 'CLICK_GENERATE_NO_EFFECT',
+        errorDetail: `CLICK_GENERATE_NO_EFFECT: Đã click Generate ${maxAttempts} lần (1 lần chính + 2 lần retry) nhưng Google Flow không bắt đầu sinh (hasSpinner=false, hasGeneratingCard=false). Lý do khả dĩ: ${possibleReason}. Chi tiết nút: ${JSON.stringify(btnDiag)}`,
+        data: {
+          success: false,
+          attempts: maxAttempts,
+          lastCheckResult,
+          coords: lastClickCoords,
+        }
       };
     }
 
-    // Kiểm tra che phủ tức thời tại toạ độ click
-    const unobscuredCheck = await FlowSmartWait.checkElementUnobscured(ctx.win, {
-      x: clickInfo.coords.x,
-      y: clickInfo.coords.y,
-    });
-
-    // 3. RECORD GENERATION TRANSACTION MARKER NGAY TRƯỚC CLICK
-    // Đảm bảo nếu quá trình gửi input bị lỗi kết nối hoặc crash sau đó, hệ thống ĐÃ BIẾT Generate đã được kích hoạt
-    ctx.generateClickedAt = Date.now();
-    ctx.generationState = 'STARTING';
-    ctx.nativeClicksCount = (ctx.nativeClicksCount || 0) + 1;
-
-    // 4. CLICK GENERATE (Gửi sự kiện chuột native thật tại toạ độ tức thời)
-    if (!ctx.win.isDestroyed()) {
-      try {
-        console.log(
-          `[FlowStateMachine] [${ctx.taskId}#${ctx.generationAttemptId}] 🖱️ Gửi click chuột native tại toạ độ TỨC THỜI (flow-prompt-box scope): (${clickInfo.coords.x}, ${clickInfo.coords.y}) | Unobscured: ${unobscuredCheck.unobscured}`
-        );
-        ctx.win.webContents.sendInputEvent({
-          type: 'mouseDown',
-          x: clickInfo.coords.x,
-          y: clickInfo.coords.y,
-          button: 'left',
-          clickCount: 1,
-        });
-        await new Promise((r) => setTimeout(r, 50));
-        ctx.win.webContents.sendInputEvent({
-          type: 'mouseUp',
-          x: clickInfo.coords.x,
-          y: clickInfo.coords.y,
-          button: 'left',
-          clickCount: 1,
-        });
-
-        // Kích hoạt DOM click bổ trợ trên đúng nút Generate bên trong flow-prompt-box
-        await safeExecuteJs(
-          ctx.win,
-          `(function() {
-            try {
-              const box = document.querySelector('flow-prompt-box');
-              if (box) {
-                const b = box.querySelector('button.generate-icon-button, flow-generate-icon-button button, button[type="submit"]');
-                if (b) b.click();
-              }
-            } catch {}
-          })()`,
-          1000
-        );
-      } catch (err: any) {
-        console.warn('[FlowStateMachine] sendInputEvent warning:', err?.message);
+    return {
+      ok: true,
+      data: {
+        success: true,
+        attempts: ctx.nativeClicksCount,
+        lastCheckResult,
+        coords: lastClickCoords,
       }
-    }
-
-    return { ok: true, data: { ...clickInfo, unobscured: unobscuredCheck.unobscured } };
+    };
   },
 
   async verify(ctx: FlowStateContext, res: ActionResult): Promise<VerifyResult> {
@@ -1903,17 +2009,18 @@ export const ClickGenerateState: FlowAutomationState = {
         },
       };
     }
-    const ok = ctx.generateClickedAt > 0;
+
+    const ok = Boolean(res.ok && res.data?.success);
     return {
       ok,
       criteria: {
-        nativeClickDispatched: ok,
-        nativeClicksCount: ctx.nativeClicksCount || 1,
-        coordinates: res.data?.coords || null,
-        unobscuredAtClick: res.data?.unobscured ?? true,
-        clickedAt: ctx.generateClickedAt,
+        clickConfirmed: ok,
+        hasSpinner: Boolean(res.data?.lastCheckResult?.hasSpinner),
+        hasGeneratingCard: Boolean(res.data?.lastCheckResult?.hasGeneratingCard),
+        attempts: res.data?.attempts || 1,
+        coords: res.data?.coords || null,
       },
-      reason: ok ? undefined : 'Chưa ghi nhận thời điểm click native',
+      reason: ok ? undefined : (res.errorDetail || 'CLICK_GENERATE_NO_EFFECT: Không kích hoạt được quá trình sinh ảnh sau các lần click'),
     };
   },
 
@@ -1922,15 +2029,14 @@ export const ClickGenerateState: FlowAutomationState = {
 
 /**
  * STATE 15: VERIFY_GENERATION_STARTED
- * BẮT BUỘC: Kiểm tra phản hồi DOM để xác nhận Flow đã thực sự nhận lệnh
+ * BẮT BUỘC: Xác nhận bằng chứng trực tiếp (spinner hoặc generating card) rằng Flow đang tạo ảnh
  */
 export const VerifyGenerationStartedState: FlowAutomationState = {
   name: 'VERIFY_GENERATION_STARTED',
-  timeoutMs: 15000,
+  timeoutMs: 12000,
 
   async enter(ctx: FlowStateContext): Promise<void> {
-    // Đợi 300ms và tự động xác nhận quyền của Creative Agent nếu có
-    await new Promise((r) => setTimeout(r, 300));
+    // Tự động xác nhận quyền của Creative Agent nếu có popup xuất hiện
     const agentCheckInit = await ctx.sessionMgr.autoConfirmAgentPermission(ctx.win);
     if (agentCheckInit.startsWith('agent_error:')) {
       throw new Error(`agent_error: ${agentCheckInit}`);
@@ -1940,76 +2046,73 @@ export const VerifyGenerationStartedState: FlowAutomationState = {
   async execute(ctx: FlowStateContext): Promise<ActionResult> {
     const checkStartedJs = `
       (function() {
-        const promptBox = document.querySelector('flow-prompt-box, flow-base-prompt-box, flow-creative-agent-prompt-box, .prompt-box-container, .base-prompt-box') || document;
-        const promptEl = promptBox.querySelector('.ProseMirror, [contenteditable="true"], textarea:not(.g-recaptcha-response), input[type="text"]');
-        const currentText = promptEl ? (promptEl.innerText || promptEl.textContent || promptEl.value || '').trim() : '';
+        function isVisible(el) {
+          if (!el) return false;
+          const r = el.getBoundingClientRect();
+          return r.width > 0 && r.height > 0;
+        }
 
-        const hasSpinner = Boolean(document.querySelector(
-          'flow-loading-indicator, flow-progress-bar, mat-progress-spinner, mat-spinner, .generation-in-progress, [role="progressbar"], flow-card[state="generating"], .loading-spinner, flow-generating-card, div[class*="generating"]'
-        ));
+        const spinners = Array.from(document.querySelectorAll(
+          'flow-loading-indicator, flow-progress-bar, mat-progress-spinner, mat-spinner, .generation-in-progress, [role="progressbar"], .loading-spinner, flow-generating-card'
+        )).filter(isVisible);
+        const hasSpinner = spinners.length > 0;
 
-        const btnDisabled = Boolean(document.querySelector(
-          'flow-generate-icon-button button[disabled], button.generate-icon-button[disabled], button[aria-disabled="true"], button.generate-icon-button.mat-mdc-button-disabled'
-        ));
+        const cards = Array.from(document.querySelectorAll('flow-media-card, flow-image-card, flow-card, flow-chat-item'));
+        const hasGeneratingCard = cards.some(c => {
+          const state = c.getAttribute('state') || '';
+          const cls = c.className || '';
+          return state.includes('generating') || cls.includes('generating') || Boolean(c.querySelector('mat-progress-spinner, [role="progressbar"], flow-loading-indicator'));
+        });
 
         return {
-          isCleared: currentText.length === 0,
           hasSpinner,
-          btnDisabled,
-          textLen: currentText.length
+          hasGeneratingCard,
+          active: hasSpinner || hasGeneratingCard
         };
       })()
     `;
 
-    let started = false;
-    let lastStatus: any = null;
-    for (let i = 0; i < 15; i++) {
-      await new Promise((r) => setTimeout(r, 300));
-      const status = await safeExecuteJs<any>(ctx.win, checkStartedJs, 1500);
-      lastStatus = status;
-      if (status?.isCleared || status?.hasSpinner || status?.btnDisabled) {
-        started = true;
-        console.log(
-          `[FlowStateMachine] [${ctx.taskId}#${ctx.generationAttemptId}] 🎯 Xác nhận generation đã khởi động sau ${(i + 1) * 300}ms:`,
-          status
-        );
-        break;
+    // Kiểm tra trực tiếp bằng chứng sinh ảnh (hasSpinner hoặc hasGeneratingCard)
+    let status = await safeExecuteJs<any>(ctx.win, checkStartedJs, 1500);
+    let started = Boolean(status?.hasSpinner || status?.hasGeneratingCard);
+
+    // Nếu chưa thấy ngay, poll thêm tối đa 3s (mỗi 300ms)
+    if (!started) {
+      for (let i = 0; i < 10; i++) {
+        await new Promise((r) => setTimeout(r, 300));
+        if (ctx.isCancelled?.()) break;
+        status = await safeExecuteJs<any>(ctx.win, checkStartedJs, 1500);
+        if (status?.hasSpinner || status?.hasGeneratingCard) {
+          started = true;
+          break;
+        }
       }
     }
 
-    // Nếu sau 4.5s chưa thấy phản hồi, gửi bổ trợ Enter native
-    if (!started && !ctx.win.isDestroyed()) {
-      console.log(
-        `[FlowStateMachine] [${ctx.taskId}#${ctx.generationAttemptId}] ⚠️ Flow chưa phản hồi, kích hoạt Enter native bổ trợ...`
-      );
-      try {
-        await ctx.win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Enter' });
-        await new Promise((r) => setTimeout(r, 60));
-        await ctx.win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Enter' });
-      } catch {}
-      await new Promise((r) => setTimeout(r, 1200));
+    ctx.generationState = started ? 'GENERATING' : 'FAILED';
 
-      const recheck = await safeExecuteJs<any>(ctx.win, checkStartedJs, 1500);
-      lastStatus = recheck;
-      if (recheck?.isCleared || recheck?.hasSpinner || recheck?.btnDisabled) {
-        started = true;
-      }
+    if (!started) {
+      return {
+        ok: false,
+        error: 'CLICK_GENERATE_NO_EFFECT',
+        errorDetail: 'VERIFY_GENERATION_STARTED: Không phát hiện spinner hoặc generating card nào sau khi click Generate (CLICK_GENERATE_NO_EFFECT).',
+        data: status,
+      };
     }
 
-    ctx.generationState = started ? 'GENERATING' : 'STARTING';
-    return { ok: started, data: lastStatus };
+    return { ok: true, data: status };
   },
 
   async verify(ctx: FlowStateContext, res: ActionResult): Promise<VerifyResult> {
-    const ok = Boolean(res.ok);
+    const ok = Boolean(res.ok && (res.data?.hasSpinner || res.data?.hasGeneratingCard));
     return {
       ok,
       criteria: {
         generationStarted: ok,
-        generationState: ctx.generationState,
-        signalStatus: res.data || 'cleared_or_spinner_detected',
+        hasSpinner: Boolean(res.data?.hasSpinner),
+        hasGeneratingCard: Boolean(res.data?.hasGeneratingCard),
       },
-      reason: ok ? undefined : 'Google Flow không phản hồi tín hiệu bắt đầu sinh (prompt không xóa, không có spinner)',
+      reason: ok ? undefined : 'CLICK_GENERATE_NO_EFFECT: Cả spinner và generating card đều không xuất hiện sau khi click Generate',
     };
   },
 
