@@ -125,7 +125,7 @@ const vanhsub = {
   },
   downloader: {
     inspect: (url: string) => ipcRenderer.invoke('downloader:inspect', url),
-    download: (options: { url: string; quality?: string }) =>
+    download: (options: { url: string; quality?: string; noWatermarkUrl?: string }) =>
       ipcRenderer.invoke('downloader:download', options),
     onProgress: (callback: (progress: any) => void) => {
       const handler = (_event: unknown, progress: any) => callback(progress);
@@ -189,8 +189,12 @@ const vanhsub = {
     // Pipeline Execution (Milestone 2)
     startPipeline: (payload: { topic: string; options?: any }) =>
       ipcRenderer.invoke('aiStudio:pipeline:start', payload),
-    resumePipeline: (payload: { sessionId: string; fromStage?: number }) =>
-      ipcRenderer.invoke('aiStudio:pipeline:resume', payload),
+    resumePipeline: (payload: {
+      sessionId: string;
+      fromStage?: number;
+      mode?: 'resume_missing' | 'regenerate_selected' | 'regenerate_all';
+      selectedShotIds?: string[];
+    }) => ipcRenderer.invoke('aiStudio:pipeline:resume', payload),
     cancelPipeline: (payload: { sessionId: string }) =>
       ipcRenderer.invoke('aiStudio:pipeline:cancel', payload),
     getPipelineState: (payload: { sessionId: string }) =>

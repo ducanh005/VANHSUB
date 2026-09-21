@@ -100,6 +100,16 @@ const STAGE_CONFIG: Record<
  * - Granular operations (single-line voice, single-scene visual, custom video render).
  * - Graceful process management and AbortController cancellation.
  */
+// Helper trích xuất ID dự án Google Flow từ link hoặc UUID
+export function extractFlowProjectId(urlOrId?: string): string | undefined {
+  if (!urlOrId || !urlOrId.trim()) return undefined;
+  const str = urlOrId.trim();
+  const match = str.match(/\/project\/([a-zA-Z0-9_-]+)/);
+  if (match && match[1]) return match[1];
+  if (/^[a-zA-Z0-9_-]{8,}$/.test(str) && !str.startsWith('http')) return str;
+  return undefined;
+}
+
 export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
   private activeSessions = new Map<string, PipelineSessionState>();
   private activeAbortControllers = new Map<string, AbortController>();
@@ -109,12 +119,23 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
   // ==========================================================================
   // Session Directory Helpers
   // ==========================================================================
-  public getSessionDir(sessionId: string): string {
+  public getSessionDir(sessionId: string, customOutputDir?: string): string {
+    if (customOutputDir && customOutputDir.trim()) {
+      return path.resolve(customOutputDir.trim());
+    }
+    const config = getDecryptedAiStudioConfig();
+    const activeProject = config.savedProjects?.find((p) => p.id === config.activeProjectId);
+    if (activeProject?.outputDir && activeProject.outputDir.trim()) {
+      return path.resolve(activeProject.outputDir.trim());
+    }
+    if ((config as any).outputDir && (config as any).outputDir.trim()) {
+      return path.resolve((config as any).outputDir.trim());
+    }
     return path.join(resolveAiStudioSessionsRoot(), sessionId);
   }
 
-  public getSessionAssetsDir(sessionId: string): string {
-    const dir = path.join(this.getSessionDir(sessionId), 'assets');
+  public getSessionAssetsDir(sessionId: string, customOutputDir?: string): string {
+    const dir = path.join(this.getSessionDir(sessionId, customOutputDir), 'assets');
     fs.mkdirSync(dir, { recursive: true });
     return dir;
   }
@@ -122,9 +143,21 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
   // ==========================================================================
   // Disk Storage & Action Log Helper (spec §1.1, §1.2, §3)
   // ==========================================================================
-  public getDiskStorageManager(sessionId: string, customMediaDir?: string): AiStudioDiskStorageManager {
-    const sessionDir = this.getSessionDir(sessionId);
-    const storage = AiStudioDiskStorageManager.forProject(sessionId, sessionDir, customMediaDir);
+  public getDiskStorageManager(sessionId: string, customMediaDir?: string, customOutputDir?: string): AiStudioDiskStorageManager {
+    const sessionDir = this.getSessionDir(sessionId, customOutputDir);
+    const config = getDecryptedAiStudioConfig();
+    const activeProject = config.savedProjects?.find((p) => p.id === config.activeProjectId);
+    const hasCustomOutput = Boolean(
+      customOutputDir?.trim() ||
+      activeProject?.outputDir?.trim() ||
+      (config as any).outputDir?.trim()
+    );
+
+    const storage = new AiStudioDiskStorageManager(sessionId, {
+      baseDir: sessionDir,
+      customMediaDir,
+      exactProjectDir: hasCustomOutput,
+    });
     storage.ensureDirectories();
     storage.ensureIndex();
 
@@ -489,8 +522,13 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
     this.activeAbortControllers.set(session.sessionId, abortController);
     this.activeProcesses.set(session.sessionId, new Set());
 
+    const runOptions = {
+      mode: payload.mode || 'resume_missing',
+      selectedShotIds: payload.selectedShotIds,
+    };
+
     setTimeout(() => {
-      this.runPipelineLoop(session, targetStage, onProgress, abortController.signal).catch((err) => {
+      this.runPipelineLoop(session, targetStage, onProgress, abortController.signal, runOptions).catch((err) => {
         if (session.status === 'cancelled' || abortController.signal.aborted) {
           session.status = 'cancelled';
           if (session.stages && session.stages[session.currentStage]) {
@@ -528,12 +566,18 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
     session: PipelineSessionState,
     startStage: AiStudioStageId,
     onProgress: (event: PipelineProgressEvent) => void,
-    signal: AbortSignal
+    signal: AbortSignal,
+    runOptions?: {
+      mode?: 'resume_missing' | 'regenerate_selected' | 'regenerate_all';
+      selectedShotIds?: string[];
+    }
   ): Promise<void> {
     const config: AiStudioConfig = getDecryptedAiStudioConfig();
-    const assetsDir = this.getSessionAssetsDir(session.sessionId);
+    const activeProject = config.savedProjects?.find((p) => p.id === config.activeProjectId);
+    const effectiveOutputDir = activeProject?.outputDir || (config as any).outputDir || undefined;
+    const assetsDir = this.getSessionAssetsDir(session.sessionId, effectiveOutputDir);
     const effectiveMediaDir = config.channelProfile?.customMediaDir || config.flowEngine.downloadDir || undefined;
-    const storage = this.getDiskStorageManager(session.sessionId, effectiveMediaDir);
+    const storage = this.getDiskStorageManager(session.sessionId, effectiveMediaDir, effectiveOutputDir);
 
     session.stages = session.stages || ({} as any);
     session.artifacts = session.artifacts || ({} as any);
@@ -859,7 +903,7 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
               });
             }
 
-            // Generate dynamic multi-shot storyboard via AiStudioStoryboardService.generateStoryboard()
+            // Generate dynamic storyboard via AiStudioStoryboardService.generateStoryboard()
             const storyboardData = await aiStudioStoryboardService.generateStoryboard({
               storage,
               script: scriptData,
@@ -868,6 +912,8 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
               negativePrompt: config.flowEngine.negativePrompt,
               channelProfile: config.channelProfile,
               backgroundPrompt: config.channelProfile?.projectBackgroundPrompt,
+              shotMode: config.flowEngine.shotMode || 'single',
+              granularity: config.flowEngine.granularity || 'balanced',
             });
 
             // Adapt storyboard shots to session.artifacts.scenes for backwards compatibility with Stage 7
@@ -889,6 +935,7 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
                 const motionType = (!forceImageOnly && shot.media_type === 'video') ? 'video' : 'ken_burns';
                 legacyScenes.push({
                   id: shot.shot_id,
+                  shotId: shot.shot_id,
                   lineIndex: scIdx,
                   startMs: shotCurrentMs,
                   endMs: shotCurrentMs + shotDurMs,
@@ -905,7 +952,11 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
             });
 
             session.artifacts.scenes = legacyScenes;
+            session.artifacts.storyboardSynthesis = storyboardData.synthesis;
             session.progress = 70;
+
+            const syn = storyboardData.synthesis;
+            const pacingInfo = syn ? ` [TB ${syn.avg_duration_per_shot_sec}s/shot, ~${Math.round(syn.estimated_production_time_sec / 60)}p, ~${syn.estimated_credits} credits]` : '';
 
             onProgress({
               sessionId: session.sessionId,
@@ -913,7 +964,7 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
               stageName: STAGE_CONFIG[5].label,
               progress: 70,
               status: 'running',
-              message: `Hoàn tất Storyboard (${legacyScenes.length} phân cảnh con).`,
+              message: `Hoàn tất Storyboard (${storyboardData.scenes.length} phân cảnh, ${legacyScenes.length} góc quay media)${pacingInfo}.`,
               artifacts: session.artifacts,
             });
             break;
@@ -1072,6 +1123,39 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
             // ================================================================
             const modelConfig = aiStudioModelConfigService.getOrCreateModelConfig(storage);
 
+            const runMode = runOptions?.mode || 'resume_missing';
+            const selectedIds = new Set(runOptions?.selectedShotIds || []);
+
+            // Tính toán số shot thực tế cần xử lý
+            const missingShots = allShots.filter((s) => !storage.isAssetValid(s.sceneId, s.shot.shot_id, 'image'));
+            let targetShotsCount = 0;
+            let modeLabel = 'Tiếp tục (chỉ phần thiếu)';
+
+            if (runMode === 'regenerate_all') {
+              targetShotsCount = totalShots;
+              modeLabel = 'Chạy lại toàn bộ';
+            } else if (runMode === 'regenerate_selected') {
+              targetShotsCount = allShots.filter((s) => selectedIds.has(s.shot.shot_id)).length;
+              modeLabel = `Chạy lại ${targetShotsCount} shot đã chọn`;
+            } else {
+              targetShotsCount = missingShots.length;
+              modeLabel = `Tiếp tục (${targetShotsCount} shot còn thiếu)`;
+            }
+
+            console.log(
+              `[Stage 6] 🚀 Bắt đầu Stage 6 với chế độ: [${modeLabel}]. ` +
+              `Tổng số: ${totalShots} shots, số shot sẽ sinh mới: ${targetShotsCount} shots. (Mode: ${runMode})`
+            );
+
+            onProgress({
+              sessionId: session.sessionId,
+              stage: 6,
+              stageName: STAGE_CONFIG[6].label,
+              progress: 70,
+              status: 'running',
+              message: `[${modeLabel}] Bắt đầu xử lý ${targetShotsCount}/${totalShots} phân cảnh...`,
+            });
+
             // ================================================================
             // STEP 2: Per-shot generation loop
             // ================================================================
@@ -1081,6 +1165,21 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
               if (signal.aborted || (session.status as string) === 'cancelled') {
                 throw new Error('Quá trình tạo visual media đã bị hủy bởi người dùng.');
               }
+
+              const isSelected = selectedIds.has(shot.shot_id);
+
+              // Nếu chạy chế độ regenerate_selected mà shot này KHÔNG được chọn: bỏ qua, giữ nguyên asset cũ
+              if (runMode === 'regenerate_selected' && !isSelected) {
+                const effectiveMediaType = (forceImageOnlyMode ? 'image' : shot.media_type) as 'image' | 'video';
+                completedSteps += (!forceImageOnlyMode && effectiveMediaType === 'video' ? 2 : 1);
+                continue;
+              }
+
+              // Quyết định forceRegenerate:
+              // - regenerate_all: forceRegenerate = true cho tất cả
+              // - regenerate_selected: forceRegenerate = true cho các shot được chọn
+              // - resume_missing: forceRegenerate = false (FlowMediaAutomationEngine tự skip nếu asset đã hợp lệ)
+              const forceRegenerate = runMode === 'regenerate_all' || (runMode === 'regenerate_selected' && isSelected);
 
               // 2a. Resolve model for this shot (preferred_model > config default > builtin)
               const effectiveMediaType = (forceImageOnlyMode ? 'image' : shot.media_type) as 'image' | 'video';
@@ -1151,6 +1250,10 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
                 },
               });
 
+              const activeProj = config.savedProjects?.find((p) => p.id === config.activeProjectId);
+              const targetFlowProjectId = extractFlowProjectId(activeProj?.flowProjectUrl || (config as any).flowProjectUrl);
+              const targetFlowProjectName = activeProj?.name || (config as any).projectName || (config as any).topic;
+
               const imgResult = await mutex.runExclusive(async () => {
                 return FlowMediaAutomationEngine.generateImageForShot({
                   storage,
@@ -1159,9 +1262,12 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
                   shotId: shot.shot_id,
                   prompt: compositePrompt,
                   aspectRatio: config.flowEngine.aspectRatio,
+                  targetProjectId: targetFlowProjectId,
+                  targetProjectName: targetFlowProjectName,
                   // Primary reference: character_ref (always), background_ref (if model supports 2+)
-                  referenceImagePath: refsToUpload[0],     // character_ref always at index 0
+                  referenceImagePath: refsToUpload.length > 0 ? refsToUpload[0] : undefined,     // character_ref always at index 0
                   referenceImagePaths: refsToUpload,       // full list for multi-ref models
+                  forceRegenerate,
                 });
               }, `ai_studio_t2i_${shot.shot_id}`);
 
@@ -1177,7 +1283,46 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
                 background_sent_as: backgroundSentAs,
               });
 
+              // Cập nhật ngay lập tức vào session.artifacts.scenes để UI hiển thị ảnh theo thời gian thực
+              if (session.artifacts.scenes) {
+                const targetScene = session.artifacts.scenes.find(
+                  (s) => s.id === shot.shot_id || s.shotId === shot.shot_id
+                );
+                if (targetScene) {
+                  targetScene.imagePath = imgResult.imagePath;
+                  targetScene.shotId = shot.shot_id;
+                  if (!targetScene.videoPath) {
+                    targetScene.assetPath = imgResult.imagePath;
+                  }
+                  targetScene.status = 'ready';
+                }
+                this.persistSessionStateAtomic(session);
+              }
+
               completedSteps++;
+
+              // Gửi event tiến độ kèm artifacts cập nhật để giao diện hiển thị ảnh ngay lập tức
+              onProgress({
+                sessionId: session.sessionId,
+                stage: 6,
+                stageName: STAGE_CONFIG[6].label,
+                progress: Math.min(84, t2iProgress),
+                status: 'running',
+                message: `[T2I] Đã tạo thành công ảnh cho shot ${shot.shot_id} (${idx + 1}/${totalShots})`,
+                lastAction: {
+                  ts: new Date().toISOString(),
+                  scene_id: sceneId,
+                  shot_id: shot.shot_id,
+                  action: 'download',
+                  target: imgResult.relativePath,
+                  retry: 0,
+                  status: 'ok',
+                },
+                artifacts: {
+                  ...session.artifacts,
+                  scenes: session.artifacts.scenes,
+                },
+              });
 
               // 2f: Step B — Image-to-Video (only for video shots, not in force-image mode)
               const shouldGenerateVideo = !forceImageOnlyMode && shot.media_type === 'video';
@@ -1215,13 +1360,49 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
                     motionNote: shot.motion_note,
                     expectedDurationSec: shot.expected_duration_sec || 4.0,
                     tolerancePct: 15.0,
+                    forceRegenerate,
                   });
                 }, `ai_studio_i2v_${shot.shot_id}`);
 
                 if (!vidResult.success) {
                   console.warn(`[AiStudioPipelineEngine] I2V failed for ${shot.shot_id}, falling back to static image:`, vidResult.error);
-                } else if (vidResult.needsReview) {
-                  console.info(`[AiStudioPipelineEngine] Shot ${shot.shot_id} duration deviation flagged needs_review: true (actual: ${vidResult.actualDurationSec}s, expected: ${vidResult.expectedDurationSec}s, dev: ${vidResult.deviationPct}%)`);
+                } else {
+                  if (vidResult.needsReview) {
+                    console.info(`[AiStudioPipelineEngine] Shot ${shot.shot_id} duration deviation flagged needs_review: true (actual: ${vidResult.actualDurationSec}s, expected: ${vidResult.expectedDurationSec}s, dev: ${vidResult.deviationPct}%)`);
+                  }
+                  if (vidResult.videoPath && session.artifacts.scenes) {
+                    const targetScene = session.artifacts.scenes.find(
+                      (s) => s.id === shot.shot_id || s.shotId === shot.shot_id
+                    );
+                    if (targetScene) {
+                      targetScene.videoPath = vidResult.videoPath;
+                      targetScene.assetPath = vidResult.videoPath;
+                      targetScene.status = 'ready';
+                    }
+                    this.persistSessionStateAtomic(session);
+                  }
+
+                  onProgress({
+                    sessionId: session.sessionId,
+                    stage: 6,
+                    stageName: STAGE_CONFIG[6].label,
+                    progress: Math.min(84, i2vProgress),
+                    status: 'running',
+                    message: `[I2V] Đã tạo thành công video cho shot ${shot.shot_id}`,
+                    lastAction: {
+                      ts: new Date().toISOString(),
+                      scene_id: sceneId,
+                      shot_id: shot.shot_id,
+                      action: 'download',
+                      target: vidResult.relativePath,
+                      retry: 0,
+                      status: 'ok',
+                    },
+                    artifacts: {
+                      ...session.artifacts,
+                      scenes: session.artifacts.scenes,
+                    },
+                  });
                 }
                 completedSteps++;
               }
@@ -1230,8 +1411,8 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
             // Refresh index.json and sync final local asset paths into session.artifacts.scenes
             const finalIndex = storage.readIndex();
             const updatedScenes = (session.artifacts.scenes || []).map((scene) => {
-              for (const sc of Object.values(finalIndex.scenes)) {
-                const shotMeta = sc.shots?.[scene.id];
+              for (const sc of Object.values(finalIndex.scenes || {})) {
+                const shotMeta = sc.shots?.[scene.id] || (scene.shotId ? sc.shots?.[scene.shotId] : undefined);
                 if (shotMeta) {
                   if (shotMeta.image_path) {
                     scene.imagePath = storage.resolvePath(shotMeta.image_path);
@@ -1243,6 +1424,9 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
                   if (relativeAsset) {
                     scene.assetPath = storage.resolvePath(relativeAsset);
                     scene.status = 'ready';
+                  }
+                  if (shotMeta.shot_id) {
+                    scene.shotId = shotMeta.shot_id;
                   }
                 }
               }
@@ -1442,8 +1626,34 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
             }
             return { assetPath: vidResult.videoPath, videoPath: vidResult.videoPath };
           }
-        } else if (mode === 'image') {
-          const effectiveRef = payload.referenceImagePath || config.channelProfile?.hostAvatarUrl || config.channelProfile?.channelCharacters?.[0]?.avatarUrl || config.flowEngine?.referenceImagePath;
+        }
+
+        // Chuẩn hoá lấy đường dẫn ảnh tham chiếu từ style_refs/character_ref.png trên đĩa
+        let effectiveRef: string | undefined;
+        const canonicalCharPath = storage.getStyleRefPath('character');
+        if (storage.isFileValidNonEmpty(canonicalCharPath)) {
+          effectiveRef = canonicalCharPath;
+        } else if (payload.referenceImagePath && fs.existsSync(payload.referenceImagePath) && fs.statSync(payload.referenceImagePath).size > 0) {
+          effectiveRef = payload.referenceImagePath;
+        } else {
+          // Fallback an toàn: nếu chưa có file trên đĩa nhưng có avatar/config (kể cả Base64), giải mã và lưu ngay vào style_refs
+          const rawAvatar =
+            config.channelProfile?.hostAvatarUrl ||
+            config.channelProfile?.channelCharacters?.[0]?.avatarUrl ||
+            config.flowEngine?.referenceImagePath;
+          if (rawAvatar) {
+            const saved = aiStudioStyleRefsService.saveImageSource(rawAvatar, canonicalCharPath);
+            if (saved && storage.isFileValidNonEmpty(canonicalCharPath)) {
+              effectiveRef = canonicalCharPath;
+            }
+          }
+        }
+
+        const activeProj = config.savedProjects?.find((p) => p.id === config.activeProjectId);
+        const targetFlowProjectId = extractFlowProjectId(activeProj?.flowProjectUrl || (config as any).flowProjectUrl);
+        const targetFlowProjectName = activeProj?.name || (config as any).projectName || (config as any).topic;
+
+        if (mode === 'image') {
           const imgResult = await mutex.runExclusive(async () => {
             return FlowMediaAutomationEngine.generateImageForShot({
               storage,
@@ -1452,6 +1662,8 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
               shotId,
               prompt: payload.visualPrompt,
               aspectRatio: payload.flowConfig?.aspectRatio || config.flowEngine.aspectRatio,
+              targetProjectId: targetFlowProjectId,
+              targetProjectName: targetFlowProjectName,
               referenceImagePath: effectiveRef,
               forceRegenerate: true,
             });
@@ -1463,6 +1675,7 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
               const sc = session.artifacts.scenes.find((s) => s.id === shotId || s.shotId === shotId);
               if (sc) {
                 sc.imagePath = imgResult.imagePath;
+                sc.shotId = shotId;
                 sc.assetPath = sc.videoPath || imgResult.imagePath;
                 sc.visualPrompt = payload.visualPrompt;
                 sc.status = 'ready';
@@ -1481,6 +1694,9 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
               shotId,
               prompt: payload.visualPrompt,
               aspectRatio: payload.flowConfig?.aspectRatio || config.flowEngine.aspectRatio,
+              targetProjectId: targetFlowProjectId,
+              targetProjectName: targetFlowProjectName,
+              referenceImagePath: effectiveRef,
               forceRegenerate: true,
             });
           }, `regenerate_both_img_${shotId}`);

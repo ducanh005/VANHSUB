@@ -44,6 +44,25 @@ const GOOGLE_AUTH_COOKIE_NAMES = [
 export const OFFSCREEN_X = -3000;
 export const OFFSCREEN_Y = -3000;
 
+/**
+ * Chuẩn hóa tên dự án trước khi đặt cho Google Flow.
+ * Loại bỏ ký tự đặc biệt không an toàn cho DOM/File, chuẩn hóa khoảng trắng, giới hạn tối đa 60 ký tự.
+ */
+export function sanitizeProjectName(name?: string): string {
+  if (!name || typeof name !== 'string') return 'Video Project';
+  let cleaned = name
+    .replace(/<[^>]*>/g, '') // loại bỏ HTML tags
+    .replace(/[\r\n\t]/g, ' ') // loại bỏ newline, tab
+    .replace(/["\\/|?*<>:]/g, '-') // thay ký tự không hợp lệ bằng gạch ngang
+    .replace(/\s+/g, ' ') // chuẩn hóa khoảng trắng
+    .trim();
+
+  if (cleaned.length > 60) {
+    cleaned = cleaned.slice(0, 60).trim();
+  }
+  return cleaned || 'Video Project';
+}
+
 export class GoogleVeoSessionManager {
   private static instance: GoogleVeoSessionManager | null = null;
   public lobbyWindow: any = null;
@@ -1189,7 +1208,8 @@ export class GoogleVeoSessionManager {
   public async createNewProject(
     win?: any,
     onProgress?: (pct: number, msg: string) => void,
-    isCancelled?: () => boolean
+    isCancelled?: () => boolean,
+    targetProjectName?: string
   ): Promise<boolean> {
     const targetWin = win || this.lobbyWindow;
     if (!targetWin || targetWin.isDestroyed()) return false;
@@ -1301,6 +1321,13 @@ export class GoogleVeoSessionManager {
           console.log(`[Google Flow Browser] 📌 Đã lưu currentProjectId mới: ${this.currentProjectId}`);
         }
         console.log(`[Google Flow Browser] ✅ Dự án mới đã được khởi tạo (${pageUrl}), không gian làm việc sẵn sàng.`);
+
+        // Nhóm B: Đổi tên project nếu có targetProjectName
+        if (targetProjectName) {
+          onProgress?.(19, `Đang cập nhật tên dự án thành "${targetProjectName}"...`);
+          await this.renameCurrentProject(targetWin, targetProjectName);
+        }
+
         return true;
       }
     }
@@ -1394,16 +1421,254 @@ export class GoogleVeoSessionManager {
   }
 
   /**
-   * Đảm bảo cửa sổ Flow đang ở đúng project context mong muốn:
+   * Đổi tên project hiện tại trên Google Flow khớp với tên đề tài đã cấu hình.
+   * Chạy an toàn, không bao giờ ném ngoại lệ làm gián đoạn luồng sinh media.
+   */
+  /**
+   * Đổi tên project hiện tại trên Google Flow khớp với tên đề tài đã cấu hình.
+   * Chạy an toàn, xác nhận thực tế (verify) trên DOM xem tên đã thực sự đổi chưa, không bao giờ ném ngoại lệ.
+   */
+  public async renameCurrentProject(win: any, targetName: string): Promise<boolean> {
+    if (!win || win.isDestroyed() || !targetName) return false;
+    const sanitized = sanitizeProjectName(targetName);
+    console.log(`[Google Flow Browser] 🏷️ Đang thực hiện đổi tên dự án thành: "${sanitized}"...`);
+
+    const renameScript = `
+      (async function() {
+        try {
+          const targetText = ${JSON.stringify(sanitized)};
+          const header = document.querySelector('header, [role="banner"], .top-bar, .app-bar, .header, nav');
+          const root = header || document.body;
+
+          const readCurrentTitle = () => {
+            const inp = root.querySelector('input[aria-label*="tên" i], input[aria-label*="title" i], input[aria-label*="project" i], input.project-name, input.title-input, header input');
+            if (inp && inp.value) return inp.value.trim();
+            const titleEl = root.querySelector('h1, [role="heading"], [contenteditable="true"], .project-title, .title, [class*="project-name"]');
+            return titleEl ? (titleEl.textContent || '').trim() : '';
+          };
+
+          let actionMethod = 'none';
+
+          // 1. Kiểm tra nếu có sẵn input chỉnh sửa tên (input title/name)
+          const existingInput = root.querySelector('input[aria-label*="tên" i], input[aria-label*="title" i], input[aria-label*="project" i], input.project-name, input.title-input, header input');
+          if (existingInput) {
+            existingInput.focus();
+            existingInput.value = targetText;
+            existingInput.dispatchEvent(new Event('input', { bubbles: true }));
+            existingInput.dispatchEvent(new Event('change', { bubbles: true }));
+            existingInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true }));
+            existingInput.blur();
+            actionMethod = 'existing_input';
+          } else {
+            // 2. Tìm phần tử văn bản tiêu đề của dự án
+            const textElements = Array.from(root.querySelectorAll('h1, [role="heading"], button[aria-label*="tên" i], button[aria-label*="rename" i], [contenteditable], .project-title, .title, [class*="project-name"]'));
+            let titleTarget = null;
+            for (const el of textElements) {
+              const txt = (el.textContent || '').trim();
+              const aria = (el.getAttribute('aria-label') || '').trim();
+              if (/tháng|untitled|dự án|project/i.test(txt) || /tên|rename|title/i.test(aria) || el.getAttribute('contenteditable') === 'true') {
+                titleTarget = el;
+                break;
+              }
+            }
+
+            if (titleTarget) {
+              if (titleTarget.getAttribute('contenteditable') === 'true') {
+                titleTarget.focus();
+                titleTarget.innerText = targetText;
+                titleTarget.dispatchEvent(new Event('input', { bubbles: true }));
+                titleTarget.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true }));
+                titleTarget.blur();
+                actionMethod = 'contenteditable';
+              } else {
+                titleTarget.click();
+                await new Promise(r => setTimeout(r, 400));
+
+                const spawnedInput = root.querySelector('input:focus, input[type="text"], input, [contenteditable="true"]');
+                if (spawnedInput) {
+                  if (spawnedInput.tagName.toLowerCase() === 'input') {
+                    spawnedInput.value = targetText;
+                    spawnedInput.dispatchEvent(new Event('input', { bubbles: true }));
+                    spawnedInput.dispatchEvent(new Event('change', { bubbles: true }));
+                    spawnedInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true }));
+                    spawnedInput.blur();
+                  } else {
+                    spawnedInput.innerText = targetText;
+                    spawnedInput.dispatchEvent(new Event('input', { bubbles: true }));
+                    spawnedInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true }));
+                    spawnedInput.blur();
+                  }
+                  actionMethod = 'click_then_input';
+                }
+              }
+            }
+          }
+
+          if (actionMethod === 'none') {
+            return { ok: false, verified: false, reason: 'title_element_not_found', actualTitle: readCurrentTitle(), expectedTitle: targetText };
+          }
+
+          // Chờ DOM cập nhật sau thao tác đổi tên
+          await new Promise(r => setTimeout(r, 600));
+          const actualTitle = readCurrentTitle();
+          const isVerified = actualTitle.toLowerCase() === targetText.toLowerCase() || actualTitle.toLowerCase().includes(targetText.toLowerCase());
+
+          return {
+            ok: isVerified,
+            verified: isVerified,
+            method: actionMethod,
+            actualTitle,
+            expectedTitle: targetText
+          };
+        } catch (e) {
+          return { ok: false, verified: false, error: String(e) };
+        }
+      })()
+    `;
+
+    try {
+      const res = await this.safeExecuteJs<any>(win, renameScript, 4500);
+      if (res?.verified) {
+        console.log(`[Google Flow Browser] ✅ [VERIFY PASS] Đã xác nhận đổi tên dự án Google Flow thành "${sanitized}" (thực tế trên DOM: "${res.actualTitle}", method: ${res.method})`);
+        return true;
+      } else {
+        console.warn(`[Google Flow Browser] ⚠️ [VERIFY FAIL] Đổi tên dự án chưa thành công: Tiêu đề trên DOM là "${res?.actualTitle || 'không rõ'}", mong muốn "${sanitized}" (${res?.reason || res?.error || 'mismatch'}). Giữ nguyên tên hiện tại.`);
+        return false;
+      }
+    } catch (err: any) {
+      console.warn('[Google Flow Browser] ⚠️ Ngoại lệ khi đổi tên dự án (bỏ qua an toàn):', err?.message || err);
+      return false;
+    }
+  }
+
+  /**
+   * Tìm và mở lại project đã có trên Google Flow dựa trên tên đề tài.
+   * Dùng làm fallback (Ưu tiên 2) khi mở link URL trực tiếp thất bại, tránh tạo trùng lặp dự án.
+   * Xử lý trường hợp có nhiều dự án trùng tên một cách thận trọng và minh bạch.
+   */
+  public async findAndOpenProjectByName(
+    win: any,
+    targetName: string,
+    onProgress?: (pct: number, msg: string) => void,
+    isCancelled?: () => boolean
+  ): Promise<{ found: boolean; projectId?: string }> {
+    if (!win || win.isDestroyed() || !targetName) return { found: false };
+    const sanitized = sanitizeProjectName(targetName);
+    const lowerTarget = sanitized.toLowerCase();
+    onProgress?.(15, `Đang tìm dự án "${sanitized}" tại trang chủ Google Flow...`);
+    console.log(`[Google Flow Browser] 🔍 Fallback: Tìm dự án theo tên "${sanitized}" tại sảnh chính...`);
+
+    try {
+      const currentUrl = win.webContents?.getURL?.() || '';
+      if (!currentUrl.includes('flow.google.com') || currentUrl.includes('/project/')) {
+        await win.loadURL('https://flow.google.com/');
+      }
+
+      // Chờ các card dự án hiển thị (tối đa 8s)
+      for (let i = 0; i < 8; i++) {
+        if (isCancelled?.()) return { found: false };
+        await new Promise((r) => setTimeout(r, 1000));
+        const hasCards = await this.safeExecuteJs<boolean>(
+          win,
+          `Boolean(document.querySelector('a[href*="/project/"], flow-project-card, [class*="project-card"], [role="listitem"]'))`,
+          1500
+        );
+        if (hasCards) break;
+      }
+
+      const matchCardScript = `
+        (function() {
+          const target = ${JSON.stringify(lowerTarget)};
+          const cards = Array.from(document.querySelectorAll('a[href*="/project/"], flow-project-card, [class*="project-card"], [role="listitem"]'));
+          const matches = [];
+
+          for (const card of cards) {
+            const txt = (card.textContent || '').toLowerCase().trim();
+            const href = card.getAttribute('href') || card.querySelector('a')?.getAttribute('href') || '';
+            const match = href.match(/\\/project\\/([a-zA-Z0-9_-]+)/);
+            const pId = match ? match[1] : null;
+
+            if (txt.includes(target) || (target.length > 6 && target.includes(txt))) {
+              const r = card.getBoundingClientRect();
+              matches.push({
+                projectId: pId,
+                href,
+                cardText: txt.slice(0, 80),
+                x: Math.round(r.left + r.width / 2),
+                y: Math.round(r.top + r.height / 2)
+              });
+            }
+          }
+          return { count: matches.length, matches };
+        })()
+      `;
+
+      const matchRes = await this.safeExecuteJs<any>(win, matchCardScript, 2000);
+      const count = matchRes?.count || 0;
+      const matches = matchRes?.matches || [];
+
+      if (count > 0) {
+        if (count > 1) {
+          console.warn(`[Google Flow Browser] ⚠️ CẢNH BÁO: Phát hiện ${count} dự án trùng tên "${sanitized}" trên Google Flow. Ưu tiên chọn dự án gần đây nhất (thẻ đầu tiên, ID: ${matches[0].projectId || 'unknown'}). Khuyến nghị: Cấu hình URL dự án chính xác trong Bước 3 của Thiết Lập Dự Án.`);
+        } else {
+          console.log(`[Google Flow Browser] 🎯 Tìm thấy duy nhất 1 dự án khớp tên: "${sanitized}" (projectId: ${matches[0].projectId || 'unknown'})`);
+        }
+
+        const chosen = matches[0];
+        if (chosen.projectId) {
+          this.currentProjectId = chosen.projectId;
+          await win.loadURL(`https://flow.google.com/project/${chosen.projectId}`);
+        } else if (chosen.href) {
+          const fullHref = chosen.href.startsWith('http') ? chosen.href : `https://flow.google.com${chosen.href}`;
+          await win.loadURL(fullHref);
+        } else {
+          await this.safeExecuteJs(
+            win,
+            `document.elementFromPoint(${chosen.x}, ${chosen.y})?.click()`,
+            1000
+          );
+        }
+
+        // Đợi project tải xong
+        for (let i = 0; i < 15; i++) {
+          if (isCancelled?.()) return { found: false };
+          await new Promise((r) => setTimeout(r, 1000));
+          const ready = await this.safeExecuteJs<boolean>(
+            win,
+            `Boolean(window.location.href.includes('/project/') && (document.querySelector('.ProseMirror, [contenteditable="true"], .prompt-input, flow-image-tile, flow-media-tile, flow-canvas, flow-prompt-box, .prompt-box-container') || document.querySelectorAll('button').length > 5))`,
+            1500
+          );
+          if (ready) {
+            const url = win.webContents?.getURL?.() || '';
+            const m = url.match(/\/project\/([a-zA-Z0-9_-]+)/);
+            if (m && m[1]) {
+              this.currentProjectId = m[1];
+            }
+            console.log(`[Google Flow Browser] ✅ Resume thành công vào dự án: ${this.currentProjectId}`);
+            return { found: true, projectId: this.currentProjectId || undefined };
+          }
+        }
+      }
+    } catch (err: any) {
+      console.warn('[Google Flow Browser] ⚠️ Lỗi trong findAndOpenProjectByName:', err?.message || err);
+    }
+
+    return { found: false };
+  }
+
+  /**
+   * Đảm bảo cửa sổ Flow đang ở đúng project context (theo URL hoặc mở mới)
    * - Nếu targetProjectId được truyền vào: Điều hướng/giữ nguyên đúng project đó.
    * - Nếu targetProjectId KHÔNG được truyền vào: Kiểm tra nếu cửa sổ đang ở trong một project hoặc có currentProjectId hợp lệ, tái sử dụng project đó.
+   * - Nếu mở theo URL thất bại: Fallback tìm kiếm project theo tên đề tài trước khi tạo mới.
    * - Chỉ tạo project mới khi hoàn toàn chưa có dự án nào đang mở.
    */
   public async ensureProjectContext(
     win: any,
     targetProjectId?: string,
     onProgress?: (pct: number, msg: string) => void,
-    isCancelled?: () => boolean
+    isCancelled?: () => boolean,
+    targetProjectName?: string
   ): Promise<boolean> {
     if (!win || win.isDestroyed()) return false;
 
@@ -1451,12 +1716,20 @@ export class GoogleVeoSessionManager {
           }
         }
       } catch {}
-      console.warn(`[Google Flow Browser] ⚠️ Không mở được dự án ${activeId} trên Google Flow (có thể không tồn tại hoặc bị xóa). Tự động tạo dự án mới...`);
+      console.warn(`[Google Flow Browser] ⚠️ Không mở được dự án ${activeId} trên Google Flow (có thể không tồn tại hoặc bị xóa).`);
       this.currentProjectId = null;
+
+      // Ưu tiên 2 (Nhóm C): Fallback tìm lại project theo tên trước khi tạo mới!
+      if (targetProjectName) {
+        const fallbackRes = await this.findAndOpenProjectByName(win, targetProjectName, onProgress, isCancelled);
+        if (fallbackRes.found) {
+          return true;
+        }
+      }
     }
 
     // Trường hợp chưa có project hoặc mở project cũ thất bại -> Tạo project mới sạch sẽ
-    return await this.createNewProject(win, onProgress, isCancelled);
+    return await this.createNewProject(win, onProgress, isCancelled, targetProjectName);
   }
 
   /**
@@ -1771,6 +2044,9 @@ export class GoogleVeoSessionManager {
       projectId?: string;
       taskId?: string;
       generationAttemptId?: string;
+      retryIndex?: number;
+      shotBaselineUrls?: Set<string>;
+      shotStartedAt?: number;
     },
     onProgress?: (percent: number, msg?: string) => void,
     isCancelled?: () => boolean
@@ -1806,6 +2082,9 @@ export class GoogleVeoSessionManager {
     const ctx: FlowStateContext = {
       taskId,
       generationAttemptId,
+      retryIndex: params.retryIndex,
+      shotBaselineUrls: params.shotBaselineUrls,
+      shotStartedAt: params.shotStartedAt,
       mode: 'video',
       win,
       sessionMgr: this,
@@ -1885,13 +2164,18 @@ export class GoogleVeoSessionManager {
       outputCount?: number;
       imageEngine?: string;
       projectId?: string;
+      projectName?: string;
+      flowAssetUrl?: string;
       taskId?: string;
       generationAttemptId?: string;
       referenceImagePath?: string;
+      retryIndex?: number;
+      shotBaselineUrls?: Set<string>;
+      shotStartedAt?: number;
     },
     onProgress?: (pct: number, msg?: string) => void,
     isCancelled?: () => boolean
-  ): Promise<{ imageUrl?: string; base64Data?: string; projectId?: string; error?: 'out_of_credits' | 'timeout' | 'button_not_found' | 'agent_error' | string; errorDetail?: string; } | null> {
+  ): Promise<{ imageUrl?: string; base64Data?: string; projectId?: string; flowAssetUrl?: string; error?: 'out_of_credits' | 'timeout' | 'button_not_found' | 'agent_error' | string; errorDetail?: string; } | null> {
     const taskId = params.taskId || `task_img_${Date.now()}`;
     const generationAttemptId = params.generationAttemptId || `att_${Math.random().toString(36).slice(2, 7)}`;
 
@@ -1911,6 +2195,9 @@ export class GoogleVeoSessionManager {
     const ctx: FlowStateContext = {
       taskId,
       generationAttemptId,
+      retryIndex: params.retryIndex,
+      shotBaselineUrls: params.shotBaselineUrls,
+      shotStartedAt: params.shotStartedAt,
       mode: 'image',
       win: this.lobbyWindow,
       sessionMgr: this,
@@ -1919,6 +2206,8 @@ export class GoogleVeoSessionManager {
       outputCount: params.outputCount || 1,
       imageEngine: params.imageEngine || 'nano-banana',
       targetProjectId: params.projectId,
+      targetProjectName: params.projectName,
+      flowAssetUrl: params.flowAssetUrl,
       referenceImagePath: params.referenceImagePath,
       onProgress,
       isCancelled,
@@ -1953,6 +2242,7 @@ export class GoogleVeoSessionManager {
       imageUrl: res.imageUrl,
       base64Data: res.base64Data,
       projectId: res.projectId,
+      flowAssetUrl: ctx.flowAssetUrl || (res as any)?.flowAssetUrl || (res as any)?.data?.flowAssetUrl,
     };
   }
 

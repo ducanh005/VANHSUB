@@ -172,7 +172,8 @@ export const VideoEnsureProjectContextState: FlowAutomationState = {
         ctx.win,
         ctx.targetProjectId,
         ctx.onProgress,
-        ctx.isCancelled
+        ctx.isCancelled,
+        ctx.targetProjectName
       );
       if (!ready) {
         return { ok: false, error: 'project_context_failed', errorDetail: 'Không thể chuẩn bị project context' };
@@ -325,7 +326,43 @@ export const VideoSelectModeState: FlowAutomationState = {
   },
 
   async execute(ctx: FlowStateContext): Promise<ActionResult> {
-    // 1. Đồng bộ LocalStorage
+    // 0. Kiểm tra nếu trigger cài đặt đã hiển thị sẵn mode Video
+    const checkAlreadyVideoJs = `
+      (function() {
+        const trigger = document.querySelector('button.settings-trigger-button');
+        const text = trigger ? (trigger.innerText || '').toLowerCase() : '';
+        return text.includes('video') || text.includes('veo');
+      })()
+    `;
+    const alreadyVideo = await safeExecuteJs<boolean>(ctx.win, checkAlreadyVideoJs);
+    if (alreadyVideo) {
+      console.log('[FlowVideoState] [SELECT_VIDEO_MODE] Google Flow đã ở chế độ Video sẵn sàng.');
+      return { ok: true, data: { alreadyVideo: true } };
+    }
+
+    // 1. Thử click switch trực tiếp qua Settings Trigger Menu
+    const switchViaSettingsMenuJs = `
+      (async function() {
+        const trigger = document.querySelector('button.settings-trigger-button');
+        if (!trigger) return false;
+        trigger.click();
+        await new Promise(r => setTimeout(r, 600));
+        const btns = Array.from(document.querySelectorAll('.cdk-overlay-container button, mat-button-toggle button, [role="menuitem"]'));
+        const videoBtn = btns.find(b => (b.innerText || '').toLowerCase().includes('videocam') || (b.innerText || '').toLowerCase().includes('video'));
+        if (videoBtn) {
+          videoBtn.click();
+          return true;
+        }
+        return false;
+      })()
+    `;
+    const switched = await safeExecuteJs<boolean>(ctx.win, switchViaSettingsMenuJs, 3000);
+    if (switched) {
+      console.log('[FlowVideoState] [SELECT_VIDEO_MODE] Đã chuyển sang chế độ Video qua Settings Trigger.');
+      await new Promise((r) => setTimeout(r, 500));
+    }
+
+    // 2. Đồng bộ LocalStorage
     await safeExecuteJs(
       ctx.win,
       `
@@ -341,7 +378,7 @@ export const VideoSelectModeState: FlowAutomationState = {
     `
     );
 
-    // 2. Click Mode Tab VIDEO trên DOM qua FlowElementFinder nếu có
+    // 3. Click Mode Tab VIDEO trên DOM qua FlowElementFinder nếu có
     try {
       const modeFinder = await FlowElementFinder.find(ctx.win, FlowElementFinder.getModeTabSpec('video'));
       if (modeFinder.found && modeFinder.selectedCandidate) {
@@ -518,7 +555,7 @@ export const VideoHandleInitFrameState: FlowAutomationState = {
     const checkChipJs = `
       (function() {
         const chip = document.querySelector(
-          'flow-image-ingredient-chip, flow-ingredient-chip, .chip-container, mat-chip-row, [data-ingredient-type], flow-chip, .chip-image-wrapper, flow-prompt-box mat-chip, flow-prompt-box img, flow-base-prompt-box img, .ProseMirror img, flow-prompt-box [class*="chip"], flow-prompt-box [class*="ingredient"], .frame-trigger, button[aria-label*="Thành phần tạo hình ảnh" i]'
+          '.chip-container[aria-label="Thành phần"] img.chip-image, flow-ingredient-bar .chip-container[aria-label="Thành phần"] img.chip-image, .chip-container[aria-label="Thành phần"], flow-image-ingredient-chip, flow-ingredient-chip, .chip-image-wrapper, flow-prompt-box mat-chip, .frame-trigger, button[aria-label*="Thành phần tạo hình ảnh" i]'
         );
         if (chip) return true;
         const promptEl = document.querySelector('flow-prompt-box .ProseMirror, .prosemirror-editor, [contenteditable="true"]');
@@ -965,6 +1002,9 @@ export const VideoClickGenerateState: FlowAutomationState = {
         (ctx as any).netFilterAttached = true;
       } catch (e) {}
     }
+
+    // 1b. Tiền trễ 200ms trước khi click để bảo đảm animation/transition DOM của Flow đã ổn định
+    await new Promise((r) => setTimeout(r, 200));
 
     // 2. Gửi Native Mouse Click nếu có toạ độ coords
     const coords = (ctx as any).btnCoords;

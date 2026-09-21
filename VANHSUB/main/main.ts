@@ -20,6 +20,7 @@ import { DubbingRunner } from './render/dubbingRunner'
 import { OcrRunner } from './ocr/ocrRunner'
 import { checkVietTtsConnection, getAvailableVoices, previewTts, getEdgeVoices } from './render/ttsEngine'
 import { VoiceSampleStore } from './store/voiceSampleStore'
+import { getAiStudioStore } from './store/aiStudioStore'
 import { extractAudioFromUrl } from './helpers/voiceFromUrl'
 import { inspectMediaUrl, downloadVideoFromUrl } from './helpers/videoDownloader'
 import { installRendererLogger } from './helpers/logger'
@@ -122,16 +123,61 @@ app.whenReady().then(() => {
   protocol.handle('vanhmedia', async (request) => {
     try {
       const requestUrl = new URL(request.url)
-      const filePath = decodeURIComponent(requestUrl.pathname.replace(/^\/+/, ''))
+      let rawPath = decodeURIComponent(requestUrl.pathname.replace(/^\/+/, ''))
 
-      if (!filePath || !fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
-        return new Response(`Không tìm thấy file media: ${filePath}`, { status: 404 })
+      // Bóc tách tiền tố file:/// hoặc file:// nếu truyền nhầm
+      if (rawPath.startsWith('file:///')) {
+        rawPath = rawPath.replace(/^file:\/\/\//, '')
+      } else if (rawPath.startsWith('file://')) {
+        rawPath = rawPath.replace(/^file:\/\//, '')
       }
 
-      const stat = fs.statSync(filePath)
-      const mime = MIME_BY_EXT[path.extname(filePath).toLowerCase()] || 'application/octet-stream'
+      // Chuẩn hóa định dạng ổ đĩa Windows có dấu gạch chéo đầu (ví dụ /D:/ -> D:/)
+      if (/^\/[a-zA-Z]:/.test(rawPath)) {
+        rawPath = rawPath.slice(1)
+      }
+
+      let resolvedFilePath = rawPath
+
+      // Nếu đường dẫn chưa tồn tại trực tiếp (ví dụ đường dẫn tương đối '05_media/...'):
+      // Tìm kiếm theo các thư mục dự án / workspace hiện hành
+      if (!fs.existsSync(resolvedFilePath) || !fs.statSync(resolvedFilePath).isFile()) {
+        const candidates: string[] = []
+        try {
+          const aiStudioConfig = getAiStudioStore().store
+          const activeProj = aiStudioConfig?.savedProjects?.find((p: any) => p.id === aiStudioConfig?.activeProjectId)
+          if (activeProj?.outputDir) {
+            candidates.push(path.resolve(activeProj.outputDir, rawPath))
+            candidates.push(path.resolve(activeProj.outputDir, '05_media', path.basename(rawPath)))
+          }
+          if (activeProj?.id) {
+            candidates.push(path.resolve(process.cwd(), 'flow_outputs', 'projects', activeProj.id, rawPath))
+            candidates.push(path.resolve(process.cwd(), 'flow_outputs', 'projects', activeProj.id, '05_media', path.basename(rawPath)))
+          }
+        } catch {}
+
+        // Kiểm tra thêm theo thư mục làm việc cwd và flow_outputs
+        candidates.push(path.resolve(process.cwd(), rawPath))
+        candidates.push(path.resolve(process.cwd(), 'flow_outputs', rawPath))
+
+        for (const cand of candidates) {
+          if (fs.existsSync(cand) && fs.statSync(cand).isFile()) {
+            resolvedFilePath = cand
+            break
+          }
+        }
+      }
+
+      if (!resolvedFilePath || !fs.existsSync(resolvedFilePath) || !fs.statSync(resolvedFilePath).isFile()) {
+        console.warn(`[vanhmedia] 404 Not Found: "${rawPath}" (resolved: "${resolvedFilePath}")`)
+        return new Response(`Không tìm thấy file media: ${rawPath}`, { status: 404 })
+      }
+
+      const stat = fs.statSync(resolvedFilePath)
+      const mime = MIME_BY_EXT[path.extname(resolvedFilePath).toLowerCase()] || 'application/octet-stream'
       const rangeHeader = request.headers.get('Range')
 
+      // Hỗ trợ HTTP 206 Partial Content cho các yêu cầu tua (seek) video / audio
       if (rangeHeader) {
         const match = /bytes=(\d*)-(\d*)/.exec(rangeHeader)
         if (match) {
@@ -148,7 +194,7 @@ app.whenReady().then(() => {
           }
 
           const stream = Readable.toWeb(
-            fs.createReadStream(filePath, { start, end })
+            fs.createReadStream(resolvedFilePath, { start, end })
           ) as unknown as BodyInit
 
           return new Response(stream, {
@@ -163,7 +209,18 @@ app.whenReady().then(() => {
         }
       }
 
-      const stream = Readable.toWeb(fs.createReadStream(filePath)) as unknown as BodyInit
+      // Cho các yêu cầu nạp toàn bộ file (ví dụ thẻ <img> nạp ảnh PNG/JPG):
+      // Ưu tiên sử dụng net.fetch với file:// URL để Chromium tự giải mã stream C++ gốc
+      const fileUrl = url.pathToFileURL(resolvedFilePath).toString()
+      try {
+        const fetchRes = await net.fetch(fileUrl)
+        if (fetchRes.ok) {
+          return fetchRes
+        }
+      } catch {}
+
+      // Fallback nếu net.fetch không khả dụng
+      const stream = Readable.toWeb(fs.createReadStream(resolvedFilePath)) as unknown as BodyInit
       return new Response(stream, {
         status: 200,
         headers: {
@@ -173,6 +230,7 @@ app.whenReady().then(() => {
         },
       })
     } catch (err: any) {
+      console.error('[vanhmedia] Error serving media:', err)
       return new Response(`Lỗi stream media: ${err?.message || err}`, { status: 500 })
     }
   })
@@ -260,11 +318,12 @@ ipcMain.handle('downloader:inspect', async (_event, rawUrl: string) => {
 });
 
 // Tải video MP4 từ liên kết và tự động tạo Task trong thư mục dự án
-ipcMain.handle('downloader:download', async (_event, options: { url: string; quality?: any }) => {
+ipcMain.handle('downloader:download', async (_event, options: { url: string; quality?: any; noWatermarkUrl?: string }) => {
   try {
     const result = await downloadVideoFromUrl({
       url: options.url,
       quality: options.quality,
+      noWatermarkUrl: options.noWatermarkUrl,
       onProgress: (progress) => {
         mainWindow?.webContents.send('downloader:progress', progress);
       },

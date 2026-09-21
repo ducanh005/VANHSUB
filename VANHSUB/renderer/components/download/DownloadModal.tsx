@@ -29,6 +29,8 @@ interface MediaInfo {
     id: string;
     label: string;
   }>;
+  /** URL MP4 không watermark — từ amemv API cho Douyin/TikTok */
+  noWatermarkUrl?: string;
 }
 
 interface DownloadProgress {
@@ -153,6 +155,8 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
       const result = await window.vanhsub.downloader.download({
         url: targetUrl,
         quality: selectedQuality,
+        // Truyền URL không watermark đã lấy từ bước inspect (Douyin/TikTok)
+        noWatermarkUrl: mediaInfo?.noWatermarkUrl,
       });
 
       toast.success('Tải video thành công! Đã tạo thư mục dự án riêng.');
@@ -166,6 +170,7 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
       setIsDownloading(false);
     }
   };
+
 
   // Huy hiệu nền tảng
   const renderPlatformBadge = (platform?: string) => {
@@ -377,6 +382,14 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
                   </div>
                 </div>
               </div>
+
+              {/* Badge không watermark cho Douyin/TikTok */}
+              {(mediaInfo.platform === 'douyin' || mediaInfo.platform === 'tiktok') && mediaInfo.noWatermarkUrl && (
+                <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-emerald-950/40 border border-emerald-500/30 text-[11px] text-emerald-300">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 shrink-0 animate-pulse" />
+                  <span>Video sẽ được tải <strong>không có watermark / logo Douyin</strong> — giống Cốc Cốc, chất lượng gốc.</span>
+                </div>
+              )}
 
               {/* Thông báo thư mục lưu trữ */}
               <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-slate-900/80 border border-slate-700/50 text-[11px] text-slate-300">

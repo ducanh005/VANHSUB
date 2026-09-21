@@ -345,8 +345,10 @@ export interface VanhsubAPI {
         id: string;
         label: string;
       }>;
+      /** URL MP4 không watermark — Douyin/TikTok only */
+      noWatermarkUrl?: string;
     }>;
-    download: (options: { url: string; quality?: string }) => Promise<{
+    download: (options: { url: string; quality?: string; noWatermarkUrl?: string }) => Promise<{
       task: Task;
       result: any;
     }>;
@@ -408,7 +410,12 @@ export interface VanhsubAPI {
       gatedMode?: boolean;
       options?: DeepPartial<AiStudioConfig>;
     }) => Promise<{ sessionId: string }>;
-    resumePipeline: (payload: { sessionId: string; fromStage?: number }) => Promise<{ success: boolean }>;
+    resumePipeline: (payload: {
+      sessionId: string;
+      fromStage?: number;
+      mode?: 'resume_missing' | 'regenerate_selected' | 'regenerate_all';
+      selectedShotIds?: string[];
+    }) => Promise<{ success: boolean }>;
     cancelPipeline: (payload: { sessionId: string }) => Promise<{ success: boolean }>;
     getPipelineState: (payload: { sessionId: string }) => Promise<PipelineSessionState | null>;
 
