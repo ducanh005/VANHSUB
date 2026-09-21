@@ -17,6 +17,7 @@ import fs from 'fs';
 import path from 'path';
 import { AiStudioDiskStorageManager, StyleManifest } from '../storage/AiStudioDiskStorageManager';
 import { FlowMediaAutomationEngine } from '../../workflow/flow-engine/FlowMediaAutomationEngine';
+import { shortenForLog } from '../../workflow/flow-engine/FlowFileInputInjector';
 
 export interface EnsureStyleRefsOptions {
   storage: AiStudioDiskStorageManager;
@@ -75,17 +76,21 @@ export class AiStudioStyleRefsService {
    * Helper an toàn để lưu ảnh từ nhiều định dạng: Base64 Data URL, file:// URL, đường dẫn file cục bộ.
    * Trả về true nếu nạp/ghi file thành công vào targetPath.
    */
-  private _saveImageSource(input: string | undefined, targetPath: string): boolean {
+  public saveImageSource(input: string | undefined, targetPath: string): boolean {
     if (!input || typeof input !== 'string' || !input.trim()) return false;
     const trimmed = input.trim();
 
     try {
       // 1. Trường hợp Base64 Data URL (e.g. data:image/png;base64,...)
-      if (trimmed.startsWith('data:image/')) {
+      if (trimmed.startsWith('data:image/') || trimmed.startsWith('data:application/octet-stream')) {
         const commaIdx = trimmed.indexOf(',');
         const base64Str = commaIdx >= 0 ? trimmed.slice(commaIdx + 1) : trimmed;
         const buffer = Buffer.from(base64Str, 'base64');
         if (buffer.length > 0) {
+          const parentDir = path.dirname(targetPath);
+          if (!fs.existsSync(parentDir)) {
+            fs.mkdirSync(parentDir, { recursive: true });
+          }
           fs.writeFileSync(targetPath, buffer);
           console.log(`[StyleRefsService] 💾 Đã giải mã Base64 Data URL và ghi vào: ${targetPath} (${buffer.length} bytes)`);
           return true;
@@ -106,6 +111,10 @@ export class AiStudioStyleRefsService {
       }
 
       if (fs.existsSync(localPath) && fs.statSync(localPath).size > 0) {
+        const parentDir = path.dirname(targetPath);
+        if (!fs.existsSync(parentDir)) {
+          fs.mkdirSync(parentDir, { recursive: true });
+        }
         fs.copyFileSync(localPath, targetPath);
         console.log(`[StyleRefsService] 📁 Đã sao chép ảnh người dùng cung cấp: "${localPath}" → "${targetPath}"`);
         return true;
@@ -114,6 +123,10 @@ export class AiStudioStyleRefsService {
       console.warn(`[StyleRefsService] Cảnh báo khi lưu ảnh nguồn vào ${targetPath}:`, err?.message || err);
     }
     return false;
+  }
+
+  private _saveImageSource(input: string | undefined, targetPath: string): boolean {
+    return this.saveImageSource(input, targetPath);
   }
 
   /**
@@ -191,7 +204,7 @@ export class AiStudioStyleRefsService {
       charProvidedByUser = true;
       console.log(`[StyleRefsService] ℹ️ Đã tìm thấy ảnh nhân vật có sẵn trên đĩa: "${characterRefPath}"`);
     } else if (options.userCharacterImagePath) {
-      console.warn(`[StyleRefsService] ⚠️ userCharacterImagePath không hợp lệ hoặc rỗng: "${options.userCharacterImagePath}"`);
+      console.warn(`[StyleRefsService] ⚠️ userCharacterImagePath không hợp lệ hoặc rỗng: "${shortenForLog(options.userCharacterImagePath)}"`);
     }
 
     // 2. Xử lý ảnh bối cảnh:
@@ -201,13 +214,13 @@ export class AiStudioStyleRefsService {
       bgProvidedByUser = true;
       console.log(`[StyleRefsService] ℹ️ Đã tìm thấy ảnh nền có sẵn trên đĩa: "${backgroundRefPath}"`);
     } else if (options.userBackgroundImagePath) {
-      console.warn(`[StyleRefsService] ⚠️ userBackgroundImagePath không hợp lệ hoặc rỗng: "${options.userBackgroundImagePath}"`);
+      console.warn(`[StyleRefsService] ⚠️ userBackgroundImagePath không hợp lệ hoặc rỗng: "${shortenForLog(options.userBackgroundImagePath)}"`);
     }
 
     // 3. Nếu nhân vật vẫn chưa có sau bước nạp ảnh người dùng → Sinh qua Flow T2I kèm log cảnh báo rõ ràng
     if (!storage.isFileValidNonEmpty(characterRefPath)) {
       console.log(
-        `[StyleRefsService] ⚠️ Không tìm thấy ảnh nhân vật do người dùng cung cấp tại "${options.userCharacterImagePath || 'none'}" — chuyển sang chế độ AI tự generate qua Flow T2I.`
+        `[StyleRefsService] ⚠️ Không tìm thấy ảnh nhân vật do người dùng cung cấp tại "${shortenForLog(options.userCharacterImagePath || 'none')}" — chuyển sang chế độ AI tự generate qua Flow T2I.`
       );
       if (!options.characterStylePrompt) {
         throw new Error(
@@ -220,7 +233,7 @@ export class AiStudioStyleRefsService {
     // 4. Nếu bối cảnh vẫn chưa có sau bước nạp ảnh người dùng → Sinh qua Flow T2I kèm log cảnh báo rõ ràng
     if (!storage.isFileValidNonEmpty(backgroundRefPath)) {
       console.log(
-        `[StyleRefsService] ⚠️ Không tìm thấy ảnh nền do người dùng cung cấp tại "${options.userBackgroundImagePath || 'none'}" — chuyển sang chế độ AI tự generate qua Flow T2I.`
+        `[StyleRefsService] ⚠️ Không tìm thấy ảnh nền do người dùng cung cấp tại "${shortenForLog(options.userBackgroundImagePath || 'none')}" — chuyển sang chế độ AI tự generate qua Flow T2I.`
       );
       if (!options.backgroundStylePrompt) {
         throw new Error(

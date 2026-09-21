@@ -64,6 +64,8 @@ export interface PipelineShotMetadata {
   references_used?: string[];
   /** Whether background was sent as uploaded image or baked into text prompt */
   background_sent_as?: 'image' | 'text_prompt';
+  /** Google Flow internal asset URL (flow-content.google/image/{id}) for library reuse */
+  flow_asset_url?: string;
 }
 
 export interface PipelineSceneMetadata {
@@ -84,6 +86,10 @@ export interface PipelineIndexData {
   created_at: string;
   updated_at: string;
   status: PipelineProjectStatus;
+  /** Project-level Google Flow character reference asset URL for library reuse (backward compat) */
+  flow_asset_url?: string;
+  /** Individual asset URLs by reference type (e.g. { character: '...', background: '...' }) */
+  flow_asset_urls?: Record<string, string>;
   scenes: Record<string, PipelineSceneMetadata>;
   action_logs: PipelineActionLogEntry[];
 }
@@ -171,6 +177,7 @@ export interface StoryboardSceneItem {
 export interface PipelineStoryboardData {
   project_id: string;
   scenes: StoryboardSceneItem[];
+  synthesis?: import('../types').StoryboardSynthesis;
 }
 
 // ============================================================================

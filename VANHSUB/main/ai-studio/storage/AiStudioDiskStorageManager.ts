@@ -32,6 +32,7 @@ export interface StorageManagerOptions {
   baseDir?: string;
   customMediaDir?: string;
   autoInitialize?: boolean;
+  exactProjectDir?: boolean;
 }
 
 export class AiStudioDiskStorageManager {
@@ -47,7 +48,7 @@ export class AiStudioDiskStorageManager {
 
     // Determine base project directory
     const customBase = options.baseDir || path.join(process.cwd(), 'flow_outputs', 'projects');
-    this._projectDir = path.basename(customBase) === this._projectId
+    this._projectDir = options.exactProjectDir || path.basename(customBase) === this._projectId
       ? customBase
       : path.join(customBase, this._projectId);
 
@@ -244,6 +245,39 @@ export class AiStudioDiskStorageManager {
 
     const jsonStr = JSON.stringify(data, null, 2);
     this.writeAtomic(this._paths.indexPath, jsonStr);
+  }
+
+  /**
+   * Lấy URL/ID nội bộ của ảnh tham chiếu trên Google Flow (flow-content.google/image/{id})
+   * để tái sử dụng từ Thư viện Asset mà không cần upload lại.
+   * Hỗ trợ lưu và lấy riêng biệt cho 'character' và 'background'.
+   */
+  public getFlowAssetUrl(refType: 'character' | 'background' | string = 'character'): string | undefined {
+    const index = this.readIndex();
+    if (index.flow_asset_urls && index.flow_asset_urls[refType]) {
+      return index.flow_asset_urls[refType];
+    }
+    if (refType === 'character') {
+      return index.flow_asset_url;
+    }
+    return undefined;
+  }
+
+  /**
+   * Lưu URL/ID nội bộ của ảnh tham chiếu trên Google Flow vào index.json.
+   * Lưu vào flow_asset_urls[refType] và đồng bộ flow_asset_url cho character.
+   */
+  public setFlowAssetUrl(url: string, refType: 'character' | 'background' | string = 'character'): void {
+    if (!url || typeof url !== 'string') return;
+    const index = this.readIndex();
+    if (!index.flow_asset_urls) {
+      index.flow_asset_urls = {};
+    }
+    index.flow_asset_urls[refType] = url.trim();
+    if (refType === 'character') {
+      index.flow_asset_url = url.trim();
+    }
+    this.writeIndex(index);
   }
 
   /**
