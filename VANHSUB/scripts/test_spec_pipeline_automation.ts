@@ -494,7 +494,8 @@ export class SpecStoryboardService {
   public static generateStoryboard(
     projectId: string,
     scriptScenes: Array<{ scene_id: string; narration: string; visual_note?: string }>,
-    timing: TimingJson
+    timing: TimingJson,
+    options?: { shotMode?: 'single' | 'multi' }
   ): StoryboardJson {
     const timingMap = new Map<string, number>();
     for (const t of timing.scenes) {
@@ -507,7 +508,16 @@ export class SpecStoryboardService {
       const duration = timingMap.get(sc.scene_id) ?? 4.0;
       const shots: StoryboardShotItem[] = [];
 
-      if (duration > 5.5) {
+      if (options?.shotMode === 'single') {
+        // Single shot scene (1:1 per scene)
+        shots.push({
+          shot_id: `${sc.scene_id}_shot_1`,
+          shot_index: 1,
+          expected_duration_sec: duration,
+          image_prompt: `Cinematic scene, ${sc.visual_note || sc.narration}, 8k photorealistic`,
+          motion_note: 'steady camera subtle zoom, 3s',
+        });
+      } else if (duration > 5.5) {
         // Multi-shot scene: 2 shots
         const half = Number((duration / 2).toFixed(2));
         shots.push({
@@ -859,7 +869,7 @@ class StoryboardServiceAdapter {
     return SpecStoryboardService.generateTimingJson(projectDir, projectId, scenes);
   }
 
-  static async generateStoryboard(projectId: string, scriptScenes: any[], timing: any): Promise<StoryboardJson> {
+  static async generateStoryboard(projectId: string, scriptScenes: any[], timing: any, options?: any): Promise<StoryboardJson> {
     if (StoryboardServiceBinding.isProd) {
       const tempDir = path.join(os.tmpdir(), `sb_temp_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`);
       const mgr = new (StorageManagerBinding.cls as any)(projectId, { baseDir: tempDir, autoInitialize: true });
@@ -870,11 +880,12 @@ class StoryboardServiceAdapter {
         storage: mgr,
         script: { project_id: projectId, scenes: scriptScenes },
         timing,
+        ...options,
       });
       try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch {}
       return sb;
     }
-    return SpecStoryboardService.generateStoryboard(projectId, scriptScenes, timing);
+    return SpecStoryboardService.generateStoryboard(projectId, scriptScenes, timing, options);
   }
 
   static validateStoryboardUniqueness(storyboard: any): { valid: boolean; duplicateIds: string[] } {
@@ -1093,6 +1104,14 @@ async function runAllTests() {
       assertEqual(storyboard.scenes[1]!.shots.length, 2, 'Scene 2 over 5.5s should decompose into 2 shots for visual pacing');
       assertEqual(storyboard.scenes[1]!.shots[0]!.shot_id, 'scene_02_shot_1', 'First shot id formatting');
       assertEqual(storyboard.scenes[1]!.shots[1]!.shot_id, 'scene_02_shot_2', 'Second shot id formatting');
+
+      // Verify Single-Shot mode (1:1 mapping per scene)
+      const singleStoryboard = await StoryboardService.generateStoryboard('proj_t1_6_single', scriptScenes, timing, { shotMode: 'single' });
+      assertEqual(singleStoryboard.scenes.length, 2, 'Single mode must have 2 scenes');
+      assertEqual(singleStoryboard.scenes[0]!.shots.length, 1, 'Scene 1 in single mode must have 1 shot');
+      assertEqual(singleStoryboard.scenes[1]!.shots.length, 1, 'Scene 2 in single mode (7.0s) must have exactly 1 shot (1:1 per scene)');
+      assertEqual(singleStoryboard.scenes[1]!.shots[0]!.shot_id, 'scene_02_shot_1', 'Single shot id formatting');
+      assertEqual(singleStoryboard.scenes[1]!.shots[0]!.expected_duration_sec, 7.0, 'Single shot duration matches scene audio duration');
     });
 
     // 7. Unique shot_id Validation
