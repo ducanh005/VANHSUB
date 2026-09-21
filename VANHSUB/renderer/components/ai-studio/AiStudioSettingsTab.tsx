@@ -807,6 +807,51 @@ export default function AiStudioSettingsTab() {
             </div>
 
             <div>
+              <label className="mb-1 block font-medium text-slate-300">
+                Chế độ phân cảnh thị giác (Visual Pacing)
+              </label>
+              <select
+                value={form.flowEngine.shotMode || 'single'}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    flowEngine: { ...form.flowEngine, shotMode: e.target.value as any },
+                  })
+                }
+                className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-slate-200 focus:border-brand-cyan focus:outline-none"
+              >
+                <option value="single">1 câu kịch bản = 1 phân cảnh (1:1 - Khuyến nghị, nhanh &amp; tiết kiệm lượt)</option>
+                <option value="multi">Đa góc quay điện ảnh (Multi-shot - Tự động chia 2-4 góc máy)</option>
+              </select>
+              <p className="mt-1 text-[11px] text-slate-500">
+                Chế độ 1:1 đảm bảo mỗi câu thoại có đúng 1 media tương ứng, không bị lặp lại phân cảnh và tiết kiệm credit.
+              </p>
+            </div>
+
+            <div>
+              <label className="mb-1 block font-medium text-slate-300">
+                Mức độ chi tiết hoá phân cảnh (Granularity)
+              </label>
+              <select
+                value={form.flowEngine.granularity || 'balanced'}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    flowEngine: { ...form.flowEngine, granularity: e.target.value as any },
+                  })
+                }
+                className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-slate-200 focus:border-brand-cyan focus:outline-none"
+              >
+                <option value="detailed">🎯 Chi tiết (1 shot/câu, bám sát nội dung nhất)</option>
+                <option value="balanced">⚖️ Cân bằng (Mặc định - AI tự gộp các câu mô tả tĩnh &amp; tối ưu pacing)</option>
+                <option value="fast">⚡ Nhanh (Ưu tiên gộp nhiều câu vào 1 shot ~8-15s, tiết kiệm credit &amp; thời gian)</option>
+              </select>
+              <p className="mt-1 text-[11px] text-slate-500">
+                Ở mức "Cân bằng" hoặc "Nhanh", AI tự động nhận diện các đoạn mô tả tĩnh kéo dài để gộp thành 1 shot ảnh kèm hiệu ứng Ken Burns, tránh giật hình và tiết kiệm thời gian sinh media.
+              </p>
+            </div>
+
+            <div>
               <label className="mb-1 block font-medium text-slate-300">Tiền tố phong cách (Style Prefix)</label>
               <input
                 type="text"

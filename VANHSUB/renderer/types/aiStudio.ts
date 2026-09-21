@@ -89,6 +89,21 @@ export interface AiStudioVoiceConfig {
 export type FlowAspectRatio = '16:9' | '9:16' | '1:1';
 export type FlowOutputMode = 'image' | 'video';
 export type FlowOutputsPerScene = 1 | 2 | 4;
+export type FlowShotMode = 'single' | 'multi';
+export type FlowGranularity = 'detailed' | 'balanced' | 'fast';
+
+export interface StoryboardSynthesis {
+  total_shots: number;
+  image_shots: number;
+  video_shots: number;
+  total_duration_sec: number;
+  avg_duration_per_shot_sec: number;
+  is_too_fragmented: boolean;
+  warning?: string;
+  estimated_production_time_sec: number;
+  estimated_credits: number;
+  granularity: FlowGranularity;
+}
 
 export interface AiStudioFlowEngineConfig {
   /** Chế độ hiển thị cửa sổ sảnh Flow: 'offscreen' | 'live_window' */
@@ -97,6 +112,19 @@ export interface AiStudioFlowEngineConfig {
   aspectRatio: FlowAspectRatio;
   /** Chế độ đầu ra: sinh ảnh tĩnh (kèm Ken Burns) hoặc sinh video chuyển động */
   outputMode: FlowOutputMode;
+  /**
+   * Chế độ phân cảnh thị giác (Visual Pacing):
+   * - 'single' (Khuyến nghị mặc định): 1 câu kịch bản = 1 phân cảnh duy nhất (1:1), tiết kiệm thời gian & chi phí.
+   * - 'multi': Tự động chia nhỏ câu thoại dài thành 2-4 góc quay con (Multi-shot cinematic).
+   */
+  shotMode?: FlowShotMode;
+  /**
+   * Mức độ chi tiết hoá phân cảnh (Granularity):
+   * - 'detailed': Chi tiết theo từng câu (1 shot/câu, bám sát kịch bản).
+   * - 'balanced' (Mặc định): AI tự cân bằng, gộp các câu mô tả tĩnh liền kề thành 1 shot ảnh duy nhất kèm Ken Burns zoom/pan.
+   * - 'fast': Ưu tiên gộp nhiều câu ngắn liền kề thành 1 shot dài hơn (~8-15s) để sản xuất nhanh nhất & tiết kiệm credit.
+   */
+  granularity?: FlowGranularity;
   /** Tiền tố phong cách hình ảnh gắn vào đầu mỗi visual prompt */
   stylePromptPrefix: string;
   /** Negative prompt loại bỏ chi tiết lỗi (watermark, chữ rác, méo hình) */
@@ -267,6 +295,10 @@ export interface SavedProjectProfile {
   channelProfile: ChannelProfileConfig;
   flowConfig?: Partial<AiStudioFlowEngineConfig>;
   updatedAt: number;
+  /** Thư mục xuất dữ liệu thực tế trên ổ đĩa cho project này */
+  outputDir?: string;
+  /** Link hoặc mã dự án trên Google Flow (vd: https://flow.google.com/project/...) */
+  flowProjectUrl?: string;
   /** Danh sách các ý tưởng đã sinh/thiết lập cho project này */
   ideas?: IdeaBlueprint[];
   /** Ý tưởng đang chọn hoặc sản xuất gần nhất */
@@ -287,6 +319,10 @@ export interface AiStudioConfig {
   rendering: AiStudioRenderingConfig;
   subtitles: AiStudioSubtitleConfig;
   channelProfile?: ChannelProfileConfig;
+  /** Thư mục xuất dữ liệu thực tế mặc định hoặc của project hiện hành */
+  outputDir?: string;
+  /** Link hoặc mã dự án Google Flow của project hiện hành */
+  flowProjectUrl?: string;
   /** Danh sách các project / kênh đã lưu */
   savedProjects?: SavedProjectProfile[];
   /** ID của project đang kích hoạt */
@@ -445,6 +481,8 @@ export interface PipelineStartInput {
   topic: string;
   blueprint?: IdeaBlueprint;
   gatedMode?: boolean;
+  outputDir?: string;
+  flowProjectUrl?: string;
   options?: DeepPartial<AiStudioConfig>;
 }
 export type StartPipelinePayload = PipelineStartInput;
@@ -488,6 +526,8 @@ export type ApproveStageResult = ApproveStageResponse;
 export interface PipelineResumeInput {
   sessionId: string;
   fromStage?: number;
+  mode?: 'resume_missing' | 'regenerate_selected' | 'regenerate_all';
+  selectedShotIds?: string[];
 }
 export type ResumePipelinePayload = PipelineResumeInput;
 
@@ -566,6 +606,7 @@ export interface PipelineSessionArtifacts {
   srtPath?: string;
   wordsAlignment?: WordTimestamp[];
   scenes?: StoryboardScene[];
+  storyboardSynthesis?: StoryboardSynthesis;
   mediaDir?: string;
   videoPath?: string;
   metadata?: {

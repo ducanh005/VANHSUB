@@ -122,6 +122,7 @@ export interface AiStudioStoreActions {
   deleteProject: (projectId: string) => Promise<boolean>;
   switchProject: (projectId: string) => Promise<boolean>;
   getActiveProject: () => SavedProjectProfile | null;
+  isProjectSetupComplete: (proj?: SavedProjectProfile | null) => { isComplete: boolean; missing: string[] };
   saveActiveProjectData: (
     data: Partial<Pick<SavedProjectProfile, 'ideas' | 'selectedIdea' | 'lastSessionId' | 'savedSession'>>,
     targetProjectId?: string
@@ -367,6 +368,8 @@ export const useAiStudioStore = create<AiStudioStore>((set, get) => ({
       savedProjects: updatedList,
       activeProjectId: project.id,
       channelProfile: project.channelProfile,
+      outputDir: project.outputDir,
+      flowProjectUrl: project.flowProjectUrl,
     };
 
     if (project.flowConfig?.aspectRatio) {
@@ -394,6 +397,8 @@ export const useAiStudioStore = create<AiStudioStore>((set, get) => ({
         const nextActive = updatedList[0];
         patch.activeProjectId = nextActive.id;
         patch.channelProfile = nextActive.channelProfile;
+        patch.outputDir = nextActive.outputDir;
+        patch.flowProjectUrl = nextActive.flowProjectUrl;
         if (nextActive.flowConfig?.aspectRatio) {
           patch.flowEngine = { aspectRatio: nextActive.flowConfig.aspectRatio };
         }
@@ -403,6 +408,8 @@ export const useAiStudioStore = create<AiStudioStore>((set, get) => ({
       } else {
         patch.activeProjectId = '';
         patch.channelProfile = { ...DEFAULT_CHANNEL_PROFILE_CONFIG };
+        patch.outputDir = '';
+        patch.flowProjectUrl = '';
       }
     }
 
@@ -418,6 +425,8 @@ export const useAiStudioStore = create<AiStudioStore>((set, get) => ({
     const patch: DeepPartial<AiStudioConfig> = {
       activeProjectId: target.id,
       channelProfile: target.channelProfile,
+      outputDir: target.outputDir,
+      flowProjectUrl: target.flowProjectUrl,
     };
 
     if (target.flowConfig?.aspectRatio) {
@@ -438,6 +447,27 @@ export const useAiStudioStore = create<AiStudioStore>((set, get) => ({
       return existingList[0] || null;
     }
     return existingList.find((p) => p.id === currentConfig.activeProjectId) || existingList[0] || null;
+  },
+
+  isProjectSetupComplete: (proj?: SavedProjectProfile | null): { isComplete: boolean; missing: string[] } => {
+    const target = proj !== undefined ? proj : get().getActiveProject();
+    if (!target) {
+      return { isComplete: false, missing: ['Chưa tạo hoặc chọn dự án'] };
+    }
+    const missing: string[] = [];
+    if (!target.name?.trim()) {
+      missing.push('Tên đề tài / Tên kênh');
+    }
+    if (!target.outputDir?.trim()) {
+      missing.push('Thư mục xuất file (Output Folder)');
+    }
+    if (!target.channelProfile?.channelNiche?.trim()) {
+      missing.push('Chủ đề Kênh (Niche)');
+    }
+    return {
+      isComplete: missing.length === 0,
+      missing,
+    };
   },
 
   saveActiveProjectData: async (

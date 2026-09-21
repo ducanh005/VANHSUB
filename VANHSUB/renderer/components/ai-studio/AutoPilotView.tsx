@@ -119,7 +119,15 @@ const toMediaUrl = (filePath?: string | null): string => {
   ) {
     return filePath;
   }
-  return `vanhmedia://local/${encodeURIComponent(filePath)}`;
+  let cleanPath = filePath;
+  if (cleanPath.startsWith('file:///')) {
+    cleanPath = cleanPath.replace(/^file:\/\/\//, '');
+  } else if (cleanPath.startsWith('file://')) {
+    cleanPath = cleanPath.replace(/^file:\/\//, '');
+  }
+  // Chuẩn hóa dấu gạch chéo Windows thành URL format
+  cleanPath = cleanPath.replace(/\\/g, '/');
+  return `vanhmedia://local/${encodeURIComponent(cleanPath)}`;
 };
 
 interface AutoPilotViewProps {
@@ -130,9 +138,11 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
   const {
     config,
     updateChannelProfileConfig,
+    updateFlowConfig,
     getActiveProject,
     saveActiveProjectData,
     switchProject,
+    isProjectSetupComplete,
   } = useAiStudioStore();
   const [topic, setTopic] = useState('');
   const [session, setSession] = useState<PipelineSessionState | null>(null);
@@ -146,6 +156,21 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
   const [conflictWarningModal, setConflictWarningModal] = useState<{
     pendingBlueprint: IdeaBlueprint;
   } | null>(null);
+  const [setupWarningToast, setSetupWarningToast] = useState<string | null>(null);
+
+  const activeProj = getActiveProject();
+  const setupCheck = isProjectSetupComplete(activeProj);
+
+  const handleOpenIdeaModal = () => {
+    if (!setupCheck.isComplete) {
+      const msg = `⚠️ Dự án chưa hoàn tất thiết lập cơ bản: Thiếu ${setupCheck.missing.join(', ')}. Vui lòng cập nhật thiết lập dự án trước khi sinh ý tưởng!`;
+      setSetupWarningToast(msg);
+      setTimeout(() => setSetupWarningToast(null), 6000);
+      return;
+    }
+    setSetupWarningToast(null);
+    setIsModalOpen(true);
+  };
 
   // 3-Column Studio States (Matching Revo Studio UI)
   const [activeTab, setActiveTab] = useState<'video' | 'facebook'>('video');
@@ -249,10 +274,24 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
     }
   };
 
-  // State cho việc tạo lại hoặc nạp tệp thủ công từng phân cảnh
   const [regeneratingSceneId, setRegeneratingSceneId] = useState<string | null>(null);
   const [importingSceneId, setImportingSceneId] = useState<string | null>(null);
   const [sceneActionNotice, setSceneActionNotice] = useState<string | null>(null);
+  const [selectedShotIds, setSelectedShotIds] = useState<string[]>([]);
+
+  const toggleSelectShot = (shotId: string) => {
+    setSelectedShotIds((prev) =>
+      prev.includes(shotId) ? prev.filter((id) => id !== shotId) : [...prev, shotId]
+    );
+  };
+
+  const handleSelectAllShots = (allIds: string[]) => {
+    if (selectedShotIds.length === allIds.length) {
+      setSelectedShotIds([]);
+    } else {
+      setSelectedShotIds(allIds);
+    }
+  };
 
   const showSceneNotice = (msg: string) => {
     setSceneActionNotice(msg);
@@ -682,7 +721,10 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
   };
 
   // TIẾP TỤC TIẾN TRÌNH TỪ BƯỚC HIỆN TẠI
-  const handleResumePipelineRun = async (idea?: IdeaBlueprint | null) => {
+  const handleResumePipelineRun = async (
+    idea?: IdeaBlueprint | null,
+    mode: 'resume_missing' | 'regenerate_selected' | 'regenerate_all' = 'resume_missing'
+  ) => {
     const targetIdea = idea || session?.artifacts?.blueprint || selectedIdea;
     if (targetIdea) {
       setSelectedIdea(targetIdea);
@@ -708,6 +750,8 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
         await window.vanhsub.aiStudio.resumePipeline({
           sessionId: session.sessionId,
           fromStage: session.currentStage,
+          mode,
+          selectedShotIds: mode === 'regenerate_selected' ? selectedShotIds : undefined,
         });
       } else if (window.vanhsub?.aiStudio?.approveStage) {
         await window.vanhsub.aiStudio.approveStage({
@@ -718,6 +762,49 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
     } catch (err: any) {
       setIsRunning(false);
       setErrorMessage(`Không thể tiếp tục tiến trình: ${err?.message || err}`);
+    }
+  };
+
+  // TÁI TẠO STORYBOARD THEO CHUẨN 1:1 (1 CÂU KỊCH BẢN = 1 PHÂN CẢNH DUY NHẤT)
+  const handleRegenerateStoryboardOneToOne = async () => {
+    if (!session?.sessionId || isRunning) return;
+    showSceneNotice('Đang cập nhật chế độ 1:1 và tạo lại Storyboard từ Bước 5...');
+    setIsRunning(true);
+    try {
+      if (updateFlowConfig) {
+        await updateFlowConfig({ shotMode: 'single' });
+      }
+      if (window.vanhsub?.aiStudio?.resumePipeline) {
+        await window.vanhsub.aiStudio.resumePipeline({
+          sessionId: session.sessionId,
+          fromStage: 5,
+        });
+      }
+    } catch (err: any) {
+      setIsRunning(false);
+      showSceneNotice(`✗ Lỗi tái tạo Storyboard: ${err?.message || err}`);
+    }
+  };
+
+  // THAY ĐỔI MỨC GRANULARITY VÀ TÁI TẠO STORYBOARD
+  const handleChangeGranularity = async (newGranularity: 'detailed' | 'balanced' | 'fast') => {
+    if (!session?.sessionId || isRunning) return;
+    const names = { detailed: 'Chi tiết', balanced: 'Cân bằng', fast: 'Nhanh' };
+    showSceneNotice(`Đang cập nhật mức "${names[newGranularity]}" và tái tạo Storyboard từ Bước 5...`);
+    setIsRunning(true);
+    try {
+      if (updateFlowConfig) {
+        await updateFlowConfig({ granularity: newGranularity });
+      }
+      if (window.vanhsub?.aiStudio?.resumePipeline) {
+        await window.vanhsub.aiStudio.resumePipeline({
+          sessionId: session.sessionId,
+          fromStage: 5,
+        });
+      }
+    } catch (err: any) {
+      setIsRunning(false);
+      showSceneNotice(`✗ Lỗi tái tạo Storyboard: ${err?.message || err}`);
     }
   };
 
@@ -1278,17 +1365,45 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
                 <option value="9:16">📱 Shorts</option>
               </select>
 
-              {/* Nút ✨ Sinh (Mở modal tạo & sinh ý tưởng) */}
+              {/* Nút ✨ Sinh (Mở modal tạo & sinh ý tưởng - có Guard kiểm tra hoàn tất thiết lập) */}
               <button
                 type="button"
-                onClick={() => setIsModalOpen(true)}
-                className="flex items-center gap-1 rounded-lg bg-[#FA5252] hover:bg-[#e04545] px-3 py-1 text-xs font-bold text-white shadow transition active:scale-95 cursor-pointer"
+                onClick={handleOpenIdeaModal}
+                className={`flex items-center gap-1 rounded-lg px-3 py-1 text-xs font-bold text-white shadow transition active:scale-95 cursor-pointer ${
+                  setupCheck.isComplete
+                    ? 'bg-[#FA5252] hover:bg-[#e04545]'
+                    : 'bg-amber-600/80 hover:bg-amber-500 text-amber-100'
+                }`}
+                title={
+                  setupCheck.isComplete
+                    ? 'Sinh ý tưởng kịch bản mới'
+                    : `⚠️ Chưa hoàn tất thiết lập: Thiếu ${setupCheck.missing.join(', ')}`
+                }
               >
                 <Sparkles className="h-3.5 w-3.5" />
                 <span>Sinh</span>
               </button>
             </div>
           </div>
+
+          {/* Setup Warning Alert Banner (nếu bấm Sinh khi chưa hoàn tất setup) */}
+          {setupWarningToast && (
+            <div className="mx-3 mt-2 rounded-xl border border-amber-500/40 bg-amber-950/40 p-2.5 text-[11px] text-amber-200 animate-in fade-in flex flex-col gap-1.5 shadow-md">
+              <div className="flex items-start gap-1.5">
+                <AlertCircle className="h-3.5 w-3.5 text-amber-400 shrink-0 mt-0.5" />
+                <span>{setupWarningToast}</span>
+              </div>
+              {onSwitchProject && (
+                <button
+                  type="button"
+                  onClick={onSwitchProject}
+                  className="self-end rounded-lg bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 px-2 py-0.5 text-[10px] font-bold text-amber-300 transition cursor-pointer"
+                >
+                  👉 Mở màn Thiết Lập ngay
+                </button>
+              )}
+            </div>
+          )}
 
           {/* Nội dung danh sách ý tưởng / Trạng thái trống */}
           <div className="flex-1 overflow-y-auto custom-scrollbar p-3">
@@ -1871,6 +1986,22 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
                               {session.artifacts.scenes.length} đã có media
                             </span>
                           )}
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-[10px] font-bold border ${
+                              (config.flowEngine?.shotMode || 'single') === 'single'
+                                ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+                                : 'bg-indigo-500/15 text-indigo-300 border-indigo-500/30'
+                            }`}
+                            title={
+                              (config.flowEngine?.shotMode || 'single') === 'single'
+                                ? 'Mỗi câu kịch bản tương ứng đúng 1 phân cảnh media (1:1)'
+                                : 'Tự động chia các câu dài thành nhiều góc quay (Multi-shot)'
+                            }
+                          >
+                            {(config.flowEngine?.shotMode || 'single') === 'single'
+                              ? '🎯 Chuẩn 1:1 (1 Cảnh = 1 Media)'
+                              : '🎬 Đa góc quay (Multi-shot)'}
+                          </span>
                         </div>
 
                         {/* Nút xem Flow trực tiếp */}
@@ -1960,6 +2091,203 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
                     {/* Danh sách phân cảnh và hiển thị Media */}
                     {session?.artifacts?.scenes && session.artifacts.scenes.length > 0 ? (
                       <div className="space-y-4">
+                        {/* Thẻ Dự toán Sản xuất & Pacing */}
+                        {(() => {
+                          const syn = (session.artifacts as any)?.storyboardSynthesis;
+                          const totalShots = syn?.total_shots || session.artifacts.scenes.length;
+                          const videoShots = syn?.video_shots || session.artifacts.scenes.filter((s) => s.motionType === 'video').length;
+                          const imageShots = syn?.image_shots || (totalShots - videoShots);
+                          const totalDurationSec = syn?.total_duration_sec || (session.artifacts.scenes.reduce((acc, s) => acc + (s.durationMs || 0), 0) / 1000);
+                          const avgDurationSec = syn?.avg_duration_per_shot_sec || (totalShots > 0 ? Math.round((totalDurationSec / totalShots) * 10) / 10 : 0);
+                          const isFragmented = syn?.is_too_fragmented ?? (avgDurationSec > 0 && avgDurationSec < 2.5);
+                          const estTimeSec = syn?.estimated_production_time_sec || (imageShots * 22 + videoShots * 65);
+                          const estCredits = syn?.estimated_credits || (imageShots * 1 + videoShots * 5);
+                          const estMin = Math.floor(estTimeSec / 60);
+                          const estSec = estTimeSec % 60;
+                          const currentGranularity = (config.flowEngine as any)?.granularity || 'balanced';
+
+                          return (
+                            <div className="rounded-2xl border border-slate-800 bg-gradient-to-b from-[#0F172A] to-[#0B101E] p-4 space-y-3 shadow-lg">
+                              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800/80 pb-3">
+                                <div className="flex items-center gap-2">
+                                  <Sparkles className="h-4 w-4 text-amber-400" />
+                                  <span className="text-xs font-bold text-white uppercase tracking-wider">
+                                    Dự toán Sản xuất &amp; Pacing Phân cảnh
+                                  </span>
+                                </div>
+
+                                {/* Bộ chuyển Granularity nhanh */}
+                                <div className="flex items-center gap-1.5 bg-slate-950 p-1 rounded-xl border border-slate-800 text-[11px]">
+                                  <span className="text-slate-400 px-1.5 font-medium">Độ chi tiết:</span>
+                                  {(['detailed', 'balanced', 'fast'] as const).map((g) => {
+                                    const labels = { detailed: '🎯 Chi tiết', balanced: '⚖️ Cân bằng', fast: '⚡ Nhanh' };
+                                    const isSel = currentGranularity === g;
+                                    return (
+                                      <button
+                                        key={g}
+                                        type="button"
+                                        onClick={() => handleChangeGranularity(g)}
+                                        disabled={isRunning}
+                                        className={`px-2.5 py-1 rounded-lg font-medium transition cursor-pointer disabled:opacity-50 ${
+                                          isSel
+                                            ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow'
+                                            : 'text-slate-400 hover:text-white hover:bg-slate-900'
+                                        }`}
+                                        title={
+                                          g === 'detailed'
+                                            ? '1 shot/câu, bám sát nội dung nhất'
+                                            : g === 'balanced'
+                                            ? 'Tự động gộp các đoạn mô tả tĩnh kéo dài'
+                                            : 'Gộp nhiều câu ngắn (~8-15s) để sinh nhanh nhất'
+                                        }
+                                      >
+                                        {labels[g]}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+
+                              {/* 4 Cards Chỉ số Dự toán */}
+                              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                                <div className="rounded-xl border border-slate-800/80 bg-slate-950/60 p-2.5">
+                                  <span className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold block">Tổng phân cảnh</span>
+                                  <div className="text-sm font-bold text-white mt-0.5">
+                                    {totalShots} <span className="text-[11px] font-normal text-slate-400">({imageShots} ảnh / {videoShots} clip)</span>
+                                  </div>
+                                </div>
+
+                                <div className="rounded-xl border border-slate-800/80 bg-slate-950/60 p-2.5">
+                                  <span className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold block">Pacing Trung bình</span>
+                                  <div className="flex items-center gap-1.5 mt-0.5">
+                                    <span className={`text-sm font-bold ${isFragmented ? 'text-amber-400' : 'text-emerald-400'}`}>
+                                      {avgDurationSec}s
+                                    </span>
+                                    <span className={`text-[10px] px-1.5 py-0.2 rounded font-semibold border ${
+                                      isFragmented
+                                        ? 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+                                        : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+                                    }`}>
+                                      {isFragmented ? '⚠️ Quá vụn' : 'Lý tưởng'}
+                                    </span>
+                                  </div>
+                                </div>
+
+                                <div className="rounded-xl border border-slate-800/80 bg-slate-950/60 p-2.5">
+                                  <span className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold block">Ước tính thời gian</span>
+                                  <div className="text-sm font-bold text-indigo-300 mt-0.5">
+                                    ~{estMin > 0 ? `${estMin}p ` : ''}{estSec}s
+                                  </div>
+                                </div>
+
+                                <div className="rounded-xl border border-slate-800/80 bg-slate-950/60 p-2.5">
+                                  <span className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold block">Ước tính credit</span>
+                                  <div className="text-sm font-bold text-amber-300 mt-0.5">
+                                    ~{estCredits} <span className="text-[11px] font-normal text-slate-400">credits</span>
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Ghi chú ước tính sơ bộ */}
+                              <div className="text-[10px] text-slate-500 italic pt-1 border-t border-slate-800/40 flex items-center justify-between">
+                                <span>* Ước tính sơ bộ dựa trên định mức trung bình của Flow (~22s/ảnh, ~65s/video; 1 cr/ảnh, 5 cr/video).</span>
+                              </div>
+
+                              {/* Cảnh báo nếu phân cảnh quá vụn */}
+                              {isFragmented && (
+                                <div className="rounded-xl border border-amber-500/30 bg-amber-950/40 p-2.5 text-xs text-amber-200 flex items-center justify-between gap-2">
+                                  <div className="flex items-center gap-2">
+                                    <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0" />
+                                    <span>
+                                      {syn?.warning || `Phân cảnh đang quá vụn (trung bình ${avgDurationSec}s/shot < 2.5s). Nên chuyển sang mức "Cân bằng" hoặc "Nhanh" để gộp các câu thoại liền kề.`}
+                                    </span>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleChangeGranularity('balanced')}
+                                    disabled={isRunning}
+                                    className="shrink-0 px-2 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 font-semibold text-[11px] transition cursor-pointer disabled:opacity-50"
+                                  >
+                                    Tự động gộp (Cân bằng)
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
+
+                        {/* Batch Control Toolbar for Scenes */}
+                        <div className="flex flex-wrap items-center justify-between gap-2.5 p-3 rounded-xl border border-slate-800 bg-slate-900/70 text-xs">
+                          <div className="flex items-center gap-2">
+                            <label className="flex items-center gap-1.5 cursor-pointer text-slate-300 hover:text-white font-medium select-none">
+                              <input
+                                type="checkbox"
+                                checked={
+                                  selectedShotIds.length === session.artifacts.scenes.length &&
+                                  session.artifacts.scenes.length > 0
+                                }
+                                onChange={() =>
+                                  handleSelectAllShots(
+                                    session.artifacts!.scenes!.map((s) => s.shotId || s.id)
+                                  )
+                                }
+                                className="h-3.5 w-3.5 rounded border-slate-700 bg-slate-900 text-cyan-500 focus:ring-cyan-500/30 cursor-pointer"
+                              />
+                              <span>
+                                Chọn tất cả ({selectedShotIds.length}/{session.artifacts.scenes.length})
+                              </span>
+                            </label>
+                          </div>
+
+                          <div className="flex items-center gap-2 flex-wrap">
+                            {selectedShotIds.length > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => handleResumePipelineRun(null, 'regenerate_selected')}
+                                disabled={isRunning}
+                                className="flex items-center gap-1 rounded-lg border border-amber-600/60 bg-amber-950/60 hover:bg-amber-900/80 px-2.5 py-1 text-[11px] font-semibold text-amber-300 hover:text-white transition cursor-pointer disabled:opacity-50"
+                                title={`Chạy lại tạo mới phiên bản cho ${selectedShotIds.length} shot đã chọn`}
+                              >
+                                <RotateCcw className="h-3 w-3" />
+                                <span>Chạy lại đã chọn ({selectedShotIds.length})</span>
+                              </button>
+                            )}
+
+                            <button
+                              type="button"
+                              onClick={handleRegenerateStoryboardOneToOne}
+                              disabled={isRunning}
+                              className="flex items-center gap-1 rounded-lg border border-cyan-700/60 bg-cyan-950/60 hover:bg-cyan-900/80 px-2.5 py-1 text-[11px] font-medium text-cyan-300 hover:text-white transition cursor-pointer disabled:opacity-50"
+                              title="Tái tạo lại Storyboard theo chuẩn 1 câu thoại = 1 phân cảnh (1:1), loại bỏ các phân cảnh con bị lặp lại"
+                            >
+                              <RotateCcw className="h-3 w-3" />
+                              <span>Tái tạo Storyboard (1:1)</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => handleResumePipelineRun(null, 'regenerate_all')}
+                              disabled={isRunning}
+                              className="flex items-center gap-1 rounded-lg border border-slate-700 bg-slate-800/80 hover:bg-slate-700 px-2.5 py-1 text-[11px] font-medium text-slate-300 hover:text-white transition cursor-pointer disabled:opacity-50"
+                              title="Tạo phiên bản mới cho toàn bộ storyboard qua Flow (bảo toàn file cũ)"
+                            >
+                              <RotateCcw className="h-3 w-3" />
+                              <span>Chạy lại toàn bộ</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => handleResumePipelineRun(null, 'resume_missing')}
+                              disabled={isRunning}
+                              className="flex items-center gap-1.5 rounded-lg bg-emerald-600/80 hover:bg-emerald-500 px-3 py-1 text-[11px] font-bold text-white shadow transition cursor-pointer disabled:opacity-50"
+                              title="Chỉ tạo các phân cảnh chưa có file trên đĩa"
+                            >
+                              <Play className="h-3 w-3 fill-current" />
+                              <span>Tiếp tục (chỉ phần thiếu)</span>
+                            </button>
+                          </div>
+                        </div>
+
                         {session.artifacts.scenes.map((scene, sIdx) => {
                           const targetSceneId = scene.shotId || scene.id;
                           const isRegenerating = regeneratingSceneId === targetSceneId;
@@ -1973,6 +2301,18 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
                           const hasImage = !!scene.imagePath || (!!scene.assetPath && !hasVideo);
                           const imageUrl = scene.imagePath || (!hasVideo ? scene.assetPath : undefined);
 
+                          // Phân cấp Phân cảnh (Scene) và Góc quay (Shot)
+                          const currentLineIndex = scene.lineIndex !== undefined ? scene.lineIndex : sIdx;
+                          const shotsForSameScene = (session.artifacts?.scenes || []).filter(
+                            (s) => (s.lineIndex !== undefined ? s.lineIndex : -1) === currentLineIndex
+                          );
+                          const isMultiShot = shotsForSameScene.length > 1;
+                          const shotIndexInScene = isMultiShot
+                            ? shotsForSameScene.findIndex((s) => (s.shotId || s.id) === targetSceneId) + 1
+                            : 1;
+                          const totalShotsInScene = shotsForSameScene.length;
+                          const sceneDisplayNum = currentLineIndex + 1;
+
                           return (
                             <div
                               key={scene.id || sIdx}
@@ -1980,10 +2320,37 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
                             >
                               {/* Header phân cảnh */}
                               <div className="flex items-center justify-between font-mono text-[11px] border-b border-slate-800/80 pb-2">
-                                <div className="flex items-center gap-2">
-                                  <span className="font-bold text-white bg-slate-800 px-2 py-0.5 rounded">
-                                    {scene.shotId || `Phân cảnh #${sIdx + 1}`}
-                                  </span>
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <input
+                                    type="checkbox"
+                                    checked={selectedShotIds.includes(targetSceneId)}
+                                    onChange={() => toggleSelectShot(targetSceneId)}
+                                    className="h-3.5 w-3.5 rounded border-slate-700 bg-slate-900 text-cyan-500 focus:ring-cyan-500/30 cursor-pointer"
+                                    title={`Chọn phân cảnh ${targetSceneId} để chạy lại`}
+                                  />
+                                  {isMultiShot ? (
+                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                      <span className="font-bold text-white bg-slate-800 px-2.5 py-0.5 rounded flex items-center gap-1">
+                                        <span>Phân cảnh {sceneDisplayNum}</span>
+                                        <span className="text-cyan-400 font-semibold">• Góc {shotIndexInScene}/{totalShotsInScene}</span>
+                                      </span>
+                                      <span className="rounded bg-indigo-950/80 text-indigo-300 border border-indigo-700/40 px-1.5 py-0.5 text-[9px] font-semibold">
+                                        Đa góc quay
+                                      </span>
+                                      <span className="text-[10px] text-slate-500 font-mono">
+                                        [{targetSceneId}]
+                                      </span>
+                                    </div>
+                                  ) : (
+                                    <div className="flex items-center gap-1.5">
+                                      <span className="font-bold text-white bg-slate-800 px-2.5 py-0.5 rounded">
+                                        Phân cảnh {sceneDisplayNum}
+                                      </span>
+                                      <span className="text-[10px] text-slate-500 font-mono">
+                                        [{targetSceneId}]
+                                      </span>
+                                    </div>
+                                  )}
                                   <span className="text-slate-400">
                                     Thời lượng: {Math.round((scene.durationMs || 4000) / 1000)}s
                                   </span>
@@ -2008,7 +2375,16 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
                               {/* Lời thoại / Narration */}
                               <div>
                                 <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">
-                                  Lời thoại:
+                                  {isMultiShot ? (
+                                    <span className="flex items-center gap-1">
+                                      <span>Lời thoại</span>
+                                      <span className="text-cyan-400 normal-case font-medium">
+                                        (Góc {shotIndexInScene}/{totalShotsInScene} - Cảnh {sceneDisplayNum}):
+                                      </span>
+                                    </span>
+                                  ) : (
+                                    'Lời thoại:'
+                                  )}
                                 </span>
                                 <p className="text-white font-medium text-[13px] leading-relaxed mt-0.5">
                                   {scene.lineText}
@@ -2408,24 +2784,62 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
                       </div>
                     </div>
 
-                    <div className="mt-3 flex items-center justify-end gap-2">
-                      <button
-                        type="button"
-                        onClick={handleRetryCurrentStage}
-                        className="flex items-center gap-1 rounded-lg border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs font-semibold text-slate-300 hover:text-white transition cursor-pointer"
-                      >
-                        <RotateCcw className="h-3 w-3" />
-                        <span>Chạy lại bước này</span>
-                      </button>
+                    <div className="mt-3 flex items-center justify-end gap-2 flex-wrap">
+                      {session.currentStage === 6 ? (
+                        <>
+                          {selectedShotIds.length > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => handleResumePipelineRun(null, 'regenerate_selected')}
+                              className="flex items-center gap-1 rounded-lg border border-amber-600/60 bg-amber-950/60 hover:bg-amber-900/80 px-3 py-1.5 text-xs font-semibold text-amber-300 hover:text-white transition cursor-pointer"
+                              title={`Chạy lại tạo mới phiên bản cho ${selectedShotIds.length} shot đã chọn`}
+                            >
+                              <RotateCcw className="h-3 w-3" />
+                              <span>Chạy lại đã chọn ({selectedShotIds.length})</span>
+                            </button>
+                          )}
 
-                      <button
-                        type="button"
-                        onClick={() => handleResumePipelineRun()}
-                        className="flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 px-4 py-1.5 text-xs font-bold text-white shadow-md transition active:scale-95 cursor-pointer"
-                      >
-                        <Play className="h-3.5 w-3.5 fill-current" />
-                        <span>Tiếp tục chạy ▸</span>
-                      </button>
+                          <button
+                            type="button"
+                            onClick={() => handleResumePipelineRun(null, 'regenerate_all')}
+                            className="flex items-center gap-1 rounded-lg border border-slate-700 bg-slate-900 hover:bg-slate-800 px-3 py-1.5 text-xs font-semibold text-slate-300 hover:text-white transition cursor-pointer"
+                            title="Tạo phiên bản mới cho toàn bộ storyboard qua Flow (bảo toàn file cũ)"
+                          >
+                            <RotateCcw className="h-3 w-3" />
+                            <span>Chạy lại toàn bộ</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleResumePipelineRun(null, 'resume_missing')}
+                            className="flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 px-4 py-1.5 text-xs font-bold text-white shadow-md transition active:scale-95 cursor-pointer"
+                            title="Chỉ tạo các phân cảnh còn thiếu, giữ nguyên phân cảnh đã có"
+                          >
+                            <Play className="h-3.5 w-3.5 fill-current" />
+                            <span>Tiếp tục (chỉ phần thiếu) ▸</span>
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            onClick={handleRetryCurrentStage}
+                            className="flex items-center gap-1 rounded-lg border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs font-semibold text-slate-300 hover:text-white transition cursor-pointer"
+                          >
+                            <RotateCcw className="h-3 w-3" />
+                            <span>Chạy lại bước này</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleResumePipelineRun()}
+                            className="flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 px-4 py-1.5 text-xs font-bold text-white shadow-md transition active:scale-95 cursor-pointer"
+                          >
+                            <Play className="h-3.5 w-3.5 fill-current" />
+                            <span>Tiếp tục chạy ▸</span>
+                          </button>
+                        </>
+                      )}
                     </div>
                   </div>
                 )}
@@ -2549,7 +2963,7 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
                         <Volume2 className="h-4 w-4 text-brand-cyan shrink-0" />
                         <audio
                           controls
-                          src={`vanhmedia://local/${encodeURIComponent(session.artifacts.audioPath)}`}
+                          src={toMediaUrl(session.artifacts.audioPath)}
                           className="w-full h-7"
                         />
                       </div>
@@ -2597,7 +3011,7 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
                         <video
                           controls
                           autoPlay
-                          src={`vanhmedia://local/${encodeURIComponent(session.artifacts.videoPath)}`}
+                          src={toMediaUrl(session.artifacts.videoPath)}
                           className="w-full h-full object-contain"
                         />
                       </div>

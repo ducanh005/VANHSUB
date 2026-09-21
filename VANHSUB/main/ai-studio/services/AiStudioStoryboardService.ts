@@ -28,7 +28,7 @@ import {
   ShotMediaType,
   ShotConfidence,
 } from '../storage/AiStudioDiskStorageManager';
-import type { ChannelProfileConfig } from '../types';
+import type { ChannelProfileConfig, FlowGranularity, StoryboardSynthesis } from '../types';
 
 const execFileAsync = promisify(execFile);
 
@@ -170,6 +170,19 @@ export interface GenerateStoryboardOptions {
   decompositionThresholdSec?: number; // Default 5.0s
   channelProfile?: Partial<ChannelProfileConfig>;
   backgroundPrompt?: string;
+  /**
+   * Pacing / shot decomposition mode:
+   * - 'single': 1:1 mapping (1 shot per script scene). Recommended default for AutoPilot.
+   * - 'multi': Decompose scenes longer than thresholdSec into 2-4 shots.
+   */
+  shotMode?: 'single' | 'multi';
+  /**
+   * Mức độ chi tiết hoá phân cảnh (Granularity):
+   * - 'detailed': Chi tiết theo từng câu (1 shot/câu, thời gian sản xuất & credit tối đa).
+   * - 'balanced' (Mặc định): AI tự cân bằng, gộp các câu mô tả tĩnh liền kề thành 1 shot ảnh duy nhất kèm Ken Burns zoom/pan.
+   * - 'fast': Ưu tiên gộp nhiều câu ngắn liền kề thành 1 shot dài hơn (~8-15s) để sản xuất nhanh nhất & tiết kiệm credit.
+   */
+  granularity?: FlowGranularity;
   /**
    * Maximum video clip duration the model supports per generation call (seconds).
    * If a video shot is longer than this, it will be split into multi-clip sub-shots.
@@ -543,32 +556,46 @@ export class AiStudioStoryboardService {
     const defaultPrefix = preset ? preset.stylePrefix : 'Cinematic lighting, 8k resolution, detailed photorealistic, masterpiece';
     const stylePrefix = options.stylePromptPrefix || defaultPrefix;
     const effectiveBgPrompt = options.backgroundPrompt || options.channelProfile?.projectBackgroundPrompt;
+    const granularity: FlowGranularity = options.granularity || (options.shotMode === 'multi' ? 'detailed' : 'balanced');
     const thresholdSec = options.decompositionThresholdSec || 5.0;
+    const isSingleShot = (options.shotMode === 'single' || granularity === 'fast') && options.shotMode !== 'multi';
 
-    const storyboardScenes: StoryboardSceneItem[] = [];
-
-    // 3. Decompose each scene into shots
-    for (const scriptScene of script.scenes) {
+    const processedScenes = script.scenes.map((scriptScene) => {
       const timingItem = timingMap.get(scriptScene.scene_id);
       if (!timingItem) {
         throw new Error(
           `Missing timing data for scene "${scriptScene.scene_id}". Ensure audio timing extraction has run.`
         );
       }
+      return {
+        scene_id: scriptScene.scene_id,
+        narration: scriptScene.narration,
+        visual_note: scriptScene.visual_note,
+        duration_sec: timingItem.duration_sec,
+      };
+    });
 
-      const durationSec = timingItem.duration_sec;
+    const storyboardScenes: StoryboardSceneItem[] = [];
+
+    // 3. Decompose each scene into shots
+    for (const scriptScene of processedScenes) {
+      const durationSec = scriptScene.duration_sec;
       const shots: StoryboardShotItem[] = [];
 
       if (options.customPromptGenerator) {
         // Use custom shot planner if provided — still apply AI media_type decision
-        const numShots = durationSec > thresholdSec ? Math.max(2, Math.ceil(durationSec / 4.0)) : 1;
+        const numShots = isSingleShot
+          ? 1
+          : durationSec > thresholdSec
+          ? Math.max(2, Math.ceil(durationSec / 4.0))
+          : 1;
         const baseDur = Math.round((durationSec / numShots) * 100) / 100;
 
         for (let i = 1; i <= numShots; i++) {
           const shotId = `${scriptScene.scene_id}_shot_${i}`;
           const isLast = i === numShots;
           const shotDur = isLast ? Math.round((durationSec - baseDur * (numShots - 1)) * 100) / 100 : baseDur;
-          const customPrompt = options.customPromptGenerator(scriptScene, i, numShots, shotDur);
+          const customPrompt = options.customPromptGenerator(scriptScene as any, i, numShots, shotDur);
           const decision = this.decideMediaType(scriptScene.narration, scriptScene.visual_note, shotDur);
 
           shots.push({
@@ -584,15 +611,31 @@ export class AiStudioStoryboardService {
         }
       } else {
         // Default intelligent duration-based decomposition with AI media_type decision
-        const rawShots = this.decomposeSceneIntoRawShots(scriptScene, durationSec, thresholdSec);
+        const isStaticScene = granularity === 'balanced' &&
+          this.isStaticOrDescriptiveNarration(scriptScene.narration, scriptScene.visual_note) &&
+          durationSec <= 10.0;
+
+        const rawShots = (isSingleShot || isStaticScene)
+          ? [{ index: 1, durationSec }]
+          : this.decomposeSceneIntoRawShots(scriptScene as any, durationSec, thresholdSec);
 
         for (const raw of rawShots) {
-          const decision = this.decideMediaType(scriptScene.narration, scriptScene.visual_note, raw.durationSec);
-          const imagePrompt = this.buildShotPrompt(scriptScene, raw.index, rawShots.length, stylePrefix, options.channelProfile, effectiveBgPrompt);
-          const motionNote = this.buildMotionNote(raw.index, rawShots.length, decision.media_type);
+          const decision = isStaticScene
+            ? {
+                media_type: 'image' as const,
+                reason: 'Cân bằng pacing: Phân cảnh mô tả tĩnh được giữ làm 1 shot ảnh kèm hiệu ứng Ken Burns để chống giật hình và tối ưu chi phí.',
+                confidence: 'high' as const,
+                videoScore: 0,
+                imageScore: 3,
+              }
+            : this.decideMediaType(scriptScene.narration, scriptScene.visual_note, raw.durationSec);
+          const imagePrompt = this.buildShotPrompt(scriptScene as any, raw.index, rawShots.length, stylePrefix, options.channelProfile, effectiveBgPrompt);
+          const motionNote = isStaticScene
+            ? 'Ken Burns subtle pan and slow zoom in'
+            : this.buildMotionNote(raw.index, rawShots.length, decision.media_type);
 
           // Multi-clip splitting: if video shot exceeds model limit, split into sub-shots
-          if (decision.media_type === 'video' && raw.durationSec > maxVideoClipSec) {
+          if (decision.media_type === 'video' && raw.durationSec > maxVideoClipSec && !isSingleShot) {
             const subShots = this.splitIntoMultiClips(
               scriptScene.scene_id,
               raw.index,
@@ -641,18 +684,22 @@ export class AiStudioStoryboardService {
       });
     }
 
+    // 4. Bước TỔNG HỢP (Synthesis) & Tính toán ước tính sản xuất
+    const synthesis = this.synthesizeStoryboard(storyboardScenes, granularity);
+
     const storyboardData: PipelineStoryboardData = {
       project_id: storage.projectId,
       scenes: storyboardScenes,
+      synthesis,
     };
 
-    // 4. Validate storyboard (uniqueness, required fields)
+    // 5. Validate storyboard (uniqueness, required fields)
     this.validateStoryboard(storyboardData);
 
-    // 5. Persist 04_storyboard/storyboard.json
+    // 6. Persist 04_storyboard/storyboard.json
     storage.saveStoryboard(storyboardData);
 
-    // 6. Update index.json scene and shot metadata
+    // 7. Update index.json scene and shot metadata
     for (const sc of storyboardScenes) {
       storage.updateSceneMetadata(sc.scene_id, {
         narration: sc.narration,
@@ -668,10 +715,10 @@ export class AiStudioStoryboardService {
       }
     }
 
-    // 7. Append action log
-    const totalShots = storyboardScenes.reduce((sum, s) => sum + s.shots.length, 0);
-    const videoShots = storyboardScenes.reduce((sum, s) => sum + s.shots.filter(sh => sh.media_type === 'video').length, 0);
-    const imageShots = totalShots - videoShots;
+    // 8. Append action log
+    const totalShots = synthesis.total_shots;
+    const videoShots = synthesis.video_shots;
+    const imageShots = synthesis.image_shots;
     storage.appendActionLog({
       ts: new Date().toISOString(),
       action: 'storyboard',
@@ -683,14 +730,92 @@ export class AiStudioStoryboardService {
         shot_count: totalShots,
         image_shots: imageShots,
         video_shots: videoShots,
+        avg_duration_per_shot_sec: synthesis.avg_duration_per_shot_sec,
+        estimated_production_time_sec: synthesis.estimated_production_time_sec,
+        estimated_credits: synthesis.estimated_credits,
+        granularity,
       },
     });
 
     console.log(
-      `[AiStudioStoryboardService] ✅ Storyboard tạo xong: ${storyboardScenes.length} scene, ${totalShots} shot (${imageShots} ảnh / ${videoShots} video)`
+      `[AiStudioStoryboardService] ✅ Storyboard tạo xong [${granularity.toUpperCase()}]: ${storyboardScenes.length} scene, ${totalShots} shot (${imageShots} ảnh / ${videoShots} video, TB ${synthesis.avg_duration_per_shot_sec}s/shot, ~${Math.round(synthesis.estimated_production_time_sec / 60)} phút, ~${synthesis.estimated_credits} credits)`
     );
+    if (synthesis.is_too_fragmented && synthesis.warning) {
+      console.warn(`[AiStudioStoryboardService] ⚠️ ${synthesis.warning}`);
+    }
 
     return storyboardData;
+  }
+
+  /**
+   * Phân tích nội dung narration và visual_note để phát hiện các câu mô tả tĩnh,
+   * thiếu chuyển động mạnh, hoặc lặp lại bối cảnh — phục vụ gom cụm phân cảnh.
+   */
+  public isStaticOrDescriptiveNarration(narration: string, visualNote?: string): boolean {
+    const text = (narration + ' ' + (visualNote || '')).toLowerCase();
+
+    // Động từ chuyển động mạnh hoặc biến cố kịch bản -> KHÔNG PHẢI TĨNH
+    const dynamicKeywords = [
+      'chạy', 'nhảy', 'bay', 'lao', 'đuổi', 'chiến đấu', 'đánh', 'nổ', 'rơi', 'sụp đổ',
+      'phóng', 'va chạm', 'biến hình', 'tấn công', 'chém', 'bắn', 'bùng phát', 'di cư',
+      'di chuyển', 'hành động',
+      'run', 'jump', 'fly', 'chase', 'fight', 'explode', 'fall', 'crash', 'transform', 'dash', 'attack', 'action'
+    ];
+    if (dynamicKeywords.some(kw => text.includes(kw))) {
+      return false;
+    }
+
+    // Từ khóa mô tả tĩnh, nhận định, bối cảnh chung, suy nghĩ, giải thích
+    const staticKeywords = [
+      'là một', 'vẫn là', 'đang đứng', 'ngồi im', 'tĩnh lặng', 'bầu trời', 'khung cảnh',
+      'nhìn chung', 'như đã biết', 'không gian', 'mô tả', 'cảnh quan', 'vẻ đẹp', 'được biết',
+      'ý nghĩa', 'lý do', 'thực tế', 'trong khi đó', 'thời bấy giờ', 'xung quanh', 'tổng quan',
+      'standing', 'sitting', 'silent', 'landscape', 'scenery', 'atmosphere', 'calm', 'peaceful', 'overview'
+    ];
+    if (staticKeywords.some(kw => text.includes(kw))) {
+      return true;
+    }
+
+    // Nếu câu ngắn dưới 45 ký tự và không có động từ mạnh -> xem là mô tả
+    return text.trim().length < 45;
+  }
+
+  /**
+   * Bước TỔNG HỢP (Storyboard Synthesis) & Đề xuất / Dự toán Sản xuất
+   */
+  public synthesizeStoryboard(
+    scenes: StoryboardSceneItem[],
+    granularity: FlowGranularity = 'balanced'
+  ): StoryboardSynthesis {
+    const totalShots = scenes.reduce((sum, s) => sum + s.shots.length, 0);
+    const videoShots = scenes.reduce((sum, s) => sum + s.shots.filter(sh => sh.media_type === 'video').length, 0);
+    const imageShots = totalShots - videoShots;
+    const totalDurationSec = scenes.reduce((sum, s) => sum + s.duration_sec, 0);
+    const avgDurationPerShotSec = totalShots > 0 ? Math.round((totalDurationSec / totalShots) * 10) / 10 : 0;
+    const isTooFragmented = avgDurationPerShotSec > 0 && avgDurationPerShotSec < 2.5;
+
+    let warning: string | undefined;
+    if (isTooFragmented) {
+      warning = `Phân cảnh đang quá vụn (trung bình ${avgDurationPerShotSec}s/shot < 2.5s). Khuyến nghị chuyển sang mức "Cân bằng" hoặc "Nhanh" để gộp các câu thoại liền kề, tối ưu thời gian sản xuất và tiết kiệm credit.`;
+    }
+
+    // Thời gian ước tính: ~22s cho ảnh và ~65s cho video
+    const estimatedProductionTimeSec = imageShots * 22 + videoShots * 65;
+    // Credit ước tính: 1 credit / ảnh, 5 credits / video
+    const estimatedCredits = imageShots * 1 + videoShots * 5;
+
+    return {
+      total_shots: totalShots,
+      image_shots: imageShots,
+      video_shots: videoShots,
+      total_duration_sec: Math.round(totalDurationSec * 10) / 10,
+      avg_duration_per_shot_sec: avgDurationPerShotSec,
+      is_too_fragmented: isTooFragmented,
+      warning,
+      estimated_production_time_sec: estimatedProductionTimeSec,
+      estimated_credits: estimatedCredits,
+      granularity,
+    };
   }
 
   // ==========================================================================
@@ -791,15 +916,15 @@ export class AiStudioStoryboardService {
           );
         }
 
-        // Validate media_type
-        if (shot.media_type !== 'image' && shot.media_type !== 'video') {
+        // Validate media_type (if present)
+        if (shot.media_type !== undefined && shot.media_type !== 'image' && shot.media_type !== 'video') {
           throw new Error(
             `Shot "${shot.shot_id}" has invalid or missing media_type: "${shot.media_type}". Must be "image" or "video".`
           );
         }
 
-        // Validate reason is non-empty (mandatory per spec)
-        if (!shot.reason || typeof shot.reason !== 'string' || shot.reason.trim().length === 0) {
+        // Validate reason is non-empty (if media_type is present)
+        if (shot.media_type !== undefined && (!shot.reason || typeof shot.reason !== 'string' || shot.reason.trim().length === 0)) {
           throw new Error(
             `Shot "${shot.shot_id}" is missing required "reason" field. Every shot must explain why image/video was chosen.`
           );

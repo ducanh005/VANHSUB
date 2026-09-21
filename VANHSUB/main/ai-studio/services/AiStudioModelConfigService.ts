@@ -13,6 +13,7 @@
  * no other code should hardcode model names.
  */
 
+import fs from 'fs';
 import { AiStudioDiskStorageManager, ProjectModelConfig, ModelCapabilities } from '../storage/AiStudioDiskStorageManager';
 
 /** Built-in default model_config — used when project has no model_config.json */
@@ -222,17 +223,45 @@ export class AiStudioModelConfigService {
     characterRefPath: string,
     backgroundRefPath: string
   ): { refsToUpload: string[]; backgroundSentAs: 'image' | 'text_prompt' } {
+    const isFileValid = (p: string) => {
+      try {
+        return Boolean(p && fs.existsSync(p) && fs.statSync(p).size > 0);
+      } catch {
+        return false;
+      }
+    };
+
+    const hasChar = isFileValid(characterRefPath);
+    const hasBg = isFileValid(backgroundRefPath);
+
     if (modelInfo.maxRefImages >= 2) {
-      // Upload both character + background as images
+      if (hasChar && hasBg) {
+        return {
+          refsToUpload: [characterRefPath, backgroundRefPath],
+          backgroundSentAs: 'image',
+        };
+      }
+      if (hasChar && !hasBg) {
+        return {
+          refsToUpload: [characterRefPath],
+          backgroundSentAs: 'text_prompt',
+        };
+      }
+      if (!hasChar && hasBg) {
+        return {
+          refsToUpload: [backgroundRefPath],
+          backgroundSentAs: 'image',
+        };
+      }
       return {
-        refsToUpload: [characterRefPath, backgroundRefPath],
-        backgroundSentAs: 'image',
+        refsToUpload: [],
+        backgroundSentAs: 'text_prompt',
       };
     }
 
     // max_ref_images == 1 → only character; background goes into text prompt
     return {
-      refsToUpload: [characterRefPath],
+      refsToUpload: hasChar ? [characterRefPath] : [],
       backgroundSentAs: 'text_prompt',
     };
   }
