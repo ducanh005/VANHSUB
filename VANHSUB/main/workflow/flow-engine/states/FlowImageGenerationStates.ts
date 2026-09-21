@@ -11,7 +11,7 @@ import { FlowElementFinder } from '../FlowElementFinder';
 import { FlowOverlayDetector } from '../FlowOverlayDetector';
 import { FlowRecoveryManager } from '../FlowRecoveryManager';
 import { FlowClipboardGuard } from '../FlowClipboardGuard';
-import { FlowFileInputInjector } from '../FlowFileInputInjector';
+import { FlowFileInputInjector, ensureLocalImageFile, shortenForLog } from '../FlowFileInputInjector';
 
 /**
  * Helper an toàn để execute JS trên BrowserWindow
@@ -199,7 +199,8 @@ export const EnsureProjectContextState: FlowAutomationState = {
       ctx.win,
       ctx.targetProjectId,
       ctx.onProgress,
-      ctx.isCancelled
+      ctx.isCancelled,
+      ctx.targetProjectName
     );
     if (!projectReady) {
       return { ok: false, error: 'project_context_failed', errorDetail: 'Không thể mở hoặc tạo dự án trên Google Flow.' };
@@ -265,7 +266,8 @@ export const EnsureProjectContextState: FlowAutomationState = {
         return {
           totalTiles: tiles.length,
           validMediaCount: validMedia.length,
-          validUrls: validMedia.map(m => m.src)
+          validUrls: validMedia.map(m => m.src),
+          items: validMedia
         };
       })()
     `;
@@ -278,21 +280,54 @@ export const EnsureProjectContextState: FlowAutomationState = {
       );
     }
 
-    // 1b. [RETRY RECOVERY] Nếu là lần retry (attempt > 1 hoặc có dạng 1_1, 1_2) và phát hiện đã có ảnh hợp lệ trên canvas từ lần click trước
-    const attemptStr = String(ctx.generationAttemptId || '1');
-    const isRetryAttempt = attemptStr.includes('_') || (parseInt(attemptStr, 10) || 1) > 1;
+    // 1b. [RETRY RECOVERY] CHỈ KÍCH HOẠT KHI:
+    // 1. Thực sự là lần retry (retryIndex > 0 hoặc token số cuối cùng > 0). TUYỆT ĐỐI KHÔNG kích hoạt ở attempt 0 (lần chạy đầu).
+    // 2. Thẻ ảnh trên canvas phải là ẢNH MỚI XUẤT HIỆN SAU KHI SHOT NÀY BẮT ĐẦU (không nằm trong ctx.shotBaselineUrls).
+    // 3. Ảnh đã có sẵn từ các shot trước đó (nằm trong shotBaselineUrls) TUYỆT ĐỐI KHÔNG được coi là kết quả của shot hiện tại.
+    const attemptStr = String(ctx.generationAttemptId || '0');
+    const lastToken = attemptStr.split('_').pop() || '0';
+    const retryFromId = parseInt(lastToken, 10);
+    const retryCount = ctx.retryIndex !== undefined ? ctx.retryIndex : (!isNaN(retryFromId) ? retryFromId : 0);
+    const isRetryAttempt = retryCount > 0;
+
+    const shotBaseline = ctx.shotBaselineUrls || new Set<string>();
+
     if (isRetryAttempt && tileScan?.validMediaCount && tileScan.validMediaCount > 0) {
-      const recoveredUrl = tileScan.validUrls[tileScan.validUrls.length - 1];
-      console.log(
-        `[FlowImageState] 🎯 [RETRY RECOVERY] Phát hiện ảnh (${recoveredUrl.slice(0, 80)}...) đã được tạo thành công từ lần click trước! Bỏ qua tạo mới, chuyển thẳng sang EXTRACT_OUTPUT.`
-      );
-      ctx.capturedMediaUrl = recoveredUrl;
-      ctx.generationState = 'COMPLETED';
-      return {
-        ok: true,
-        skipToState: 'EXTRACT_OUTPUT',
-        data: { recovered: true, imageUrl: recoveredUrl, projectId: ctx.activeProjectId }
-      };
+      // Lọc các ảnh mới xuất hiện (chưa từng có trong baseline trước khi shot bắt đầu)
+      const validItems: Array<{ src: string; alt: string }> = Array.isArray(tileScan.items) ? tileScan.items : [];
+      const newItems = validItems.filter((i) => i.src && !shotBaseline.has(i.src));
+
+      if (newItems.length > 0) {
+        // Kiểm tra xem ảnh mới có khớp một phần từ khoá prompt không (nếu alt hiển thị)
+        const promptKeywords = (ctx.prompt || '')
+          .toLowerCase()
+          .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+          .split(/\s+/)
+          .filter((w) => w.length > 3);
+
+        const bestMatch =
+          newItems.find((i) => {
+            if (!i.alt) return true; // Nếu DOM Flow không set alt thì chấp nhận vì đã qua bộ lọc shotBaseline
+            const altLower = i.alt.toLowerCase();
+            return promptKeywords.some((kw) => altLower.includes(kw));
+          }) || newItems[newItems.length - 1];
+
+        const recoveredUrl = bestMatch.src;
+        console.log(
+          `[FlowImageState] 🎯 [RETRY RECOVERY] Phát hiện ảnh mới (${recoveredUrl.slice(0, 80)}...) xuất hiện sau khi shot bắt đầu và không nằm trong baseline (${shotBaseline.size} ảnh cũ)! Bỏ qua tạo mới, chuyển thẳng sang EXTRACT_OUTPUT.`
+        );
+        ctx.capturedMediaUrl = recoveredUrl;
+        ctx.generationState = 'COMPLETED';
+        return {
+          ok: true,
+          skipToState: 'EXTRACT_OUTPUT',
+          data: { recovered: true, imageUrl: recoveredUrl, projectId: ctx.activeProjectId },
+        };
+      } else {
+        console.log(
+          `[FlowImageState] ℹ️ [RETRY RECOVERY] Là lần retry thứ ${retryCount}, nhưng toàn bộ ${tileScan.validMediaCount} ảnh trên canvas đều đã có sẵn từ trước khi shot bắt đầu (trùng baseline). Tiếp tục quy trình tạo ảnh mới...`
+        );
+      }
     }
 
     // 2. Kiểm tra nếu ô nhập Prompt chính trên Canvas (/project/<id>) đã sẵn sàng
@@ -339,10 +374,8 @@ export const EnsureProjectContextState: FlowAutomationState = {
 
     // 4. Nếu chưa có thẻ ảnh nào (dự án mới hoặc trống): Tải ảnh lên theo quy trình Upload cục bộ
     ctx.onProgress?.(13, 'Đang nạp ảnh từ đĩa cục bộ lên Google Flow...');
-    let localImagePath = ctx.referenceImagePath || ctx.initFrameUrl;
-    if (localImagePath?.startsWith('file://')) {
-      localImagePath = localImagePath.replace(/^file:\/\/\/?/, '');
-    }
+    const rawStarter = ctx.referenceImagePath || ctx.initFrameUrl;
+    let localImagePath = ensureLocalImageFile(rawStarter, 'starter_image');
 
     // Nếu không có ảnh chỉ định, tìm ảnh starter canvas trên máy
     if (!localImagePath || !fs.existsSync(localImagePath) || fs.statSync(localImagePath).size === 0) {
@@ -704,90 +737,436 @@ export const HandleImageReferenceState: FlowAutomationState = {
   timeoutMs: 30000,
 
   async enter(ctx: FlowStateContext): Promise<void> {
-    const refPath = ctx.referenceImagePath || ctx.initFrameUrl;
-    if (refPath) {
-      const fileName = path.basename(refPath);
+    const rawRef = ctx.referenceImagePath || ctx.initFrameUrl;
+    if (rawRef) {
+      const resolved = ensureLocalImageFile(rawRef, 'character_ref');
+      if (resolved) {
+        ctx.referenceImagePath = resolved;
+      }
+      const fileName = resolved ? path.basename(resolved) : shortenForLog(rawRef, 30);
       ctx.onProgress?.(18, `Đang nạp ảnh tham chiếu cục bộ "${fileName}" vào Google Flow...`);
     }
   },
 
   async execute(ctx: FlowStateContext): Promise<ActionResult> {
-    const refPath = ctx.referenceImagePath || ctx.initFrameUrl;
-    if (!refPath) {
+    const rawRef = ctx.referenceImagePath || ctx.initFrameUrl;
+    if (!rawRef) {
       return { ok: true, data: { hasRefImage: false, attachmentConfirmed: true, uploadMethodUsed: 'none' } };
     }
 
-    let localPath = refPath;
-    if (localPath.startsWith('file://')) {
-      localPath = localPath.replace(/^file:\/\/\/?/, '');
-    }
-    localPath = path.resolve(localPath);
-
-    if (!fs.existsSync(localPath) || fs.statSync(localPath).size === 0) {
-      console.error(`[FlowImageState] ❌ File ảnh tham chiếu không tồn tại trên đĩa hoặc rỗng: "${localPath}"`);
+    // Tự động kiểm tra và cứu hộ nếu nhận được Base64 hoặc URL chưa resolve
+    const resolvedPath = ensureLocalImageFile(rawRef, 'character_ref');
+    if (!resolvedPath || !fs.existsSync(resolvedPath) || fs.statSync(resolvedPath).size === 0) {
+      const displayPath = shortenForLog(resolvedPath || rawRef, 100);
+      console.error(`[FlowImageState] ❌ File ảnh tham chiếu không tồn tại trên đĩa hoặc rỗng: "${displayPath}"`);
       return {
         ok: false,
         error: 'IMAGE_REFERENCE_ATTACH_FAILED',
-        errorDetail: `IMAGE_REFERENCE_ATTACH_FAILED: File ảnh tham chiếu không tồn tại trên đĩa hoặc rỗng: "${localPath}"`,
-        data: { hasRefImage: true, attachmentConfirmed: false, fileName: path.basename(localPath), localPath }
+        errorDetail: `IMAGE_REFERENCE_ATTACH_FAILED: File ảnh tham chiếu không tồn tại trên đĩa hoặc rỗng: "${displayPath}"`,
+        data: { hasRefImage: true, attachmentConfirmed: false, fileName: path.basename(displayPath), localPath: displayPath }
       };
     }
 
-    const fileName = path.basename(localPath);
-    const fileSizeKb = (fs.statSync(localPath).size / 1024).toFixed(1);
-    console.log(`[FlowImageState] 🎯 [HANDLE_IMAGE_REFERENCE] Chuẩn bị nạp [ẢNH THAM CHIẾU CỤC BỘ]: "${localPath}" (${fileSizeKb} KB)...`);
+    const localPath = resolvedPath;
+    ctx.referenceImagePath = localPath;
 
-    // Selector nhận diện chip ảnh tham chiếu / ingredient chip trong prompt box
+    const fileName = path.basename(localPath);
+    const refLabel = fileName.toLowerCase().includes('background') ? 'background_ref' : 'character_ref';
+    const fileSizeKb = (fs.statSync(localPath).size / 1024).toFixed(1);
+    console.log(`[FlowImageState] 🎯 [HANDLE_IMAGE_REFERENCE] Chuẩn bị nạp [ẢNH THAM CHIẾU CỤC BỘ - ${refLabel}]: "${localPath}" (${fileSizeKb} KB)...`);
+
+    // Selector nhận diện chip ảnh tham chiếu chuẩn xác 100% theo DOM Google Flow:
+    // <button class="chip-container" aria-label="Thành phần"><div class="chip-image-wrapper"><img class="chip-image" src="..."></div></button>
     const checkExistingChipJs = `
       (function() {
-        const selectors = [
-          'flow-image-ingredient-chip',
-          'flow-ingredient-chip',
-          '.chip-container',
-          'mat-chip-row',
-          '[data-ingredient-type]',
-          'flow-chip',
-          '.chip-image-wrapper',
-          'flow-prompt-box mat-chip',
-          '.frame-trigger',
-          'button[aria-label*="Thành phần tạo hình ảnh" i]',
-          'flow-prompt-box img',
-          'flow-base-prompt-box img',
-          '.ProseMirror img',
-          'flow-prompt-box [class*="chip"]',
-          'flow-prompt-box [class*="ingredient"]',
-          '[data-ingredient-name]'
-        ];
-        for (const sel of selectors) {
-          const el = document.querySelector(sel);
-          if (el) {
-            const r = el.getBoundingClientRect();
-            if (r && r.width > 0 && r.height > 0) {
-              return { hasChip: true, selector: sel, tag: el.tagName };
+        const primarySel = '.chip-container[aria-label="Thành phần"] img.chip-image, flow-ingredient-bar .chip-container[aria-label="Thành phần"] img.chip-image';
+        const primaryEl = document.querySelector(primarySel);
+        if (primaryEl) {
+          const r = primaryEl.getBoundingClientRect();
+          const src = primaryEl.getAttribute('src') || '';
+          if (r && r.width > 0 && r.height > 0 && src && src.length > 5) {
+            return { hasChip: true, selector: primarySel, src };
+          }
+        }
+
+        // Secondary check: container chip có aria-label "Thành phần" và chứa thẻ img có src hợp lệ
+        const containerSel = 'flow-ingredient-bar .chip-container[aria-label="Thành phần"], .chip-container[aria-label="Thành phần"]';
+        const container = document.querySelector(containerSel);
+        if (container) {
+          const r = container.getBoundingClientRect();
+          if (r && r.width > 0 && r.height > 0) {
+            const innerImg = container.querySelector('img.chip-image, img');
+            const src = innerImg ? (innerImg.getAttribute('src') || '') : '';
+            if (src && src.length > 5) {
+              return { hasChip: true, selector: containerSel + ' img', src };
             }
           }
         }
-        return { hasChip: false };
+
+        return { hasChip: false, src: '' };
       })()
     `;
 
-    // 1. Kiểm tra nếu chip ảnh đã có sẵn trong prompt box
+    // Helper an toàn đóng popup menu (bấm Escape + click outside) sau khi chọn hoặc upload
+    const closeMenuSafe = async () => {
+      try {
+        await safeExecuteJs(ctx.win, `
+          (function() {
+            document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', keyCode: 27, bubbles: true }));
+            document.dispatchEvent(new KeyboardEvent('keyup', { key: 'Escape', code: 'Escape', keyCode: 27, bubbles: true }));
+            // Click nhẹ vào vùng trung lập ngoài popup để bảo đảm đóng triệt để
+            const promptBox = document.querySelector('flow-prompt-box, flow-base-prompt-box, .prompt-box-container');
+            if (promptBox) {
+              promptBox.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+            }
+          })()
+        `, 500);
+      } catch {}
+    };
+
+    // 1. Kiểm tra nếu chip ảnh đã có sẵn trong prompt box (với xác nhận src hợp lệ)
     const alreadyHasChip = await safeExecuteJs<any>(ctx.win, checkExistingChipJs, 1500);
-    if (alreadyHasChip?.hasChip) {
-      console.log(`[FlowImageState] ℹ️ Chip ảnh tham chiếu đã có sẵn trong prompt box (selector: ${alreadyHasChip.selector}).`);
-      return {
-        ok: true,
-        data: {
-          hasRefImage: true,
-          attachmentConfirmed: true,
-          fileName,
-          uploadMethodUsed: 'already_present',
-          chipSelector: alreadyHasChip.selector
-        }
+    if (alreadyHasChip?.hasChip && alreadyHasChip.src) {
+      const chipSrc = alreadyHasChip.src;
+      const extractId = (u: string) => {
+        if (!u) return '';
+        const m = u.match(/\/image\/([a-zA-Z0-9_-]+)/);
+        return m ? m[1] : '';
       };
+      const chipId = extractId(chipSrc);
+      const targetId = extractId(ctx.flowAssetUrl || '');
+
+      const isMatch = (targetId && chipId && targetId === chipId) ||
+                      (ctx.flowAssetUrl && chipSrc.includes(ctx.flowAssetUrl)) ||
+                      (!ctx.flowAssetUrl && chipSrc.includes('flow-content.google/image/')) ||
+                      (!ctx.flowAssetUrl && (chipSrc.startsWith('http') || chipSrc.startsWith('blob:') || chipSrc.startsWith('data:')));
+
+      if (isMatch) {
+        if (chipSrc && !ctx.flowAssetUrl) {
+          ctx.flowAssetUrl = chipSrc;
+        }
+        console.log(`[FlowImageState] 🎯 [XÁC THỰC CHIP THÀNH CÔNG] Chip xác nhận: ${refLabel} đang dùng URL "${chipSrc}" (selector: ${alreadyHasChip.selector})`);
+        return {
+          ok: true,
+          data: {
+            hasRefImage: true,
+            attachmentConfirmed: true,
+            fileName,
+            uploadMethodUsed: 'already_present',
+            chipSelector: alreadyHasChip.selector,
+            flowAssetUrl: ctx.flowAssetUrl || chipSrc
+          }
+        };
+      }
+      console.log(`[FlowImageState] ⚠️ Chip ảnh có sẵn nhưng URL không khớp với asset mong đợi (chipSrc: "${chipSrc.slice(0, 60)}...", expected: "${ctx.flowAssetUrl || 'new'}") → tiến hành chọn lại từ thư viện/upload.`);
     }
 
-    // 2. Phương thức A: Thử nạp qua file input nếu có trong DOM
+    // 2. Tương tác Menu "+" (Thư viện Asset hoặc Upload mới A0)
+    try {
+      // 2a. Tìm nút "+" (Add Media/Ingredient) trong Prompt Box
+      const addBtnJs = `
+        (function() {
+          // Ưu tiên cao nhất: Nút add-menu-trigger trực tiếp của flow-add-menu trong prompt box
+          const promptBoxBtn = document.querySelector(
+            'flow-prompt-box button.add-menu-trigger, flow-base-prompt-box button.add-menu-trigger, .bottom-controls button.add-menu-trigger, button.add-menu-trigger[aria-label*="thành phần" i], button.add-menu-trigger'
+          );
+          if (promptBoxBtn) {
+            const r = promptBoxBtn.getBoundingClientRect();
+            if (r && r.width > 0 && r.height > 0) {
+              return {
+                found: true,
+                x: Math.round(r.left + r.width / 2),
+                y: Math.round(r.top + r.height / 2),
+                label: promptBoxBtn.getAttribute('aria-label') || '+',
+                selector: 'button.add-menu-trigger'
+              };
+            }
+          }
+
+          const labelPatterns = [
+            /thêm.*thành phần/i, /add.*ingredient/i, /thêm ảnh/i, /add image/i,
+            /thêm phương tiện/i, /add media/i, /tải ảnh/i, /upload image/i,
+            /thêm/i, /add/i
+          ];
+          const selectors = [
+            'flow-prompt-box button',
+            'flow-base-prompt-box button',
+            '.bottom-controls button',
+            'button.add-ingredient',
+            'button[class*="add"]',
+            'button[class*="ingredient"]',
+            'button[aria-label]'
+          ];
+          for (const sel of selectors) {
+            const buttons = Array.from(document.querySelectorAll(sel));
+            for (const btn of buttons) {
+              // Bỏ qua các nút trong top header/navbar (r.top < 150)
+              const r = btn.getBoundingClientRect();
+              if (r.top < 150) continue;
+              const label = (btn.getAttribute('aria-label') || btn.textContent || '').trim();
+              for (const pat of labelPatterns) {
+                if (pat.test(label)) {
+                  if (r && r.width > 0 && r.height > 0) {
+                    return { found: true, x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2), label, selector: sel };
+                  }
+                }
+              }
+            }
+          }
+          const promptBox = document.querySelector('flow-prompt-box, flow-base-prompt-box');
+          if (promptBox) {
+            const btns = Array.from(promptBox.querySelectorAll('button'));
+            for (const btn of btns) {
+              const txt = (btn.textContent || '').trim();
+              const r = btn.getBoundingClientRect();
+              if (r && r.width > 0 && r.height > 0 && (txt === '+' || txt === '' || btn.querySelector('mat-icon'))) {
+                return { found: true, x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2), label: txt || '+', selector: 'flow-prompt-box button[fallback]' };
+              }
+            }
+          }
+          return { found: false };
+        })()
+      `;
+
+      const addBtnInfo = await safeExecuteJs<any>(ctx.win, addBtnJs, 2000);
+      if (addBtnInfo?.found) {
+        console.log(`[FlowImageState] [AddMenu] Tìm thấy nút "+" tại (${addBtnInfo.x}, ${addBtnInfo.y}), label="${addBtnInfo.label}" — đang mở menu...`);
+        await safeExecuteJs(ctx.win, `
+          (function() {
+            const sel = ${JSON.stringify(addBtnInfo.selector)};
+            const buttons = Array.from(document.querySelectorAll(sel));
+            const labelPats = [/thêm.*thành phần/i, /add.*ingredient/i, /thêm ảnh/i, /add image/i, /thêm phương tiện/i, /add media/i, /tải ảnh/i, /thêm/i, /add/i];
+            let target = buttons.find(b => {
+              const lbl = (b.getAttribute('aria-label') || b.textContent || '').trim();
+              return labelPats.some(p => p.test(lbl));
+            });
+            if (!target) {
+              target = document.elementFromPoint(${addBtnInfo.x}, ${addBtnInfo.y});
+            }
+            if (target) {
+              target.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+              target.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
+              target.click();
+            }
+          })()
+        `, 500);
+
+        // Chờ menu render (flow-add-menu, flow-add-menu-side-nav, .mat-mdc-menu-panel)
+        let menuOpened = false;
+        for (let t = 0; t < 15; t++) {
+          await new Promise((r) => setTimeout(r, 200));
+          const menuCheck = await safeExecuteJs<boolean>(ctx.win, `
+            !!(document.querySelector('flow-add-menu, flow-add-menu-side-nav, .mat-mdc-menu-panel, mat-menu, [role="menu"], .cdk-overlay-container [role="menuitem"]'))
+          `, 500);
+          if (menuCheck) { menuOpened = true; break; }
+        }
+
+        if (menuOpened) {
+          console.log(`[FlowImageState] [AddMenu] Menu flow-add-menu đã mở sẵn sàng.`);
+
+          // NHÁNH 1: TÁI SỬ DỤNG TỪ THƯ VIỆN ASSET (nếu đã có flowAssetUrl)
+          if (ctx.flowAssetUrl) {
+            console.log(`[FlowImageState] [Thư Viện Asset] Đã có flowAssetUrl="${ctx.flowAssetUrl.slice(0, 60)}..." — tiến hành tìm và chọn lại từ thư viện...`);
+
+            // Chuyển sang tab "Tệp tải lên" nếu có
+            const switchTabJs = `
+              (function() {
+                const sideNav = document.querySelector('flow-add-menu-side-nav, flow-add-menu, .mat-mdc-menu-panel');
+                if (!sideNav) return { clicked: false };
+                const buttons = Array.from(sideNav.querySelectorAll('button, [role="tab"], [role="menuitem"], .nav-item'));
+                for (const b of buttons) {
+                  const txt = (b.textContent || b.getAttribute('aria-label') || '').trim();
+                  if (/tệp tải lên|uploaded/i.test(txt) && !/tải.*lên.*từ|tải.*nghe nhìn/i.test(txt)) {
+                    b.click();
+                    return { clicked: true, tab: txt };
+                  }
+                }
+                return { clicked: false };
+              })()
+            `;
+            await safeExecuteJs(ctx.win, switchTabJs, 1000);
+            await new Promise((r) => setTimeout(r, 400));
+
+            // Quét các flow-add-menu-asset-item và click thumbnail khớp
+            const selectAssetJs = `
+              (function() {
+                const targetUrl = ${JSON.stringify(ctx.flowAssetUrl || '')};
+                const extractId = (u) => {
+                  if (!u) return '';
+                  const m = u.match(/\\/image\\/([a-zA-Z0-9_-]+)/);
+                  return m ? m[1] : '';
+                };
+                const targetId = extractId(targetUrl);
+
+                const items = Array.from(document.querySelectorAll('flow-add-menu-asset-item, [class*="asset-item"], .asset-card'));
+                for (const item of items) {
+                  const img = item.querySelector('img.asset-thumbnail-image, img');
+                  const src = img?.getAttribute('src') || '';
+                  const itemId = extractId(src);
+
+                  const matches = (targetId && itemId && targetId === itemId) ||
+                                  (targetUrl && src && (src.includes(targetUrl) || targetUrl.includes(src)));
+
+                  if (matches) {
+                    const clickTarget = img || item;
+                    const r = clickTarget.getBoundingClientRect();
+                    clickTarget.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+                    clickTarget.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
+                    clickTarget.click();
+                    return { found: true, clicked: true, src, x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
+                  }
+                }
+                return { found: false, totalItems: items.length };
+              })()
+            `;
+
+            const selectRes = await safeExecuteJs<any>(ctx.win, selectAssetJs, 2000);
+            if (selectRes?.found) {
+              console.log(`[FlowImageState] [Thư Viện Asset] Đã click chọn asset item tại (${selectRes.x}, ${selectRes.y}). Đang gắn chip...`);
+              for (let i = 0; i < 10; i++) {
+                // Tự động click "Thêm vào câu lệnh" (detail-add-to-prompt-btn) nếu có
+                await safeExecuteJs(ctx.win, `
+                  (function() {
+                    const addBtn = document.querySelector('button.detail-add-to-prompt-btn, button[aria-label*="Thêm vào câu lệnh" i], button.detail-add-btn');
+                    if (addBtn) addBtn.click();
+                  })()
+                `, 500);
+
+                await new Promise((r) => setTimeout(r, 400));
+                const chipRes = await safeExecuteJs<any>(ctx.win, checkExistingChipJs, 1000);
+                if (chipRes?.hasChip && chipRes.src) {
+                  // Đóng popup an toàn SAU KHI chip đã được verify xuất hiện trong DOM
+                  await closeMenuSafe();
+                  // Hậu kiểm tra (post-close verify): bảo đảm chip vẫn gắn vững chắc sau khi popup đóng
+                  await new Promise((r) => setTimeout(r, 200));
+                  const postCloseChip = await safeExecuteJs<any>(ctx.win, checkExistingChipJs, 1000);
+                  const finalChip = (postCloseChip?.hasChip && postCloseChip.src) ? postCloseChip : chipRes;
+
+                  ctx.flowAssetUrl = finalChip.src;
+                  const refLabel = fileName.toLowerCase().includes('background') ? 'background_ref' : 'character_ref';
+                  console.log(`[FlowImageState] 🎯 [XÁC THỰC CHIP THÀNH CÔNG] Chip xác nhận: ${refLabel} tái sử dụng từ thư viện với URL "${finalChip.src}" (selector: ${finalChip.selector})`);
+                  return {
+                    ok: true,
+                    data: {
+                      hasRefImage: true,
+                      attachmentConfirmed: true,
+                      fileName,
+                      uploadMethodUsed: 'library_select',
+                      chipSelector: finalChip.selector,
+                      flowAssetUrl: finalChip.src
+                    }
+                  };
+                }
+              }
+              console.warn('[FlowImageState] [Thư Viện Asset] Đã click asset item nhưng chip chưa xuất hiện sau 3.2s -> fallback sang upload mới A0.');
+            } else {
+              console.log(`[FlowImageState] ℹ️ [Thư Viện Asset] Không tìm thấy asset khớp flowAssetUrl trong ${selectRes?.totalItems || 0} items -> fallback sang upload mới A0.`);
+            }
+          }
+
+          // NHÁNH 2: ĐƯỜNG LUỒNG A0 (Upload file mới từ đĩa cứng)
+          console.log(`[FlowImageState] [A0] Đang tìm nút "Tải nội dung nghe nhìn lên" / "Tải ảnh lên từ máy tính"...`);
+          const clickUploadItemJs = `
+            (function() {
+              const menuItemPatterns = [
+                /tải.*nghe nhìn/i, /tải ảnh lên/i, /tải lên từ máy/i, /^tải lên$/i,
+                /upload/i, /upload.*image/i, /upload.*local/i, /from.*computer/i,
+                /máy tính/i, /local file/i, /from device/i
+              ];
+              const itemSelectors = [
+                'button.sidebar-upload-btn',
+                'button[class*="sidebar-upload"]',
+                'flow-add-menu-side-nav button',
+                'flow-add-menu button',
+                '[role="menuitem"]',
+                '.mat-mdc-menu-item',
+                'button[mat-menu-item]',
+                '.mat-menu-item',
+                'mat-menu button'
+              ];
+              for (const sel of itemSelectors) {
+                const items = Array.from(document.querySelectorAll(sel));
+                for (const item of items) {
+                  const txt = (item.textContent || item.getAttribute('aria-label') || '').trim();
+                  if (menuItemPatterns.some(p => p.test(txt))) {
+                    const touchTarget = item.querySelector('.mat-mdc-button-touch-target');
+                    const clickTarget = touchTarget || item;
+                    const r = clickTarget.getBoundingClientRect();
+                    clickTarget.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+                    clickTarget.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
+                    clickTarget.click();
+                    return { clicked: true, text: txt, usedTouchTarget: !!touchTarget, x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
+                  }
+                }
+              }
+              return { clicked: false };
+            })()
+          `;
+
+          const clickRes = await safeExecuteJs<any>(ctx.win, clickUploadItemJs, 1500);
+          if (clickRes?.clicked) {
+            console.log(`[FlowImageState] [A0] Đã click nút upload "${clickRes.text}" tại (${clickRes.x}, ${clickRes.y})`);
+
+            // Chờ input[type="file"] xuất hiện trong DOM (tối đa 3000ms)
+            let fileInputReady = false;
+            for (let t = 0; t < 10; t++) {
+              await new Promise((r) => setTimeout(r, 300));
+              const hasInput = await safeExecuteJs<boolean>(ctx.win, `!!document.querySelector('input[type="file"]')`, 500);
+              if (hasInput) { fileInputReady = true; break; }
+            }
+
+            if (fileInputReady) {
+              console.log(`[FlowImageState] [A0] input[type="file"] đã sẵn sàng — tiến hành nạp file "${fileName}" qua CDP...`);
+              try {
+                const cdpFileInput = await FlowFileInputInjector.injectIntoBrowserWindow(ctx.win, localPath, {
+                  inputSelector: 'input[type="file"]'
+                });
+                if (cdpFileInput.success) {
+                  for (let i = 0; i < 8; i++) {
+                    await new Promise((r) => setTimeout(r, 400));
+                    const chipRes = await safeExecuteJs<any>(ctx.win, checkExistingChipJs, 1000);
+                    if (chipRes?.hasChip && chipRes.src) {
+                      const detectedAssetUrl = chipRes.src;
+                      ctx.flowAssetUrl = detectedAssetUrl;
+                      await closeMenuSafe();
+                      console.log(`[FlowImageState] 🎯 [XÁC THỰC CHIP THÀNH CÔNG] Chip xác nhận: character_ref đã upload A0 thành công với URL "${detectedAssetUrl}" (selector: ${chipRes.selector})`);
+                      return {
+                        ok: true,
+                        data: {
+                          hasRefImage: true,
+                          attachmentConfirmed: true,
+                          fileName,
+                          uploadMethodUsed: 'click_menu',
+                          chipSelector: chipRes.selector,
+                          flowAssetUrl: detectedAssetUrl
+                        }
+                      };
+                    }
+                  }
+                  console.warn(`[FlowImageState] [A0] Inject file thành công nhưng chip chưa xuất hiện sau 3.2s.`);
+                } else {
+                  console.warn(`[FlowImageState] [A0] injectIntoBrowserWindow thất bại.`);
+                }
+              } catch (injectErr) {
+                console.warn('[FlowImageState] [A0] Lỗi inject file:', injectErr);
+              }
+            } else {
+              console.warn(`[FlowImageState] [A0] input[type="file"] không xuất hiện sau 3s dù đã click menu item.`);
+            }
+          } else {
+            console.warn(`[FlowImageState] [A0] Không tìm thấy menu item upload trong menu.`);
+          }
+        } else {
+          console.warn(`[FlowImageState] [A0] Nút "+" đã click nhưng menu không mở sau 3s.`);
+        }
+      } else {
+        console.warn(`[FlowImageState] [A0] Không tìm thấy nút "+" (Add Media/Ingredient) trong prompt box.`);
+      }
+    } catch (a0Err) {
+      console.warn('[FlowImageState] Lỗi không mong đợi trong luồng menu upload:', a0Err);
+    }
+
+    // 3. Phương thức A: Thử nạp qua file input nếu có trong DOM (sau khi A0 đã cố mở)
     try {
       const cdpFileInput = await FlowFileInputInjector.injectIntoBrowserWindow(ctx.win, localPath, {
         inputSelector: 'flow-prompt-box input[type="file"], flow-base-prompt-box input[type="file"], input[type="file"]'
@@ -796,8 +1175,9 @@ export const HandleImageReferenceState: FlowAutomationState = {
         for (let i = 0; i < 6; i++) {
           await new Promise((r) => setTimeout(r, 400));
           const chipRes = await safeExecuteJs<any>(ctx.win, checkExistingChipJs, 1000);
-          if (chipRes?.hasChip) {
-            console.log(`[FlowImageState] ✅ Chip ảnh tham chiếu xuất hiện sau file input injection: ${chipRes.selector}`);
+          if (chipRes?.hasChip && chipRes.src) {
+            ctx.flowAssetUrl = chipRes.src;
+            console.log(`[FlowImageState] 🎯 [XÁC THỰC CHIP THÀNH CÔNG] Chip xác nhận: ${refLabel} xuất hiện sau file input injection với URL "${chipRes.src}" (selector: ${chipRes.selector})`);
             return {
               ok: true,
               data: {
@@ -805,7 +1185,8 @@ export const HandleImageReferenceState: FlowAutomationState = {
                 attachmentConfirmed: true,
                 fileName,
                 uploadMethodUsed: cdpFileInput.methodUsed,
-                chipSelector: chipRes.selector
+                chipSelector: chipRes.selector,
+                flowAssetUrl: chipRes.src
               }
             };
           }
@@ -815,7 +1196,7 @@ export const HandleImageReferenceState: FlowAutomationState = {
       console.warn('[FlowImageState] File input injection warning:', e);
     }
 
-    // 3. Phương thức B: Drag-drop file bằng CDP trực tiếp vào toạ độ ProseMirror editor
+    // 4. Phương thức B: Drag-drop file bằng CDP trực tiếp vào toạ độ ProseMirror editor
     const getEditorRectJs = `
       (function() {
         const selectors = [
@@ -849,8 +1230,9 @@ export const HandleImageReferenceState: FlowAutomationState = {
         for (let i = 0; i < 8; i++) {
           await new Promise((r) => setTimeout(r, 500));
           const chipRes = await safeExecuteJs<any>(ctx.win, checkExistingChipJs, 1000);
-          if (chipRes?.hasChip) {
-            console.log(`[FlowImageState] ✅ Chip ảnh tham chiếu xuất hiện sau CDP drag-drop vào editor: ${chipRes.selector}`);
+          if (chipRes?.hasChip && chipRes.src) {
+            ctx.flowAssetUrl = chipRes.src;
+            console.log(`[FlowImageState] 🎯 [XÁC THỰC CHIP THÀNH CÔNG] Chip xác nhận: ${refLabel} xuất hiện sau CDP drag-drop vào editor với URL "${chipRes.src}" (selector: ${chipRes.selector})`);
             return {
               ok: true,
               data: {
@@ -858,7 +1240,8 @@ export const HandleImageReferenceState: FlowAutomationState = {
                 attachmentConfirmed: true,
                 fileName,
                 uploadMethodUsed: 'cdp_drag_drop_editor',
-                chipSelector: chipRes.selector
+                chipSelector: chipRes.selector,
+                flowAssetUrl: chipRes.src
               }
             };
           }
@@ -868,15 +1251,16 @@ export const HandleImageReferenceState: FlowAutomationState = {
       console.warn('[FlowImageState] CDP Drag-drop vào editor lỗi:', dragErr);
     }
 
-    // 4. Phương thức C: Fallback Drag-drop vào viewport center
+    // 5. Phương thức C: Fallback Drag-drop vào viewport center
     try {
       const dropped2 = await FlowFileInputInjector.injectViaCDPDragDrop(ctx.win, localPath, 720, 450);
       if (dropped2) {
         for (let i = 0; i < 6; i++) {
           await new Promise((r) => setTimeout(r, 500));
           const chipRes = await safeExecuteJs<any>(ctx.win, checkExistingChipJs, 1000);
-          if (chipRes?.hasChip) {
-            console.log(`[FlowImageState] ✅ Chip ảnh tham chiếu xuất hiện sau fallback drag-drop: ${chipRes.selector}`);
+          if (chipRes?.hasChip && chipRes.src) {
+            ctx.flowAssetUrl = chipRes.src;
+            console.log(`[FlowImageState] 🎯 [XÁC THỰC CHIP THÀNH CÔNG] Chip xác nhận: ${refLabel} xuất hiện sau fallback drag-drop với URL "${chipRes.src}" (selector: ${chipRes.selector})`);
             return {
               ok: true,
               data: {
@@ -884,7 +1268,8 @@ export const HandleImageReferenceState: FlowAutomationState = {
                 attachmentConfirmed: true,
                 fileName,
                 uploadMethodUsed: 'cdp_drag_drop_fallback',
-                chipSelector: chipRes.selector
+                chipSelector: chipRes.selector,
+                flowAssetUrl: chipRes.src
               }
             };
           }
@@ -892,7 +1277,7 @@ export const HandleImageReferenceState: FlowAutomationState = {
       }
     } catch {}
 
-    // 5. Phương thức D: Fallback clipboard nativeImage paste vào ProseMirror
+    // 6. Phương thức D: Fallback clipboard nativeImage paste vào ProseMirror
     let electron: any = null;
     try {
       electron = (ctx as any).electron || require('electron');
@@ -925,8 +1310,9 @@ export const HandleImageReferenceState: FlowAutomationState = {
       for (let i = 0; i < 6; i++) {
         await new Promise((r) => setTimeout(r, 500));
         const chipRes = await safeExecuteJs<any>(ctx.win, checkExistingChipJs, 1000);
-        if (chipRes?.hasChip) {
-          console.log(`[FlowImageState] ✅ Chip ảnh tham chiếu xuất hiện sau clipboard paste: ${chipRes.selector}`);
+        if (chipRes?.hasChip && chipRes.src) {
+          ctx.flowAssetUrl = chipRes.src;
+          console.log(`[FlowImageState] 🎯 [XÁC THỰC CHIP THÀNH CÔNG] Chip xác nhận: ${refLabel} xuất hiện sau clipboard paste với URL "${chipRes.src}" (selector: ${chipRes.selector})`);
           return {
             ok: true,
             data: {
@@ -934,7 +1320,8 @@ export const HandleImageReferenceState: FlowAutomationState = {
               attachmentConfirmed: true,
               fileName,
               uploadMethodUsed: 'clipboard',
-              chipSelector: chipRes.selector
+              chipSelector: chipRes.selector,
+              flowAssetUrl: chipRes.src
             }
           };
         }
@@ -968,7 +1355,7 @@ export const HandleImageReferenceState: FlowAutomationState = {
       };
     }
 
-    const fileName = path.basename(refPath);
+    const fileName = refPath.startsWith('data:') ? 'ref_image' : path.basename(refPath);
 
     // Kiểm tra kết quả thực thi
     if (!actionRes.ok || !actionRes.data?.attachmentConfirmed) {
@@ -987,41 +1374,37 @@ export const HandleImageReferenceState: FlowAutomationState = {
       };
     }
 
-    // Quét lại DOM lần cuối để đảm bảo chip vẫn tồn tại ổn định
+    // Quét lại DOM lần cuối để đảm bảo chip vẫn tồn tại ổn định theo selector chuẩn
     const checkChipJs = `
       (function() {
-        const selectors = [
-          'flow-image-ingredient-chip',
-          'flow-ingredient-chip',
-          '.chip-container',
-          'mat-chip-row',
-          '[data-ingredient-type]',
-          'flow-chip',
-          '.chip-image-wrapper',
-          'flow-prompt-box mat-chip',
-          '.frame-trigger',
-          'button[aria-label*="Thành phần tạo hình ảnh" i]',
-          'flow-prompt-box img',
-          'flow-base-prompt-box img',
-          '.ProseMirror img',
-          'flow-prompt-box [class*="chip"]',
-          'flow-prompt-box [class*="ingredient"]',
-          '[data-ingredient-name]'
-        ];
-        for (const sel of selectors) {
-          const el = document.querySelector(sel);
-          if (el) {
-            const r = el.getBoundingClientRect();
-            if (r && r.width > 0 && r.height > 0) {
-              return { hasChip: true, selector: sel, tag: el.tagName };
+        const primarySel = '.chip-container[aria-label="Thành phần"] img.chip-image, flow-ingredient-bar .chip-container[aria-label="Thành phần"] img.chip-image';
+        const img = document.querySelector(primarySel);
+        if (img) {
+          const r = img.getBoundingClientRect();
+          const src = img.getAttribute('src') || '';
+          if (r && r.width > 0 && r.height > 0 && src && src.length > 5) {
+            return { hasChip: true, selector: primarySel, src };
+          }
+        }
+
+        const containerSel = 'flow-ingredient-bar .chip-container[aria-label="Thành phần"], .chip-container[aria-label="Thành phần"]';
+        const container = document.querySelector(containerSel);
+        if (container) {
+          const r = container.getBoundingClientRect();
+          if (r && r.width > 0 && r.height > 0) {
+            const innerImg = container.querySelector('img.chip-image, img');
+            const src = innerImg ? (innerImg.getAttribute('src') || '') : '';
+            if (src && src.length > 5) {
+              return { hasChip: true, selector: containerSel + ' img', src };
             }
           }
         }
-        return { hasChip: false };
+
+        return { hasChip: false, src: '' };
       })()
     `;
     const res = await safeExecuteJs<any>(ctx.win, checkChipJs, 2000);
-    const hasChip = Boolean(res?.hasChip);
+    const hasChip = Boolean(res?.hasChip && res.src);
 
     if (!hasChip) {
       return {
@@ -1039,6 +1422,8 @@ export const HandleImageReferenceState: FlowAutomationState = {
       };
     }
 
+    console.log(`[FlowImageState] 🎯 [VERIFY HOÀN TẤT] Chip ảnh tham chiếu "${fileName}" được xác nhận với URL: "${res.src}"`);
+
     return {
       ok: true,
       criteria: {
@@ -1047,6 +1432,7 @@ export const HandleImageReferenceState: FlowAutomationState = {
         fileName,
         attachmentConfirmed: true,
         chipSelector: res?.selector || actionRes.data?.chipSelector || 'chip_detected',
+        flowAssetUrl: res.src || actionRes.data?.flowAssetUrl,
       }
     };
   },
@@ -1372,10 +1758,21 @@ export const ConfigureOptionsState: FlowAutomationState = {
           if (valid.length > 0) {
             const trigger = valid[0];
             const rect = trigger.getBoundingClientRect();
+            const currentText = (trigger.innerText || trigger.getAttribute('aria-label') || '').trim();
+            // NẾU NÚT TRIGGER ĐÃ CHỨA SẴN KEYWORD CỦA MODEL (VÍ DỤ: "🍌 Nano Banana Pro" khớp với "nano"), NÓ ĐÃ ĐƯỢC CHỌN SẴN!
+            if (currentText.toLowerCase().includes(${JSON.stringify(modelKeyword.toLowerCase())})) {
+              return {
+                alreadySelected: true,
+                clicked: false,
+                text: currentText,
+                coords: { x: Math.round(rect.left + rect.width / 2), y: Math.round(rect.top + rect.height / 2) }
+              };
+            }
             trigger.click();
             return {
               clicked: true,
-              text: (trigger.innerText || trigger.getAttribute('aria-label') || '').trim(),
+              alreadySelected: false,
+              text: currentText,
               coords: { x: Math.round(rect.left + rect.width / 2), y: Math.round(rect.top + rect.height / 2) }
             };
           }
@@ -1383,6 +1780,22 @@ export const ConfigureOptionsState: FlowAutomationState = {
         })()
       `;
       const openRes = await safeExecuteJs<any>(ctx.win, openModelPickerJs, 2000);
+
+      if (openRes?.alreadySelected) {
+        console.log(
+          `[FlowImageState] ✅ Model "${modelKeyword}" đã được cấu hình sẵn trên trigger: "${openRes.text}". Bỏ qua thao tác mở menu!`
+        );
+        return {
+          ok: true,
+          data: {
+            modelClicked: false,
+            alreadySelected: true,
+            keyword: modelKeyword,
+            selectedModelText: openRes.text
+          }
+        };
+      }
+
       if (!openRes?.clicked) {
         console.error('[FlowImageState] ❌ Không tìm thấy nút settings trigger để mở menu chọn model!');
         return {
@@ -1689,18 +2102,19 @@ export const ConfigureOptionsState: FlowAutomationState = {
   },
 
   async verify(ctx: FlowStateContext, res: ActionResult): Promise<VerifyResult> {
-    // 1. Xác nhận (a): Hành động click chọn model ở bước EXECUTE đã thực sự xảy ra
-    const modelClicked = Boolean(res.ok && res.data?.modelClicked);
+    // 1. Xác nhận (a): Hành động click chọn model ở bước EXECUTE đã thực sự xảy ra hoặc đã được chọn sẵn từ trước
+    const modelSatisfied = Boolean(res.ok && (res.data?.modelClicked || res.data?.alreadySelected));
     const selectedModelText = res.data?.selectedModelText || '';
-    if (!modelClicked) {
+    if (!modelSatisfied) {
       return {
         ok: false,
         criteria: {
           modelClicked: false,
+          alreadySelected: false,
           selectedModelText: '',
           currentModelText: '',
         },
-        reason: `Bước chọn model thất bại: không click được vào bất kỳ model option nào (modelClicked=false, error=${res.errorDetail || res.error || 'candidates=0'})`,
+        reason: `Bước chọn model thất bại: không click được vào bất kỳ model option nào (modelClicked=false, alreadySelected=false, error=${res.errorDetail || res.error || 'candidates=0'})`,
       };
     }
 
@@ -1763,7 +2177,8 @@ export const ConfigureOptionsState: FlowAutomationState = {
     return {
       ok,
       criteria: {
-        modelClicked,
+        modelClicked: Boolean(res.data?.modelClicked),
+        alreadySelected: Boolean(res.data?.alreadySelected),
         selectedModelText,
         expectedKeyword,
         currentModelText: verifyRes?.currentModelText || '',
@@ -2389,10 +2804,16 @@ export const ClickGenerateState: FlowAutomationState = {
           className: genBtn.className,
         } : { found: false, disabled: true };
 
+        // 5. Kiểm tra nếu prompt đã submit (làm rỗng input sau khi click)
+        const pm = box.querySelector('.ProseMirror, [contenteditable="true"]');
+        const promptText = (pm ? (pm.innerText || pm.textContent || '') : '').trim();
+        const promptCleared = promptText.length === 0;
+
         return {
           hasSpinner,
           hasGeneratingCard,
-          active: hasSpinner || hasGeneratingCard,
+          promptCleared,
+          active: hasSpinner || hasGeneratingCard || promptCleared,
           toast: {
             found: hasToast,
             text: toastText,
@@ -2414,6 +2835,15 @@ export const ClickGenerateState: FlowAutomationState = {
     let lastCheckResult: any = null;
     let lastClickCoords: any = null;
     let finalAttempt = 1;
+    const clickLoopStart = Date.now();
+    const initialPromptLength = (ctx.prompt || '').trim().length;
+    const isVerbose = process.env.FLOW_DEBUG === 'true' || Boolean((ctx as any).verbose);
+    const debugLog = (msg: string, ...args: any[]) => {
+      if (isVerbose) console.log(msg, ...args);
+    };
+
+    // Khoảng chờ ngắn cố định (200ms) NGAY TRƯỚC lần click đầu tiên để Google Flow hoàn tất animation/UI transition
+    await new Promise((r) => setTimeout(r, 200));
 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       if (ctx.isCancelled?.()) break;
@@ -2423,13 +2853,13 @@ export const ClickGenerateState: FlowAutomationState = {
       // ĐIỂM 2: SINGLE CHECK NGAY TRƯỚC MỖI LẦN RETRY CLICK (TRÁNH DOUBLE-SUBMIT)
       // =========================================================================
       if (attempt > 1) {
-        console.log(
+        debugLog(
           `[FlowStateMachine] [${ctx.taskId}#${ctx.generationAttemptId}] 🔍 [DOUBLE-SUBMIT GUARD] Kiểm tra nhanh trước retry click lần ${attempt}...`
         );
         const preRetryCheck = await safeExecuteJs<any>(ctx.win, checkEffectJs, 1500);
-        if (preRetryCheck?.hasSpinner || preRetryCheck?.hasGeneratingCard) {
-          console.log(
-            `[FlowStateMachine] [${ctx.taskId}#${ctx.generationAttemptId}] 🛡️ [DOUBLE-SUBMIT GUARD] Huỷ retry click lần ${attempt} vì phát hiện generate ĐÃ BẮT ĐẦU Ở PHÚT CHÓT từ lần click trước! (hasSpinner=${preRetryCheck.hasSpinner}, hasGeneratingCard=${preRetryCheck.hasGeneratingCard}). Chuyển thẳng sang WAIT_FOR_GENERATION.`
+        if (preRetryCheck?.hasSpinner || preRetryCheck?.hasGeneratingCard || (preRetryCheck?.promptCleared && initialPromptLength > 0)) {
+          debugLog(
+            `[FlowStateMachine] [${ctx.taskId}#${ctx.generationAttemptId}] 🛡️ [DOUBLE-SUBMIT GUARD] Huỷ retry click lần ${attempt} vì phát hiện generate ĐÃ BẮT ĐẦU Ở PHÚT CHÓT từ lần click trước!`
           );
           clickConfirmed = true;
           ctx.generateClickedAt = Date.now();
@@ -2439,14 +2869,14 @@ export const ClickGenerateState: FlowAutomationState = {
         }
       }
 
-      console.log(
+      debugLog(
         `[FlowStateMachine] [${ctx.taskId}#${ctx.generationAttemptId}] 🖱️ [CLICK_GENERATE] Lần click ${attempt}/${maxAttempts}...`
       );
 
       // 2a. Tính toạ độ tức thời của nút Generate
       const clickInfo = await safeExecuteJs<any>(ctx.win, freshCoordJs, 2000);
       if (!clickInfo?.ok || !clickInfo.coords) {
-        console.warn(
+        debugLog(
           `[FlowStateMachine] [${ctx.taskId}#${ctx.generationAttemptId}] ⚠️ Không tính được toạ độ nút Generate ở lần click ${attempt}:`,
           clickInfo
         );
@@ -2511,11 +2941,12 @@ export const ClickGenerateState: FlowAutomationState = {
         const checkRes = await safeExecuteJs<any>(ctx.win, checkEffectJs, 1500);
         lastCheckResult = checkRes;
 
-        // 1. Kiểm tra nếu có spinner hoặc generating card -> THÀNH CÔNG
-        if (checkRes?.hasSpinner || checkRes?.hasGeneratingCard) {
+        // 1. Kiểm tra nếu có spinner, generating card, hoặc prompt text đã submit (cleared) -> THÀNH CÔNG
+        const promptClearedSuccess = Boolean(checkRes?.promptCleared && initialPromptLength > 0);
+        if (checkRes?.hasSpinner || checkRes?.hasGeneratingCard || promptClearedSuccess) {
           hasEffect = true;
-          console.log(
-            `[FlowStateMachine] [${ctx.taskId}#${ctx.generationAttemptId}] 🎯 CLICK_GENERATE ĐÃ CÓ TÁC DỤNG sau ${Date.now() - pollStart}ms (hasSpinner=${checkRes.hasSpinner}, hasGeneratingCard=${checkRes.hasGeneratingCard})!`
+          debugLog(
+            `[FlowStateMachine] [${ctx.taskId}#${ctx.generationAttemptId}] 🎯 CLICK_GENERATE ĐÃ CÓ TÁC DỤNG sau ${Date.now() - pollStart}ms (hasSpinner=${checkRes.hasSpinner}, hasGeneratingCard=${checkRes.hasGeneratingCard}, promptCleared=${promptClearedSuccess})!`
           );
           break;
         }
@@ -2542,16 +2973,24 @@ export const ClickGenerateState: FlowAutomationState = {
         ctx.generationState = 'GENERATING';
         break;
       } else {
-        console.warn(
+        debugLog(
           `[FlowStateMachine] [${ctx.taskId}#${ctx.generationAttemptId}] ⚠️ Sau lần click ${attempt}/${maxAttempts}: KHÔNG phát hiện spinner, generating card hay thông báo từ chối.`
         );
         if (attempt < maxAttempts) {
-          console.log(
+          debugLog(
             `[FlowStateMachine] [${ctx.taskId}#${ctx.generationAttemptId}] 🔄 Sẽ retry click Generate (lần ${attempt + 1}/${maxAttempts}) sau 500ms...`
           );
           await new Promise((r) => setTimeout(r, 500));
         }
       }
+    }
+
+    // Ghi log 1 dòng tổng kết duy nhất ở mức INFO khi click thành công
+    if (clickConfirmed) {
+      const elapsedMs = Date.now() - clickLoopStart;
+      console.log(
+        `[FlowStateMachine] [${ctx.taskId}#${ctx.generationAttemptId}] ✅ CLICK_GENERATE thành công sau ${finalAttempt}/${maxAttempts} lần thử (${elapsedMs}ms)`
+      );
     }
 
     // =========================================================================
@@ -2692,17 +3131,25 @@ export const VerifyGenerationStartedState: FlowAutomationState = {
           return state.includes('generating') || cls.includes('generating') || Boolean(c.querySelector('mat-progress-spinner, [role="progressbar"], flow-loading-indicator'));
         });
 
+        const box = document.querySelector('flow-prompt-box, flow-base-prompt-box, flow-creative-agent-prompt-box, .prompt-box-container, .base-prompt-box') || document;
+        const pm = box.querySelector('.ProseMirror, [contenteditable="true"]');
+        const promptText = (pm ? (pm.innerText || pm.textContent || '') : '').trim();
+        const promptCleared = promptText.length === 0;
+
         return {
           hasSpinner,
           hasGeneratingCard,
-          active: hasSpinner || hasGeneratingCard
+          promptCleared,
+          active: hasSpinner || hasGeneratingCard || promptCleared
         };
       })()
     `;
 
-    // Kiểm tra trực tiếp bằng chứng sinh ảnh (hasSpinner hoặc hasGeneratingCard)
+    const initialPromptLength = (ctx.prompt || '').trim().length;
+
+    // Kiểm tra trực tiếp bằng chứng sinh ảnh (hasSpinner, hasGeneratingCard hoặc prompt đã submit rỗng)
     let status = await safeExecuteJs<any>(ctx.win, checkStartedJs, 1500);
-    let started = Boolean(status?.hasSpinner || status?.hasGeneratingCard);
+    let started = Boolean(status?.hasSpinner || status?.hasGeneratingCard || (status?.promptCleared && initialPromptLength > 0));
 
     // Nếu chưa thấy ngay, poll thêm tối đa 3s (mỗi 300ms)
     if (!started) {
@@ -2710,7 +3157,7 @@ export const VerifyGenerationStartedState: FlowAutomationState = {
         await new Promise((r) => setTimeout(r, 300));
         if (ctx.isCancelled?.()) break;
         status = await safeExecuteJs<any>(ctx.win, checkStartedJs, 1500);
-        if (status?.hasSpinner || status?.hasGeneratingCard) {
+        if (status?.hasSpinner || status?.hasGeneratingCard || (status?.promptCleared && initialPromptLength > 0)) {
           started = true;
           break;
         }
@@ -2723,7 +3170,7 @@ export const VerifyGenerationStartedState: FlowAutomationState = {
       return {
         ok: false,
         error: 'CLICK_GENERATE_NO_EFFECT',
-        errorDetail: 'VERIFY_GENERATION_STARTED: Không phát hiện spinner hoặc generating card nào sau khi click Generate (CLICK_GENERATE_NO_EFFECT).',
+        errorDetail: 'VERIFY_GENERATION_STARTED: Không phát hiện spinner, generating card hay prompt cleared nào sau khi click Generate (CLICK_GENERATE_NO_EFFECT).',
         data: status,
       };
     }
@@ -2732,13 +3179,15 @@ export const VerifyGenerationStartedState: FlowAutomationState = {
   },
 
   async verify(ctx: FlowStateContext, res: ActionResult): Promise<VerifyResult> {
-    const ok = Boolean(res.ok && (res.data?.hasSpinner || res.data?.hasGeneratingCard));
+    const initialPromptLength = (ctx.prompt || '').trim().length;
+    const ok = Boolean(res.ok && (res.data?.hasSpinner || res.data?.hasGeneratingCard || (res.data?.promptCleared && initialPromptLength > 0)));
     return {
       ok,
       criteria: {
         generationStarted: ok,
         hasSpinner: Boolean(res.data?.hasSpinner),
         hasGeneratingCard: Boolean(res.data?.hasGeneratingCard),
+        promptCleared: Boolean(res.data?.promptCleared),
       },
       reason: ok ? undefined : 'CLICK_GENERATE_NO_EFFECT: Cả spinner và generating card đều không xuất hiện sau khi click Generate',
     };

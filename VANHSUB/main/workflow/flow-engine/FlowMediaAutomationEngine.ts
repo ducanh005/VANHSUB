@@ -24,6 +24,7 @@
 
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import ffmpeg from 'fluent-ffmpeg';
@@ -36,7 +37,7 @@ import {
   PipelineActionStatus,
 } from '../../ai-studio/storage/AiStudioDiskStorageManager';
 import { FlowVisualConfirmGuard } from './FlowVisualConfirmGuard';
-import { FlowFileInputInjector } from './FlowFileInputInjector';
+import { FlowFileInputInjector, ensureLocalImageFile, shortenForLog } from './FlowFileInputInjector';
 import { GoogleVeoSessionManager } from '../../veo/GoogleVeoSessionManager';
 
 const execFileAsync = promisify(execFile);
@@ -69,6 +70,10 @@ export interface GenerateImageOptions {
   referenceImagePaths?: string[];
   /** Whether background was sent as image or baked into text prompt (for logging) */
   backgroundSentAs?: 'image' | 'text_prompt';
+  /** Google Flow Project ID / UUID to open directly */
+  targetProjectId?: string;
+  /** Google Flow Project Name to assign or search */
+  targetProjectName?: string;
   forceRegenerate?: boolean;
   maxRetries?: number;
   timeoutMs?: number;
@@ -297,7 +302,7 @@ export class FlowMediaAutomationEngine {
 
       storage.updateShotMetadata(sceneId, shotId, {
         current_image_version: nextVer.version,
-        image_path: options.forceRegenerate ? nextVer.absolutePath : nextVer.relativePath,
+        image_path: nextVer.relativePath,
         image_prompt_used: prompt,
         image_generated_at: new Date().toISOString(),
         status: 'image_ready',
@@ -327,11 +332,37 @@ export class FlowMediaAutomationEngine {
       throw new Error('Không thể kết nối hoặc khởi tạo cửa sổ Google Flow để tạo ảnh.');
     }
 
+    // 3b. Snapshot baseline các thẻ ảnh đã có trên canvas TRƯỚC KHI bắt đầu xử lý shot này
+    const shotStartedAt = Date.now();
+    let shotBaselineUrls = new Set<string>();
+    if (win && !win.isDestroyed() && win.webContents) {
+      try {
+        const scanBaselineJs = `
+          (function() {
+            const urls = [];
+            document.querySelectorAll('img, video, [class*="tile"] img, flow-image-tile img, flow-media-card img').forEach(el => {
+              const s = el.currentSrc || el.src;
+              if (s && !s.includes('gstatic') && !s.includes('/icons/') && !s.includes('/avatar')) urls.push(s);
+            });
+            return urls;
+          })()
+        `;
+        const initialUrls = await win.webContents.executeJavaScript(scanBaselineJs);
+        if (Array.isArray(initialUrls)) {
+          shotBaselineUrls = new Set(initialUrls);
+        }
+      } catch {}
+    }
+
     // 4. Live Browser Interaction Workflow via GoogleVeoSessionManager & FlowStateMachine
     let lastError: any = null;
 
     for (let retry = 0; retry <= maxRetries; retry++) {
       try {
+        const safeRefPath = options.referenceImagePath
+          ? ensureLocalImageFile(options.referenceImagePath, `shot_${shotId}_ref`) || undefined
+          : undefined;
+
         storage.appendActionLog(
           FlowMediaAutomationEngine.createActionLog({
             scene_id: sceneId,
@@ -340,24 +371,39 @@ export class FlowMediaAutomationEngine {
             target: 'prompt_editor',
             retry,
             status: 'ok',
-            details: { prompt, referenceImagePath: options.referenceImagePath },
+            details: { prompt, referenceImagePath: shortenForLog(safeRefPath || options.referenceImagePath) },
           })
         );
+
+        const refFileName = (safeRefPath || options.referenceImagePath || '').toLowerCase();
+        const refType = refFileName.includes('background') ? 'background' : 'character';
+        const savedFlowAssetUrl = (options.storage as any)?.getFlowAssetUrl?.(refType);
 
         const result = await sessionMgr.generateImageViaBrowserContext(
           {
             prompt: prompt.trim(),
             aspectRatio: options.aspectRatio || '16:9',
-            referenceImagePath: options.referenceImagePath,
-            projectId: undefined,
+            referenceImagePath: safeRefPath,
+            projectId: options.targetProjectId,
+            projectName: options.targetProjectName,
+            flowAssetUrl: savedFlowAssetUrl,
             taskId: shotId,
             generationAttemptId: `${sceneId}_${shotId}_${nextVer.version}_${retry}`,
+            retryIndex: retry,
+            shotBaselineUrls,
+            shotStartedAt,
           },
           (pct, msg) => {
             // Live progress callback
           },
           () => false
         );
+
+        if ((result as any)?.flowAssetUrl && (options.storage as any)?.setFlowAssetUrl) {
+          try {
+            (options.storage as any).setFlowAssetUrl((result as any).flowAssetUrl, refType);
+          } catch {}
+        }
 
         if (result?.error && !result.imageUrl && !result.base64Data) {
           throw new Error(result.errorDetail || result.error);
@@ -404,10 +450,64 @@ export class FlowMediaAutomationEngine {
           throw new Error('Tệp ảnh tải về 0 bytes');
         }
 
+        // Checksum Deduplication Guard: Ngăn chặn triệt để tình trạng tái sử dụng nhầm ảnh cũ
+        const currentBuffer = fs.readFileSync(nextVer.absolutePath);
+        const currentChecksum = crypto.createHash('sha256').update(currentBuffer).digest('hex');
+
+        const indexData = storage.readIndex();
+        let duplicateShotId: string | null = null;
+        let duplicatePath: string | null = null;
+
+        for (const [sId, sc] of Object.entries(indexData.scenes || {})) {
+          for (const [otherShotId, shotMeta] of Object.entries(sc.shots || {})) {
+            if (otherShotId === shotId) continue;
+            if (shotMeta.image_path) {
+              const otherAbs = storage.resolvePath(shotMeta.image_path);
+              if (fs.existsSync(otherAbs)) {
+                try {
+                  const otherBuf = fs.readFileSync(otherAbs);
+                  const otherChecksum = crypto.createHash('sha256').update(otherBuf).digest('hex');
+                  if (otherChecksum === currentChecksum) {
+                    duplicateShotId = otherShotId;
+                    duplicatePath = otherAbs;
+                    break;
+                  }
+                } catch {}
+              }
+            }
+          }
+          if (duplicateShotId) break;
+        }
+
+        if (duplicateShotId) {
+          console.error(
+            `[FlowMediaAutomationEngine] ❌ LỖI TRÙNG LẶP DỮ LIỆU: Tệp ảnh vừa sinh cho "${shotId}" có SHA-256 (${currentChecksum.slice(0, 16)}...) trùng khớp 100% với shot "${duplicateShotId}" (${duplicatePath})! Hủy bỏ lưu kết quả này vào index.json.`
+          );
+          try { fs.unlinkSync(nextVer.absolutePath); } catch {}
+          storage.appendActionLog(
+            FlowMediaAutomationEngine.createActionLog({
+              scene_id: sceneId,
+              shot_id: shotId,
+              action: 'download',
+              target: nextVer.relativePath,
+              retry,
+              status: 'failed',
+              details: {
+                error: 'DUPLICATE_IMAGE_DETECTED',
+                duplicateOf: duplicateShotId,
+                hash: currentChecksum,
+              },
+            })
+          );
+          throw new Error(
+            `DUPLICATE_IMAGE_DETECTED: Ảnh sinh ra cho shot ${shotId} bị trùng lặp nội dung 100% với shot ${duplicateShotId}. Flow đã tái sử dụng nhầm ảnh cũ.`
+          );
+        }
+
         // Update index.json
         storage.updateShotMetadata(sceneId, shotId, {
           current_image_version: nextVer.version,
-          image_path: options.forceRegenerate ? nextVer.absolutePath : nextVer.relativePath,
+          image_path: nextVer.relativePath,
           image_prompt_used: prompt,
           image_generated_at: new Date().toISOString(),
           status: 'image_ready',
@@ -563,8 +663,26 @@ export class FlowMediaAutomationEngine {
       };
     }
 
-    if (!win) {
-      throw new Error('Không thể kết nối hoặc khởi tạo cửa sổ Google Flow để tạo video.');
+    // 4b. Snapshot baseline các video/media đã có trên canvas TRƯỚC KHI bắt đầu xử lý shot này
+    const shotStartedAt = Date.now();
+    let shotBaselineUrls = new Set<string>();
+    if (win && !win.isDestroyed() && win.webContents) {
+      try {
+        const scanBaselineJs = `
+          (function() {
+            const urls = [];
+            document.querySelectorAll('img, video, [class*="tile"] img, [class*="tile"] video, flow-image-tile img, flow-media-card img, flow-media-card video').forEach(el => {
+              const s = el.currentSrc || el.src;
+              if (s && !s.includes('gstatic') && !s.includes('/icons/') && !s.includes('/avatar')) urls.push(s);
+            });
+            return urls;
+          })()
+        `;
+        const initialUrls = await win.webContents.executeJavaScript(scanBaselineJs);
+        if (Array.isArray(initialUrls)) {
+          shotBaselineUrls = new Set(initialUrls);
+        }
+      } catch {}
     }
 
     // 5. Live Browser Automation Workflow via GoogleVeoSessionManager & FlowStateMachine
@@ -593,6 +711,9 @@ export class FlowMediaAutomationEngine {
             projectId: undefined,
             taskId: shotId,
             generationAttemptId: `${sceneId}_${shotId}_${nextVidVer.version}_${retry}`,
+            retryIndex: retry,
+            shotBaselineUrls,
+            shotStartedAt,
           },
           (pct, msg) => {
             // Live progress callback
@@ -643,6 +764,60 @@ export class FlowMediaAutomationEngine {
           }
         }
 
+        // Checksum Deduplication Guard: Ngăn chặn triệt để tình trạng tái sử dụng nhầm video cũ
+        const currentVidBuffer = fs.readFileSync(nextVidVer.absolutePath);
+        const currentVidChecksum = crypto.createHash('sha256').update(currentVidBuffer).digest('hex');
+
+        const indexData = storage.readIndex();
+        let duplicateVidShotId: string | null = null;
+        let duplicateVidPath: string | null = null;
+
+        for (const [sId, sc] of Object.entries(indexData.scenes || {})) {
+          for (const [otherShotId, shotMeta] of Object.entries(sc.shots || {})) {
+            if (otherShotId === shotId) continue;
+            if (shotMeta.video_path) {
+              const otherAbs = storage.resolvePath(shotMeta.video_path);
+              if (fs.existsSync(otherAbs)) {
+                try {
+                  const otherBuf = fs.readFileSync(otherAbs);
+                  const otherChecksum = crypto.createHash('sha256').update(otherBuf).digest('hex');
+                  if (otherChecksum === currentVidChecksum) {
+                    duplicateVidShotId = otherShotId;
+                    duplicateVidPath = otherAbs;
+                    break;
+                  }
+                } catch {}
+              }
+            }
+          }
+          if (duplicateVidShotId) break;
+        }
+
+        if (duplicateVidShotId) {
+          console.error(
+            `[FlowMediaAutomationEngine] ❌ LỖI TRÙNG LẶP DỮ LIỆU VIDEO: Tệp video vừa sinh cho "${shotId}" có SHA-256 (${currentVidChecksum.slice(0, 16)}...) trùng khớp 100% với shot "${duplicateVidShotId}" (${duplicateVidPath})! Hủy bỏ lưu kết quả này vào index.json.`
+          );
+          try { fs.unlinkSync(nextVidVer.absolutePath); } catch {}
+          storage.appendActionLog(
+            FlowMediaAutomationEngine.createActionLog({
+              scene_id: sceneId,
+              shot_id: shotId,
+              action: 'download',
+              target: nextVidVer.relativePath,
+              retry,
+              status: 'failed',
+              details: {
+                error: 'DUPLICATE_VIDEO_DETECTED',
+                duplicateOf: duplicateVidShotId,
+                hash: currentVidChecksum,
+              },
+            })
+          );
+          throw new Error(
+            `DUPLICATE_VIDEO_DETECTED: Video sinh ra cho shot ${shotId} bị trùng lặp nội dung 100% với shot ${duplicateVidShotId}. Flow đã tái sử dụng nhầm video cũ.`
+          );
+        }
+
         // Probe actual video duration using ffprobe
         let actualDuration = expectedDurationSec;
         try {
@@ -659,7 +834,7 @@ export class FlowMediaAutomationEngine {
         // Update master index.json
         storage.updateShotMetadata(sceneId, shotId, {
           current_video_version: nextVidVer.version,
-          video_path: options.forceRegenerate ? nextVidVer.absolutePath : nextVidVer.relativePath,
+          video_path: nextVidVer.relativePath,
           source_image_path: storage.resolvePath(sourcePath).replace(storage.projectDir, '').replace(/^[\/\\]/, ''),
           motion_note: motionNote,
           expected_duration_sec: expectedDurationSec,

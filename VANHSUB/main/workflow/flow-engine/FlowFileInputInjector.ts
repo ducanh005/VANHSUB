@@ -19,6 +19,77 @@
 
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
+
+/**
+ * Rút ngắn chuỗi để ghi log an toàn (tránh làm tràn màn hình log bởi chuỗi Base64 Data URL dài hàng chục nghìn ký tự).
+ * Giữ lại maxLength ký tự đầu kèm thông tin tổng độ dài thực tế.
+ */
+export function shortenForLog(val: any, maxLength = 100): string {
+  if (val === null || val === undefined) return '';
+  const str = typeof val === 'string' ? val : String(val);
+  if (str.length <= maxLength) return str;
+  return `${str.slice(0, maxLength)}... (đã cắt bớt, tổng độ dài: ${str.length} ký tự)`;
+}
+
+/**
+ * Xác thực và giải quyết đường dẫn ảnh cục bộ an toàn:
+ * 1. Nếu là Base64 Data URL (data:image/... hoặc data:application/octet-stream):
+ *    - Log cảnh báo rõ ràng kèm chuỗi đã rút gọn để phát hiện sớm luồng dữ liệu bị lỗi.
+ *    - Tự động giải mã và lưu tạm thành file vật lý trên đĩa (os.tmpdir()/vanhsub-flow-refs/).
+ * 2. Nếu là file:// URL: tách bỏ tiền tố file://.
+ * 3. Chuẩn hóa đường dẫn tuyệt đối qua path.resolve.
+ * 4. Trả về đường dẫn file thật trên đĩa, hoặc null nếu không hợp lệ.
+ */
+export function ensureLocalImageFile(rawInput: string | undefined, contextHint: string = 'ref_image'): string | null {
+  if (!rawInput || typeof rawInput !== 'string' || !rawInput.trim()) return null;
+  const trimmed = rawInput.trim();
+
+  // 1. Kiểm tra Base64 Data URL
+  if (trimmed.startsWith('data:image/') || trimmed.startsWith('data:application/octet-stream')) {
+    console.warn(
+      `[FlowEngine] ⚠️ CẢNH BÁO: Nhận được giá trị chưa resolve (${shortenForLog(trimmed)}) tại bước lẽ ra chỉ nên dùng file path — kiểm tra lại luồng dữ liệu! Đang tự động giải mã và lưu tạm thành file đĩa...`
+    );
+    try {
+      const commaIdx = trimmed.indexOf(',');
+      const base64Str = commaIdx >= 0 ? trimmed.slice(commaIdx + 1) : trimmed;
+      const buffer = Buffer.from(base64Str, 'base64');
+      if (buffer.length > 0) {
+        const extMatch = trimmed.match(/^data:image\/([a-zA-Z0-9]+);/);
+        let ext = extMatch ? `.${extMatch[1].toLowerCase()}` : '.png';
+        if (ext === '.jpeg') ext = '.jpg';
+        const tempDir = path.join(os.tmpdir(), 'vanhsub-flow-refs');
+        if (!fs.existsSync(tempDir)) {
+          fs.mkdirSync(tempDir, { recursive: true });
+        }
+        const safeHint = contextHint.replace(/[^a-zA-Z0-9_-]/g, '_');
+        const tempPath = path.join(tempDir, `${safeHint}_${Date.now()}${ext}`);
+        fs.writeFileSync(tempPath, buffer);
+        console.log(`[FlowEngine] 💾 Đã tự động cứu hộ Base64 và lưu thành file đĩa: "${tempPath}" (${buffer.length} bytes).`);
+        return tempPath;
+      }
+    } catch (err: any) {
+      console.error(`[FlowEngine] ❌ Không thể giải mã Base64 sang file đĩa:`, err?.message || err);
+      return null;
+    }
+  }
+
+  // 2. Kiểm tra HTTP/HTTPS URL
+  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+    console.warn(
+      `[FlowEngine] ⚠️ CẢNH BÁO: Nhận được giá trị URL mạng (${shortenForLog(trimmed)}) tại bước lẽ ra chỉ nên dùng file path cục bộ!`
+    );
+    return null;
+  }
+
+  // 3. Chuẩn hóa đường dẫn file cục bộ (file:// hoặc absolute/relative)
+  let localPath = trimmed;
+  if (localPath.startsWith('file://')) {
+    localPath = localPath.replace(/^file:\/\/\/?/, '');
+  }
+  localPath = path.resolve(localPath);
+  return localPath;
+}
 
 export interface LocalFileInjectionOptions {
   filePath?: string;
@@ -56,27 +127,29 @@ export class FlowFileInputInjector {
     options?: LocalFileInjectionOptions
   ): Promise<LocalFileInjectionResult> {
     if (!filePath || typeof filePath !== 'string') {
+      const displayPath = shortenForLog(filePath);
       return {
         success: false,
-        injectedPath: String(filePath),
+        injectedPath: displayPath,
         fileName: '',
         fileSizeBytes: 0,
         methodUsed: 'cdp_dom_setFileInputFiles',
-        error: `Invalid file path provided: "${filePath}"`,
+        error: `Invalid file path provided: "${displayPath}"`,
       };
     }
 
-    const resolvedPath = path.resolve(filePath);
+    const resolvedPath = ensureLocalImageFile(filePath, 'mock_injected_asset') || path.resolve(filePath);
+    const displayPath = shortenForLog(resolvedPath);
 
     // 1. Pre-validation: Verify local source asset exists on disk
     if (!fs.existsSync(resolvedPath)) {
       return {
         success: false,
-        injectedPath: resolvedPath,
-        fileName: path.basename(resolvedPath),
+        injectedPath: displayPath,
+        fileName: path.basename(displayPath),
         fileSizeBytes: 0,
         methodUsed: 'cdp_dom_setFileInputFiles',
-        error: `Local asset file does not exist on disk: ${resolvedPath}`,
+        error: `Local asset file does not exist on disk: ${displayPath}`,
       };
     }
 
@@ -85,11 +158,11 @@ export class FlowFileInputInjector {
     if (!stat.isFile() || stat.size === 0) {
       return {
         success: false,
-        injectedPath: resolvedPath,
-        fileName: path.basename(resolvedPath),
+        injectedPath: displayPath,
+        fileName: path.basename(displayPath),
         fileSizeBytes: 0,
         methodUsed: 'cdp_dom_setFileInputFiles',
-        error: `Local asset file is 0 bytes: ${resolvedPath}`,
+        error: `Local asset file is 0 bytes: ${displayPath}`,
       };
     }
 
@@ -123,18 +196,19 @@ export class FlowFileInputInjector {
     filePath: string,
     options?: LocalFileInjectionOptions
   ): Promise<LocalFileInjectionResult> {
-    const resolvedPath = path.resolve(filePath);
+    const resolvedPath = ensureLocalImageFile(filePath, 'browser_injected_asset') || path.resolve(filePath);
+    const displayPath = shortenForLog(resolvedPath);
     const selector = options?.inputSelector || FlowFileInputInjector.DEFAULT_INPUT_SELECTOR;
 
     // 1. Pre-flight disk verification
     if (!fs.existsSync(resolvedPath)) {
       return {
         success: false,
-        injectedPath: resolvedPath,
-        fileName: path.basename(resolvedPath),
+        injectedPath: displayPath,
+        fileName: path.basename(displayPath),
         fileSizeBytes: 0,
         methodUsed: 'cdp_dom_setFileInputFiles',
-        error: `Local asset file does not exist on disk: ${resolvedPath}`,
+        error: `Local asset file does not exist on disk: ${displayPath}`,
       };
     }
 
@@ -142,11 +216,11 @@ export class FlowFileInputInjector {
     if (!stat.isFile() || stat.size === 0) {
       return {
         success: false,
-        injectedPath: resolvedPath,
-        fileName: path.basename(resolvedPath),
+        injectedPath: displayPath,
+        fileName: path.basename(displayPath),
         fileSizeBytes: 0,
         methodUsed: 'cdp_dom_setFileInputFiles',
-        error: `Local asset file is 0 bytes: ${resolvedPath}`,
+        error: `Local asset file is 0 bytes: ${displayPath}`,
       };
     }
 
@@ -307,7 +381,7 @@ export class FlowFileInputInjector {
    */
   public static async injectViaCDPDragDrop(win: any, absoluteFilePath: string, x = 720, y = 450): Promise<boolean> {
     if (!win || win.isDestroyed()) return false;
-    const resolvedPath = path.resolve(absoluteFilePath);
+    const resolvedPath = ensureLocalImageFile(absoluteFilePath, 'cdp_drag_asset') || path.resolve(absoluteFilePath);
     if (!fs.existsSync(resolvedPath) || fs.statSync(resolvedPath).size === 0) return false;
 
     const mimeType = resolvedPath.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg';

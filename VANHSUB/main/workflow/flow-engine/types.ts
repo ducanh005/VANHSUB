@@ -49,6 +49,8 @@ export interface FlowStateContext {
   initFrameUrl?: string;
   referenceImagePath?: string;
   targetProjectId?: string;
+  targetProjectName?: string;
+  flowAssetUrl?: string;
 
   // Callbacks
   onProgress?: (percent: number, msg?: string) => void;
@@ -62,6 +64,9 @@ export interface FlowStateContext {
   capturedBase64: string | null;
   generateClickedAt: number;
   idempotencyDetectedAt?: number;
+  retryIndex?: number;
+  shotBaselineUrls?: Set<string>;
+  shotStartedAt?: number;
   foundButton?: any;
   nativeClicksCount?: number;
   netFilterAttached: boolean;
