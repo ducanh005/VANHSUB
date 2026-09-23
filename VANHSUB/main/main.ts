@@ -1399,6 +1399,12 @@ ipcMain.handle('debug:test-gen-video', async (_event, prompt: string, projectId?
       return { success: false, error: 'Không nhận được operationId từ Video RPC response', opStatus };
     }
 
+    // Nếu __TRIGGER_GEN__ đã trả về kết quả hoàn chỉnh (done=true + videoUrl), không cần poll
+    if (opStatus.done && opStatus.videoUrl) {
+      console.log(`[debug:test-gen-video] ✅ Video đã hoàn thành ngay (UI gen), videoUrl: ${opStatus.videoUrl.slice(0, 80)}`);
+      return { success: true, projectId: targetProjectId, opStatus, pollRes: { videoUrl: opStatus.videoUrl, mediaId: opStatus.mediaId } };
+    }
+
     const pollRes = await pollAndGetMediaUrl(
       opStatus.operationId,
       targetProjectId,

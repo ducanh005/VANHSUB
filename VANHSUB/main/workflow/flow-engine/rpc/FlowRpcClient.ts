@@ -730,26 +730,24 @@ export class FlowRpcClient {
     // ── Ưu tiên 1: Chuyển qua Chrome Extension Bridge nếu đang kết nối ────────
     const bridge = FlowBridgeServer.getInstance();
     if (bridge.isConnected()) {
-      console.log(`[FlowRpcClient] 🌐 [Chrome Extension Bridge] Đang tạo ảnh: "${opts.prompt.slice(0, 40)}"...`);
-      const innerPayload = buildGenImagePayload({
-        ...opts,
-        captchaToken: CAPTCHA_SLOT,
-      });
-      const rawText = await bridge.sendBatchRpc(
-        RPC_GEN_IMAGE,
-        innerPayload,
-        CAPTCHA_ACTION_IMAGE,
-        opts.projectId
-      );
+      console.log(`[FlowRpcClient] 🌐 [Chrome Extension Bridge __TRIGGER_GEN__] Đang tạo ảnh: "${opts.prompt.slice(0, 40)}"...`);
+      // Dùng UI click (isTrusted=true) thay vì sendBatchRpc để bypass reCAPTCHA bot detection
+      const cfg = JSON.stringify({ mode: 'IMAGE', prompt: opts.prompt });
+      const result = await bridge.tabEval('__TRIGGER_GEN__:' + cfg, 75000);
+      if (!result?.ok) {
+        throw new Error(`[FlowRpcClient] UI gen (IMAGE) lỗi: ${result?.error || JSON.stringify(result)}`);
+      }
+      // result.response là raw batchexecute response text của ogiZ0b từ sniffer
+      const rawText: string = typeof result.response === 'string' ? result.response : JSON.stringify(result.response);
       const res = parseBatchResponse(rawText, RPC_GEN_IMAGE);
       if (!res.ok) {
-        throw new Error(`[FlowRpcClient] Chrome Extension Bridge lỗi: ${JSON.stringify(res.error)}`);
+        throw new Error(`[FlowRpcClient] Parse ảnh lỗi (ogiZ0b): ${JSON.stringify(res.error)}`);
       }
       const images = extractGeneratedImages(res.data);
       if (images.length === 0) {
-        throw new Error(`[FlowRpcClient] Không extract được ảnh từ response của Extension: ${rawText.slice(0, 300)}`);
+        throw new Error(`[FlowRpcClient] Không extract được ảnh từ sniffer response: ${rawText.slice(0, 300)}`);
       }
-      console.log(`[FlowRpcClient] ✅ [Chrome Extension Bridge] Đã tạo thành công ${images.length} ảnh!`);
+      console.log(`[FlowRpcClient] ✅ [__TRIGGER_GEN__ IMAGE] Đã tạo thành công ${images.length} ảnh!`);
       return images;
     }
 
@@ -919,20 +917,26 @@ export class FlowRpcClient {
   ): Promise<OperationStatus> {
     const bridge = FlowBridgeServer.getInstance();
     if (bridge.isConnected()) {
-      console.log(`[FlowRpcClient] 🌐 [Chrome Extension Bridge] Đang tạo video text: "${opts.prompt.slice(0, 40)}"...`);
-      const innerPayload = buildGenVideoTextPayload({
-        ...opts,
-        captchaToken: CAPTCHA_SLOT,
-      });
-      const rawText = await bridge.sendBatchRpc(
-        RPC_GEN_VIDEO_TEXT,
-        innerPayload,
-        CAPTCHA_ACTION_VIDEO,
-        opts.projectId
-      );
-      const res = parseBatchResponse(rawText, RPC_GEN_VIDEO_TEXT);
-      if (!res.ok) throw new Error(`[FlowRpcClient] Chrome Extension Bridge lỗi: ${JSON.stringify(res.error)}`);
-      return extractOperationStatus(res.data, RPC_GEN_VIDEO_TEXT);
+      console.log(`[FlowRpcClient] 🌐 [Chrome Extension Bridge __TRIGGER_GEN__] Đang tạo video text: "${opts.prompt.slice(0, 40)}"...`);
+      // Dùng UI click (isTrusted=true) để bypass reCAPTCHA bot detection
+      const cfg = JSON.stringify({ mode: 'VIDEO', prompt: opts.prompt });
+      const result = await bridge.tabEval('__TRIGGER_GEN__:' + cfg, 120000);
+      if (!result?.ok) {
+        throw new Error(`[FlowRpcClient] UI gen (VIDEO) lỗi: ${result?.error || JSON.stringify(result)}`);
+      }
+      // result.response là raw as29s response text từ sniffer (chứa signed CDN video URL)
+      const rawResponse: string = typeof result.response === 'string' ? result.response : JSON.stringify(result.response);
+      const videoUrlMatch = rawResponse.match(/https:\/\/flow-content\.google\/video\/[^"'\s\\]+/);
+      const videoUrl = videoUrlMatch ? videoUrlMatch[0] : undefined;
+      if (!videoUrl) {
+        throw new Error(`[FlowRpcClient] Không tìm thấy video URL trong as29s response: ${rawResponse.slice(0, 300)}`);
+      }
+      console.log(`[FlowRpcClient] ✅ [__TRIGGER_GEN__ VIDEO] Video URL: ${videoUrl.slice(0, 80)}`);
+      return {
+        operationId: result.mediaId || result.rpcid || 'ui-gen',
+        done: true,
+        videoUrl,
+      };
     }
 
     if (!win || win.isDestroyed()) {
