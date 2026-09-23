@@ -66,7 +66,7 @@ export function sanitizeProjectName(name?: string): string {
 export class GoogleVeoSessionManager {
   private static instance: GoogleVeoSessionManager | null = null;
   public lobbyWindow: any = null;
-  private isLobbyDebugVisible = false;
+  public isLobbyDebugVisible = false;
   private _webRequestListenerAttached = false;
   private currentProjectId: string | null = null;
   private lastPermissionConfirmedAt = 0;
@@ -257,8 +257,12 @@ export class GoogleVeoSessionManager {
 
   /**
    * Mở cửa sổ Sảnh Google Veo / Flow để người dùng đăng nhập tài khoản thật
+   * Hỗ trợ options { uiMode?: 'offscreen' | 'live_window'; forceRecreate?: boolean }
+   * hoặc legacy parentWindow
    */
-  async openLobbyWindow(parentWindow?: any): Promise<void> {
+  async openLobbyWindow(
+    optionsOrParent?: { uiMode?: 'offscreen' | 'live_window'; forceRecreate?: boolean } | any
+  ): Promise<void> {
     let electron: any;
     try {
       electron = require('electron');
@@ -271,17 +275,48 @@ export class GoogleVeoSessionManager {
       throw new Error('Không tìm thấy BrowserWindow trong Electron.');
     }
 
-    this.isLobbyDebugVisible = true;
+    // Xác định uiMode và forceRecreate
+    let targetUiMode: 'offscreen' | 'live_window' = 'offscreen';
+    let forceRecreate = false;
 
-    // Nếu cửa sổ đang mở thì hiển thị và focus lại
+    if (optionsOrParent && typeof optionsOrParent === 'object') {
+      if ('uiMode' in optionsOrParent || 'forceRecreate' in optionsOrParent) {
+        targetUiMode = optionsOrParent.uiMode || 'offscreen';
+        forceRecreate = Boolean(optionsOrParent.forceRecreate);
+      } else if (optionsOrParent.webContents || typeof optionsOrParent.isDestroyed === 'function') {
+        // Tương thích ngược: mở từ menu UI hoặc dialog chính (cần hiển thị cho người dùng)
+        targetUiMode = 'live_window';
+      }
+    }
+
+    const isLive = targetUiMode === 'live_window';
+    this.isLobbyDebugVisible = isLive;
+
+    // Tái tạo cửa sổ nếu yêu cầu forceRecreate
+    if (forceRecreate && this.lobbyWindow && !this.lobbyWindow.isDestroyed()) {
+      try {
+        this.lobbyWindow.destroy();
+      } catch {}
+      this.lobbyWindow = null;
+    }
+
+    // Nếu cửa sổ đang mở thì cập nhật kích thước / vị trí tương ứng với uiMode
     if (this.lobbyWindow && !this.lobbyWindow.isDestroyed()) {
       this.lobbyWindow.setSize(1440, 900);
-      this.lobbyWindow.setPosition(100, 60);
       try {
         this.lobbyWindow.webContents?.setZoomFactor(1.0);
       } catch {}
-      this.lobbyWindow.show();
-      this.lobbyWindow.focus();
+
+      if (isLive) {
+        this.lobbyWindow.setPosition(100, 60);
+        this.lobbyWindow.show();
+        this.lobbyWindow.focus();
+      } else {
+        this.lobbyWindow.setPosition(OFFSCREEN_X, OFFSCREEN_Y);
+        if (typeof this.lobbyWindow.showInactive === 'function') {
+          this.lobbyWindow.showInactive();
+        }
+      }
       return;
     }
 
@@ -329,15 +364,17 @@ export class GoogleVeoSessionManager {
 
     const initWidth = 1440;
     const initHeight = 900;
+    const posX = isLive ? 100 : OFFSCREEN_X;
+    const posY = isLive ? 60 : OFFSCREEN_Y;
 
     this.lobbyWindow = new BrowserWindow({
       width: initWidth,
       height: initHeight,
       minWidth: 1024,
       minHeight: 720,
-      x: 100,
-      y: 60,
-      show: true,
+      x: posX,
+      y: posY,
+      show: false,
       title: 'Sảnh Google Flow / Veo - Đăng nhập tài khoản Google để nhận Credit miễn phí',
       // Không đặt parent để sảnh là cửa sổ độc lập, thu nhỏ (-) xuống taskbar thoải mái không bị đóng
       modal: false,
@@ -349,6 +386,15 @@ export class GoogleVeoSessionManager {
         backgroundThrottling: false,
       },
     });
+
+    if (isLive) {
+      this.lobbyWindow.show();
+      this.lobbyWindow.focus();
+    } else {
+      if (typeof this.lobbyWindow.showInactive === 'function') {
+        this.lobbyWindow.showInactive();
+      }
+    }
 
     // Thiết lập User-Agent cho webContents
     this.lobbyWindow.webContents.setUserAgent(CHROME_DESKTOP_UA);
@@ -973,7 +1019,7 @@ export class GoogleVeoSessionManager {
   /**
    * Đảm bảo lobby window đang mở và đã ở trang Google Flow (https://flow.google.com).
    */
-  public async ensureLobbyAtFlow(): Promise<boolean> {
+  public async ensureLobbyAtFlow(options?: { uiMode?: 'offscreen' | 'live_window' }): Promise<boolean> {
     let electron: any;
     try {
       electron = require('electron');
@@ -997,7 +1043,7 @@ export class GoogleVeoSessionManager {
         await this.handleRendererCrash({ reason: 'renderer-dead-in-ensure-lobby', exitCode: -1 });
       } else {
         try {
-          await this.openLobbyWindow();
+          await this.openLobbyWindow(options);
         } catch (e) {
           console.warn('[Google Flow Browser] Không thể mở lobby window:', e);
           return false;
@@ -1680,13 +1726,36 @@ export class GoogleVeoSessionManager {
     const isLocalId = typeof targetProjectId === 'string' && (targetProjectId.startsWith('session_') || targetProjectId.startsWith('proj_') || targetProjectId.startsWith('default'));
     const safeTargetId = isLocalId ? undefined : targetProjectId;
 
-    // 1. Nếu cửa sổ hiện tại đã ở trong một project Google Flow hợp lệ: tái sử dụng ngay!
+    // 1. Kiểm tra nếu cửa sổ hiện tại đã ở trong một project Google Flow:
     const urlMatch = currentUrl.match(/\/project\/([a-zA-Z0-9_-]+)/);
     if (urlMatch && urlMatch[1]) {
       const currentActiveId = urlMatch[1];
-      if (!safeTargetId || safeTargetId === currentActiveId) {
+      if (safeTargetId && safeTargetId === currentActiveId) {
         this.currentProjectId = currentActiveId;
-        console.log(`[Google Flow Browser] Đang ở trong project Google Flow hợp lệ: ${currentActiveId}`);
+        console.log(`[Google Flow Browser] Đang ở đúng project Google Flow được chỉ định: ${currentActiveId}`);
+        return true;
+      }
+
+      // Nếu KHÔNG có safeTargetId nhưng có targetProjectName cụ thể:
+      // Phải kiểm tra xem project đang mở có thực sự khớp tên với targetProjectName không,
+      // TRÁNH tái sử dụng nhầm project của đề tài trước đó!
+      if (!safeTargetId && targetProjectName) {
+        const currentProjectTitle = await this.safeExecuteJs<string>(
+          win,
+          `document.querySelector('input[aria-label*="project name" i], input[placeholder*="project name" i], input[aria-label*="Tên dự án" i], .project-title, header input')?.value || document.title || ''`,
+          1000
+        );
+        const normCurrent = (currentProjectTitle || '').toLowerCase().trim();
+        const normTarget = targetProjectName.toLowerCase().trim();
+        if (normCurrent && (normCurrent.includes(normTarget) || normTarget.includes(normCurrent))) {
+          this.currentProjectId = currentActiveId;
+          console.log(`[Google Flow Browser] Project hiện tại khớp với tên "${targetProjectName}": ${currentActiveId}`);
+          return true;
+        }
+        console.log(`[Google Flow Browser] ⚠️ Project hiện tại ("${currentProjectTitle}") không khớp tên "${targetProjectName}". Không tái sử dụng, sẽ tìm hoặc tạo mới.`);
+      } else if (!safeTargetId && !targetProjectName) {
+        this.currentProjectId = currentActiveId;
+        console.log(`[Google Flow Browser] Tái sử dụng project hiện tại: ${currentActiveId}`);
         return true;
       }
     }
@@ -1806,7 +1875,10 @@ export class GoogleVeoSessionManager {
         const x = Math.round(c.rect.x + c.rect.width / 2);
         const y = Math.round(c.rect.y + c.rect.height / 2);
         console.log(`[Google Flow Settings] 🔘 Đã định vị Mode Tab [${mode}] qua FlowElementFinder (${c.strategy}, conf: ${c.confidence}/100) tại (${x}, ${y})`);
-        win.focus?.();
+        if (this.isLobbyDebugVisible) {
+          win.focus?.();
+        }
+        win.webContents?.focus?.();
         win.webContents.sendInputEvent({ type: 'mouseMove', x, y });
         await new Promise((r) => setTimeout(r, 40));
         win.webContents.sendInputEvent({ type: 'mouseDown', x, y, button: 'left', clickCount: 1 });
@@ -1827,7 +1899,10 @@ export class GoogleVeoSessionManager {
         const x = Math.round(c.rect.x + c.rect.width / 2);
         const y = Math.round(c.rect.y + c.rect.height / 2);
         console.log(`[Google Flow Settings] ⚙️ Đã định vị Settings Trigger qua FlowElementFinder (${c.strategy}, conf: ${c.confidence}/100) tại (${x}, ${y})`);
-        win.focus?.();
+        if (this.isLobbyDebugVisible) {
+          win.focus?.();
+        }
+        win.webContents?.focus?.();
         win.webContents.sendInputEvent({ type: 'mouseMove', x, y });
         await new Promise((r) => setTimeout(r, 40));
         win.webContents.sendInputEvent({ type: 'mouseDown', x, y, button: 'left', clickCount: 1 });
@@ -1840,8 +1915,44 @@ export class GoogleVeoSessionManager {
       console.warn('[Google Flow Settings] Gặp sự cố khi định vị Settings Trigger:', e?.message || e);
     }
 
-    // 4. Nếu popover mở, tương tác với Aspect Ratio và Output Count
+    // 4. Nếu popover mở, tương tác với Mode (Image/Video), Aspect Ratio và Output Count
     if (popoverOpened) {
+      // 4.0. Đồng bộ Mode (Hình ảnh / Video) ngay bên trong Popover
+      try {
+        const switchedMode = await this.safeExecuteJs<boolean>(
+          win,
+          `(function() {
+            const pane = document.querySelector('.cdk-overlay-pane, flow-settings-popover');
+            if (!pane) return false;
+            const isImage = ${JSON.stringify(mode === 'image')};
+            const toggles = Array.from(pane.querySelectorAll('mat-button-toggle, [role="radio"], button'));
+            for (const toggle of toggles) {
+              const text = (toggle.innerText || toggle.textContent || '').toLowerCase();
+              const matchesTarget = isImage
+                ? (text.includes('hình ảnh') || text.includes('image'))
+                : (text.includes('video') || text.includes('videocam'));
+              if (matchesTarget) {
+                const isChecked = toggle.classList.contains('mat-button-toggle-checked') || toggle.getAttribute('aria-checked') === 'true';
+                if (!isChecked) {
+                  const btn = toggle.tagName === 'BUTTON' ? toggle : (toggle.querySelector('button') || toggle);
+                  btn.click();
+                  return true;
+                }
+                return false;
+              }
+            }
+            return false;
+          })()`,
+          1500
+        );
+        if (switchedMode) {
+          console.log(`[Google Flow Settings] 🔘 Đã chuyển đổi thành công sang chế độ [${mode}] trong Settings Popover!`);
+          await new Promise((r) => setTimeout(r, 300));
+        }
+      } catch (e: any) {
+        console.warn('[Google Flow Settings] Gặp sự cố khi đồng bộ Mode trong Popover:', e?.message || e);
+      }
+
       // A. Chọn Aspect Ratio qua FlowElementFinder
       try {
         const aspectFinder = await FlowElementFinder.find(win, FlowElementFinder.getAspectRatioSpec(aspect));
@@ -2424,11 +2535,13 @@ export class GoogleVeoSessionManager {
         // Gửi click chuột thật cấp OS tới toạ độ của phần tử (bảo đảm click 100% trúng đích)
         if (res.coords && res.coords.x > 0 && res.coords.y > 0 && !win.isDestroyed()) {
           try {
-            if (win.isMinimized()) win.restore();
-            win.focus();
-            if (!this.isLobbyDebugVisible) {
+            if (this.isLobbyDebugVisible) {
+              if (win.isMinimized()) win.restore();
+              win.focus();
+            } else {
               win.setPosition(OFFSCREEN_X, OFFSCREEN_Y);
             }
+            win.webContents?.focus?.();
             win.webContents.sendInputEvent({
               type: 'mouseDown',
               x: res.coords.x,
@@ -2647,15 +2760,17 @@ export class GoogleVeoSessionManager {
     let cleanResult = await this.safeExecuteJs<any>(win, cleanAndCheckPromptJs, 3000);
     console.log('[Google Flow Browser] Trạng thái dọn dẹp canvas:', cleanResult);
 
-    // Nếu ô prompt đã sẵn sàng, click chuột thật vào ô prompt để bảo đảm tiêu điểm OS
+    // Nếu ô prompt đã sẵn sàng, click chuột thật vào ô prompt để bảo đảm tiêu điểm
     if (cleanResult?.ready && cleanResult?.coords && !win.isDestroyed()) {
       try {
-        if (win.isMinimized()) win.restore();
-        win.show();
-        win.focus();
-        if (!this.isLobbyDebugVisible) {
+        if (this.isLobbyDebugVisible) {
+          if (win.isMinimized()) win.restore();
+          win.show();
+          win.focus();
+        } else {
           win.setPosition(OFFSCREEN_X, OFFSCREEN_Y);
         }
+        win.webContents?.focus?.();
         win.webContents.sendInputEvent({
           type: 'mouseDown',
           x: cleanResult.coords.x,

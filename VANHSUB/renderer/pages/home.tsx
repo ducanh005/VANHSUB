@@ -989,7 +989,9 @@ export default function HomePage() {
           <DownloadModal
             open={downloadModalOpen}
             onOpenChange={setDownloadModalOpen}
+            initialUrl={linkUrl}
             onSuccess={(task) => {
+              setLinkUrl('');
               loadTasks();
               if (task?.id) {
                 setSelectedTaskId(task.id);

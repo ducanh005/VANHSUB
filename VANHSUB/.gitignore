@@ -34,4 +34,6 @@ flow_outputs/
 # Subagent scratch folders
 .agents/orchestrator_*
 .agents/victory_*
+.agents/explorer_*
+.agents/teamwork_preview_*
 TEST_READY.md

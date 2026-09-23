@@ -7,6 +7,7 @@ import { FlowSmartWait } from '../FlowSmartWait';
 import { FlowElementFinder } from '../FlowElementFinder';
 import { FlowOverlayDetector } from '../FlowOverlayDetector';
 import { FlowClipboardGuard } from '../FlowClipboardGuard';
+import { HandleImageReferenceState } from './FlowImageGenerationStates';
 
 /**
  * Helper an toàn để execute JS trên BrowserWindow
@@ -49,9 +50,16 @@ export const VideoOpenFlowState: FlowAutomationState = {
       return { ok: false, error: 'BROWSER_WINDOW_DESTROYED', errorDetail: 'Cửa sổ trình duyệt không khả dụng' };
     }
 
-    if (ctx.win.isMinimized()) ctx.win.restore();
-    ctx.win.show();
-    ctx.win.focus();
+    const sessionMgr = ctx.sessionMgr as any;
+    const isOffscreen = sessionMgr ? (!sessionMgr.isLobbyDebug?.() && !sessionMgr.isLobbyDebugVisible) : false;
+    const pos = typeof ctx.win.getPosition === 'function' ? ctx.win.getPosition() : [0, 0];
+    const isWindowPosOffscreen = pos[0] < 0 || pos[1] < 0;
+
+    if (!isOffscreen && !isWindowPosOffscreen) {
+      if (ctx.win.isMinimized()) ctx.win.restore();
+      ctx.win.show();
+      ctx.win.focus();
+    }
 
     const currentUrl = ctx.win.webContents.getURL() || '';
     if (!currentUrl.includes('flow.google.com')) {
@@ -319,48 +327,138 @@ export const VideoCleanCanvasState: FlowAutomationState = {
  */
 export const VideoSelectModeState: FlowAutomationState = {
   name: 'SELECT_VIDEO_MODE',
-  timeoutMs: 12000,
+  timeoutMs: 15000,
 
   async enter(ctx: FlowStateContext): Promise<void> {
     ctx.onProgress?.(16, 'Đang chọn chế độ tạo Video (Google Veo)...');
   },
 
   async execute(ctx: FlowStateContext): Promise<ActionResult> {
-    // 0. Kiểm tra nếu trigger cài đặt đã hiển thị sẵn mode Video
+    // 0. Kiểm tra nếu trigger cài đặt hoặc DOM đã hiển thị sẵn mode Video
     const checkAlreadyVideoJs = `
       (function() {
-        const trigger = document.querySelector('button.settings-trigger-button');
-        const text = trigger ? (trigger.innerText || '').toLowerCase() : '';
-        return text.includes('video') || text.includes('veo');
+        try {
+          const raw = localStorage.getItem('flow-prompt-box-settings');
+          if (raw) {
+            const p = JSON.parse(raw);
+            if (p.mode === 'VIDEO' || p.mode === 'VIDEO_FRAMES') return true;
+          }
+        } catch (e) {}
+
+        const triggerSelectors = [
+          'button.settings-trigger-button',
+          'flow-settings-button button',
+          'button[aria-label*="Điều kiện kích hoạt" i]',
+          'button[aria-label*="cài đặt" i]',
+          'button[aria-label*="settings" i][class*="trigger"]',
+          'flow-prompt-box button[aria-label*="cài đặt" i]',
+          'flow-prompt-box button[aria-label*="Settings" i]',
+          'button:has(mat-icon[fonticon*="tune"])',
+          'button:has(mat-icon[fonticon*="sliders"])',
+          'button:has(mat-icon[fonticon*="settings"])'
+        ];
+        for (const sel of triggerSelectors) {
+          const el = document.querySelector(sel);
+          if (el) {
+            const t = (el.innerText || el.textContent || el.getAttribute('aria-label') || '').toLowerCase();
+            if (t.includes('video') || t.includes('veo') || t.includes('phim')) return true;
+          }
+        }
+
+        const activeTab = document.querySelector('button[role="tab"][aria-selected="true"], mat-button-toggle.mat-button-toggle-checked');
+        if (activeTab) {
+          const t = (activeTab.innerText || activeTab.textContent || '').toLowerCase();
+          if (t.includes('video') || t.includes('phim')) return true;
+        }
+
+        return false;
       })()
     `;
     const alreadyVideo = await safeExecuteJs<boolean>(ctx.win, checkAlreadyVideoJs);
     if (alreadyVideo) {
       console.log('[FlowVideoState] [SELECT_VIDEO_MODE] Google Flow đã ở chế độ Video sẵn sàng.');
+      await safeExecuteJs(ctx.win, `
+        (function() {
+          try {
+            const raw = localStorage.getItem('flow-prompt-box-settings');
+            const settings = raw ? JSON.parse(raw) : {};
+            settings.mode = 'VIDEO';
+            localStorage.setItem('flow-prompt-box-settings', JSON.stringify(settings));
+          } catch (e) {}
+        })()
+      `);
       return { ok: true, data: { alreadyVideo: true } };
     }
 
     // 1. Thử click switch trực tiếp qua Settings Trigger Menu
     const switchViaSettingsMenuJs = `
       (async function() {
-        const trigger = document.querySelector('button.settings-trigger-button');
-        if (!trigger) return false;
+        function isVisible(el) {
+          if (!el) return false;
+          const r = el.getBoundingClientRect();
+          return r.width > 0 && r.height > 0;
+        }
+
+        const triggerSelectors = [
+          'button.settings-trigger-button',
+          'flow-settings-button button',
+          'button[aria-label*="Điều kiện kích hoạt" i]',
+          'button[aria-label*="cài đặt" i]',
+          'button[aria-label*="settings" i][class*="trigger"]',
+          'flow-prompt-box button[aria-label*="cài đặt" i]',
+          'flow-prompt-box button[aria-label*="Settings" i]',
+          'button:has(mat-icon[fonticon*="tune"])',
+          'button:has(mat-icon[fonticon*="sliders"])',
+          'button:has(mat-icon[fonticon*="settings"])'
+        ];
+
+        let trigger = null;
+        for (const sel of triggerSelectors) {
+          const el = document.querySelector(sel);
+          if (isVisible(el)) { trigger = el; break; }
+        }
+
+        if (!trigger) return { ok: false, reason: 'trigger_not_found' };
+
         trigger.click();
         await new Promise(r => setTimeout(r, 600));
-        const btns = Array.from(document.querySelectorAll('.cdk-overlay-container button, mat-button-toggle button, [role="menuitem"]'));
-        const videoBtn = btns.find(b => (b.innerText || '').toLowerCase().includes('videocam') || (b.innerText || '').toLowerCase().includes('video'));
+
+        const pane = document.querySelector('.cdk-overlay-pane, flow-settings-popover');
+        if (!pane) return { ok: false, reason: 'popover_not_opened' };
+
+        const btns = Array.from(pane.querySelectorAll('.cdk-overlay-container button, mat-button-toggle, [role="radio"], [role="menuitem"], button'));
+        const videoBtn = btns.find(b => {
+          const t = (b.innerText || b.textContent || b.getAttribute('aria-label') || '').toLowerCase();
+          return t.includes('videocam') || t.includes('video') || t.includes('phim');
+        });
+
+        let switched = false;
         if (videoBtn) {
-          videoBtn.click();
-          return true;
+          const clickTarget = videoBtn.tagName === 'BUTTON' ? videoBtn : (videoBtn.querySelector('button') || videoBtn);
+          clickTarget.click();
+          switched = true;
+          await new Promise(r => setTimeout(r, 300));
         }
-        return false;
+
+        // Đóng popover để gỡ bỏ .cdk-overlay-backdrop
+        const bd = document.querySelector('.cdk-overlay-backdrop');
+        if (bd) bd.click();
+
+        return { ok: switched, switched };
       })()
     `;
-    const switched = await safeExecuteJs<boolean>(ctx.win, switchViaSettingsMenuJs, 3000);
-    if (switched) {
+    const switchRes = await safeExecuteJs<any>(ctx.win, switchViaSettingsMenuJs, 5000);
+    if (switchRes?.switched) {
       console.log('[FlowVideoState] [SELECT_VIDEO_MODE] Đã chuyển sang chế độ Video qua Settings Trigger.');
-      await new Promise((r) => setTimeout(r, 500));
     }
+
+    // Đóng popup an toàn bằng phím Escape
+    try {
+      ctx.win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
+      await new Promise((r) => setTimeout(r, 50));
+      ctx.win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' });
+      await new Promise((r) => setTimeout(r, 200));
+    } catch {}
 
     // 2. Đồng bộ LocalStorage
     await safeExecuteJs(
@@ -536,7 +634,7 @@ export const VideoHandleInitFrameState: FlowAutomationState = {
               })()
             `
             );
-            ctx.win.focus();
+            ctx.win.webContents.focus();
             ctx.win.webContents.paste();
             await new Promise((r) => setTimeout(r, 1500));
           }
@@ -665,7 +763,7 @@ export const VideoEnterPromptState: FlowAutomationState = {
       await FlowClipboardGuard.withPreservedClipboard(electron, async () => {
         try {
           electron.clipboard.writeText(promptClean);
-          ctx.win.focus();
+          ctx.win.webContents.focus();
           ctx.win.webContents.paste();
         } catch (e) {
           console.warn('[FlowVideoState] Paste warning:', e);
@@ -780,6 +878,20 @@ export const VideoConfigureOptionsState: FlowAutomationState = {
       })()
     `;
     await safeExecuteJs(ctx.win, syncOptionsJs);
+
+    // 3. Đảm bảo đóng popover cài đặt (Escape + backdrop click)
+    try {
+      await safeExecuteJs(ctx.win, `
+        (function() {
+          const bd = document.querySelector('.cdk-overlay-backdrop');
+          if (bd) bd.click();
+        })()
+      `, 1000);
+      ctx.win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
+      await new Promise((r) => setTimeout(r, 50));
+      ctx.win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' });
+      await new Promise((r) => setTimeout(r, 200));
+    } catch {}
 
     return { ok: true, data: { duration, aspect } };
   },
@@ -1010,7 +1122,7 @@ export const VideoClickGenerateState: FlowAutomationState = {
     const coords = (ctx as any).btnCoords;
     if (coords && coords.x > 0 && coords.y > 0) {
       try {
-        ctx.win.focus();
+        ctx.win.webContents.focus();
         ctx.win.webContents.sendInputEvent({ type: 'mouseMove', x: coords.x, y: coords.y });
         await new Promise((r) => setTimeout(r, 40));
         ctx.win.webContents.sendInputEvent({ type: 'mouseDown', x: coords.x, y: coords.y, button: 'left', clickCount: 1 });
@@ -1215,48 +1327,74 @@ export const VideoExtractOutputState: FlowAutomationState = {
   },
 
   async execute(ctx: FlowStateContext): Promise<ActionResult> {
-    if (ctx.capturedMediaUrl) {
-      return { ok: true, data: { videoUrl: ctx.capturedMediaUrl } };
-    }
+    let videoUrl = ctx.capturedMediaUrl || undefined;
 
-    const baselineList = Array.from(ctx.baselineUrls || []);
-    const extractJs = `
-      (function() {
-        const baselineSet = new Set(${JSON.stringify(baselineList)});
-        const videos = Array.from(document.querySelectorAll('video'));
-        for (const v of videos) {
-          const src = v.currentSrc || v.src || (v.querySelector('source') ? v.querySelector('source').src : '');
-          if (src && src.startsWith('http') && !baselineSet.has(src)) {
-            return src;
+    if (!videoUrl) {
+      const baselineList = Array.from(ctx.baselineUrls || []);
+      const extractJs = `
+        (function() {
+          const baselineSet = new Set(${JSON.stringify(baselineList)});
+          const videos = Array.from(document.querySelectorAll('video'));
+          for (const v of videos) {
+            const src = v.currentSrc || v.src || (v.querySelector('source') ? v.querySelector('source').src : '');
+            if (src && src.startsWith('http') && !baselineSet.has(src) && !src.includes('/banners/')) {
+              return src;
+            }
           }
-        }
-        return null;
-      })()
-    `;
-    const finalUrl = await safeExecuteJs<string>(ctx.win, extractJs);
-    if (finalUrl) {
-      ctx.capturedMediaUrl = finalUrl;
-      return { ok: true, data: { videoUrl: finalUrl } };
+          return null;
+        })()
+      `;
+      const finalUrl = await safeExecuteJs<string>(ctx.win, extractJs);
+      if (finalUrl) {
+        videoUrl = finalUrl;
+        ctx.capturedMediaUrl = finalUrl;
+      }
     }
 
-    // Kiểm tra tile video mới trên canvas đã sẵn sàng
-    const tileDone = await safeExecuteJs<boolean>(ctx.win, `
-      (function() {
-        const tile = document.querySelector('flow-video-tile:not([data-flow-existing])') || document.querySelector('flow-video-tile');
-        return Boolean(tile && !tile.querySelector('flow-pending-tile, flow-soupy-overlay'));
-      })()
-    `);
+    if (!videoUrl) {
+      // Kiểm tra tile video mới trên canvas đã sẵn sàng
+      const tileDone = await safeExecuteJs<boolean>(ctx.win, `
+        (function() {
+          const tile = document.querySelector('flow-video-tile:not([data-flow-existing])') || document.querySelector('flow-video-tile');
+          return Boolean(tile && !tile.querySelector('flow-pending-tile, flow-soupy-overlay'));
+        })()
+      `);
 
-    if (tileDone) {
-      ctx.capturedMediaUrl = 'flow://video-ready-on-canvas';
-      return { ok: true, data: { videoUrl: ctx.capturedMediaUrl } };
+      if (tileDone) {
+        videoUrl = 'flow://video-ready-on-canvas';
+        ctx.capturedMediaUrl = videoUrl;
+      }
     }
 
-    return { ok: false, error: 'NO_VIDEO_FOUND', errorDetail: 'Không tìm thấy video sau khi render' };
+    let projectId: string | undefined;
+    try {
+      const currentUrl = ctx.win.webContents?.getURL?.() || '';
+      const match = currentUrl.match(/\/project\/([a-zA-Z0-9_-]+)/);
+      if (match && match[1]) projectId = match[1];
+    } catch {}
+
+    if (projectId) {
+      ctx.activeProjectId = projectId;
+      if (ctx.sessionMgr && typeof ctx.sessionMgr.setCurrentProjectId === 'function') {
+        ctx.sessionMgr.setCurrentProjectId(projectId);
+      }
+    }
+
+    if (!videoUrl) {
+      return { ok: false, error: 'NO_VIDEO_FOUND', errorDetail: 'Không tìm thấy video sau khi render' };
+    }
+
+    // Gán bắt buộc ctx.result để FlowStateMachine.run trả về res.videoUrl chuẩn xác
+    ctx.result = {
+      videoUrl,
+      projectId: ctx.activeProjectId,
+    };
+
+    return { ok: true, data: ctx.result };
   },
 
   async verify(ctx: FlowStateContext): Promise<ActionResult> {
-    const hasUrl = !!ctx.capturedMediaUrl;
+    const hasUrl = Boolean(ctx.result?.videoUrl || ctx.capturedMediaUrl);
     return {
       ok: hasUrl,
       error: hasUrl ? undefined : 'EXTRACT_FAILED',
@@ -1277,10 +1415,10 @@ export const FlowVideoGenerationStatePipeline: FlowAutomationState[] = [
   VideoEnsureProjectContextState,
   VideoCleanCanvasState,
   VideoSelectModeState,
-  VideoHandleInitFrameState,
+  VideoConfigureOptionsState,
+  HandleImageReferenceState,
   VideoFindEditorState,
   VideoEnterPromptState,
-  VideoConfigureOptionsState,
   VideoCaptureBaselineState,
   VideoCheckIdempotencyState,
   VideoFindGenerateButtonState,

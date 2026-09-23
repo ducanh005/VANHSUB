@@ -348,10 +348,11 @@ export interface VanhsubAPI {
       /** URL MP4 không watermark — Douyin/TikTok only */
       noWatermarkUrl?: string;
     }>;
-    download: (options: { url: string; quality?: string; noWatermarkUrl?: string }) => Promise<{
+    download: (options: { url: string; quality?: string; noWatermarkUrl?: string; outputDir?: string; customFileName?: string }) => Promise<{
       task: Task;
       result: any;
     }>;
+    getDefaultDir?: () => Promise<string>;
     onProgress: (callback: (progress: {
       percent: number;
       speed?: string;
@@ -408,6 +409,8 @@ export interface VanhsubAPI {
       topic: string;
       blueprint?: IdeaBlueprint;
       gatedMode?: boolean;
+      outputDir?: string;
+      flowProjectUrl?: string;
       options?: DeepPartial<AiStudioConfig>;
     }) => Promise<{ sessionId: string }>;
     resumePipeline: (payload: {
@@ -509,6 +512,13 @@ declare global {
     ipc: {
       send: (channel: string, value: any) => void;
       on: (channel: string, callback: (...args: any[]) => void) => () => void;
+    };
+    debug: {
+      testRpcPhase1: (projectId: string) => Promise<any>;
+      testUploadImage: (filePath: string, projectId: string) => Promise<any>;
+      testGenImage: (prompt: string, projectId: string, refMediaIds?: string[]) => Promise<any>;
+      testGenVideo: (prompt: string, projectId: string, sourceImagePath?: string) => Promise<any>;
+      testFsmImage?: (prompt: string, projectId: string) => Promise<any>;
     };
   }
 }

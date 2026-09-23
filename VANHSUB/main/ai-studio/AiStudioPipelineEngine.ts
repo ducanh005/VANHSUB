@@ -128,9 +128,6 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
     if (activeProject?.outputDir && activeProject.outputDir.trim()) {
       return path.resolve(activeProject.outputDir.trim());
     }
-    if ((config as any).outputDir && (config as any).outputDir.trim()) {
-      return path.resolve((config as any).outputDir.trim());
-    }
     return path.join(resolveAiStudioSessionsRoot(), sessionId);
   }
 
@@ -149,8 +146,7 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
     const activeProject = config.savedProjects?.find((p) => p.id === config.activeProjectId);
     const hasCustomOutput = Boolean(
       customOutputDir?.trim() ||
-      activeProject?.outputDir?.trim() ||
-      (config as any).outputDir?.trim()
+      activeProject?.outputDir?.trim()
     );
 
     const storage = new AiStudioDiskStorageManager(sessionId, {
@@ -297,9 +293,22 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
     payload: StartPipelinePayload,
     onProgress: (event: PipelineProgressEvent) => void
   ): Promise<StartPipelineResult> {
-    const sessionId = `ai-studio-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
     const topic = payload.blueprint?.title || payload.topic;
     const gatedMode = payload.gatedMode !== false;
+
+    // Hard-block check: outputDir bắt buộc phải có để tránh rò rỉ chéo dự án
+    const config: AiStudioConfig = getDecryptedAiStudioConfig();
+    const activeProject = config.savedProjects?.find((p) => p.id === config.activeProjectId);
+    const resolvedOutputDir = payload.outputDir?.trim() || activeProject?.outputDir?.trim() || undefined;
+
+    if (!resolvedOutputDir) {
+      throw new Error(
+        'Vui lòng cấu hình thư mục lưu trữ (Output Directory) riêng cho dự án này trước khi bắt đầu. ' +
+        'Hệ thống đã chặn để tránh lưu đè hoặc sử dụng nhầm dữ liệu/ảnh nhân vật của dự án khác.'
+      );
+    }
+
+    const sessionId = `ai-studio-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
 
     const session: PipelineSessionState = {
       sessionId,
@@ -309,6 +318,8 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
       status: 'running',
       progress: 5,
       gatedMode,
+      outputDir: resolvedOutputDir,
+      flowProjectUrl: payload.flowProjectUrl?.trim() || activeProject?.flowProjectUrl?.trim() || undefined,
       stages: {
         1: { status: 'pending', stageName: STAGE_CONFIG[1].label },
         2: { status: 'pending', stageName: STAGE_CONFIG[2].label },
@@ -574,7 +585,15 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
   ): Promise<void> {
     const config: AiStudioConfig = getDecryptedAiStudioConfig();
     const activeProject = config.savedProjects?.find((p) => p.id === config.activeProjectId);
-    const effectiveOutputDir = activeProject?.outputDir || (config as any).outputDir || undefined;
+    const effectiveOutputDir = session.outputDir || activeProject?.outputDir || undefined;
+
+    if (!effectiveOutputDir || !effectiveOutputDir.trim()) {
+      throw new Error(
+        'Chưa cấu hình thư mục lưu trữ (Output Directory) riêng cho dự án này. ' +
+        'Vui lòng thiết lập thư mục trong Cấu hình Dự án trước khi tiếp tục sinh ảnh/video.'
+      );
+    }
+
     const assetsDir = this.getSessionAssetsDir(session.sessionId, effectiveOutputDir);
     const effectiveMediaDir = config.channelProfile?.customMediaDir || config.flowEngine.downloadDir || undefined;
     const storage = this.getDiskStorageManager(session.sessionId, effectiveMediaDir, effectiveOutputDir);
@@ -912,8 +931,11 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
               negativePrompt: config.flowEngine.negativePrompt,
               channelProfile: config.channelProfile,
               backgroundPrompt: config.channelProfile?.projectBackgroundPrompt,
-              shotMode: config.flowEngine.shotMode || 'single',
+              shotMode: config.flowEngine.shotMode,
               granularity: config.flowEngine.granularity || 'balanced',
+              enableClustering: true,
+              llmConfig: config.llm,
+              topic: session.artifacts.blueprint?.title || session.artifacts.blueprint?.topic || 'Video Production',
             });
 
             // Adapt storyboard shots to session.artifacts.scenes for backwards compatibility with Stage 7
@@ -922,32 +944,55 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
             let accumulatedMs = 0;
 
             storyboardData.scenes.forEach((sc, scIdx) => {
-              const tItem = timingScenes.find((t) => t.scene_id === sc.scene_id);
-              const sceneStartMs = tItem ? Math.round(tItem.start_sec * 1000) : accumulatedMs;
-              let shotCurrentMs = sceneStartMs;
-
               sc.shots.forEach((shot) => {
-                const shotDurMs = Math.round((shot.expected_duration_sec || 4.0) * 1000);
+                const startMs = typeof shot.start_sec === 'number'
+                  ? Math.round(shot.start_sec * 1000)
+                  : (timingScenes.find((t) => t.scene_id === sc.scene_id)?.start_sec ? Math.round(timingScenes.find((t) => t.scene_id === sc.scene_id)!.start_sec * 1000) : accumulatedMs);
+                const durationMs = typeof shot.duration_sec === 'number'
+                  ? Math.round(shot.duration_sec * 1000)
+                  : Math.round((shot.expected_duration_sec || 4.0) * 1000);
+                const endMs = startMs + durationMs;
+
                 // Use AI-decided media_type per shot, not a global outputMode override.
                 // media_type='video' → animate via I2V; 'image' → Ken Burns static.
                 // Only override to 'ken_burns' if global config explicitly forces image-only mode.
                 const forceImageOnly = config.flowEngine.outputMode === 'image';
                 const motionType = (!forceImageOnly && shot.media_type === 'video') ? 'video' : 'ken_burns';
+
+                const lineText = shot.dialogue_lines && shot.dialogue_lines.length > 0
+                  ? shot.dialogue_lines.join(' ')
+                  : (sc.narration || '');
+
+                const lineIndex = shot.assigned_sentences && shot.assigned_sentences.length > 0
+                  ? shot.assigned_sentences[0] - 1
+                  : scIdx;
+
                 legacyScenes.push({
                   id: shot.shot_id,
                   shotId: shot.shot_id,
-                  lineIndex: scIdx,
-                  startMs: shotCurrentMs,
-                  endMs: shotCurrentMs + shotDurMs,
-                  durationMs: shotDurMs,
-                  lineText: sc.narration || '',
+                  lineIndex,
+                  startMs,
+                  endMs,
+                  durationMs,
+                  lineText,
                   visualPrompt: shot.image_prompt,
                   negativePrompt: config.flowEngine.negativePrompt,
                   motionType,
                   status: 'pending',
                 });
-                shotCurrentMs += shotDurMs;
-                accumulatedMs = Math.max(accumulatedMs, shotCurrentMs);
+
+                accumulatedMs = Math.max(accumulatedMs, endMs);
+
+                // Record assigned_sentences and assigned_scene_ids in index.json shot metadata
+                storage.updateShotMetadata(sc.scene_id, shot.shot_id, {
+                  start_sec: shot.start_sec,
+                  duration_sec: shot.duration_sec,
+                  expected_duration_sec: shot.expected_duration_sec,
+                  assigned_sentences: shot.assigned_sentences,
+                  assigned_scene_ids: shot.assigned_scene_ids,
+                  dialogue_lines: shot.dialogue_lines,
+                  previous_shot_id: shot.previous_shot_id,
+                });
               });
             });
 
@@ -1002,23 +1047,43 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
               if (scenes.length === 0) {
                 throw new Error('Không tìm thấy dữ liệu Storyboard trong thư mục dự án.');
               }
+              const timingScenes = (storage.readTiming()?.scenes) || [];
               storyboard = {
                 project_id: session.sessionId,
-                scenes: scenes.map((s) => ({
-                  scene_id: s.id.includes('_shot_') ? s.id.split('_shot_')[0] : s.id,
-                  narration: s.lineText,
-                  duration_sec: s.durationMs / 1000,
-                  shots: [{
-                    shot_id: s.id,
-                    image_prompt: s.visualPrompt,
-                    motion_note: 'subtle camera motion',
-                    expected_duration_sec: s.durationMs / 1000,
-                    // Fallback: derive media_type from legacy motionType field
-                    media_type: (s.motionType === 'video' ? 'video' : 'image') as 'image' | 'video',
-                    reason: `Phục hồi từ legacy scene data: motionType="${s.motionType}"`,
-                    confidence: 'low' as 'high' | 'medium' | 'low',
-                  }],
-                })),
+                scenes: scenes.map((s, idx) => {
+                  const sceneId = s.id.includes('_shot_') ? s.id.split('_shot_')[0] : s.id;
+                  const tItem = timingScenes.find((t) => t.scene_id === sceneId);
+                  const startSec = typeof s.startMs === 'number' ? s.startMs / 1000 : (tItem?.start_sec ?? 0);
+                  const durSec = typeof s.durationMs === 'number' ? s.durationMs / 1000 : (tItem?.duration_sec ?? 4.0);
+                  const endSec = startSec + durSec;
+                  const assignedSentences = typeof s.lineIndex === 'number' ? [s.lineIndex + 1] : [idx + 1];
+                  const dialogueLines = s.lineText ? [s.lineText] : [];
+
+                  return {
+                    scene_id: sceneId,
+                    narration: s.lineText,
+                    start_sec: startSec,
+                    end_sec: endSec,
+                    duration_sec: durSec,
+                    assigned_sentences: assignedSentences,
+                    assigned_scene_ids: [sceneId],
+                    shots: [{
+                      shot_id: s.id,
+                      shot_index: 1,
+                      start_sec: startSec,
+                      duration_sec: durSec,
+                      expected_duration_sec: durSec,
+                      assigned_sentences: assignedSentences,
+                      assigned_scene_ids: [sceneId],
+                      dialogue_lines: dialogueLines,
+                      image_prompt: s.visualPrompt,
+                      motion_note: 'subtle camera motion',
+                      media_type: (s.motionType === 'video' ? 'video' : 'image') as 'image' | 'video',
+                      reason: `Phục hồi từ legacy scene data: motionType="${s.motionType}"`,
+                      confidence: 'low' as 'high' | 'medium' | 'low',
+                    }],
+                  };
+                }),
               };
               storage.saveStoryboard(storyboard);
             }
@@ -1028,13 +1093,17 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
             // Dual UI Modes (Offscreen vs Live Window)
             const sessionMgr = GoogleVeoSessionManager.getInstance();
             const mutex = GoogleFlowBrowserMutex.getInstance();
-            // Mở sảnh Google Flow giống hệt tab Workflow
+            // Mở sảnh Google Flow theo uiMode đã cấu hình (mặc định offscreen)
+            const flowUiMode: 'offscreen' | 'live_window' =
+              config.channelProfile?.flowUiMode || config.flowEngine?.uiMode || 'offscreen';
             let lobbyWin = sessionMgr.getLobbyWindow();
             if (!lobbyWin || lobbyWin.isDestroyed()) {
-              await sessionMgr.openLobbyWindow();
+              await sessionMgr.openLobbyWindow({ uiMode: flowUiMode });
               lobbyWin = sessionMgr.getLobbyWindow();
+            } else if (flowUiMode === 'offscreen') {
+              sessionMgr.hideLobbyOffscreen();
             }
-            if (lobbyWin && !lobbyWin.isDestroyed()) {
+            if (flowUiMode === 'live_window' && lobbyWin && !lobbyWin.isDestroyed()) {
               lobbyWin.show();
               lobbyWin.focus();
             }
@@ -1585,13 +1654,17 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
         const sessionMgr = GoogleVeoSessionManager.getInstance();
         const mutex = GoogleFlowBrowserMutex.getInstance();
 
-        // Đảm bảo cửa sổ Flow sẵn sàng giống hệt tab Workflow
+        // Đảm bảo cửa sổ Flow sẵn sàng theo uiMode đã cấu hình (mặc định offscreen)
+        const flowUiMode: 'offscreen' | 'live_window' =
+          config.channelProfile?.flowUiMode || config.flowEngine?.uiMode || 'offscreen';
         let lobbyWin = sessionMgr.getLobbyWindow();
         if (!lobbyWin || lobbyWin.isDestroyed()) {
-          await sessionMgr.openLobbyWindow();
+          await sessionMgr.openLobbyWindow({ uiMode: flowUiMode });
           lobbyWin = sessionMgr.getLobbyWindow();
+        } else if (flowUiMode === 'offscreen') {
+          sessionMgr.hideLobbyOffscreen();
         }
-        if (lobbyWin && !lobbyWin.isDestroyed()) {
+        if (flowUiMode === 'live_window' && lobbyWin && !lobbyWin.isDestroyed()) {
           lobbyWin.show();
           lobbyWin.focus();
         }

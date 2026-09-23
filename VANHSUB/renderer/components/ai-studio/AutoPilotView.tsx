@@ -863,6 +863,12 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
     setTopic(blueprint.title || blueprint.topic);
     setSelectedIdea(blueprint);
 
+    const currentOutputDir = activeProj?.outputDir?.trim();
+    if (!currentOutputDir) {
+      setErrorMessage('⚠️ Dự án hiện tại chưa cấu hình Thư mục xuất (Output Directory). Vui lòng vào Cấu hình Dự án để chọn thư mục lưu trữ trước khi bắt đầu!');
+      return;
+    }
+
     // Lưu vào danh sách ý tưởng
     const exists = ideas.some((i) => i.title === blueprint.title && i.aspectRatio === blueprint.aspectRatio);
     const nextIdeas = exists ? ideas : [blueprint, ...ideas];
@@ -873,6 +879,8 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
         topic: (blueprint.title || blueprint.topic).trim(),
         blueprint,
         gatedMode: isGatedMode,
+        outputDir: currentOutputDir,
+        flowProjectUrl: activeProj?.flowProjectUrl?.trim() || undefined,
       });
 
       const initialSession: PipelineSessionState = {
@@ -918,12 +926,21 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
   const handleStartQuick = async () => {
     if (!topic.trim()) return;
     setErrorMessage(null);
+
+    const currentOutputDir = activeProj?.outputDir?.trim();
+    if (!currentOutputDir) {
+      setErrorMessage('⚠️ Dự án hiện tại chưa cấu hình Thư mục xuất (Output Directory). Vui lòng vào Cấu hình Dự án để chọn thư mục lưu trữ trước khi bắt đầu!');
+      return;
+    }
+
     setIsRunning(true);
 
     try {
       const result = await window.vanhsub.aiStudio.startPipeline({
         topic: topic.trim(),
         gatedMode: isGatedMode,
+        outputDir: currentOutputDir,
+        flowProjectUrl: activeProj?.flowProjectUrl?.trim() || undefined,
       });
 
       const initialSession: PipelineSessionState = {

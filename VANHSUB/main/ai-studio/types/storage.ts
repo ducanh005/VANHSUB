@@ -44,6 +44,12 @@ export interface PipelineShotMetadata {
   shot_id: string;
   current_image_version: number;
   current_video_version: number;
+  start_sec?: number;
+  duration_sec?: number;
+  assigned_sentences?: number[];
+  assigned_scene_ids?: string[];
+  dialogue_lines?: string[];
+  previous_shot_id?: string;
   image_path?: string;
   image_prompt_used?: string;
   image_generated_at?: string;
@@ -144,7 +150,13 @@ export type ShotConfidence = 'high' | 'medium' | 'low';
 export interface StoryboardShotItem {
   shot_id: string;             // Strictly formatted as {scene_id}_shot_{n}
   shot_index?: number;
+  start_sec: number;           // Absolute start timestamp on video timeline (from 03_timing)
+  duration_sec: number;        // Precise duration in seconds (4.0s - 10.0s)
   expected_duration_sec?: number;
+  assigned_sentences: number[]; // 1-based script sentence indices assigned to this shot (e.g. [1, 2])
+  assigned_scene_ids: string[]; // Timing scene_ids assigned to this shot (e.g. ['scene_01', 'scene_02'])
+  dialogue_lines: string[];    // Dialogue text lines assigned to this shot
+  previous_shot_id?: string;   // Reference to preceding shot for continuity
   image_prompt: string;
   motion_note?: string;
   /** AI-decided media type: 'image' (static, Ken Burns) or 'video' (animate via I2V) */
@@ -170,7 +182,11 @@ export interface StoryboardShotItem {
 export interface StoryboardSceneItem {
   scene_id: string;
   duration_sec: number;
+  start_sec?: number;
+  end_sec?: number;
   narration?: string;
+  assigned_sentences?: number[];
+  assigned_scene_ids?: string[];
   shots: StoryboardShotItem[];
 }
 

@@ -12,6 +12,7 @@ import { FlowOverlayDetector } from '../FlowOverlayDetector';
 import { FlowRecoveryManager } from '../FlowRecoveryManager';
 import { FlowClipboardGuard } from '../FlowClipboardGuard';
 import { FlowFileInputInjector, ensureLocalImageFile, shortenForLog } from '../FlowFileInputInjector';
+import { getFlowRpcClient } from '../rpc';
 
 /**
  * Helper an toàn để execute JS trên BrowserWindow
@@ -1299,7 +1300,7 @@ export const HandleImageReferenceState: FlowAutomationState = {
               })()`,
               1000
             );
-            ctx.win.focus();
+            ctx.win.webContents.focus();
             ctx.win.webContents.paste();
           }
         } catch (pasteErr) {
@@ -1483,8 +1484,8 @@ export const EnterPromptState: FlowAutomationState = {
       1000
     );
 
-    // 2. Kích hoạt native focus trên cửa sổ Electron
-    ctx.win.focus();
+    // 2. Kích hoạt native focus trên WebContents Electron
+    ctx.win.webContents.focus();
 
     // 3. Phương thức chính: ctx.win.webContents.insertText(promptClean)
     // Đây là Native Chromium IME input API trong Electron, kích hoạt trực tiếp editing pipeline của Chromium,
@@ -1759,8 +1760,11 @@ export const ConfigureOptionsState: FlowAutomationState = {
             const trigger = valid[0];
             const rect = trigger.getBoundingClientRect();
             const currentText = (trigger.innerText || trigger.getAttribute('aria-label') || '').trim();
-            // NẾU NÚT TRIGGER ĐÃ CHỨA SẴN KEYWORD CỦA MODEL (VÍ DỤ: "🍌 Nano Banana Pro" khớp với "nano"), NÓ ĐÃ ĐƯỢC CHỌN SẴN!
-            if (currentText.toLowerCase().includes(${JSON.stringify(modelKeyword.toLowerCase())})) {
+            // NẾU NÚT TRIGGER ĐÃ CHỨA SẴN KEYWORD CỦA MODEL HOẶC ĐÃ Ở CHẾ ĐỘ ẢNH (VÍ DỤ: "🍌 Nano Banana Pro" khớp với "nano" / "banana" / "pro")
+            const kw = ${JSON.stringify(modelKeyword.toLowerCase())};
+            const isMatch = currentText.toLowerCase().includes(kw) ||
+              (kw === 'nano' && (currentText.toLowerCase().includes('banana') || currentText.toLowerCase().includes('imagen')));
+            if (isMatch) {
               return {
                 alreadySelected: true,
                 clicked: false,
@@ -1831,6 +1835,87 @@ export const ConfigureOptionsState: FlowAutomationState = {
         } catch {}
       }
 
+      // 2a-1. Đồng bộ bên trong Popover: Chuyển sang chế độ Hình ảnh và kiểm tra nút Model
+      const popoverSyncJs = `
+        (function() {
+          const pane = document.querySelector('.cdk-overlay-pane, flow-settings-popover');
+          if (!pane) return { foundPane: false };
+
+          // 1. Kiểm tra và chuyển Toggle "Hình ảnh" nếu đang ở Video
+          let modeSwitched = false;
+          const toggles = Array.from(pane.querySelectorAll('mat-button-toggle, [role="radio"], button'));
+          for (const toggle of toggles) {
+            const text = (toggle.innerText || toggle.textContent || '').toLowerCase();
+            if (text.includes('hình ảnh') || text.includes('image')) {
+              const isChecked = toggle.classList.contains('mat-button-toggle-checked') || toggle.getAttribute('aria-checked') === 'true';
+              if (!isChecked) {
+                const btn = toggle.tagName === 'BUTTON' ? toggle : (toggle.querySelector('button') || toggle);
+                btn.click();
+                modeSwitched = true;
+              }
+              break;
+            }
+          }
+
+          // 2. Kiểm tra nút chọn model trong Popover
+          const modelBtn = pane.querySelector('button[aria-label*="mô hình" i], button[aria-label*="model" i]') ||
+            Array.from(pane.querySelectorAll('button')).find(b => {
+              const t = (b.innerText || '').toLowerCase();
+              return t.includes('banana') || t.includes('imagen') || t.includes('omni') || t.includes('veo');
+            });
+
+          const currentModelText = modelBtn ? (modelBtn.innerText || '').trim() : '';
+          const kw = ${JSON.stringify(modelKeyword.toLowerCase())};
+          const isModelMatched = currentModelText.toLowerCase().includes(kw) ||
+            (kw === 'nano' && (currentModelText.toLowerCase().includes('banana') || currentModelText.toLowerCase().includes('imagen')));
+
+          if (isModelMatched) {
+            return {
+              foundPane: true,
+              modeSwitched,
+              alreadyMatched: true,
+              currentModelText
+            };
+          }
+
+          // Nếu model chưa match, click nút modelBtn để mở menu options
+          if (modelBtn) {
+            modelBtn.click();
+            return {
+              foundPane: true,
+              modeSwitched,
+              openedDropdown: true,
+              currentModelText
+            };
+          }
+
+          return { foundPane: true, modeSwitched, openedDropdown: false, currentModelText };
+        })()
+      `;
+
+      const popoverSync = await safeExecuteJs<any>(ctx.win, popoverSyncJs, 2000);
+      if (popoverSync?.alreadyMatched) {
+        console.log(`[FlowImageState] ✅ Model "${modelKeyword}" đã khớp sẵn trong Settings Popover ("${popoverSync.currentModelText}"). Đang đóng popover...`);
+        try {
+          ctx.win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
+          await new Promise((r) => setTimeout(r, 50));
+          ctx.win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' });
+          await new Promise((r) => setTimeout(r, 200));
+        } catch {}
+        return {
+          ok: true,
+          data: {
+            modelClicked: false,
+            alreadySelected: true,
+            keyword: modelKeyword,
+            selectedModelText: popoverSync.currentModelText
+          }
+        };
+      }
+      if (popoverSync?.modeSwitched) {
+        await new Promise((r) => setTimeout(r, 300));
+      }
+
       // 2b. BƯỚC WAIT: Chờ menu model options render xong (chờ ít nhất 1 option element xuất hiện trong DOM)
       const scanOptionsJs = `
         (function() {
@@ -1884,8 +1969,41 @@ export const ConfigureOptionsState: FlowAutomationState = {
         if (ctx.isCancelled?.()) break;
       }
 
-      // Nếu hết thời gian chờ mà candidates vẫn = 0 -> LỖI CỨNG (hard error)
+      // Nếu hết thời gian chờ mà candidates vẫn = 0 -> Kiểm tra graceful fallback
       if (!menuReady || menuCandidatesCount === 0) {
+        // Đóng popover nếu đang mở
+        try {
+          ctx.win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
+          await new Promise((r) => setTimeout(r, 50));
+          ctx.win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' });
+          await new Promise((r) => setTimeout(r, 200));
+        } catch {}
+
+        // Kiểm tra xem trigger hiện tại có phải đã ở chế độ ảnh không
+        const checkTriggerJs = `
+          (function() {
+            const trigger = document.querySelector('button.settings-trigger-button');
+            const text = (trigger?.innerText || '').toLowerCase();
+            return {
+              text,
+              isImageMode: !text.includes('video') && !text.includes('giây') && !text.includes('720p')
+            };
+          })()
+        `;
+        const trigInfo = await safeExecuteJs<any>(ctx.win, checkTriggerJs, 1500);
+        if (trigInfo?.isImageMode) {
+          console.warn(`[FlowImageState] ⚠️ Menu dropdown không mở nhưng Google Flow đang ở chế độ ảnh ("${trigInfo.text}"). Fallback an toàn và tiếp tục!`);
+          return {
+            ok: true,
+            data: {
+              modelClicked: false,
+              fallbackDefault: true,
+              keyword: modelKeyword,
+              selectedModelText: trigInfo.text
+            }
+          };
+        }
+
         const overlayDebug = await safeExecuteJs<any>(ctx.win, `
           (function() {
             const container = document.querySelector('.cdk-overlay-container');
@@ -3416,7 +3534,175 @@ export const ExtractOutputState: FlowAutomationState = {
 };
 
 /**
- * Danh sách toàn bộ các State theo thứ tự cho luồng sinh ảnh Image Generation
+ * STATE RPC: RPC_GENERATE_IMAGE
+ * Sinh ảnh trực tiếp qua Google Flow RPC (ogiZ0b) — Kiến trúc Hybrid.
+ * Thay thế 11 states DOM tương tác phức tạp (FindPrompt, EnterPrompt, ConfigureOptions,
+ * ClickGenerate, WaitForGeneration, v.v.).
+ */
+export const RpcGenerateImageState: FlowAutomationState = {
+  name: 'RPC_GENERATE_IMAGE',
+  timeoutMs: 90000,
+
+  async enter(ctx: FlowStateContext): Promise<void> {
+    ctx.onProgress?.(40, 'Đang chuẩn bị gửi yêu cầu sinh ảnh tới máy chủ Google Flow (RPC)...');
+  },
+
+  async execute(ctx: FlowStateContext): Promise<ActionResult> {
+    if (!ctx.win || ctx.win.isDestroyed()) {
+      return { ok: false, error: 'BROWSER_WINDOW_DESTROYED', errorDetail: 'Cửa sổ Flow đã bị đóng' };
+    }
+
+    // 1. Xác định activeProjectId
+    let projectId = ctx.activeProjectId || ctx.targetProjectId;
+    if (!projectId) {
+      const currentUrl = ctx.win.webContents?.getURL?.() || '';
+      const match = currentUrl.match(/\/project\/([a-zA-Z0-9_-]+)/);
+      if (match && match[1]) {
+        projectId = match[1];
+        ctx.activeProjectId = projectId;
+      }
+    }
+
+    if (!projectId) {
+      return {
+        ok: false,
+        error: 'PROJECT_NOT_FOUND',
+        errorDetail: 'Không tìm thấy Project ID trong URL hoặc context để gọi RPC sinh ảnh.',
+      };
+    }
+
+    // 2. Tìm assetId nếu đang ở chế độ Edit (/project/<id>/edit/<assetId>)
+    let editAssetId: string | null = null;
+    try {
+      const currentUrl = ctx.win.webContents?.getURL?.() || '';
+      const editMatch = currentUrl.match(/\/edit\/([a-zA-Z0-9_-]+)/);
+      if (editMatch && editMatch[1]) {
+        editAssetId = editMatch[1];
+      }
+    } catch {}
+
+    // 3. Xử lý ảnh tham chiếu hoàn toàn qua RPC (maseQ) — KHÔNG cào DOM chip
+    // Dọn sạch chip cũ trên UI nếu có để giữ giao diện sạch sẽ, tránh UI conflict
+    try {
+      await safeExecuteJs(ctx.win, `
+        (function() {
+          const closeBtns = document.querySelectorAll(
+            '.chip-container button[aria-label*="xóa" i], .chip-container button[aria-label*="remove" i], .chip-container button[aria-label*="close" i], button.chip-remove, button.remove-ingredient'
+          );
+          closeBtns.forEach(btn => btn.click());
+        })()
+      `, 1000);
+    } catch {}
+
+    const referenceMediaIds: string[] = [];
+    const client = getFlowRpcClient();
+
+    if (ctx.referenceMediaId) {
+      referenceMediaIds.push(ctx.referenceMediaId);
+    }
+
+    // Nếu có referenceImagePath hoặc referenceImagePaths, upload trực tiếp qua maseQ RPC
+    const candidatePaths: string[] = [];
+    if (ctx.referenceImagePath) candidatePaths.push(ctx.referenceImagePath);
+    if ((ctx as any).referenceImagePaths && Array.isArray((ctx as any).referenceImagePaths)) {
+      for (const p of (ctx as any).referenceImagePaths) {
+        if (p && !candidatePaths.includes(p)) candidatePaths.push(p);
+      }
+    }
+
+    for (const imgPath of candidatePaths) {
+      if (imgPath && fs.existsSync(imgPath)) {
+        try {
+          console.log(`[RpcGenerateImageState] 📤 Đang upload reference image qua maseQ RPC: ${path.basename(imgPath)}`);
+          const uploadRes = await client.uploadReferenceImage(ctx.win, imgPath, projectId);
+          if (uploadRes?.mediaId && !referenceMediaIds.includes(uploadRes.mediaId)) {
+            referenceMediaIds.push(uploadRes.mediaId);
+            ctx.referenceMediaId = uploadRes.mediaId;
+            console.log(`[RpcGenerateImageState] 📎 Upload reference thành công, media_id: ${uploadRes.mediaId}`);
+          }
+        } catch (uploadErr: any) {
+          console.warn(`[RpcGenerateImageState] ⚠️ Không thể upload reference "${path.basename(imgPath)}" qua RPC: ${uploadErr.message}`);
+        }
+      }
+    }
+
+    // 4. Xác định Model Wire ID
+    const rawEngine = (ctx.imageEngine || 'nano-banana').toLowerCase();
+    const isPro = rawEngine.includes('pro') || rawEngine === 'banana-pro';
+    const modelId = isPro ? 'GEM_PIX_2' : 'NARWHAL';
+
+    console.log(
+      `[RpcGenerateImageState] 🚀 Bắt đầu gọi ogiZ0b RPC: prompt="${ctx.prompt.slice(0, 60)}...", ` +
+      `aspectRatio=${ctx.aspectRatio}, model=${modelId}, projectId=${projectId}`
+    );
+
+    ctx.onProgress?.(55, 'Google Flow AI đang sinh ảnh...');
+
+    try {
+      const client = getFlowRpcClient();
+      const images = await client.generateImage(ctx.win, {
+        prompt: ctx.prompt,
+        aspectRatio: ctx.aspectRatio || '16:9',
+        outputCount: ctx.outputCount || 1,
+        projectId,
+        editAssetId,
+        imageModel: modelId,
+        referenceMediaIds,
+      });
+
+      if (!images || images.length === 0 || !images[0]?.url) {
+        return {
+          ok: false,
+          error: 'RPC_EMPTY_RESPONSE',
+          errorDetail: 'Google Flow RPC hoàn tất nhưng không trả về URL ảnh hợp lệ',
+        };
+      }
+
+      const generated = images[0];
+      console.log(
+        `[RpcGenerateImageState] ✅ Sinh ảnh thành công qua RPC! ` +
+        `mediaId=${generated.mediaId}, url=${generated.url.slice(0, 80)}...`
+      );
+
+      ctx.capturedMediaUrl = generated.url;
+      ctx.capturedMediaId = generated.mediaId;
+      ctx.generationState = 'COMPLETED';
+
+      return {
+        ok: true,
+        data: {
+          imageUrl: generated.url,
+          mediaId: generated.mediaId,
+          projectId,
+        },
+      };
+    } catch (err: any) {
+      console.error('[RpcGenerateImageState] ❌ Lỗi khi gọi RPC generateImage:', err);
+      return {
+        ok: false,
+        error: 'RPC_GENERATION_FAILED',
+        errorDetail: err?.message || String(err),
+      };
+    }
+  },
+
+  async verify(ctx: FlowStateContext): Promise<VerifyResult> {
+    const hasUrl = Boolean(ctx.capturedMediaUrl && ctx.capturedMediaUrl.includes('flow-content.google'));
+    return {
+      ok: hasUrl,
+      criteria: {
+        capturedMediaUrl: ctx.capturedMediaUrl || 'none',
+        generationState: ctx.generationState,
+      },
+      reason: hasUrl ? undefined : 'Chưa nhận được URL ảnh CDN hợp lệ từ RPC Google Flow',
+    };
+  },
+
+  async exit(): Promise<void> {},
+};
+
+/**
+ * Danh sách toàn bộ các State theo thứ tự cho luồng sinh ảnh Image Generation (Chuẩn DOM Automation trong Electron)
  */
 export const FlowImageGenerationStatePipeline: FlowAutomationState[] = [
   OpenFlowState,
@@ -3437,5 +3723,18 @@ export const FlowImageGenerationStatePipeline: FlowAutomationState[] = [
   VerifyGenerationStartedState,
   WaitForGenerationState,
   VerifyGenerationCompletedState,
+  ExtractOutputState,
+];
+
+/**
+ * Pipeline thử nghiệm RPC độc lập (không ảnh hưởng luồng chính)
+ */
+export const FlowImageGenerationRpcPipeline: FlowAutomationState[] = [
+  OpenFlowState,
+  WaitForPageReadyState,
+  VerifySessionState,
+  EnsureProjectContextState,
+  HandleImageReferenceState,
+  RpcGenerateImageState,
   ExtractOutputState,
 ];

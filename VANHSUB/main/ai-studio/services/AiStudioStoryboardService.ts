@@ -28,7 +28,8 @@ import {
   ShotMediaType,
   ShotConfidence,
 } from '../storage/AiStudioDiskStorageManager';
-import type { ChannelProfileConfig, FlowGranularity, StoryboardSynthesis } from '../types';
+import type { ChannelProfileConfig, FlowGranularity, StoryboardSynthesis, AiStudioLlmConfig } from '../types';
+import { AiStudioLlmService } from './AiStudioLlmService';
 
 const execFileAsync = promisify(execFile);
 
@@ -195,6 +196,15 @@ export interface GenerateStoryboardOptions {
     totalShots: number,
     durationSec: number
   ) => { image_prompt: string; motion_note: string };
+  /**
+   * Two-Tier Smart Storyboard Clustering (Milestone 2 / R2):
+   * Groups consecutive dialogue lines into 4.0s - 10.0s shots.
+   * Tier 1: LLM Semantic Clustering (AiStudioLlmService)
+   * Tier 2: Deterministic Greedy Semantic Fallback
+   */
+  enableClustering?: boolean;
+  llmConfig?: AiStudioLlmConfig;
+  topic?: string;
 }
 
 export class AiStudioStoryboardService {
@@ -508,6 +518,266 @@ export class AiStudioStoryboardService {
   }
 
   // ==========================================================================
+  // 3.5. Deterministic Greedy Semantic Clustering Helpers (Milestone 2 / R2)
+  // ==========================================================================
+
+  /**
+   * Checks if there is a discernible context shift between two adjacent script scenes.
+   */
+  public hasSceneContextShift(sceneA: ScriptSceneItem, sceneB: ScriptSceneItem): boolean {
+    if (!sceneA || !sceneB) return false;
+    const textB = (sceneB.narration || '').toLowerCase().trim();
+
+    // Context shift transitions: time leaps, sudden turns, location changes
+    const shiftKeywords = [
+      'tuy nhiên', 'nhưng rồi', 'bất ngờ', 'đột nhiên', 'mặt khác',
+      'sau đó', 'vài năm sau', 'năm 18', 'năm 19', 'năm 20', 'thế kỷ',
+      'ngày hôm sau', 'vào đêm', 'buổi sáng', 'sáng hôm sau',
+      'bên ngoài', 'trong khi đó', 'ngược lại', 'bước sang', 'đến khi'
+    ];
+
+    for (const kw of shiftKeywords) {
+      if (textB.startsWith(kw) || textB.includes(` ${kw} `) || textB.includes(` ${kw},`)) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  private finalizeDeterministicCluster(
+    group: Array<{ scene: ScriptSceneItem; timing: SceneTimingItem; index: number }>,
+    clusterIndex: number
+  ) {
+    const first = group[0];
+    const last = group[group.length - 1];
+    const start_sec = Math.round(first.timing.start_sec * 100) / 100;
+    const end_sec = Math.round(last.timing.end_sec * 100) / 100;
+    const duration_sec = Math.round((end_sec - start_sec) * 100) / 100;
+    const assigned_indices = group.map((g) => g.index);
+    const assigned_scene_ids = group.map((g) => g.scene.scene_id);
+    const dialogue_lines = group.map((g) => g.scene.narration);
+    const combined_narration = dialogue_lines.join(' ');
+    const visual_notes = group.map((g) => g.scene.visual_note).filter(Boolean) as string[];
+
+    return {
+      cluster_index: clusterIndex,
+      assigned_indices,
+      assigned_scene_ids,
+      dialogue_lines,
+      combined_narration,
+      visual_notes,
+      start_sec,
+      end_sec,
+      duration_sec,
+    };
+  }
+
+  private mergeIntoLastDeterministicCluster(
+    lastCluster: {
+      cluster_index: number;
+      assigned_indices: number[];
+      assigned_scene_ids: string[];
+      dialogue_lines: string[];
+      combined_narration: string;
+      visual_notes: string[];
+      start_sec: number;
+      end_sec: number;
+      duration_sec: number;
+    },
+    group: Array<{ scene: ScriptSceneItem; timing: SceneTimingItem; index: number }>
+  ) {
+    const lastItem = group[group.length - 1];
+    lastCluster.end_sec = Math.round(lastItem.timing.end_sec * 100) / 100;
+    lastCluster.duration_sec = Math.round((lastCluster.end_sec - lastCluster.start_sec) * 100) / 100;
+    lastCluster.assigned_indices.push(...group.map((g) => g.index));
+    lastCluster.assigned_scene_ids.push(...group.map((g) => g.scene.scene_id));
+    const newLines = group.map((g) => g.scene.narration);
+    lastCluster.dialogue_lines.push(...newLines);
+    lastCluster.combined_narration = lastCluster.dialogue_lines.join(' ');
+    const newVisual = group.map((g) => g.scene.visual_note).filter(Boolean) as string[];
+    lastCluster.visual_notes.push(...newVisual);
+  }
+
+  /**
+   * Deterministic Greedy Semantic Clustering fallback:
+   * Groups consecutive dialogue lines into 4.0s - 10.0s shots (ideal 5s - 8s).
+    * Directly extracts start_sec and end_sec from timing.json to guarantee 0.00s drift.
+   */
+  public clusterSentencesDeterministically(
+    scriptScenes: ScriptSceneItem[],
+    timingScenes: SceneTimingItem[],
+    granularityOrMinSec: FlowGranularity | number = 'balanced',
+    customMaxSec?: number,
+    customIdealSec?: number
+  ): Array<{
+    cluster_index: number;
+    assigned_indices: number[];
+    assigned_scene_ids: string[];
+    dialogue_lines: string[];
+    combined_narration: string;
+    visual_notes: string[];
+    start_sec: number;
+    end_sec: number;
+    duration_sec: number;
+  }> {
+    let granularity: FlowGranularity = 'balanced';
+    let targetMinSec: number;
+    let idealMaxSec: number;
+    let targetMaxSec: number;
+
+    if (typeof granularityOrMinSec === 'number') {
+      targetMinSec = granularityOrMinSec;
+      targetMaxSec = customMaxSec ?? 12.0;
+      idealMaxSec = customIdealSec ?? 9.5;
+    } else {
+      granularity = granularityOrMinSec || 'balanced';
+      switch (granularity) {
+        case 'fast':
+          // Gộp tối đa: 2–4 câu/shot (lý tưởng 7–12s, trần 16s)
+          targetMinSec = 6.0;
+          idealMaxSec = 12.0;
+          targetMaxSec = 16.0;
+          break;
+        case 'detailed':
+          // Tách chi tiết: 1–2 câu/shot (lý tưởng 3–5.5s, trần 7s)
+          targetMinSec = 2.5;
+          idealMaxSec = 5.5;
+          targetMaxSec = 7.0;
+          break;
+        case 'balanced':
+        default:
+          // Cân bằng điện ảnh: 2–3 câu/shot (lý tưởng 5–9.5s, trần 12s)
+          targetMinSec = 4.0;
+          idealMaxSec = 9.5;
+          targetMaxSec = 12.0;
+          break;
+      }
+    }
+
+    console.log(
+      `🔀 [GRANULARITY ENGINE V2 ACTIVE] Chế độ Granularity: "${granularity.toUpperCase()}" ` +
+      `(min: ${targetMinSec}s, ideal: ${idealMaxSec}s, max: ${targetMaxSec}s)`
+    );
+
+    const timingMap = new Map<string, SceneTimingItem>();
+    for (const t of timingScenes) {
+      timingMap.set(t.scene_id, t);
+    }
+
+    const items = scriptScenes.map((sc, idx) => {
+      const t = timingMap.get(sc.scene_id) || timingScenes[idx] || {
+        scene_id: sc.scene_id,
+        start_sec: 0,
+        end_sec: 4.0,
+        duration_sec: 4.0,
+      };
+      return {
+        scene: sc,
+        timing: t,
+        index: idx + 1,
+      };
+    });
+
+    const clusters: Array<{
+      cluster_index: number;
+      assigned_indices: number[];
+      assigned_scene_ids: string[];
+      dialogue_lines: string[];
+      combined_narration: string;
+      visual_notes: string[];
+      start_sec: number;
+      end_sec: number;
+      duration_sec: number;
+    }> = [];
+
+    let currentGroup: Array<{ scene: ScriptSceneItem; timing: SceneTimingItem; index: number }> = [];
+    let currentDur = 0;
+
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      const dur = item.timing.duration_sec || 3.5;
+      const isStatic = this.isStaticOrDescriptiveNarration(item.scene.narration, item.scene.visual_note);
+
+      // Nếu đang có nhóm: kiểm tra xem có nên chốt shot trước khi thêm câu này
+      if (currentGroup.length > 0) {
+        const nextDur = currentDur + dur;
+        const wouldExceedMax = nextDur > targetMaxSec;
+        const wouldExceedIdeal = currentDur >= targetMinSec && (nextDur > idealMaxSec);
+
+        const prevItem = currentGroup[currentGroup.length - 1];
+        const prevStatic = this.isStaticOrDescriptiveNarration(prevItem.scene.narration, prevItem.scene.visual_note);
+        const bothStatic = prevStatic && isStatic;
+        const hasShift = this.hasSceneContextShift(prevItem.scene, item.scene);
+
+        let shouldSeal = false;
+        let sealReason = '';
+
+        if (wouldExceedMax) {
+          shouldSeal = true;
+          sealReason = `Thời lượng vượt trần tối đa (${nextDur.toFixed(1)}s > ${targetMaxSec}s)`;
+        } else if (hasShift && currentDur >= targetMinSec) {
+          shouldSeal = true;
+          sealReason = `Phát hiện chuyển ngữ cảnh/bối cảnh (${prevItem.scene.scene_id} -> ${item.scene.scene_id})`;
+        } else if (wouldExceedIdeal) {
+          shouldSeal = true;
+          sealReason = `Đạt vùng thời lượng lý tưởng (${currentDur.toFixed(1)}s >= ${targetMinSec}s, thêm câu thành ${nextDur.toFixed(1)}s > ${idealMaxSec}s)`;
+        }
+
+        if (shouldSeal) {
+          console.log(
+            `[GRANULARITY V2] 🔒 Chốt Shot #${clusters.length + 1} (${currentGroup.map(g => '#' + g.index).join(', ')}): ` +
+            `${currentDur.toFixed(1)}s — Lý do: ${sealReason}`
+          );
+          clusters.push(this.finalizeDeterministicCluster(currentGroup, clusters.length + 1));
+          currentGroup = [];
+          currentDur = 0;
+        } else {
+          console.log(
+            `[GRANULARITY V2] ➕ Gộp câu #${item.index} (${dur.toFixed(1)}s, static=${isStatic}) vào Shot #${clusters.length + 1} ` +
+            `→ Thời lượng mới: ${nextDur.toFixed(1)}s`
+          );
+        }
+      }
+
+      currentGroup.push(item);
+      currentDur += dur;
+    }
+
+    if (currentGroup.length > 0) {
+      if (
+        clusters.length > 0 &&
+        currentDur < targetMinSec &&
+        (clusters[clusters.length - 1].duration_sec + currentDur <= targetMaxSec)
+      ) {
+        console.log(
+          `[GRANULARITY V2] 🧲 Gộp câu đuôi (${currentGroup.map(g => '#' + g.index).join(', ')}) vào Shot #${clusters.length} để tránh shot quá ngắn.`
+        );
+        this.mergeIntoLastDeterministicCluster(clusters[clusters.length - 1], currentGroup);
+      } else {
+        console.log(
+          `[GRANULARITY V2] 🔒 Chốt Shot cuối #${clusters.length + 1} (${currentGroup.map(g => '#' + g.index).join(', ')}): ` +
+          `${currentDur.toFixed(1)}s`
+        );
+        clusters.push(this.finalizeDeterministicCluster(currentGroup, clusters.length + 1));
+      }
+    }
+
+    const totalDur = clusters.reduce((s, c) => s + c.duration_sec, 0);
+    const avgDur = clusters.length > 0 ? (totalDur / clusters.length).toFixed(1) : '0';
+    console.log(
+      `📊 [GRANULARITY ENGINE V2 SUMMARY]\n` +
+      `   * Mức thiết lập: ${granularity.toUpperCase()}\n` +
+      `   * Tổng câu thoại gốc: ${scriptScenes.length}\n` +
+      `   * Tổng shot được tạo ra: ${clusters.length}\n` +
+      `   * Tỷ lệ nén: ${clusters.length}/${scriptScenes.length} (${Math.round((clusters.length / scriptScenes.length) * 100)}%)\n` +
+      `   * Thời lượng trung bình: ${avgDur}s/shot`
+    );
+
+    return clusters;
+  }
+
+  // ==========================================================================
   // 4. Storyboard Generation & Validation (Phase 5 / spec §2)
   // ==========================================================================
 
@@ -575,113 +845,308 @@ export class AiStudioStoryboardService {
       };
     });
 
-    const storyboardScenes: StoryboardSceneItem[] = [];
+    const enableClustering = options.enableClustering === true ||
+      (options.enableClustering !== false &&
+       options.shotMode !== 'single' &&
+       options.shotMode !== 'multi' &&
+       !options.customPromptGenerator &&
+       script.scenes.length >= 4);
 
-    // 3. Decompose each scene into shots
-    for (const scriptScene of processedScenes) {
-      const durationSec = scriptScene.duration_sec;
-      const shots: StoryboardShotItem[] = [];
+    let storyboardScenes: StoryboardSceneItem[] = [];
 
-      if (options.customPromptGenerator) {
-        // Use custom shot planner if provided — still apply AI media_type decision
-        const numShots = isSingleShot
-          ? 1
-          : durationSec > thresholdSec
-          ? Math.max(2, Math.ceil(durationSec / 4.0))
-          : 1;
-        const baseDur = Math.round((durationSec / numShots) * 100) / 100;
+    if (enableClustering) {
+      let clusteredScenes: StoryboardSceneItem[] | null = null;
 
-        for (let i = 1; i <= numShots; i++) {
-          const shotId = `${scriptScene.scene_id}_shot_${i}`;
-          const isLast = i === numShots;
-          const shotDur = isLast ? Math.round((durationSec - baseDur * (numShots - 1)) * 100) / 100 : baseDur;
-          const customPrompt = options.customPromptGenerator(scriptScene as any, i, numShots, shotDur);
-          const decision = this.decideMediaType(scriptScene.narration, scriptScene.visual_note, shotDur);
+      // Tier 1: Try LLM Semantic Clustering
+      if (options.llmConfig) {
+        try {
+          const llmResult = await AiStudioLlmService.getInstance().clusterAndGenerateStoryboard({
+            scriptLines: script.scenes,
+            timingData: timing,
+            stylePromptPrefix: stylePrefix,
+            negativePrompt: options.negativePrompt,
+            channelProfile: options.channelProfile,
+            backgroundPrompt: effectiveBgPrompt,
+            config: options.llmConfig,
+            topic: options.topic || storage.projectId,
+          });
 
-          shots.push({
+          if (llmResult && Array.isArray(llmResult.shots) && llmResult.shots.length > 0) {
+            const llmScenes: StoryboardSceneItem[] = [];
+            let prevShotId: string | undefined = undefined;
+
+            for (let idx = 0; idx < llmResult.shots.length; idx++) {
+              const s = llmResult.shots[idx];
+              const sceneId = `scene_${String(idx + 1).padStart(2, '0')}`;
+              const assignedIndices: number[] = Array.isArray(s.assigned_sentences) && s.assigned_sentences.length > 0
+                ? s.assigned_sentences
+                : [idx + 1];
+
+              const firstIdx = Math.max(0, Math.min(script.scenes.length - 1, assignedIndices[0] - 1));
+              const lastIdx = Math.max(firstIdx, Math.min(script.scenes.length - 1, assignedIndices[assignedIndices.length - 1] - 1));
+
+              const firstTiming = timing.scenes[firstIdx];
+              const lastTiming = timing.scenes[lastIdx];
+              const start_sec = firstTiming ? Math.round(firstTiming.start_sec * 100) / 100 : 0;
+              const end_sec = lastTiming ? Math.round(lastTiming.end_sec * 100) / 100 : (start_sec + 5.0);
+              const duration_sec = Math.round((end_sec - start_sec) * 100) / 100;
+
+              const assigned_scene_ids = script.scenes.slice(firstIdx, lastIdx + 1).map((sc) => sc.scene_id);
+              const dialogue_lines = script.scenes.slice(firstIdx, lastIdx + 1).map((sc) => sc.narration);
+              const combined_narration = dialogue_lines.join(' ');
+
+              const shotId = `${sceneId}_shot_1`;
+              const shot: StoryboardShotItem = {
+                shot_id: shotId,
+                shot_index: 1,
+                start_sec,
+                duration_sec,
+                expected_duration_sec: duration_sec,
+                assigned_sentences: assignedIndices,
+                assigned_scene_ids,
+                dialogue_lines,
+                previous_shot_id: prevShotId,
+                image_prompt: s.image_prompt,
+                motion_note: s.motion_note || 'Slow cinematic push in',
+                media_type: s.media_type === 'video' ? 'video' : 'image',
+                reason: s.reason || `LLM phân cảnh cụm ${assigned_scene_ids.join(', ')}`,
+                confidence: s.confidence || 'high',
+              };
+              prevShotId = shotId;
+
+              llmScenes.push({
+                scene_id: sceneId,
+                start_sec,
+                end_sec,
+                duration_sec,
+                narration: combined_narration,
+                assigned_sentences: assignedIndices,
+                assigned_scene_ids,
+                shots: [shot],
+              });
+            }
+
+            if (llmScenes.length > 0) {
+              clusteredScenes = llmScenes;
+            }
+          }
+        } catch (llmErr) {
+          console.warn('[AiStudioStoryboardService] Tier 1 LLM clustering failed, falling back to Tier 2 Greedy Fallback:', llmErr);
+        }
+      }
+
+      // Tier 2: Deterministic Greedy Semantic Clustering fallback
+      if (!clusteredScenes) {
+        const clusters = this.clusterSentencesDeterministically(script.scenes, timing.scenes, granularity);
+        const fallbackScenes: StoryboardSceneItem[] = [];
+        let prevShotId: string | undefined = undefined;
+
+        for (let cIdx = 0; cIdx < clusters.length; cIdx++) {
+          const cluster = clusters[cIdx];
+          const sceneId = `scene_${String(cIdx + 1).padStart(2, '0')}`;
+          const shotId = `${sceneId}_shot_1`;
+
+          const decision = this.decideMediaType(
+            cluster.combined_narration,
+            cluster.visual_notes.join('. '),
+            cluster.duration_sec
+          );
+          const syntheticScene: ScriptSceneItem = {
+            scene_id: sceneId,
+            narration: cluster.combined_narration,
+            visual_note: cluster.visual_notes.join('. ') || cluster.combined_narration,
+          };
+          const imagePrompt = this.buildShotPrompt(
+            syntheticScene,
+            1,
+            1,
+            stylePrefix,
+            options.channelProfile,
+            effectiveBgPrompt
+          );
+          const motionNote = this.buildMotionNote(1, 1, decision.media_type);
+
+          const shot: StoryboardShotItem = {
             shot_id: shotId,
-            shot_index: i,
-            expected_duration_sec: shotDur,
-            image_prompt: customPrompt.image_prompt,
-            motion_note: customPrompt.motion_note,
+            shot_index: 1,
+            start_sec: cluster.start_sec,
+            duration_sec: cluster.duration_sec,
+            expected_duration_sec: cluster.duration_sec,
+            assigned_sentences: cluster.assigned_indices,
+            assigned_scene_ids: cluster.assigned_scene_ids,
+            dialogue_lines: cluster.dialogue_lines,
+            previous_shot_id: prevShotId,
+            image_prompt: imagePrompt,
+            motion_note: motionNote,
             media_type: decision.media_type,
             reason: decision.reason,
             confidence: decision.confidence,
+          };
+          prevShotId = shotId;
+
+          fallbackScenes.push({
+            scene_id: sceneId,
+            start_sec: cluster.start_sec,
+            end_sec: cluster.end_sec,
+            duration_sec: cluster.duration_sec,
+            narration: cluster.combined_narration,
+            assigned_sentences: cluster.assigned_indices,
+            assigned_scene_ids: cluster.assigned_scene_ids,
+            shots: [shot],
           });
         }
-      } else {
-        // Default intelligent duration-based decomposition with AI media_type decision
-        const isStaticScene = granularity === 'balanced' &&
-          this.isStaticOrDescriptiveNarration(scriptScene.narration, scriptScene.visual_note) &&
-          durationSec <= 10.0;
 
-        const rawShots = (isSingleShot || isStaticScene)
-          ? [{ index: 1, durationSec }]
-          : this.decomposeSceneIntoRawShots(scriptScene as any, durationSec, thresholdSec);
+        clusteredScenes = fallbackScenes;
+      }
 
-        for (const raw of rawShots) {
-          const decision = isStaticScene
-            ? {
-                media_type: 'image' as const,
-                reason: 'Cân bằng pacing: Phân cảnh mô tả tĩnh được giữ làm 1 shot ảnh kèm hiệu ứng Ken Burns để chống giật hình và tối ưu chi phí.',
-                confidence: 'high' as const,
-                videoScore: 0,
-                imageScore: 3,
-              }
-            : this.decideMediaType(scriptScene.narration, scriptScene.visual_note, raw.durationSec);
-          const imagePrompt = this.buildShotPrompt(scriptScene as any, raw.index, rawShots.length, stylePrefix, options.channelProfile, effectiveBgPrompt);
-          const motionNote = isStaticScene
-            ? 'Ken Burns subtle pan and slow zoom in'
-            : this.buildMotionNote(raw.index, rawShots.length, decision.media_type);
+      storyboardScenes = clusteredScenes || [];
+    } else {
+      // Non-clustered mode (1:1 or per-scene multi-shot decomposition)
+      let timelineSec = 0;
+      let prevShotId: string | undefined = undefined;
 
-          // Multi-clip splitting: if video shot exceeds model limit, split into sub-shots
-          if (decision.media_type === 'video' && raw.durationSec > maxVideoClipSec && !isSingleShot) {
-            const subShots = this.splitIntoMultiClips(
-              scriptScene.scene_id,
-              raw.index,
-              raw.durationSec,
-              maxVideoClipSec,
-              imagePrompt,
-              motionNote,
-              decision
-            );
-            shots.push(...subShots);
-          } else {
+      for (let scIdx = 0; scIdx < processedScenes.length; scIdx++) {
+        const scriptScene = processedScenes[scIdx];
+        const durationSec = scriptScene.duration_sec;
+        const timingItem = timingMap.get(scriptScene.scene_id);
+        const sceneStartSec = timingItem ? timingItem.start_sec : timelineSec;
+        let shotCurrentSec = sceneStartSec;
+        const shots: StoryboardShotItem[] = [];
+
+        if (options.customPromptGenerator) {
+          // Use custom shot planner if provided — still apply AI media_type decision
+          const numShots = isSingleShot
+            ? 1
+            : durationSec > thresholdSec
+            ? Math.max(2, Math.ceil(durationSec / 4.0))
+            : 1;
+          const baseDur = Math.round((durationSec / numShots) * 100) / 100;
+
+          for (let i = 1; i <= numShots; i++) {
+            const shotId = `${scriptScene.scene_id}_shot_${i}`;
+            const isLast = i === numShots;
+            const shotDur = isLast ? Math.round((durationSec - baseDur * (numShots - 1)) * 100) / 100 : baseDur;
+            const customPrompt = options.customPromptGenerator(scriptScene as any, i, numShots, shotDur);
+            const decision = this.decideMediaType(scriptScene.narration, scriptScene.visual_note, shotDur);
+
             shots.push({
-              shot_id: `${scriptScene.scene_id}_shot_${raw.index}`,
-              shot_index: raw.index,
-              expected_duration_sec: raw.durationSec,
-              image_prompt: imagePrompt,
-              motion_note: motionNote,
+              shot_id: shotId,
+              shot_index: i,
+              start_sec: Math.round(shotCurrentSec * 100) / 100,
+              duration_sec: shotDur,
+              expected_duration_sec: shotDur,
+              assigned_sentences: [scIdx + 1],
+              assigned_scene_ids: [scriptScene.scene_id],
+              dialogue_lines: [scriptScene.narration],
+              previous_shot_id: prevShotId,
+              image_prompt: customPrompt.image_prompt,
+              motion_note: customPrompt.motion_note,
               media_type: decision.media_type,
               reason: decision.reason,
               confidence: decision.confidence,
             });
+            prevShotId = shotId;
+            shotCurrentSec += shotDur;
+          }
+        } else {
+          // Default intelligent duration-based decomposition with AI media_type decision
+          const isStaticScene = granularity === 'balanced' &&
+            this.isStaticOrDescriptiveNarration(scriptScene.narration, scriptScene.visual_note) &&
+            durationSec <= 10.0;
+
+          const rawShots = (isSingleShot || isStaticScene)
+            ? [{ index: 1, durationSec }]
+            : this.decomposeSceneIntoRawShots(scriptScene as any, durationSec, thresholdSec);
+
+          for (const raw of rawShots) {
+            const decision = isStaticScene
+              ? {
+                  media_type: 'image' as const,
+                  reason: 'Cân bằng pacing: Phân cảnh mô tả tĩnh được giữ làm 1 shot ảnh kèm hiệu ứng Ken Burns để chống giật hình và tối ưu chi phí.',
+                  confidence: 'high' as const,
+                  videoScore: 0,
+                  imageScore: 3,
+                }
+              : this.decideMediaType(scriptScene.narration, scriptScene.visual_note, raw.durationSec);
+            const imagePrompt = this.buildShotPrompt(scriptScene as any, raw.index, rawShots.length, stylePrefix, options.channelProfile, effectiveBgPrompt);
+            const motionNote = isStaticScene
+              ? 'Ken Burns subtle pan and slow zoom in'
+              : this.buildMotionNote(raw.index, rawShots.length, decision.media_type);
+
+            // Multi-clip splitting: if video shot exceeds model limit, split into sub-shots
+            if (decision.media_type === 'video' && raw.durationSec > maxVideoClipSec && !isSingleShot) {
+              const subShots = this.splitIntoMultiClips(
+                scriptScene.scene_id,
+                raw.index,
+                raw.durationSec,
+                maxVideoClipSec,
+                imagePrompt,
+                motionNote,
+                decision,
+                Math.round(shotCurrentSec * 100) / 100,
+                [scIdx + 1],
+                [scriptScene.scene_id],
+                [scriptScene.narration],
+                prevShotId
+              );
+              shots.push(...subShots);
+              if (subShots.length > 0) {
+                prevShotId = subShots[subShots.length - 1].shot_id;
+              }
+              shotCurrentSec += raw.durationSec;
+            } else {
+              const shotId = `${scriptScene.scene_id}_shot_${raw.index}`;
+              shots.push({
+                shot_id: shotId,
+                shot_index: raw.index,
+                start_sec: Math.round(shotCurrentSec * 100) / 100,
+                duration_sec: raw.durationSec,
+                expected_duration_sec: raw.durationSec,
+                assigned_sentences: [scIdx + 1],
+                assigned_scene_ids: [scriptScene.scene_id],
+                dialogue_lines: [scriptScene.narration],
+                previous_shot_id: prevShotId,
+                image_prompt: imagePrompt,
+                motion_note: motionNote,
+                media_type: decision.media_type,
+                reason: decision.reason,
+                confidence: decision.confidence,
+              });
+              prevShotId = shotId;
+              shotCurrentSec += raw.durationSec;
+            }
           }
         }
+
+        // Re-index shot_index sequentially after any multi-clip expansion
+        shots.forEach((shot, idx) => {
+          (shot as any).shot_index = idx + 1;
+        });
+
+        // Duration integrity check: total shots must match scene duration (±0.1s)
+        const totalShotDur = shots.reduce((acc, s) => acc + (s.expected_duration_sec || 0), 0);
+        const diff = Math.abs(Math.round((totalShotDur - durationSec) * 100) / 100);
+        if (diff > 0.1) {
+          // Correct by adjusting last shot
+          const lastShot = shots[shots.length - 1];
+          const adjustment = durationSec - (totalShotDur - (lastShot.expected_duration_sec || 0));
+          lastShot.expected_duration_sec = Math.round(adjustment * 100) / 100;
+          lastShot.duration_sec = lastShot.expected_duration_sec;
+        }
+
+        storyboardScenes.push({
+          scene_id: scriptScene.scene_id,
+          start_sec: sceneStartSec,
+          end_sec: sceneStartSec + durationSec,
+          duration_sec: durationSec,
+          narration: scriptScene.narration,
+          assigned_sentences: [scIdx + 1],
+          assigned_scene_ids: [scriptScene.scene_id],
+          shots,
+        });
+
+        timelineSec = sceneStartSec + durationSec;
       }
-
-      // Re-index shot_index sequentially after any multi-clip expansion
-      shots.forEach((shot, idx) => {
-        (shot as any).shot_index = idx + 1;
-      });
-
-      // Duration integrity check: total shots must match scene duration (±0.1s)
-      const totalShotDur = shots.reduce((acc, s) => acc + (s.expected_duration_sec || 0), 0);
-      const diff = Math.abs(Math.round((totalShotDur - durationSec) * 100) / 100);
-      if (diff > 0.1) {
-        // Correct by adjusting last shot
-        const lastShot = shots[shots.length - 1];
-        const adjustment = durationSec - (totalShotDur - (lastShot.expected_duration_sec || 0));
-        lastShot.expected_duration_sec = Math.round(adjustment * 100) / 100;
-      }
-
-      storyboardScenes.push({
-        scene_id: scriptScene.scene_id,
-        duration_sec: durationSec,
-        narration: scriptScene.narration,
-        shots,
-      });
     }
 
     // 4. Bước TỔNG HỢP (Synthesis) & Tính toán ước tính sản xuất
@@ -703,13 +1168,26 @@ export class AiStudioStoryboardService {
     for (const sc of storyboardScenes) {
       storage.updateSceneMetadata(sc.scene_id, {
         narration: sc.narration,
+        timing: typeof sc.start_sec === 'number' && typeof sc.duration_sec === 'number'
+          ? {
+              start_sec: sc.start_sec,
+              end_sec: sc.end_sec || (sc.start_sec + sc.duration_sec),
+              duration_sec: sc.duration_sec,
+            }
+          : undefined,
       });
 
       for (const shot of sc.shots) {
         storage.updateShotMetadata(sc.scene_id, shot.shot_id, {
           image_prompt_used: shot.image_prompt,
           motion_note: shot.motion_note,
+          start_sec: shot.start_sec,
+          duration_sec: shot.duration_sec,
           expected_duration_sec: shot.expected_duration_sec,
+          assigned_sentences: shot.assigned_sentences,
+          assigned_scene_ids: shot.assigned_scene_ids,
+          dialogue_lines: shot.dialogue_lines,
+          previous_shot_id: shot.previous_shot_id,
           status: 'pending',
         });
       }
@@ -752,32 +1230,40 @@ export class AiStudioStoryboardService {
    * thiếu chuyển động mạnh, hoặc lặp lại bối cảnh — phục vụ gom cụm phân cảnh.
    */
   public isStaticOrDescriptiveNarration(narration: string, visualNote?: string): boolean {
-    const text = (narration + ' ' + (visualNote || '')).toLowerCase();
+    const rawText = (narration + ' ' + (visualNote || '')).toLowerCase();
 
-    // Động từ chuyển động mạnh hoặc biến cố kịch bản -> KHÔNG PHẢI TĨNH
+    // Loại trừ các cụm từ dễ nhầm lẫn sang động từ mạnh
+    const text = rawText
+      .replace(/đánh giá/g, '')
+      .replace(/đánh dấu/g, '')
+      .replace(/đánh đổi/g, '')
+      .replace(/hành động cụ thể/g, '');
+
+    // Động từ chuyển động mạnh hoặc biến cố kịch bản gay cấn -> KHÔNG PHẢI TĨNH
     const dynamicKeywords = [
-      'chạy', 'nhảy', 'bay', 'lao', 'đuổi', 'chiến đấu', 'đánh', 'nổ', 'rơi', 'sụp đổ',
+      'chạy', 'nhảy', 'bay', 'lao', 'đuổi', 'chiến đấu', ' nổ ', ' bùng nổ', 'rơi', 'sụp đổ',
       'phóng', 'va chạm', 'biến hình', 'tấn công', 'chém', 'bắn', 'bùng phát', 'di cư',
-      'di chuyển', 'hành động',
-      'run', 'jump', 'fly', 'chase', 'fight', 'explode', 'fall', 'crash', 'transform', 'dash', 'attack', 'action'
+      'run', 'jump', 'fly', 'chase', 'fight', 'explode', 'fall', 'crash', 'transform', 'dash', 'attack'
     ];
     if (dynamicKeywords.some(kw => text.includes(kw))) {
       return false;
     }
 
-    // Từ khóa mô tả tĩnh, nhận định, bối cảnh chung, suy nghĩ, giải thích
+    // Từ khóa mô tả tĩnh, nhận định, bối cảnh chung, suy nghĩ, giải thích, lịch sử
     const staticKeywords = [
       'là một', 'vẫn là', 'đang đứng', 'ngồi im', 'tĩnh lặng', 'bầu trời', 'khung cảnh',
       'nhìn chung', 'như đã biết', 'không gian', 'mô tả', 'cảnh quan', 'vẻ đẹp', 'được biết',
       'ý nghĩa', 'lý do', 'thực tế', 'trong khi đó', 'thời bấy giờ', 'xung quanh', 'tổng quan',
-      'standing', 'sitting', 'silent', 'landscape', 'scenery', 'atmosphere', 'calm', 'peaceful', 'overview'
+      'lịch sử', 'hình thành', 'phát triển', 'bắt đầu', 'ra đời', 'xuất hiện', 'nguồn gốc',
+      'thời kỳ', 'giai đoạn', 'câu chuyện', 'giới thiệu', 'thế giới',
+      'standing', 'sitting', 'silent', 'landscape', 'scenery', 'atmosphere', 'calm', 'peaceful', 'overview', 'history'
     ];
     if (staticKeywords.some(kw => text.includes(kw))) {
       return true;
     }
 
-    // Nếu câu ngắn dưới 45 ký tự và không có động từ mạnh -> xem là mô tả
-    return text.trim().length < 45;
+    // Nếu câu ngắn dưới 55 ký tự và không có động từ mạnh -> xem là mô tả bối cảnh
+    return text.trim().length < 55;
   }
 
   /**
@@ -834,7 +1320,12 @@ export class AiStudioStoryboardService {
     maxClipSec: number,
     imagePrompt: string,
     motionNote: string,
-    decision: MediaTypeDecision
+    decision: MediaTypeDecision,
+    startSec = 0,
+    assignedSentences: number[] = [1],
+    assignedSceneIds: string[] = [sceneId],
+    dialogueLines: string[] = [],
+    initialPreviousShotId?: string
   ): StoryboardShotItem[] {
     const subShots: StoryboardShotItem[] = [];
     const numClips = Math.ceil(totalDurationSec / maxClipSec);
@@ -845,22 +1336,35 @@ export class AiStudioStoryboardService {
       `[AiStudioStoryboardService] 🎬 Multi-clip split: ${sceneId}_shot_${shotIndex} (${totalDurationSec}s) → ${numClips} clips à ${clipDur}s (limit: ${maxClipSec}s/clip)`
     );
 
+    let currentStart = startSec;
+    let prevId = initialPreviousShotId;
+
     for (let c = 0; c < numClips; c++) {
       const isLast = c === numClips - 1;
       const subDur = isLast
         ? Math.round((totalDurationSec - clipDur * (numClips - 1)) * 100) / 100
         : clipDur;
+      const shotId = `${sceneId}_shot_${shotIndex}${suffixes[c]}`;
 
       subShots.push({
-        shot_id: `${sceneId}_shot_${shotIndex}${suffixes[c]}`,
+        shot_id: shotId,
         shot_index: shotIndex,
+        start_sec: currentStart,
+        duration_sec: subDur,
         expected_duration_sec: subDur,
+        assigned_sentences: assignedSentences,
+        assigned_scene_ids: assignedSceneIds,
+        dialogue_lines: dialogueLines,
+        previous_shot_id: prevId,
         image_prompt: imagePrompt,
         motion_note: c === 0 ? motionNote : `continuous: ${motionNote}`,
         media_type: 'video',
         reason: `${decision.reason} [Multi-clip ${c + 1}/${numClips}: shot dài ${totalDurationSec}s vượt giới hạn ${maxClipSec}s/lần generate]`,
         confidence: decision.confidence,
       });
+
+      prevId = shotId;
+      currentStart = Math.round((currentStart + subDur) * 100) / 100;
     }
 
     return subShots;
@@ -1023,6 +1527,7 @@ export class AiStudioStoryboardService {
     const promptParts: string[] = [stylePrefix, `${anglePrefix} of ${visualContent}`];
     if (characterSnippet) {
       promptParts.push(characterSnippet);
+      promptParts.push('character depicted in natural active pose, seamlessly interacting with the scene, consistent identity, dynamic environmental lighting');
     }
     if (bgSnippet) {
       promptParts.push(bgSnippet);

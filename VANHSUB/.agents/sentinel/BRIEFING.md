@@ -1,7 +1,7 @@
-# BRIEFING — 2026-09-18T15:26:02Z
+# BRIEFING — 2026-09-21T16:07:56Z
 
 ## Mission
-Sentinel monitor and coordinator for Storyboard (Phase 5) and AI Image/Video Generation (Phase 6) automation for AI Video Studio in Vanhsub per spec-pipeline-video-automation.md.
+Khắc phục triệt để 4 vấn đề cốt lõi trong phân hệ AI Video Studio của Vanhsub: (1) Ngăn chặn hoàn toàn việc cửa sổ Google Flow cướp focus ở chế độ offscreen; (2) Tối ưu hóa Storyboard: tự động gom cụm câu thoại chung ngữ cảnh vào 1 shot (4-10s); (3) Sửa dứt điểm lỗi lệch phân cảnh khi gán reference images; (4) Xây dựng cơ chế cô lập lỗi và fallback an toàn chống sập dây chuyền khi Flow gặp sự cố.
 
 ## 🔒 My Identity
 - Archetype: sentinel
@@ -11,8 +11,11 @@ Sentinel monitor and coordinator for Storyboard (Phase 5) and AI Image/Video Gen
 - Orchestrator 2: 4178817f-9fd4-446c-af6c-ef59368c4a1e (retired)
 - Orchestrator 3: da011580-7822-4f08-aabc-fa08fc8ef25d (retired)
 - Orchestrator 4: 21b076e0-7535-4fd4-8b08-fa6b95dfc5e1 (errored / died)
-- Active Orchestrator: cff1b883-a490-484a-9ce3-a7243b4a3ebf
-- Active Victory Auditor: 25c05823-5ab4-487d-bee0-f51fcf684b0c
+- Orchestrator 5: cff1b883-a490-484a-9ce3-a7243b4a3ebf (retired)
+- Victory Auditor 1: 25c05823-5ab4-487d-bee0-f51fcf684b0c (retired)
+- Orchestrator 6: 69cadcf9-da63-48fe-8147-e643dc3d7c4e (server restart)
+- Active Orchestrator: 2c251f15-7b27-4e6f-852b-1823f9457b37 (orchestrator_7)
+- Victory Auditor: [to be spawned on victory claim]
 
 ## 🔒 Key Constraints
 - No technical decisions — relay only
@@ -35,32 +38,28 @@ Sentinel monitor and coordinator for Storyboard (Phase 5) and AI Image/Video Gen
 - Idempotency & Resumable with versioning (_v2, _v3)
 - Offscreen / Headless vs Live Window modes
 - Verification: npx tsc --noEmit 100% clean & scripts/test_spec_pipeline_automation.ts
+- R1: Prevent Google Flow from stealing focus / popping up in offscreen mode (no win.show(), win.focus(), win.restore())
+- R2: Semantic scene clustering in Stage 5 Storyboard (group lines into 4-10s shots)
+- R3: Eliminate off-by-one reference image chain drift (canonical style anchor & explicit previous_shot_id)
+- R4: Fault isolation, fallback asset & Ken Burns fallback for missing video in Stage 7
 
 ## User Context
-- **Last user request**: Triển khai hệ thống tự động hóa công đoạn Storyboard (Giai đoạn 5) và Sinh Ảnh/Video AI (Giai đoạn 6) cho phân hệ AI Video Studio của Vanhsub dựa trên Browser Automation qua Google Flow, tuân thủ nghiêm ngặt kiến trúc lưu trữ đĩa cục bộ làm nguồn sự thật (Local Disk Source of Truth), cơ chế tương tác an toàn (Visual Settle & Highlight), và quy trình Image-to-Video trực tiếp bằng đường dẫn tệp theo tài liệu `spec-pipeline-video-automation.md`.
+- **Last user request**: Khắc phục triệt để 4 vấn đề cốt lõi trong phân hệ AI Video Studio của Vanhsub: (1) Ngăn chặn hoàn toàn việc cửa sổ Google Flow tự ý nhảy lên cướp focus; (2) Tối ưu hóa phân cảnh Storyboard: gom cụm thoại; (3) Sửa dứt điểm lỗi lệch phân cảnh gán reference images; (4) Xây dựng cơ chế cô lập lỗi và fallback an toàn chống sập dây chuyền.
 - **Pending clarifications**: none
-- **Delivered results**:
-  - Local Disk Storage Architecture (00_facts to 05_media & index.json) with atomic writes, versioning, and auto-healing (AiStudioDiskStorageManager.ts).
-  - Confirm-Before-Act Visual Settle & Highlight Guard (FlowVisualConfirmGuard.ts).
-  - Direct Local File Path Injection for Image-to-Video (FlowFileInputInjector.ts).
-  - Phase 5 Storyboard service with real audio ffprobe duration probing (AiStudioStoryboardService.ts).
-  - Phase 6 FlowMediaAutomationEngine with prompt readback, local asset downloads, and ±15% duration deviation check (FlowMediaAutomationEngine.ts).
-  - AiStudioPipelineEngine integration for Stage 5 & 6 with dual UI modes (offscreen / live window) and JSON action logs (AiStudioPipelineEngine.ts, types.ts, ipc.ts).
-  - Automated test suite scripts/test_spec_pipeline_automation.ts (27/27 passed) and clean TypeScript typecheck (0 errors).
+- **Delivered results**: previous milestones delivered. New task in progress.
 
 ## Project Status
-- **Phase**: complete
-- **Route**: General -> teamwork_preview_orchestrator (orchestrator_5)
+- **Phase**: in progress
+- **Route**: General -> teamwork_preview_orchestrator (orchestrator_6)
 
 ## Victory Audit Status
-- **Triggered**: yes
-- **Verdict**: VICTORY CONFIRMED
+- **Triggered**: no
+- **Verdict**: pending
 - **Retry count**: 0
 
 ## Artifact Index
 - d:\DEAN\DEAN\VANHSUB\.agents\ORIGINAL_REQUEST.md — Verbatim user request record
 - d:\DEAN\DEAN\VANHSUB\AI_STUDIO_SPEC.md — AI Studio specification document
 - d:\DEAN\DEAN\VANHSUB\spec-pipeline-video-automation.md — Pipeline Video Automation specification document
-- d:\DEAN\DEAN\VANHSUB\.agents\orchestrator_5\handoff.md — Orchestrator final handover report
-- d:\DEAN\DEAN\VANHSUB\.agents\victory_auditor_1\audit_report.md — Independent Victory Audit Report
-
+- d:\DEAN\DEAN\VANHSUB\.agents\orchestrator_5\handoff.md — Orchestrator 5 final handover report
+- d:\DEAN\DEAN\VANHSUB\.agents\victory_auditor_1\audit_report.md — Independent Victory Audit Report (Milestone 1)

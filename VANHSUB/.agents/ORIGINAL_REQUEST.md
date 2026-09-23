@@ -227,3 +227,70 @@ Integrity mode: development
 - [ ] Chế độ Offscreen và Live Window chuyển đổi linh hoạt theo cấu hình người dùng.
 - [ ] Quá trình chạy trong AI Studio cập nhật tiến độ phần trăm và ghi log action theo thời gian thực.
 
+## 2026-09-21T16:07:56Z
+
+Khắc phục triệt để 4 vấn đề cốt lõi trong phân hệ AI Video Studio của Vanhsub: (1) Ngăn chặn hoàn toàn việc cửa sổ Google Flow tự ý nhảy lên cướp focus khi người dùng đang làm việc khác; (2) Tối ưu hóa phân cảnh Storyboard: AI tự động phân tích và gom cụm nhiều câu thoại chung ngữ cảnh/bối cảnh vào 1 visual scene/shot thay vì cắt vụn 1 thoại = 1 ảnh; (3) Sửa dứt điểm lỗi lệch phân cảnh (off-by-one) khi gán reference images giữa các shot; (4) Xây dựng cơ chế cô lập lỗi (fault tolerance) và fallback an toàn chống sập dây chuyền (domino effect) khi Google Flow gặp sự cố ở bất kỳ shot nào.
+
+Working directory: d:\DEAN\DEAN\VANHSUB
+Integrity mode: development
+
+## Requirements
+
+### R1. Triệt Tiêu Hoàn Toàn Hành Vi Cướp Focus & Bật Cửa Sổ Google Flow (True Stealth & Offscreen Background Execution)
+- Khi chế độ hiển thị được cấu hình là `offscreen` (mặc định trong pipeline tự động):
+  - Tuyệt đối không gọi `win.show()`, `win.focus()`, `win.restore()`, hoặc bất kỳ API nào làm giật focus, đưa cửa sổ Flow đè lên trên màn hình người dùng.
+  - Cửa sổ Google Flow phải luôn duy trì ở tọa độ ngoài màn hình (`OFFSCREEN_X, OFFSCREEN_Y`) hoặc ở trạng thái chạy ngầm không cướp tiêu điểm hệ điều hành.
+  - Mọi thao tác click chuột, nhập prompt, gửi phím tắt (qua `sendInputEvent` và `executeJavaScript` trên WebContents) phải vận hành trơn tru ở chế độ nền mà không đòi hỏi cửa sổ phải hiển thị trên Desktop chính.
+  - Chỉ hiển thị cửa sổ trực tiếp (`visible`) khi người dùng chủ động cấu hình chế độ xem trực tiếp hoặc bấm mở Sảnh thủ công để đăng nhập.
+
+### R2. Storyboard Thông Minh Theo Ngữ Cảnh: Gom Cụm Lời Thoại (Semantic Scene Clustering & Pacing)
+- Cải tiến Giai đoạn 5 (Storyboard Generation): Thay vì gán máy móc mỗi 1 câu thoại = 1 ảnh/vid (khiến video bị cắt vụn và spam quá nhiều ảnh không cần thiết), hệ thống LLM phải phân tích toàn diện kịch bản và dòng thời gian âm thanh thực tế (`03_timing/timing.json`):
+  - Nhận diện các câu thoại có cùng không gian, bối cảnh, nhân vật hoặc mạch ý nghĩa để gom thành **1 Visual Scene / Shot duy nhất** kéo dài từ 4s đến 10s (khớp với thời lượng video hoặc ảnh tĩnh + Ken Burns).
+  - Nội dung câu lệnh tạo ảnh (`image_prompt`) và ghi chú chuyển động (`motion_note`) của shot đó phải bao quát và liên quan mật thiết đến toàn bộ cụm câu thoại được gán cho nó.
+  - Phân bố và ghi nhận chính xác thời điểm bắt đầu (`start_sec`), thời lượng (`duration_sec`), và danh sách các câu thoại thuộc phạm vi của từng shot trong `04_storyboard/storyboard.json` và `index.json`.
+
+### R3. Sửa Dứt Điểm Lỗi Lệch Phân Cảnh Khi Gán Reference Images (Eliminate Off-by-one Chain Drift)
+- Rà soát và chuẩn hóa toàn bộ luồng truyền `referenceImagePath` trong Giai đoạn 6 (`AiStudioPipelineEngine.ts`, `FlowMediaAutomationEngine.ts`, `AiStudioStyleRefsService.ts`):
+  - Xóa bỏ triệt để hiện tượng phân cảnh 1 lấy ảnh nhân vật, phân cảnh 2 lấy ảnh của phân cảnh 1, phân cảnh 3 lấy của phân cảnh 2 (lệch một nhịp giữa visual prompt và reference).
+  - Thiết lập cơ chế neo tham chiếu chuẩn mực (Canonical Style Anchor): Mọi shot đều sử dụng bộ ảnh tham chiếu chuẩn từ `style_refs` (`character_ref.png` cho nhân vật và `background_ref.png` cho bối cảnh).
+  - Nếu một shot cần tham chiếu đến ảnh của shot trước đó (continuity shot), việc định danh shot trước phải dựa trên metadata định danh chính xác (`previous_shot_id`), tuyệt đối không dùng chỉ số mảng lệch (`idx - 1`) khi số lượng shots và scenes không đồng nhất.
+
+### R4. Cơ Chế Cô Lập Lỗi & Chống Sập Dây Chuyền (Fault Isolation, Graceful Fallback & Domino Prevention)
+- Thiết kế cơ chế xử lý lỗi kiên cố cho quy trình tạo ảnh/video trên Flow:
+  - Nếu một shot bị lỗi sau tối đa số lần retry quy định (do rate limit, network, hoặc Flow từ chối prompt):
+    - **Không làm sập toàn bộ pipeline**: Hệ thống ghi nhận trạng thái lỗi cục bộ của shot đó vào `index.json` và `session.json`, tự động kích hoạt asset dự phòng (fallback asset: sử dụng ảnh tham chiếu chuẩn hoặc duplicate từ shot liền kề hợp lệ), sau đó tiếp tục xử lý các shot còn lại.
+    - **Không ảnh hưởng dây chuyền**: Các shot tiếp theo không bị đình trệ hay sai lệch reference vì lỗi của shot trước.
+  - Tại Giai đoạn 7 (Dựng phim FFmpeg Assembly):
+    - Tự động nhận diện những shot thiếu video (do lỗi sinh video hoặc chỉ có ảnh) để tự động áp dụng hiệu ứng chuyển động Ken Burns với thời lượng chuẩn xác theo audio, đảm bảo video đầu ra cuối cùng luôn hoàn chỉnh và đồng bộ 100% tiếng - hình.
+
+## Acceptance Criteria
+
+### Automated Verification
+- [ ] Kiểm tra toàn bộ mã nguồn (`npx tsc --noEmit`) đạt 100% không có lỗi Type.
+- [ ] Bộ kiểm thử tự động (`scripts/test_spec_pipeline_automation.ts` hoặc script test mới) xác minh:
+  - Cửa sổ Flow ở chế độ `offscreen` không kích hoạt `win.show()` hay `win.focus()`.
+  - Giai đoạn 5 Storyboard sinh ra số lượng shots tối ưu (gom cụm câu thoại, trung bình 5-8s/shot) thay vì 1 thoại = 1 shot.
+  - Phân cảnh 1, 2, 3... nhận đúng prompt và reference image tương ứng, không bị trễ/lệch phân cảnh.
+  - Mô phỏng 1 shot bị lỗi sinh ảnh/video $\rightarrow$ pipeline vẫn tiếp tục hoàn thành các shot còn lại và video dựng FFmpeg vẫn xuất thành công với fallback asset.
+
+### Functional Verification
+- [ ] Chạy pipeline thực tế trong AI Studio: cửa sổ Flow không tự ý nhảy lên cướp focus của người dùng trên Desktop.
+- [ ] Dự án "Lịch sử của dòng điện tại nhật bản" tạo ra storyboard gọn gàng, visual bám sát cụm thoại, hình ảnh khớp đúng từng phân cảnh.
+
+## 2026-09-21T17:00:45Z
+
+Báo cáo tiến độ: Bạn đã hoàn thành những gì trong 4 nhiệm vụ sau chưa? Liệt kê cụ thể:
+
+1. R1: Triệt tiêu win.show()/win.focus() trong offscreen mode (AiStudioPipelineEngine.ts, GoogleVeoSessionManager.ts, FlowVideoGenerationStates.ts)
+2. R2: Semantic clustering — nhiều câu thoại → 1 shot (Stage 5 storyboard)
+3. R3: Fix off-by-one reference image drift trong Stage 6
+4. R4: Fault isolation — không throw/crash khi 1 shot lỗi, dùng fallback asset thay thế
+
+Nếu đã hoàn thành, cho tôi biết:
+- Những file nào đã được sửa
+- `npx tsc --noEmit` kết quả ra sao
+- Bất kỳ vấn đề còn tồn đọng không
+
+Nếu chưa bắt đầu hoặc còn dang dở, hãy tiếp tục ngay và báo cáo khi xong.
+
+

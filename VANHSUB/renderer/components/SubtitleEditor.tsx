@@ -29,8 +29,13 @@ type Props = {
   isActive?: boolean;
 };
 
+let lineSeq = 0;
+
 function makeLineId(): string {
-  return `line-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return `line-${crypto.randomUUID()}`;
+  }
+  return `line-${Date.now()}-${++lineSeq}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
 /** Ô nhập thời gian: cho phép gõ tự do, chỉ commit giá trị hợp lệ khi blur/Enter. */

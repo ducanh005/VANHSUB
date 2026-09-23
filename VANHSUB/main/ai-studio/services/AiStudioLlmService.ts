@@ -13,6 +13,7 @@ import type {
   ScriptEvaluation,
   ScriptCriteriaScore,
 } from '../types';
+import type { PipelineTimingData } from '../types/storage';
 
 /**
  * AiStudioLlmService: LLM coordination service for AI Video Studio
@@ -977,6 +978,130 @@ Yêu cầu nghiêm ngặt:
         status: 'pending',
       };
     });
+  }
+
+  // ==========================================================================
+  // Stage 5: Smart Storyboard Clustering & Prompts via LLM (Milestone 2 / R2)
+  // ==========================================================================
+  public async clusterAndGenerateStoryboard(options: {
+    scriptLines: any[];
+    timingData?: PipelineTimingData;
+    stylePromptPrefix?: string;
+    negativePrompt?: string;
+    channelProfile?: any;
+    backgroundPrompt?: string;
+    config?: AiStudioLlmConfig;
+    topic?: string;
+  }): Promise<{ shots: any[] }> {
+    const {
+      scriptLines = [],
+      timingData,
+      stylePromptPrefix,
+      channelProfile,
+      backgroundPrompt,
+      config,
+      topic = 'Video Production',
+    } = options;
+
+    if (!scriptLines || scriptLines.length === 0) {
+      return { shots: [] };
+    }
+
+    const clientBundle = config ? this.createClient(config) : null;
+    if (!clientBundle) {
+      throw new Error('[AiStudioLlmService] clusterAndGenerateStoryboard: Missing or invalid LLM configuration');
+    }
+
+    // Map timing data to lines
+    const timingScenes = timingData?.scenes || [];
+    const linesWithDuration = scriptLines.map((line: any, idx: number) => {
+      const lineText = typeof line === 'string' ? line : (line.text || line.narration || '');
+      const sceneId = line.scene_id || (line.id ? String(line.id) : `scene_${String(idx + 1).padStart(2, '0')}`);
+      const tItem = timingScenes.find((t) => t.scene_id === sceneId) || timingScenes[idx];
+      const durationSec = tItem?.duration_sec ?? (line.durationMs ? Math.round((line.durationMs / 1000) * 10) / 10 : (line.estimatedDurationSec || 3.5));
+      const visualNote = line.visual_note || line.visualPromptEn || line.visualPrompt || '';
+      return {
+        index: idx + 1,
+        scene_id: sceneId,
+        text: lineText,
+        duration: Math.round(durationSec * 10) / 10,
+        visual_note: visualNote,
+      };
+    });
+
+    const hostName = channelProfile?.hostName?.trim() || channelProfile?.channelCharacters?.[0]?.name?.trim();
+    const hostDesc = channelProfile?.hostDescription?.trim() || channelProfile?.channelCharacters?.[0]?.descriptionEn?.trim();
+    const visualStyle = channelProfile?.visualArtStylePreset || 'cinematic';
+    const effectivePrefix = stylePromptPrefix || 'Cinematic movie lighting, 8k resolution, photorealistic masterpiece, 35mm film grain, highly detailed textures';
+    const effectiveBg = backgroundPrompt || channelProfile?.projectBackgroundPrompt || 'Atmospheric cinematic environment';
+
+    const prompt = `Bạn là Đạo diễn Hình ảnh (Director of Photography) và Chuyên gia Storyboard Điện ảnh hàng đầu.
+Dự án: "${topic}"
+Phong cách nghệ thuật: "${visualStyle}"
+Tiền tố ánh sáng & phong cách: "${effectivePrefix}"
+Bối cảnh nền chủ đạo: "${effectiveBg}"
+${hostName ? `Nhân vật chủ đạo: ${hostName} (${hostDesc || 'Nhân vật chính'})` : ''}
+
+Dưới đây là toàn bộ danh sách các câu thoại kèm thời lượng âm thanh thực tế:
+${JSON.stringify(linesWithDuration, null, 2)}
+
+QUY TẮC PHÂN CẢNH VÀ GOM CỤM (BẮT BUỘC TUÂN THỦ):
+1. TUYỆT ĐỐI KHÔNG để 1 câu = 1 shot nếu câu đó ngắn dưới 4.0 giây.
+2. BẮT BUỘC gom các câu thoại liên tiếp có cùng không gian, bối cảnh, nhân vật hoặc mạch ý nghĩa thành 1 VISUAL SHOT duy nhất.
+3. Mỗi shot PHẢI có tổng thời lượng từ 4.0 GIÂY đến 10.0 GIÂY (lý tưởng nhất: 5.0s đến 8.0s).
+4. Mọi câu thoại từ 1 đến ${linesWithDuration.length} PHẢI được gán vào đúng 1 shot, theo thứ tự tăng dần liên tục, không được bỏ sót bất kỳ câu nào và không được trùng lặp.
+5. "image_prompt": Viết bằng tiếng Anh cực kỳ chi tiết, đậm chất điện ảnh, bao quát TOÀN BỘ cụm câu thoại được gán, kết hợp bối cảnh nền và tiền tố phong cách.
+6. "motion_note": Ghi chú chuyển động camera (tiếng Anh) phù hợp với cảnh (ví dụ: "Slow tracking dolly shot", "Gentle cinematic push in", "Dynamic pan across scene").
+7. "media_type": Chọn "video" nếu phân cảnh có chuyển động, hành động thực tế, bùng nổ; chọn "image" nếu là phong cảnh tĩnh, chân dung, tư liệu, biểu đồ.
+8. "reason": Giải thích ngắn gọn bằng tiếng Việt lý do chọn media_type và gom cụm.
+
+Trả về DUY NHẤT một khối JSON hợp lệ theo cấu trúc:
+{
+  "shots": [
+    {
+      "assigned_sentences": [1, 2],
+      "image_prompt": "Cinematic visual prompt in English...",
+      "motion_note": "Slow cinematic push in...",
+      "media_type": "image",
+      "reason": "Giải thích lý do..."
+    }
+  ]
+}`;
+
+    const response = await clientBundle.client.chat.completions.create({
+      model: clientBundle.model,
+      messages: [{ role: 'user', content: prompt }],
+      temperature: 0.5,
+    });
+
+    const rawText = response.choices[0]?.message?.content || '';
+    const cleaned = rawText.replace(/```json|```/g, '').trim();
+    const repaired = jsonrepair(cleaned);
+    const parsed = JSON.parse(repaired);
+
+    const shots = Array.isArray(parsed.shots) ? parsed.shots : (Array.isArray(parsed) ? parsed : []);
+    if (!Array.isArray(shots) || shots.length === 0) {
+      throw new Error('[AiStudioLlmService] LLM returned empty shots array');
+    }
+
+    // Validate and sanitize shots
+    const validShots = shots.map((s: any, idx: number) => {
+      const assigned = Array.isArray(s.assigned_sentences)
+        ? s.assigned_sentences.map((n: any) => Number(n)).filter((n: number) => !isNaN(n) && n >= 1)
+        : [idx + 1];
+      const mediaType: 'image' | 'video' = s.media_type === 'video' ? 'video' : 'image';
+      return {
+        scene_index: idx + 1,
+        assigned_sentences: assigned,
+        image_prompt: String(s.image_prompt || `${effectivePrefix}, ${effectiveBg}`).trim(),
+        motion_note: String(s.motion_note || 'Slow cinematic push in').trim(),
+        media_type: mediaType,
+        reason: String(s.reason || `Phân cảnh cụm ${assigned.join(', ')}`).trim(),
+        confidence: s.confidence || 'high',
+      };
+    });
+
+    return { shots: validShots };
   }
 
   // ==========================================================================

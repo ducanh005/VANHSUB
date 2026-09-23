@@ -13,6 +13,9 @@ import {
   Clipboard,
   X,
   Layers,
+  FolderOpen,
+  RotateCcw,
+  Edit3,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -45,12 +48,14 @@ interface DownloadModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSuccess?: (task: any) => void;
+  initialUrl?: string;
 }
 
 export const DownloadModal: React.FC<DownloadModalProps> = ({
   open,
   onOpenChange,
   onSuccess,
+  initialUrl,
 }) => {
   const [urlInput, setUrlInput] = useState('');
   const [isInspecting, setIsInspecting] = useState(false);
@@ -59,6 +64,9 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
   const [selectedQuality, setSelectedQuality] = useState<string>('1080p');
   const [progress, setProgress] = useState<DownloadProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [saveDir, setSaveDir] = useState<string>('');
+  const [defaultDir, setDefaultDir] = useState<string>('');
+  const [customTitle, setCustomTitle] = useState<string>('');
 
   // Lắng nghe progress qua IPC
   useEffect(() => {
@@ -77,17 +85,86 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
     };
   }, [open]);
 
+  // Lấy thư mục lưu trữ mặc định và tùy chọn đã lưu
+  useEffect(() => {
+    if (!open) return;
+
+    let isMounted = true;
+    const initDirs = async () => {
+      try {
+        let def = '';
+        if (window.vanhsub?.downloader?.getDefaultDir) {
+          def = await window.vanhsub.downloader.getDefaultDir();
+        } else if (window.vanhsub?.settings?.get) {
+          const exportDir = await window.vanhsub.settings.get('exportDir');
+          if (exportDir) def = exportDir;
+        }
+        if (!isMounted) return;
+        setDefaultDir(def);
+
+        const saved = typeof window !== 'undefined' ? localStorage.getItem('vanhsub_download_dir') : null;
+        if (saved) {
+          setSaveDir(saved);
+        } else if (def) {
+          setSaveDir(def);
+        }
+      } catch (err) {
+        console.error('Lỗi lấy thư mục mặc định:', err);
+      }
+    };
+
+    initDirs();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [open]);
+
+  // Cập nhật initialUrl nếu được truyền vào
+  useEffect(() => {
+    if (open && initialUrl) {
+      setUrlInput(initialUrl);
+    }
+  }, [open, initialUrl]);
+
   // Reset state khi mở/đóng modal
   useEffect(() => {
     if (!open) {
       setUrlInput('');
       setMediaInfo(null);
+      setCustomTitle('');
       setProgress(null);
       setError(null);
       setIsInspecting(false);
       setIsDownloading(false);
     }
   }, [open]);
+
+  // Chọn thư mục lưu trữ mới qua hộp thoại hệ thống
+  const handleChooseDirectory = async () => {
+    try {
+      if (!window.vanhsub?.dialog?.chooseDirectory) {
+        toast.error('Tính năng chọn thư mục chưa sẵn sàng');
+        return;
+      }
+      const dir = await window.vanhsub.dialog.chooseDirectory();
+      if (dir) {
+        setSaveDir(dir);
+        localStorage.setItem('vanhsub_download_dir', dir);
+        toast.success('Đã chọn thư mục lưu trữ mới');
+      }
+    } catch (err) {
+      console.error('Lỗi khi chọn thư mục:', err);
+      toast.error('Không thể chọn thư mục');
+    }
+  };
+
+  // Đặt lại thư mục lưu về mặc định
+  const handleResetDefaultDir = () => {
+    localStorage.removeItem('vanhsub_download_dir');
+    setSaveDir(defaultDir);
+    toast.info('Đã khôi phục về thư mục lưu mặc định');
+  };
 
   // Dán từ clipboard
   const handlePasteClipboard = async () => {
@@ -112,6 +189,7 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
     setIsInspecting(true);
     setError(null);
     setMediaInfo(null);
+    setCustomTitle('');
     setProgress(null);
 
     try {
@@ -121,6 +199,7 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
 
       const info = await window.vanhsub.downloader.inspect(urlInput.trim());
       setMediaInfo(info);
+      setCustomTitle(info.title || '');
       if (info.availableQualities && info.availableQualities.length > 0) {
         setSelectedQuality(info.availableQualities[0].id);
       }
@@ -157,6 +236,8 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
         quality: selectedQuality,
         // Truyền URL không watermark đã lấy từ bước inspect (Douyin/TikTok)
         noWatermarkUrl: mediaInfo?.noWatermarkUrl,
+        outputDir: saveDir.trim() || undefined,
+        customFileName: customTitle.trim() || undefined,
       });
 
       toast.success('Tải video thành công! Đã tạo thư mục dự án riêng.');
@@ -312,6 +393,57 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
             </p>
           </div>
 
+          {/* Chọn thư mục lưu trữ */}
+          <div className="space-y-1.5 rounded-2xl border border-slate-800 bg-slate-900/50 p-3">
+            <div className="flex items-center justify-between text-xs">
+              <span className="flex items-center gap-1.5 font-medium text-slate-300">
+                <FolderOpen className="h-3.5 w-3.5 text-cyan-400" />
+                <span>Thư mục lưu video & dự án:</span>
+              </span>
+              {saveDir && defaultDir && saveDir !== defaultDir && (
+                <button
+                  type="button"
+                  onClick={handleResetDefaultDir}
+                  disabled={isDownloading}
+                  className="inline-flex items-center gap-1 text-[11px] text-slate-400 hover:text-cyan-300 transition cursor-pointer disabled:opacity-50"
+                  title="Khôi phục về thư mục mặc định của hệ thống"
+                >
+                  <RotateCcw className="h-3 w-3" />
+                  Mặc định
+                </button>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={saveDir || defaultDir || ''}
+                onChange={(e) => {
+                  setSaveDir(e.target.value);
+                  if (e.target.value.trim()) {
+                    localStorage.setItem('vanhsub_download_dir', e.target.value.trim());
+                  }
+                }}
+                disabled={isDownloading}
+                placeholder="Đang tải thư mục mặc định..."
+                title={saveDir || defaultDir}
+                className="flex-1 truncate rounded-xl border border-slate-700 bg-slate-800/80 px-3 py-2 font-mono text-[11px] text-white placeholder:text-slate-500 focus:border-cyan-400 focus:outline-none focus:ring-1 focus:ring-cyan-400 disabled:opacity-60"
+              />
+              <button
+                type="button"
+                onClick={handleChooseDirectory}
+                disabled={isDownloading}
+                className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-xs font-medium text-slate-200 hover:bg-slate-700 hover:text-white transition cursor-pointer disabled:opacity-50 shadow-sm"
+              >
+                <FolderOpen className="h-3.5 w-3.5 text-cyan-400" />
+                <span>Chọn thư mục</span>
+              </button>
+            </div>
+            <p className="text-[11px] text-slate-500">
+              Hệ thống sẽ tự động tạo thư mục dự án riêng bên trong thư mục này chứa video và toàn bộ tệp xử lý.
+            </p>
+          </div>
+
           {/* Lỗi nếu có */}
           {error && (
             <div className="flex items-start gap-2.5 rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-300">
@@ -348,10 +480,37 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
                 </div>
 
                 {/* Info */}
-                <div className="flex-1 min-w-0 space-y-1.5">
-                  <h4 className="text-sm font-semibold text-white line-clamp-2 leading-snug">
-                    {mediaInfo.title}
-                  </h4>
+                <div className="flex-1 min-w-0 space-y-2">
+                  {/* Tên file / Tiêu đề có thể chỉnh sửa */}
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className="font-medium text-slate-300 flex items-center gap-1.5">
+                        <Edit3 className="h-3 w-3 text-cyan-400" />
+                        <span>Tên file lưu trữ:</span>
+                      </span>
+                      {customTitle && mediaInfo.title && customTitle !== mediaInfo.title && (
+                        <button
+                          type="button"
+                          onClick={() => setCustomTitle(mediaInfo.title)}
+                          disabled={isDownloading}
+                          className="inline-flex items-center gap-1 text-[10px] text-slate-400 hover:text-cyan-300 transition cursor-pointer disabled:opacity-50"
+                          title="Đặt lại tên theo tiêu đề gốc của video"
+                        >
+                          <RotateCcw className="h-2.5 w-2.5" />
+                          Tiêu đề gốc
+                        </button>
+                      )}
+                    </div>
+                    <input
+                      type="text"
+                      value={customTitle}
+                      onChange={(e) => setCustomTitle(e.target.value)}
+                      disabled={isDownloading}
+                      placeholder="Nhập tên file bạn muốn lưu..."
+                      className="w-full rounded-xl border border-slate-700 bg-slate-900/90 px-3 py-1.5 text-xs text-white placeholder:text-slate-500 focus:border-cyan-400 focus:outline-none focus:ring-1 focus:ring-cyan-400 font-medium"
+                    />
+                  </div>
+
                   {mediaInfo.author && (
                     <p className="inline-flex items-center gap-1 text-xs text-slate-400">
                       <User className="h-3 w-3 text-slate-500" />
@@ -360,7 +519,7 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
                   )}
 
                   {/* Lựa chọn chất lượng */}
-                  <div className="pt-2 flex items-center gap-2">
+                  <div className="pt-1 flex items-center gap-2">
                     <span className="text-[11px] text-slate-400 shrink-0">Chất lượng:</span>
                     <div className="flex flex-wrap gap-1.5">
                       {mediaInfo.availableQualities.map((q) => (
@@ -391,10 +550,19 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
                 </div>
               )}
 
-              {/* Thông báo thư mục lưu trữ */}
+              {/* Thông báo thư mục lưu trữ & tên file */}
               <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-slate-900/80 border border-slate-700/50 text-[11px] text-slate-300">
                 <Layers className="h-3.5 w-3.5 text-cyan-400 shrink-0" />
-                <span>Video và toàn bộ file phụ đề/audio sẽ được tự động gom vào thư mục dự án riêng biệt.</span>
+                <span className="truncate">
+                  Dự án & video sẽ được lưu tại:{' '}
+                  <strong className="font-mono text-cyan-300" title={saveDir || defaultDir}>
+                    {saveDir || defaultDir || 'Thư mục mặc định'}
+                  </strong>
+                  {' → '}
+                  <span className="font-mono text-emerald-300 font-medium">
+                    {(customTitle.trim() || mediaInfo.title || 'video').replace(/[\\/:*?"<>|]/g, '_')}_vanhsub/
+                  </span>
+                </span>
               </div>
             </div>
           )}

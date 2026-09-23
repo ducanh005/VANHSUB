@@ -326,7 +326,7 @@ export const DEFAULT_VOICE_CONFIG: Readonly<AiStudioVoiceConfig> = Object.freeze
 
 export const DEFAULT_FLOW_ENGINE_CONFIG: Readonly<AiStudioFlowEngineConfig> = Object.freeze({
   engine: 'flow',
-  uiMode: 'live_window',
+  uiMode: 'offscreen',
   aspectRatio: '16:9',
   outputMode: 'image',
   shotMode: 'single',
@@ -612,6 +612,8 @@ export interface PipelineSessionState {
       timestamp: number;
     }[];
   };
+  outputDir?: string;
+  flowProjectUrl?: string;
   createdAt: number;
   updatedAt: number;
 }

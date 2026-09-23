@@ -48,6 +48,7 @@ export interface FlowStateContext {
   modelVariant?: string;
   initFrameUrl?: string;
   referenceImagePath?: string;
+  referenceMediaId?: string;
   targetProjectId?: string;
   targetProjectName?: string;
   flowAssetUrl?: string;
@@ -61,6 +62,7 @@ export interface FlowStateContext {
   activeProjectId?: string;
   baselineUrls: Set<string>;
   capturedMediaUrl: string | null;
+  capturedMediaId?: string | null;
   capturedBase64: string | null;
   generateClickedAt: number;
   idempotencyDetectedAt?: number;

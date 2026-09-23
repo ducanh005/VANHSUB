@@ -22,7 +22,7 @@ import { checkVietTtsConnection, getAvailableVoices, previewTts, getEdgeVoices }
 import { VoiceSampleStore } from './store/voiceSampleStore'
 import { getAiStudioStore } from './store/aiStudioStore'
 import { extractAudioFromUrl } from './helpers/voiceFromUrl'
-import { inspectMediaUrl, downloadVideoFromUrl } from './helpers/videoDownloader'
+import { inspectMediaUrl, downloadVideoFromUrl, resolveBaseFolder } from './helpers/videoDownloader'
 import { installRendererLogger } from './helpers/logger'
 import { getSharedTikTokProvider } from './tts-providers/tiktok/sessionStores'
 import { TikTokTTSError } from './tts-providers/tiktok/types'
@@ -254,6 +254,14 @@ function broadcastTasksUpdate() {
     console.warn('Không thể khởi tạo session Google Veo ban đầu:', veoInitErr)
   }
 
+  // Khởi động WebSocket Bridge Server để kết nối với Chrome Extension (VanhSub Flow Bridge)
+  try {
+    const { getFlowBridgeServer } = await import('./workflow/flow-engine/rpc/FlowBridgeServer');
+    getFlowBridgeServer().start();
+  } catch (bridgeErr) {
+    console.warn('[FlowBridgeServer] Không thể khởi động WebSocket Server:', bridgeErr);
+  }
+
   // Gỡ kẹt task còn dính trạng thái "đang chạy" của phiên trước (crash/đóng app):
   // đánh dấu error để chạy lại được — pipeline vẫn bỏ qua các bước đã có kết quả
   const staleFixed = TaskStore.resetStaleRunning()
@@ -317,13 +325,25 @@ ipcMain.handle('downloader:inspect', async (_event, rawUrl: string) => {
   }
 });
 
+// Lấy thư mục lưu trữ mặc định hiện tại
+ipcMain.handle('downloader:getDefaultDir', async () => {
+  try {
+    return resolveBaseFolder();
+  } catch (err: any) {
+    console.error('[downloader:getDefaultDir] Lỗi:', err);
+    return '';
+  }
+});
+
 // Tải video MP4 từ liên kết và tự động tạo Task trong thư mục dự án
-ipcMain.handle('downloader:download', async (_event, options: { url: string; quality?: any; noWatermarkUrl?: string }) => {
+ipcMain.handle('downloader:download', async (_event, options: { url: string; quality?: any; noWatermarkUrl?: string; outputDir?: string; customFileName?: string }) => {
   try {
     const result = await downloadVideoFromUrl({
       url: options.url,
       quality: options.quality,
       noWatermarkUrl: options.noWatermarkUrl,
+      outputDir: options.outputDir,
+      customFileName: options.customFileName,
       onProgress: (progress) => {
         mainWindow?.webContents.send('downloader:progress', progress);
       },
@@ -1140,6 +1160,438 @@ ipcMain.handle('dialog:chooseDirectory', async () => {
   if (result.canceled || result.filePaths.length === 0) return null
   return result.filePaths[0]
 })
+
+// ── [DEBUG] Giai đoạn 1 RPC Test ────────────────────────────────────────────
+// Xóa handler này sau khi P1+P4 đã xác nhận thành công.
+// Gọi từ DevTools Console của renderer:
+//   await window.electronAPI.ipcRenderer.invoke('debug:test-rpc-phase1', 'YOUR_PROJECT_UUID')
+ipcMain.handle('debug:test-rpc-phase1', async (_event, projectId: string) => {
+  try {
+    const { testRpcPhase1 } = await import('./workflow/flow-engine/rpc/test_rpc_phase1')
+    const win = GoogleVeoSessionManager.getInstance().getLobbyWindow()
+    if (!win || win.isDestroyed()) {
+      return { success: false, errors: ['lobbyWindow chưa mở hoặc đã bị destroy. Hãy mở app đến bước vào project Flow trước.'] }
+    }
+    const result = await testRpcPhase1(win, projectId)
+    return result
+  } catch (e: any) {
+    return { success: false, errors: [`Uncaught: ${e?.message ?? e}`] }
+  }
+})
+
+ipcMain.handle('debug:test-upload-image', async (_event, filePath?: string, projectId?: string) => {
+  try {
+    const { getFlowRpcClient, getFlowBridgeServer } = await import('./workflow/flow-engine/rpc')
+    const bridge = getFlowBridgeServer()
+    const win = GoogleVeoSessionManager.getInstance().getLobbyWindow()
+    if (!bridge.isConnected() && (!win || win.isDestroyed())) {
+      return { success: false, error: 'Chưa có kết nối: Vui lòng mở Chrome Extension (VanhSub Flow Bridge) HOẶC gọi openLobby() trước.' }
+    }
+
+    let targetProjectId = projectId;
+    if (bridge.isConnected()) {
+      const tabInfo = await bridge.getFlowTabInfo();
+      if (!targetProjectId && tabInfo?.projectId) {
+        targetProjectId = tabInfo.projectId;
+        console.log(`[debug:test-upload-image] 🎯 Tự động phát hiện Project ID từ tab Chrome: ${targetProjectId}`);
+      }
+    }
+
+    if (!targetProjectId) {
+      return {
+        success: false,
+        error: 'Chưa có Project ID hợp lệ! Trên tab Google Chrome, vui lòng bấm vào 1 Dự án (Project) bất kỳ hoặc bấm "+ New project" để vào project page.',
+      };
+    }
+
+    let targetFile = filePath;
+    if (!targetFile) {
+      targetFile = path.join(app.getAppPath(), 'app', 'images', 'logo.png');
+      if (!fs.existsSync(targetFile)) {
+        targetFile = path.join(process.cwd(), 'app', 'images', 'logo.png');
+      }
+    }
+
+    const client = getFlowRpcClient()
+    const result = await client.uploadReferenceImage(win || null, targetFile, targetProjectId)
+    return { success: true, mediaId: result.mediaId, projectId: targetProjectId }
+  } catch (e: any) {
+    return { success: false, error: e?.message ?? String(e) }
+  }
+})
+
+ipcMain.handle('debug:test-gen-image', async (_event, prompt: string, projectId?: string, refMediaIds?: string[]) => {
+  try {
+    const { getFlowRpcClient } = await import('./workflow/flow-engine/rpc')
+    const { getFlowBridgeServer } = await import('./workflow/flow-engine/rpc/FlowBridgeServer')
+    const bridge = getFlowBridgeServer()
+    const win = GoogleVeoSessionManager.getInstance().getLobbyWindow()
+    if (!bridge.isConnected() && (!win || win.isDestroyed())) {
+      return { success: false, error: 'Chưa có kết nối: Vui lòng mở Chrome Extension (VanhSub Flow Bridge) HOẶC gọi openLobby() trước.' }
+    }
+
+    let targetProjectId = projectId;
+    if (bridge.isConnected()) {
+      const tabInfo = await bridge.getFlowTabInfo();
+      if (!targetProjectId && tabInfo?.projectId) {
+        targetProjectId = tabInfo.projectId;
+        console.log(`[debug:test-gen-image] 🎯 Tự động phát hiện Project ID từ tab Chrome: ${targetProjectId}`);
+      }
+    }
+
+    if (!targetProjectId) {
+      return {
+        success: false,
+        error: 'Chưa có Project ID hợp lệ! Trên tab Google Chrome, vui lòng bấm vào 1 Dự án (Project) bất kỳ hoặc bấm "+ New project" để vào project page trước khi tạo ảnh.',
+      };
+    }
+
+    const client = getFlowRpcClient()
+    const images = await client.generateImage(win || null, {
+      prompt: prompt || 'a cinematic cute red panda in autumn forest',
+      aspectRatio: '16:9',
+      outputCount: 1,
+      projectId: targetProjectId,
+      imageModel: 'NARWHAL',
+      referenceMediaIds: refMediaIds || [],
+    })
+    return { success: true, projectId: targetProjectId, images }
+  } catch (e: any) {
+    return { success: false, error: e?.message ?? String(e) }
+  }
+})
+
+ipcMain.handle('debug:test-fsm-image', async (_event, prompt: string, projectId: string) => {
+  try {
+    const sessionMgr = GoogleVeoSessionManager.getInstance();
+    const result = await sessionMgr.generateImageViaBrowserContext(
+      {
+        prompt: prompt || 'a futuristic floating city at sunset, highly detailed',
+        aspectRatio: '16:9',
+        outputCount: 1,
+        projectId: projectId || '5d3caf29-6c9d-49d8-a452-91036ea16a7d',
+        imageEngine: 'nano-banana',
+      },
+      (pct: number, msg?: string) => console.log(`[FSM Progress ${pct}%] ${msg}`)
+    );
+    return { success: true, result };
+  } catch (e: any) {
+    return { success: false, error: e?.message ?? String(e) };
+  }
+});
+
+ipcMain.handle('debug:test-fsm-video', async (_event, prompt: string, projectId?: string, sourceImagePath?: string) => {
+  try {
+    const sessionMgr = GoogleVeoSessionManager.getInstance();
+    const result = await sessionMgr.generateVideoViaBrowserContext(
+      {
+        prompt: prompt || 'a calm ocean at sunset, cinematic camera pan',
+        initFrameUrl: sourceImagePath,
+        aspectRatio: '16:9',
+        durationSeconds: 4,
+        projectId: projectId || '5d3caf29-6c9d-49d8-a452-91036ea16a7d',
+      },
+      (pct: number, msg?: string) => console.log(`[FSM Video Progress ${pct}%] ${msg}`)
+    );
+    return { success: true, result };
+  } catch (e: any) {
+    return { success: false, error: e?.message ?? String(e) };
+  }
+});
+
+ipcMain.handle('debug:test-gen-video', async (_event, prompt: string, projectId?: string, sourceImagePath?: string) => {
+  try {
+    const { getFlowRpcClient } = await import('./workflow/flow-engine/rpc');
+    const { getFlowBridgeServer } = await import('./workflow/flow-engine/rpc/FlowBridgeServer');
+    const { pollAndGetMediaUrl } = await import('./workflow/flow-engine/rpc/FlowOperationPoller');
+    const bridge = getFlowBridgeServer();
+    const win = GoogleVeoSessionManager.getInstance().getLobbyWindow();
+
+    if (!bridge.isConnected() && (!win || win.isDestroyed())) {
+      return {
+        success: false,
+        error: 'Chưa có kết nối nào khả dụng: Vui lòng mở Chrome Extension (VanhSub Flow Bridge) HOẶC gọi window.vanhsub.veo.openLobby() trước.',
+      };
+    }
+
+    let targetProjectId = projectId;
+    if (bridge.isConnected()) {
+      const tabInfo = await bridge.getFlowTabInfo();
+      if (!targetProjectId && tabInfo?.projectId) {
+        targetProjectId = tabInfo.projectId;
+        console.log(`[debug:test-gen-video] 🎯 Tự động phát hiện Project ID từ tab Chrome: ${targetProjectId}`);
+      }
+    }
+
+    if (!targetProjectId) {
+      return {
+        success: false,
+        error: 'Chưa có Project ID hợp lệ! Trên tab Google Chrome, vui lòng bấm vào 1 Dự án (Project) bất kỳ hoặc bấm "+ New project" để vào project page trước khi tạo video.',
+      };
+    }
+
+    if (bridge.isConnected()) {
+      console.log(`[debug:test-gen-video] 🌐 Chrome Extension Bridge đã kết nối! Project ID: ${targetProjectId}`);
+    } else if (win && !win.isDestroyed()) {
+      const currentUrl = win.webContents?.getURL?.() || '';
+      console.log(`[debug:test-gen-video] 🌐 lobbyWindow URL hiện tại: "${currentUrl}"`);
+      try {
+        if (win.isMinimized()) win.restore();
+        win.focus();
+      } catch {}
+    }
+
+    const client = getFlowRpcClient();
+
+    let imageMediaId = '';
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const isPlaceholder = sourceImagePath === '4fc09da7-3a00-4e60-989c-a509a37c7fe5';
+
+    if (sourceImagePath && UUID_RE.test(sourceImagePath.trim()) && !isPlaceholder) {
+      imageMediaId = sourceImagePath.trim();
+      console.log(`[debug:test-gen-video] 🎯 Sử dụng trực tiếp mediaId UUID đã có: ${imageMediaId}`);
+    } else if (sourceImagePath && !isPlaceholder) {
+      console.log(`[debug:test-gen-video] 📤 Uploading source image for I2V: ${sourceImagePath}`);
+      const uploadRes = await client.uploadReferenceImage(win || null, sourceImagePath, targetProjectId);
+      imageMediaId = uploadRes.mediaId;
+    } else {
+      // Tự động dùng logo.png có sẵn nếu người dùng không truyền ảnh hoặc truyền placeholder
+      let defaultImg = path.join(app.getAppPath(), 'app', 'images', 'logo.png');
+      if (!fs.existsSync(defaultImg)) {
+        defaultImg = path.join(process.cwd(), 'app', 'images', 'logo.png');
+      }
+      if (fs.existsSync(defaultImg)) {
+        console.log(`[debug:test-gen-video] 📤 Tự động upload ảnh mặc định cho I2V: ${defaultImg}`);
+        const uploadRes = await client.uploadReferenceImage(win || null, defaultImg, targetProjectId);
+        imageMediaId = uploadRes.mediaId;
+      }
+    }
+
+    if (!imageMediaId) {
+      return { success: false, error: 'Không tìm thấy hoặc không upload được source image cho Video RPC' };
+    }
+
+    console.log(`[debug:test-gen-video] 🚀 Calling Video RPC MZZa6b (imageMediaId=${imageMediaId}, projectId=${targetProjectId})...`);
+    const opStatus = await client.generateVideo(win || null, {
+      imageMediaId,
+      prompt: prompt || 'cho cô gái di chuyển, cinematic camera push in',
+      aspectRatio: '16:9',
+      durationSeconds: 8,
+      videoModel: 'abra_r2v_8s',
+      projectId: targetProjectId,
+    });
+
+    console.log(`[debug:test-gen-video] ⏳ Operation started: ${opStatus?.operationId || 'none'}. Polling status...`);
+    if (!opStatus || !opStatus.operationId) {
+      return { success: false, error: 'Không nhận được operationId từ Video RPC response', opStatus };
+    }
+
+    const pollRes = await pollAndGetMediaUrl(
+      opStatus.operationId,
+      targetProjectId,
+      undefined,
+      (pct, msg) => console.log(`[debug:test-gen-video] [${pct}%] ${msg}`)
+    );
+
+    return { success: true, projectId: targetProjectId, opStatus, pollRes };
+  } catch (e: any) {
+    let detail: any = undefined;
+    try {
+      const match = (e?.message || '').match(/failed:\s*(\{.*\})/);
+      if (match) {
+        detail = JSON.parse(match[1]);
+      }
+    } catch {}
+    return { success: false, error: e?.message ?? String(e), detail };
+  }
+});
+
+/**
+ * debug:diagnose-lobby — Kiểm tra toàn bộ trạng thái của lobbyWindow.
+ * Chạy trong DevTools: await window.electron.ipcRenderer.invoke('debug:diagnose-lobby')
+ */
+ipcMain.handle('debug:diagnose-lobby', async () => {
+  try {
+    const win = GoogleVeoSessionManager.getInstance().getLobbyWindow();
+    if (!win || win.isDestroyed()) {
+      return { ok: false, error: 'lobbyWindow chưa mở. Gọi openLobby() trước.' };
+    }
+
+    const { session } = require('electron');
+    const ses = session.fromPartition('persist:google_veo');
+
+    // 1. Cookie check
+    const flowCookies = await ses.cookies.get({ domain: 'flow.google.com' });
+    const googleCookies = await ses.cookies.get({ domain: '.google.com' });
+    const hasSID = googleCookies.some((c: Electron.Cookie) => c.name === 'SID') || flowCookies.some((c: Electron.Cookie) => c.name === 'SID');
+    const hasSecure1PSID = googleCookies.some((c: Electron.Cookie) => c.name === '__Secure-1PSID') || flowCookies.some((c: Electron.Cookie) => c.name === '__Secure-1PSID');
+    const hasSAPS = googleCookies.some((c: Electron.Cookie) => c.name === 'SAPS') || flowCookies.some((c: Electron.Cookie) => c.name === 'SAPS');
+
+    // 2. Page state check via executeJavaScript
+    const pageState = await win.webContents.executeJavaScript(`
+      (function() {
+        const wiz = window.WIZ_global_data || {};
+        return {
+          url: window.location.href,
+          hasSNlM0e: !!(wiz['SNlM0e']),
+          SNlM0ePrefix: wiz['SNlM0e'] ? String(wiz['SNlM0e']).slice(0, 20) : null,
+          hasXZbWve: !!(wiz['xZbWve']),
+          xZbWve: wiz['xZbWve'] || null,
+          hasFdrFJe: !!(wiz['FdrFJe']),
+          FdrFJe: wiz['FdrFJe'] || null,
+          cfb2h: wiz['cfb2h'] || null,
+          hasGrecaptcha: !!(window.grecaptcha),
+          hasGrecaptchaEnterprise: !!(window.grecaptcha && window.grecaptcha.enterprise),
+          wizKeys: Object.keys(wiz).slice(0, 20),
+          cookieCount: document.cookie ? document.cookie.split(';').length : 0,
+          readyState: document.readyState,
+        };
+      })()
+    `);
+
+    // 3. Quick CAPTCHA mint test (nếu grecaptcha available)
+    let captchaTestResult: any = null;
+    if (pageState.hasGrecaptchaEnterprise && pageState.xZbWve) {
+      try {
+        captchaTestResult = await win.webContents.executeJavaScript(`
+          window.grecaptcha.enterprise.execute(${JSON.stringify(pageState.xZbWve)}, { action: 'IMAGE_GENERATION' })
+            .then(t => ({ ok: true, length: t.length, prefix: t.slice(0, 20) }))
+            .catch(e => ({ ok: false, error: e.message }))
+        `);
+      } catch (e: any) {
+        captchaTestResult = { ok: false, error: e.message };
+      }
+    }
+
+    return {
+      ok: true,
+      lobbyWindowUrl: win.webContents.getURL(),
+      isMinimized: win.isMinimized(),
+      isFocused: win.isFocused(),
+      // Cookie status
+      cookies: {
+        flowCookieCount: flowCookies.length,
+        googleCookieCount: googleCookies.length,
+        hasSID,
+        hasSecure1PSID,
+        hasSAPS,
+        isLikelyLoggedIn: hasSID || hasSecure1PSID,
+      },
+      // Page state
+      page: pageState,
+      // CAPTCHA test
+      captchaTest: captchaTestResult,
+      // Auth summary
+      authSummary: {
+        '1_hasCookies': hasSID || hasSecure1PSID,
+        '2_hasXSRFToken': pageState.hasSNlM0e,
+        '3_hasCAPTCHAReady': pageState.hasGrecaptchaEnterprise,
+        '4_captchaWorks': captchaTestResult?.ok ?? null,
+        '🔑_conclusion': (hasSID || hasSecure1PSID) && pageState.hasSNlM0e && (captchaTestResult?.ok ?? false)
+          ? '✅ TẤT CẢ SẴN SÀNG — Video RPC sẽ hoạt động'
+          : '❌ Còn vấn đề — xem từng field ở trên để debug',
+      },
+    };
+  } catch (e: any) {
+    return { ok: false, error: e?.message ?? String(e) };
+  }
+});
+
+
+/**
+ * debug:prewarm-lobby — Điều hướng lobbyWindow vào project page và chờ grecaptcha load.
+ * Gọi cái này TRƯỚC testGenVideo để reCAPTCHA có thời gian thu thập behavioral signals.
+ *
+ * Chạy trong DevTools:
+ *   await window.debug.prewarmLobby('5d3caf29-6c9d-49d8-a452-91036ea16a7d')
+ */
+ipcMain.handle('debug:prewarm-lobby', async (_event, projectId: string) => {
+  try {
+    const win = GoogleVeoSessionManager.getInstance().getLobbyWindow();
+    if (!win || win.isDestroyed()) {
+      return { ok: false, error: 'lobbyWindow chưa mở. Gọi openLobby() trước.' };
+    }
+
+    // Show window thật sự để reCAPTCHA score cao hơn
+    try {
+      if (win.isMinimized()) win.restore();
+      win.show();
+      win.focus();
+    } catch {}
+
+    const targetUrl = `https://flow.google.com/project/${projectId}`;
+    const currentUrl = win.webContents.getURL();
+
+    if (!currentUrl.includes(projectId)) {
+      console.log(`[debug:prewarm-lobby] 🔄 Điều hướng từ "${currentUrl}" → "${targetUrl}"`);
+      const { getFlowRpcClient } = await import('./workflow/flow-engine/rpc');
+      getFlowRpcClient().invalidateAtTokenCache();
+      await win.loadURL(targetUrl);
+    } else {
+      console.log(`[debug:prewarm-lobby] ✅ Đã ở project page: ${currentUrl}`);
+    }
+
+    // Poll chờ grecaptcha.enterprise
+    const captchaReady = await win.webContents.executeJavaScript(`
+      new Promise(function(resolve) {
+        var elapsed = 0;
+        var interval = setInterval(function() {
+          elapsed += 500;
+          if (window.grecaptcha && window.grecaptcha.enterprise) {
+            clearInterval(interval);
+            resolve({ ready: true, elapsed: elapsed, url: window.location.href,
+              hasSNlM0e: !!(window.WIZ_global_data && window.WIZ_global_data['SNlM0e']) });
+          } else if (elapsed >= 30000) {
+            clearInterval(interval);
+            resolve({ ready: false, elapsed: elapsed, url: window.location.href });
+          }
+        }, 500);
+      })
+    `);
+
+    console.log('[debug:prewarm-lobby] 📍 grecaptcha status:', captchaReady);
+
+    return {
+      ok: captchaReady?.ready ?? false,
+      captchaReady,
+      message: captchaReady?.ready
+        ? `✅ Window đã ở project page và grecaptcha.enterprise sẵn sàng sau ${captchaReady.elapsed}ms.\n` +
+          `🖱️ Di chuột qua cửa sổ Flow (${captchaReady.url}) trong 2-3 giây để tăng CAPTCHA score.\n` +
+          `Sau đó gọi: window.debug.testGenVideo(...)`
+        : `❌ grecaptcha không load được sau 30s. URL: ${captchaReady?.url}`,
+    };
+  } catch (e: any) {
+    return { ok: false, error: e?.message ?? String(e) };
+  }
+});
+
+ipcMain.handle('bridge:status', async () => {
+  try {
+    const { getFlowBridgeServer } = await import('./workflow/flow-engine/rpc/FlowBridgeServer');
+    const bridge = getFlowBridgeServer();
+    const serverStatus = bridge.getStatus();
+    const tabInfo = await bridge.getFlowTabInfo();
+
+    if (tabInfo?.diag?.snifferHistory) {
+      try {
+        fs.writeFileSync(
+          path.join(process.cwd(), 'sniffer_dump.json'),
+          JSON.stringify(tabInfo.diag.snifferHistory, null, 2),
+          'utf-8'
+        );
+        console.log(`[FlowBridgeServer] 💾 Đã lưu ${tabInfo.diag.snifferHistory.length} gói tin vào sniffer_dump.json`);
+      } catch (err: any) {
+        console.warn('[FlowBridgeServer] Lỗi ghi file sniffer_dump.json:', err.message);
+      }
+    }
+
+    return { ...serverStatus, chromeTab: tabInfo };
+  } catch (e: any) {
+    return { running: false, connected: false, error: e?.message };
+  }
+});
+
+// ── [END DEBUG] ──────────────────────────────────────────────────────────────
 
 ipcMain.on('message', async (event, arg) => {
   event.reply('message', `${arg} World!`)

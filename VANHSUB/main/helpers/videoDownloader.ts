@@ -42,6 +42,23 @@ export interface DownloadVideoOptions {
   onProgress?: (p: DownloadProgress) => void;
   /** URL MP4 không watermark đã lấy từ inspect, nếu có sẽ ưu tiên dùng */
   noWatermarkUrl?: string;
+  /** Thư mục lưu trữ tùy chọn do người dùng chỉ định */
+  outputDir?: string;
+  /** Tên file/tiêu đề tùy chọn do người dùng đặt */
+  customFileName?: string;
+}
+
+/**
+ * Chuẩn hóa tên file do người dùng nhập (loại bỏ extension thừa nếu có, loại bỏ ký tự không hợp lệ).
+ */
+export function cleanCustomFileName(customFileName?: string): string {
+  if (!customFileName || typeof customFileName !== 'string') return '';
+  let trimmed = customFileName.trim();
+  const ext = path.extname(trimmed);
+  if (ext && ['.mp4', '.mkv', '.avi', '.mov', '.webm', '.mp3', '.wav', '.m4a', '.flv'].includes(ext.toLowerCase())) {
+    trimmed = path.basename(trimmed, ext);
+  }
+  return sanitizeFolderName(trimmed);
 }
 
 export interface DownloadResult {
@@ -360,9 +377,12 @@ export async function inspectMediaUrl(rawUrl: string): Promise<MediaMetadata> {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Xác định thư mục lưu base (ưu tiên exportDir từ Settings).
+ * Xác định thư mục lưu base (ưu tiên customDir, sau đó exportDir từ Settings, cuối cùng là ~/Downloads/VANHSUB).
  */
-function resolveBaseFolder(): string {
+export function resolveBaseFolder(customDir?: string): string {
+  if (customDir && typeof customDir === 'string' && customDir.trim() !== '') {
+    return path.resolve(customDir.trim());
+  }
   const exportDirSetting = SettingsStore.get('exportDir');
   return exportDirSetting && fs.existsSync(exportDirSetting)
     ? exportDirSetting
@@ -495,16 +515,22 @@ export async function downloadVideoFromUrl(options: DownloadVideoOptions): Promi
   if (!cleanUrl) throw new Error('Liên kết không hợp lệ.');
 
   const platform = detectPlatform(cleanUrl);
-  const baseFolder = resolveBaseFolder();
-  fs.mkdirSync(baseFolder, { recursive: true });
+  const baseFolder = resolveBaseFolder(options.outputDir);
+  try {
+    fs.mkdirSync(baseFolder, { recursive: true });
+  } catch (err: any) {
+    throw new Error(`Không thể tạo thư mục lưu trữ "${baseFolder}": ${err?.message || err}`);
+  }
 
   // ── Douyin / TikTok — stream MP4 không watermark ──────────────────────────
   if (platform === 'douyin' || platform === 'tiktok') {
     const quality = options.quality;
+    const userTitle = cleanCustomFileName(options.customFileName);
+    const targetTitle = userTitle || extractDouyinTitle(cleanUrl);
 
     // ─ Audio only: vẫn dùng yt-dlp để extract mp3
     if (quality === 'audio_only') {
-      return downloadViaYtDlp({ ...options, url: cleanUrl }, baseFolder);
+      return downloadViaYtDlp({ ...options, url: cleanUrl }, baseFolder, targetTitle);
     }
 
     // ─ Lấy URL không watermark (từ inspect nếu đã có, hoặc gọi lại API)
@@ -521,16 +547,17 @@ export async function downloadVideoFromUrl(options: DownloadVideoOptions): Promi
 
     const tempFilePath = await downloadDouyinNoWatermark(
       noWmUrl,
-      extractDouyinTitle(cleanUrl),
+      targetTitle,
       baseFolder,
       options.onProgress
     );
 
-    return finalizeDownload(tempFilePath, extractDouyinTitle(cleanUrl), baseFolder, options.onProgress);
+    return finalizeDownload(tempFilePath, targetTitle, baseFolder, options.onProgress);
   }
 
   // ── Các nền tảng khác — yt-dlp ────────────────────────────────────────────
-  return downloadViaYtDlp({ ...options, url: cleanUrl }, baseFolder);
+  const userTitle = cleanCustomFileName(options.customFileName);
+  return downloadViaYtDlp({ ...options, url: cleanUrl }, baseFolder, userTitle);
 }
 
 /**
@@ -547,7 +574,8 @@ function extractDouyinTitle(url: string): string {
  */
 async function downloadViaYtDlp(
   options: DownloadVideoOptions & { url: string },
-  baseFolder: string
+  baseFolder: string,
+  customTitle?: string
 ): Promise<DownloadResult> {
   const quality = options.quality || '1080p';
   const ytDlp = await ensureYtDlp();
@@ -667,13 +695,17 @@ async function downloadViaYtDlp(
 
   // Tự động tạo thư mục dự án riêng cho video này
   const ext = path.extname(finalFilePath);
-  const videoBase = path.basename(finalFilePath, ext);
+  const originalBase = path.basename(finalFilePath, ext);
+  const userTitle = cleanCustomFileName(options.customFileName) || cleanCustomFileName(customTitle);
+  const videoBase = userTitle || originalBase;
   const cleanBase = sanitizeFolderName(videoBase);
+  const finalRenamedFileName = `${cleanBase}${ext}`;
+
   const projectDir = path.join(baseFolder, `${cleanBase}_vanhsub`);
   fs.mkdirSync(projectDir, { recursive: true });
 
   // Di chuyển video vào thư mục dự án để gom tất cả lại một chỗ
-  const projectVideoPath = path.join(projectDir, path.basename(finalFilePath));
+  const projectVideoPath = path.join(projectDir, finalRenamedFileName);
   if (fs.existsSync(projectVideoPath) && projectVideoPath !== finalFilePath) {
     fs.unlinkSync(projectVideoPath);
   }
@@ -690,9 +722,9 @@ async function downloadViaYtDlp(
 
   return {
     filePath: projectVideoPath,
-    fileName: path.basename(projectVideoPath),
+    fileName: finalRenamedFileName,
     projectDir,
-    title: videoBase,
+    title: cleanBase,
     fileSize: sizeMb,
   };
 }

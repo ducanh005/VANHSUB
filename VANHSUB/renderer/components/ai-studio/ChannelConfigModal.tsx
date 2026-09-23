@@ -923,7 +923,7 @@ Output NOTHING else. No analysis, no planning, no alternative titles, no word co
                 <span>Cửa sổ hiển thị Google Flow (Automation UI Mode)</span>
               </label>
               <select
-                value={profile.flowUiMode || 'live_window'}
+                value={profile.flowUiMode || 'offscreen'}
                 onChange={(e) => handleChange('flowUiMode', e.target.value as any)}
                 className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2.5 text-xs text-white focus:border-brand-cyan focus:outline-none focus:ring-1 focus:ring-brand-cyan cursor-pointer"
               >

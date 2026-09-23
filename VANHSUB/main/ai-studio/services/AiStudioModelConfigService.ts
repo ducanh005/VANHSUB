@@ -283,9 +283,20 @@ export class AiStudioModelConfigService {
   }): string {
     const parts: string[] = [];
 
-    // Part 1: always include character style
-    if (params.characterStylePrompt.trim()) {
-      parts.push(params.characterStylePrompt.trim());
+    // Part 1: always include character style, sanitized of rigid static pose keywords
+    const rawChar = params.characterStylePrompt || '';
+    const cleanChar = rawChar
+      .replace(/\b(studio portrait|portrait photo|close-up portrait|headshot|portrait)\b/gi, 'appearance')
+      .replace(/\b(looking directly into camera|looking straight at camera|looking at camera|facing camera|front view)\b/gi, '')
+      .replace(/\b(neutral expression|expressionless)\b/gi, '')
+      .replace(/\b(isolated on white background|isolated background|plain white background)\b/gi, '')
+      .replace(/\b(centered composition|centered framing)\b/gi, '')
+      .replace(/\s{2,}/g, ' ')
+      .trim()
+      .replace(/^,\s*|,\s*$/g, '');
+
+    if (cleanChar.trim()) {
+      parts.push(cleanChar.trim());
     }
 
     // Part 2: background style — ONLY if not sent as image reference

@@ -290,7 +290,8 @@ export class FlowCheckpointManager {
       upper === 'WAIT_FOR_GENERATION' ||
       upper === 'CAPTURE_GENERATED_IMAGE' ||
       upper === 'VERIFY_GENERATED_IMAGE' ||
-      upper === 'WAIT_FOR_VIDEO_PROGRESS'
+      upper === 'WAIT_FOR_VIDEO_PROGRESS' ||
+      upper === 'RPC_GENERATE_IMAGE'
     ) {
       return 'GENERATING';
     }

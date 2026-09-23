@@ -1,0 +1,45 @@
+{
+  "manifest_version": 3,
+  "name": "VanhSub Flow Bridge",
+  "version": "1.0.0",
+  "description": "Cầu nối Chrome Extension cho VanhSub — ký reCAPTCHA thật và thực thi batchexecute RPC trong tab flow.google.com",
+  "permissions": [
+    "storage",
+    "alarms",
+    "tabs",
+    "scripting"
+  ],
+  "host_permissions": [
+    "https://flow.google.com/*",
+    "https://flow-content.google/*",
+    "https://labs.google/*",
+    "http://127.0.0.1:9222/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://flow.google.com/*",
+        "https://labs.google/fx/tools/flow*",
+        "https://labs.google/fx/*/tools/flow*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_start"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "injected.js"
+      ],
+      "matches": [
+        "https://flow.google.com/*",
+        "https://labs.google/*"
+      ]
+    }
+  ]
+}

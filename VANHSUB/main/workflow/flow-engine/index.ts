@@ -24,3 +24,4 @@ export { GoogleFlowBrowserMutex } from '../dispatcher/GoogleFlowBrowserMutex';
 export * from './FlowVisualConfirmGuard';
 export * from './FlowFileInputInjector';
 export * from './FlowMediaAutomationEngine';
+export * from './rpc';

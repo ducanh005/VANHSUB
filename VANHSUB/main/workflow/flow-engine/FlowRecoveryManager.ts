@@ -156,39 +156,21 @@ export class FlowRecoveryManager {
           console.warn('[FlowRecoveryManager] Không thể lưu DOM snapshot:', e);
         }
 
-        // 2. Chụp ảnh màn hình (hỗ trợ cả cửa sổ offscreen thông qua cơ chế flip onscreen tức thời)
+        // 2. Chụp ảnh màn hình chẩn đoán (trực tiếp từ Chromium compositor offscreen, không flip cửa sổ lên desktop)
         let screenshotPath = '';
-        let origPosition: [number, number] | null = null;
-        let wasOffscreen = false;
 
         try {
           if (win && !win.isDestroyed()) {
-            origPosition = win.getPosition();
-            wasOffscreen = Boolean(origPosition && (origPosition[0] < -1000 || origPosition[1] < -1000));
-
-            if (wasOffscreen) {
-              console.log(`[FlowRecoveryManager] [${ctx.taskId}] 🔄 Tạm thời flip cửa sổ về màn hình chính (100, 100) để cấp GPU paint buffer cho capturePage...`);
-              win.setPosition(100, 100);
-              win.showInactive();
-              await new Promise((r) => setTimeout(r, 100));
-            }
-
-            const image = await win.webContents.capturePage();
+            const image = await win.webContents.capturePage().catch(() => null);
             if (image && !image.isEmpty()) {
               screenshotPath = await diagMgr.saveScreenshot(ctx.taskId, image.toPNG());
               console.log(`[FlowRecoveryManager] 📸 ĐÃ LƯU ẢNH CHỤP MÀN HÌNH CHẨN ĐOÁN THÀNH CÔNG (${image.toPNG().length} bytes) tại: ${screenshotPath}`);
             } else {
-              console.warn(`[FlowRecoveryManager] ⚠️ capturePage trả về ảnh rỗng (empty buffer). Không thể tạo ảnh chẩn đoán.`);
+              console.warn(`[FlowRecoveryManager] ℹ️ Cửa sổ đang chạy ngầm (offscreen), sử dụng DOM HTML snapshot làm chẩn đoán chính.`);
             }
           }
         } catch (e: any) {
           console.error(`[FlowRecoveryManager] ❌ KHÔNG THỂ CHỤP ẢNH MÀN HÌNH CHẨN ĐOÁN: ${e?.message || e}. Đã có DOM snapshot dự phòng tại: ${domPath}`);
-        } finally {
-          // Luôn đảm bảo đưa cửa sổ trở lại vị trí ẩn ban đầu nếu đã flip
-          if (wasOffscreen && origPosition && win && !win.isDestroyed()) {
-            win.setPosition(origPosition[0], origPosition[1]);
-            console.log(`[FlowRecoveryManager] [${ctx.taskId}] 🔒 Đã đưa cửa sổ trở lại toạ độ offscreen ẩn: (${origPosition[0]}, ${origPosition[1]})`);
-          }
         }
 
         artifactPath = screenshotPath || domPath;

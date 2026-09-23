@@ -207,46 +207,120 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     );
     const escapedAss = escapeFfmpegSubtitlesPath(assPath);
 
-    // 2. Select primary visual asset
-    const primaryImg = scenes[0]?.assetPath && fs.existsSync(scenes[0].assetPath)
-      ? scenes[0].assetPath
-      : null;
-
-    if (!primaryImg) {
-      throw new Error('No valid visual asset found for video assembly.');
+    // 2. Resolve all visual segments from scenes
+    interface VisualSegment {
+      path: string;
+      durationSec: number;
+      isVideo: boolean;
+      shotId?: string;
     }
 
-    // 3. Build Filtergraph
-    const scaleFilter = `scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height}`;
-    const zoompanFilter = renderingConfig.kenBurnsEffect
-      ? `zoompan=z='min(zoom+0.0012,1.15)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=125:s=${width}x${height}`
-      : `null`;
+    const isVideoFile = (filePath: string) => /\.(mp4|webm|mov|mkv)$/i.test(filePath);
 
-    const filterChain: string[] = [
-      `[0:v]${scaleFilter},${zoompanFilter}[v_motion]`,
-    ];
+    // Find the first valid asset to act as fallback if a scene is missing its asset file
+    let firstValidAssetPath: string | null = null;
+    for (const sc of scenes) {
+      const p = sc.assetPath || sc.imagePath || sc.videoPath;
+      if (p && fs.existsSync(p) && fs.statSync(p).size > 0) {
+        firstValidAssetPath = p;
+        break;
+      }
+    }
+
+    if (!firstValidAssetPath) {
+      throw new Error('Không tìm thấy bất kỳ hình ảnh hoặc video hợp lệ nào từ các phân cảnh để dựng phim.');
+    }
+
+    let lastKnownAssetPath = firstValidAssetPath;
+    const segments: VisualSegment[] = [];
+
+    for (let i = 0; i < scenes.length; i++) {
+      const sc = scenes[i];
+      let resolvedPath = sc.assetPath || sc.imagePath || sc.videoPath;
+      if (!resolvedPath || !fs.existsSync(resolvedPath) || fs.statSync(resolvedPath).size === 0) {
+        resolvedPath = lastKnownAssetPath;
+      } else {
+        lastKnownAssetPath = resolvedPath;
+      }
+
+      let durSec = 4.0;
+      if (typeof sc.durationMs === 'number' && sc.durationMs > 0) {
+        durSec = sc.durationMs / 1000;
+      } else if (typeof sc.endMs === 'number' && typeof sc.startMs === 'number' && sc.endMs > sc.startMs) {
+        durSec = (sc.endMs - sc.startMs) / 1000;
+      }
+
+      segments.push({
+        path: resolvedPath,
+        durationSec: Math.max(0.5, Math.round(durSec * 100) / 100),
+        isVideo: isVideoFile(resolvedPath),
+        shotId: sc.shotId || sc.id,
+      });
+    }
+
+    // Đảm bảo tổng thời lượng visual bao phủ đủ audioDurationSec để tránh cắt hụt video
+    let totalVisualSec = segments.reduce((sum, s) => sum + s.durationSec, 0);
+    if (totalVisualSec < audioDurationSec && segments.length > 0) {
+      const diff = audioDurationSec - totalVisualSec;
+      segments[segments.length - 1].durationSec = Math.round((segments[segments.length - 1].durationSec + diff + 0.5) * 100) / 100;
+      totalVisualSec = segments.reduce((sum, s) => sum + s.durationSec, 0);
+    }
+
+    console.log(
+      `[AiStudioVideoAssembler] 🎬 Bắt đầu dựng phim đa phân cảnh: ${segments.length} segments, ` +
+      `tổng thời lượng visual ~${totalVisualSec}s, audio: ${audioDurationSec}s`
+    );
+
+    // 3. Build FFmpeg Command & Filtergraph
+    const cmd = ffmpeg();
+    const filterChain: string[] = [];
+    const concatInputs: string[] = [];
+
+    segments.forEach((seg, i) => {
+      const safeScale = `scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height},setsar=1,fps=25`;
+      if (seg.isVideo) {
+        cmd.input(seg.path);
+        filterChain.push(`[${i}:v]${safeScale},trim=duration=${seg.durationSec},setpts=PTS-STARTPTS[v${i}]`);
+      } else {
+        cmd.input(seg.path).inputOptions(['-loop 1', `-t ${seg.durationSec}`]);
+        let zoomFilter = '';
+        if (renderingConfig.kenBurnsEffect) {
+          const frames = Math.max(25, Math.round(seg.durationSec * 25));
+          zoomFilter = `,zoompan=z='min(zoom+0.0012,1.15)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=${frames}:s=${width}x${height}`;
+        }
+        filterChain.push(`[${i}:v]${safeScale}${zoomFilter}[v${i}]`);
+      }
+      concatInputs.push(`[v${i}]`);
+    });
+
+    if (segments.length === 1) {
+      filterChain.push(`[v0]null[vconcat]`);
+    } else {
+      filterChain.push(`${concatInputs.join('')}concat=n=${segments.length}:v=1:a=0[vconcat]`);
+    }
 
     if (subtitleConfig.enabled) {
-      filterChain.push(`[v_motion]subtitles=filename='${escapedAss}'[vout]`);
+      filterChain.push(`[vconcat]subtitles=filename='${escapedAss}'[vout]`);
     } else {
-      filterChain.push(`[v_motion]null[vout]`);
+      filterChain.push(`[vconcat]null[vout]`);
     }
+
+    // Audio inputs: Voiceover audio input nằm ở index segments.length
+    const voiceInputIdx = segments.length;
+    cmd.input(voiceoverAudioPath);
 
     const hasBgm = Boolean(
       renderingConfig.defaultBgmPath && fs.existsSync(renderingConfig.defaultBgmPath)
     );
 
-    const cmd = ffmpeg()
-      .input(primaryImg)
-      .loop(Math.ceil(audioDurationSec) || 5)
-      .input(voiceoverAudioPath);
-
+    let bgmInputIdx = -1;
     if (hasBgm) {
+      bgmInputIdx = segments.length + 1;
       cmd.input(renderingConfig.defaultBgmPath!);
       const bgmVol = renderingConfig.bgmVolume || 0.12;
       filterChain.push(
-        `[1:a]volume=1.0[voice]`,
-        `[2:a]volume=${bgmVol}[bgm]`,
+        `[${voiceInputIdx}:a]volume=1.0[voice]`,
+        `[${bgmInputIdx}:a]volume=${bgmVol}[bgm]`,
         `[voice][bgm]amix=inputs=2:duration=first:dropout_transition=2[aout]`
       );
     }
@@ -270,7 +344,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         .complexFilter(filterChain.join(';'))
         .outputOptions([
           '-map [vout]',
-          hasBgm ? '-map [aout]' : '-map 1:a',
+          hasBgm ? '-map [aout]' : `-map ${voiceInputIdx}:a`,
           '-c:v libx264',
           '-pix_fmt yuv420p',
           '-preset veryfast',

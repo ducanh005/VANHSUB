@@ -106,6 +106,7 @@ const vanhsub = {
     showLobbyDebug: () => ipcRenderer.invoke('veo:show-lobby-debug'),
     hideLobbyOffscreen: () => ipcRenderer.invoke('veo:hide-lobby-offscreen'),
     isLobbyDebug: () => ipcRenderer.invoke('veo:is-lobby-debug'),
+    bridgeStatus: () => ipcRenderer.invoke('bridge:status'),
   },
   models: {
     list: () => ipcRenderer.invoke('models:list'),
@@ -125,8 +126,9 @@ const vanhsub = {
   },
   downloader: {
     inspect: (url: string) => ipcRenderer.invoke('downloader:inspect', url),
-    download: (options: { url: string; quality?: string; noWatermarkUrl?: string }) =>
+    download: (options: { url: string; quality?: string; noWatermarkUrl?: string; outputDir?: string; customFileName?: string }) =>
       ipcRenderer.invoke('downloader:download', options),
+    getDefaultDir: () => ipcRenderer.invoke('downloader:getDefaultDir'),
     onProgress: (callback: (progress: any) => void) => {
       const handler = (_event: unknown, progress: any) => callback(progress);
       ipcRenderer.on('downloader:progress', handler);
@@ -272,3 +274,26 @@ const handler = {
 
 contextBridge.exposeInMainWorld('vanhsub', vanhsub)
 contextBridge.exposeInMainWorld('ipc', handler)
+
+// ── [DEBUG] Tạm thời — xóa sau khi Giai đoạn 1 xác nhận ──────────────────
+contextBridge.exposeInMainWorld('debug', {
+  testRpcPhase1: (projectId: string) =>
+    ipcRenderer.invoke('debug:test-rpc-phase1', projectId),
+  testUploadImage: (filePath: string, projectId: string) =>
+    ipcRenderer.invoke('debug:test-upload-image', filePath, projectId),
+  testGenImage: (prompt: string, projectId: string, refMediaIds?: string[]) =>
+    ipcRenderer.invoke('debug:test-gen-image', prompt, projectId, refMediaIds),
+  testGenVideo: (prompt: string, projectId: string, sourceImagePath?: string) =>
+    ipcRenderer.invoke('debug:test-gen-video', prompt, projectId, sourceImagePath),
+  testFsmImage: (prompt: string, projectId: string) =>
+    ipcRenderer.invoke('debug:test-fsm-image', prompt, projectId),
+  testFsmVideo: (prompt?: string, projectId?: string, sourceImagePath?: string) =>
+    ipcRenderer.invoke('debug:test-fsm-video', prompt, projectId, sourceImagePath),
+  diagnoseLobby: () =>
+    ipcRenderer.invoke('debug:diagnose-lobby'),
+  prewarmLobby: (projectId: string) =>
+    ipcRenderer.invoke('debug:prewarm-lobby', projectId),
+  bridgeStatus: () =>
+    ipcRenderer.invoke('bridge:status'),
+})
+// ── [END DEBUG] ──────────────────────────────────────────────────────────────
