@@ -34,6 +34,26 @@ function waitForGrecaptcha(timeout = 30000) {
   });
 }
 
+waitForGrecaptcha().then(() => {
+  try {
+    if (window.grecaptcha && window.grecaptcha.enterprise && !window.grecaptcha.enterprise._vanhsubHooked) {
+      window.grecaptcha.enterprise._vanhsubHooked = true;
+      const origExec = window.grecaptcha.enterprise.execute;
+      window.grecaptcha.enterprise.execute = function(siteKey, options) {
+        console.log('[VanhSub:HOOK:grecaptcha]', siteKey, options);
+        window.__VANHSUB_CAPTCHA_CALLS__ = window.__VANHSUB_CAPTCHA_CALLS__ || [];
+        window.__VANHSUB_CAPTCHA_CALLS__.push({
+          siteKey,
+          options,
+          time: Date.now()
+        });
+        return origExec.apply(this, arguments);
+      };
+      console.log('[VanhSub:injected] 🪝 Đã hook window.grecaptcha.enterprise.execute thành công!');
+    }
+  } catch (e) {}
+}).catch(() => {});
+
 let captchaMintTail = Promise.resolve();
 
 async function mintCaptcha(pageAction) {
@@ -101,15 +121,37 @@ try {
   // 2. Hook XMLHttpRequest (Google Closure XhrIo uses this)
   const origXhrOpen = XMLHttpRequest.prototype.open;
   const origXhrSend = XMLHttpRequest.prototype.send;
+  const origXhrSetHeader = XMLHttpRequest.prototype.setRequestHeader;
+
   XMLHttpRequest.prototype.open = function(method, url, ...rest) {
     this._vanhsubUrl = String(url || '');
     this._vanhsubMethod = method;
+    this._vanhsubHeaders = {};
     return origXhrOpen.call(this, method, url, ...rest);
   };
+
+  XMLHttpRequest.prototype.setRequestHeader = function(header, value) {
+    if (!this._vanhsubHeaders) this._vanhsubHeaders = {};
+    const key = String(header || '').toLowerCase();
+    this._vanhsubHeaders[key] = value;
+
+    if (key.startsWith('x-browser') || key === 'x-client-data') {
+      window.__VANHSUB_HEADERS__ = window.__VANHSUB_HEADERS__ || {};
+      window.__VANHSUB_HEADERS__[key] = value;
+    }
+    return origXhrSetHeader.call(this, header, value);
+  };
+
   XMLHttpRequest.prototype.send = function(body) {
     if (this._vanhsubUrl && this._vanhsubUrl.includes('batchexecute')) {
       console.log('[VanhSub:sniffer:xhr] 📡 batchexecute detected:', this._vanhsubUrl.slice(0, 100));
-      const entry = { type: 'xhr', url: this._vanhsubUrl, body: String(body || ''), timestamp: Date.now() };
+      const entry = {
+        type: 'xhr',
+        url: this._vanhsubUrl,
+        body: String(body || ''),
+        headers: this._vanhsubHeaders || {},
+        timestamp: Date.now()
+      };
       window.__VANHSUB_SNIFFER__.history.push(entry);
       if (window.__VANHSUB_SNIFFER__.history.length > 30) window.__VANHSUB_SNIFFER__.history.shift();
       this.addEventListener('load', function() {

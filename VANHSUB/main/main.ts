@@ -1252,7 +1252,7 @@ ipcMain.handle('debug:test-gen-image', async (_event, prompt: string, projectId?
       aspectRatio: '16:9',
       outputCount: 1,
       projectId: targetProjectId,
-      imageModel: 'NARWHAL',
+      imageModel: 'GEM_PIX_2',
       referenceMediaIds: refMediaIds || [],
     })
     return { success: true, projectId: targetProjectId, images }
@@ -1343,43 +1343,56 @@ ipcMain.handle('debug:test-gen-video', async (_event, prompt: string, projectId?
 
     const client = getFlowRpcClient();
 
-    let imageMediaId = '';
-    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    const isPlaceholder = sourceImagePath === '4fc09da7-3a00-4e60-989c-a509a37c7fe5';
+    let opStatus: any;
 
-    if (sourceImagePath && UUID_RE.test(sourceImagePath.trim()) && !isPlaceholder) {
-      imageMediaId = sourceImagePath.trim();
-      console.log(`[debug:test-gen-video] 🎯 Sử dụng trực tiếp mediaId UUID đã có: ${imageMediaId}`);
-    } else if (sourceImagePath && !isPlaceholder) {
-      console.log(`[debug:test-gen-video] 📤 Uploading source image for I2V: ${sourceImagePath}`);
-      const uploadRes = await client.uploadReferenceImage(win || null, sourceImagePath, targetProjectId);
-      imageMediaId = uploadRes.mediaId;
+    if (sourceImagePath === 'text' || sourceImagePath === 't2v') {
+      console.log(`[debug:test-gen-video] 🚀 Calling Text-to-Video RPC YhhmEf (projectId=${targetProjectId})...`);
+      opStatus = await client.generateVideoText(win || null, {
+        prompt: prompt || 'a drone shot over ocean waves, 8k cinematic',
+        aspectRatio: '16:9',
+        durationSeconds: 8,
+        videoModel: 'veo_3_1_t2v_lite',
+        projectId: targetProjectId,
+      });
     } else {
-      // Tự động dùng logo.png có sẵn nếu người dùng không truyền ảnh hoặc truyền placeholder
-      let defaultImg = path.join(app.getAppPath(), 'app', 'images', 'logo.png');
-      if (!fs.existsSync(defaultImg)) {
-        defaultImg = path.join(process.cwd(), 'app', 'images', 'logo.png');
-      }
-      if (fs.existsSync(defaultImg)) {
-        console.log(`[debug:test-gen-video] 📤 Tự động upload ảnh mặc định cho I2V: ${defaultImg}`);
-        const uploadRes = await client.uploadReferenceImage(win || null, defaultImg, targetProjectId);
+      let imageMediaId = '';
+      const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      const isPlaceholder = sourceImagePath === '4fc09da7-3a00-4e60-989c-a509a37c7fe5';
+
+      if (sourceImagePath && UUID_RE.test(sourceImagePath.trim()) && !isPlaceholder) {
+        imageMediaId = sourceImagePath.trim();
+        console.log(`[debug:test-gen-video] 🎯 Sử dụng trực tiếp mediaId UUID đã có: ${imageMediaId}`);
+      } else if (sourceImagePath && !isPlaceholder) {
+        console.log(`[debug:test-gen-video] 📤 Uploading source image for I2V: ${sourceImagePath}`);
+        const uploadRes = await client.uploadReferenceImage(win || null, sourceImagePath, targetProjectId);
         imageMediaId = uploadRes.mediaId;
+      } else {
+        // Tự động dùng logo.png có sẵn nếu người dùng không truyền ảnh hoặc truyền placeholder
+        let defaultImg = path.join(app.getAppPath(), 'app', 'images', 'logo.png');
+        if (!fs.existsSync(defaultImg)) {
+          defaultImg = path.join(process.cwd(), 'app', 'images', 'logo.png');
+        }
+        if (fs.existsSync(defaultImg)) {
+          console.log(`[debug:test-gen-video] 📤 Tự động upload ảnh mặc định cho I2V: ${defaultImg}`);
+          const uploadRes = await client.uploadReferenceImage(win || null, defaultImg, targetProjectId);
+          imageMediaId = uploadRes.mediaId;
+        }
       }
-    }
 
-    if (!imageMediaId) {
-      return { success: false, error: 'Không tìm thấy hoặc không upload được source image cho Video RPC' };
-    }
+      if (!imageMediaId) {
+        return { success: false, error: 'Không tìm thấy hoặc không upload được source image cho Video RPC' };
+      }
 
-    console.log(`[debug:test-gen-video] 🚀 Calling Video RPC MZZa6b (imageMediaId=${imageMediaId}, projectId=${targetProjectId})...`);
-    const opStatus = await client.generateVideo(win || null, {
-      imageMediaId,
-      prompt: prompt || 'cho cô gái di chuyển, cinematic camera push in',
-      aspectRatio: '16:9',
-      durationSeconds: 8,
-      videoModel: 'abra_r2v_8s',
-      projectId: targetProjectId,
-    });
+      console.log(`[debug:test-gen-video] 🚀 Calling Image-to-Video RPC MZZa6b (imageMediaId=${imageMediaId}, projectId=${targetProjectId})...`);
+      opStatus = await client.generateVideo(win || null, {
+        imageMediaId,
+        prompt: prompt || 'cho cô gái di chuyển, cinematic camera push in',
+        aspectRatio: '16:9',
+        durationSeconds: 8,
+        videoModel: 'veo_3_1_r2v_lite',
+        projectId: targetProjectId,
+      });
+    }
 
     console.log(`[debug:test-gen-video] ⏳ Operation started: ${opStatus?.operationId || 'none'}. Polling status...`);
     if (!opStatus || !opStatus.operationId) {
@@ -1588,6 +1601,51 @@ ipcMain.handle('bridge:status', async () => {
     return { ...serverStatus, chromeTab: tabInfo };
   } catch (e: any) {
     return { running: false, connected: false, error: e?.message };
+  }
+});
+
+ipcMain.handle('bridge:reload', async () => {
+  try {
+    const { getFlowBridgeServer } = await import('./workflow/flow-engine/rpc/FlowBridgeServer');
+    return await getFlowBridgeServer().reloadExtension();
+  } catch (e: any) {
+    return { ok: false, error: e?.message };
+  }
+});
+
+ipcMain.handle('bridge:reload-tab', async () => {
+  try {
+    const { getFlowBridgeServer } = await import('./workflow/flow-engine/rpc/FlowBridgeServer');
+    return await getFlowBridgeServer().reloadTab();
+  } catch (e: any) {
+    return { ok: false, error: e?.message };
+  }
+});
+
+ipcMain.handle('bridge:eval', async (_event, code: string) => {
+  try {
+    const { getFlowBridgeServer } = await import('./workflow/flow-engine/rpc/FlowBridgeServer');
+    return await getFlowBridgeServer().tabEval(code);
+  } catch (e: any) {
+    return { ok: false, error: e?.message };
+  }
+});
+
+ipcMain.handle('bridge:inspect-dom', async () => {
+  try {
+    const { getFlowBridgeServer } = await import('./workflow/flow-engine/rpc/FlowBridgeServer');
+    return await getFlowBridgeServer().inspectDom();
+  } catch (e: any) {
+    return { ok: false, error: e?.message };
+  }
+});
+
+ipcMain.handle('bridge:trigger-ui-gen', async (_event, prompt: string) => {
+  try {
+    const { getFlowBridgeServer } = await import('./workflow/flow-engine/rpc/FlowBridgeServer');
+    return await getFlowBridgeServer().triggerUiGen(prompt);
+  } catch (e: any) {
+    return { ok: false, error: e?.message };
   }
 });
 

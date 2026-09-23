@@ -67,12 +67,18 @@ export interface GeneratedImage {
 export interface OperationStatus {
   operationId: string;
   projectId?: string;
-  /** Status string — "CAE" = done */
+  /** Status string — "CAE" */
   status?: string;
   /** Outcome code — 3=ok, 4=complaint (survivable), khác = lỗi */
   outcomeCode?: number;
   error?: string;
   done: boolean;
+  /** Result mediaId khi video tạo xong */
+  mediaId?: string;
+  /** URL video trực tiếp (flow-content.google) */
+  videoUrl?: string;
+  /** URL ảnh preview/thumbnail nếu có */
+  imageUrl?: string;
 }
 
 export interface MediaUrls {
@@ -450,7 +456,7 @@ export function buildGenImagePayload(opts: GenImagePayloadOptions): unknown[] {
     taskObjects.push([
       null,
       null,
-      imageInputs.length > 0 ? imageInputs : null,
+      imageInputs.length > 0 ? imageInputs : [],
       seedVal,
       aspectInt,
       modelId,
@@ -458,8 +464,8 @@ export function buildGenImagePayload(opts: GenImagePayloadOptions): unknown[] {
       securityBlock,
       [[[prompt]]],
       editAssetId,
-      null,
-      null,
+      [],
+      [],
       u1,
       u2,
     ]);
@@ -468,7 +474,7 @@ export function buildGenImagePayload(opts: GenImagePayloadOptions): unknown[] {
   return [
     null,
     taskObjects,
-    count, // 1 (verified 100% from native Google Flow capture)
+    true, // boolean true from user_step_3456.txt
     securityBlock,
     [sessionUuid],
   ];
@@ -588,7 +594,7 @@ export function buildGenVideoPayload(opts: GenVideoPayloadOptions): unknown[] {
 
   let modelKey = videoModel;
   if (!modelKey) {
-    modelKey = durationSeconds <= 4 ? 'abra_r2v_4s' : 'abra_r2v_8s';
+    modelKey = 'veo_3_1_r2v_lite';
   }
 
   const clientUuid1 = uuidv4().toUpperCase();
@@ -596,7 +602,7 @@ export function buildGenVideoPayload(opts: GenVideoPayloadOptions): unknown[] {
   const sessionUuid = uuidv4().toUpperCase();
 
   const taskConfig = [
-    [null, null, [[prompt]]],
+    [null, null, [[[prompt]]]],
     [
       [null, imageMediaId]
     ],
@@ -629,25 +635,66 @@ export function buildGenVideoPayload(opts: GenVideoPayloadOptions): unknown[] {
 
 export interface GenVideoTextPayloadOptions {
   prompt: string;
-  aspectRatio: string;
-  durationSeconds: number;
+  aspectRatio: string | number;
+  durationSeconds?: number;
   videoModel?: string;
   projectId: string;
+  captchaToken: string;
 }
 
 /**
  * Xây inner payload cho RPC_GEN_VIDEO_TEXT (YhhmEf) — text-to-video.
- * ⚠️  VERIFY: Thứ tự fields cần xác minh.
+ * === VERIFIED 100% TỪ GÓI TIN MẠNG THỰC TẾ TRÊN GOOGLE FLOW ===
  */
 export function buildGenVideoTextPayload(opts: GenVideoTextPayloadOptions): unknown[] {
-  const { prompt, aspectRatio, durationSeconds, videoModel, projectId } = opts;
-  return [
+  const {
     prompt,
-    resolveVideoAspect(aspectRatio),
-    durationSeconds,
-    resolveVideoModel(videoModel),
+    aspectRatio,
+    durationSeconds = 8,
+    videoModel,
     projectId,
-    SURFACE_ID,
+    captchaToken,
+  } = opts;
+
+  let aspectInt = 2;
+  if (typeof aspectRatio === 'number') {
+    aspectInt = aspectRatio;
+  } else if (aspectRatio === '9:16' || aspectRatio === '1') {
+    aspectInt = 1;
+  }
+
+  const modelKey = videoModel || 'veo_3_1_t2v_lite';
+
+  const clientUuid1 = uuidv4().toUpperCase();
+  const clientUuid2 = uuidv4().toUpperCase();
+  const sessionUuid = uuidv4().toUpperCase();
+
+  const taskConfig = [
+    [null, null, [[[prompt]]]],
+    modelKey,
+    aspectInt,
+    null,
+    [null, null, null, null, clientUuid1, clientUuid2],
+  ];
+
+  const securityBlock = [
+    null,
+    SURFACE_ID, // 22
+    null,
+    null,
+    null,
+    projectId,
+    null,
+    null,
+    null,
+    null,
+    [captchaToken, 1],
+  ];
+
+  return [
+    [taskConfig],
+    securityBlock,
+    [sessionUuid, 2],
   ];
 }
 
@@ -709,10 +756,20 @@ export function buildGenVideoReferencesPayload(opts: GenVideoReferencesPayloadOp
 
 /**
  * Xây inner payload cho RPC_OPERATION (jwpduf) — poll async operation.
+ * === VERIFIED 100% TỪ GÓI TIN MẠNG THỰC TẾ TRÊN GOOGLE FLOW ===
  * Không cần CAPTCHA.
  */
-export function buildPollOperationPayload(operationId: string, projectId: string): unknown[] {
-  return [operationId, projectId];
+export function buildPollOperationPayload(operationId: string, _projectId?: string): unknown[] {
+  return [null, null, [[operationId]]];
+}
+
+/**
+ * Xây inner payload cho RPC_MEDIA (as29s) — lấy link CDN video/ảnh theo mediaId.
+ * === VERIFIED 100% TỪ GÓI TIN MẠNG THỰC TẾ TRÊN GOOGLE FLOW ===
+ * Không cần CAPTCHA.
+ */
+export function buildMediaUrlPayload(mediaId: string): unknown[] {
+  return [mediaId];
 }
 
 /**
@@ -820,7 +877,6 @@ export function extractGeneratedImages(data: unknown): GeneratedImage[] {
  * ⚠️  VERIFY: Structure cần xác minh từ real response.
  */
 export function extractOperationStatus(data: unknown, rpcId: string): OperationStatus {
-  // Log raw data để debug trong Giai đoạn 1
   console.log(`[FlowBatch] extractOperationStatus (${rpcId}) raw:`, JSON.stringify(data)?.slice(0, 300));
 
   if (!data || !Array.isArray(data)) {
@@ -828,25 +884,47 @@ export function extractOperationStatus(data: unknown, rpcId: string): OperationS
     return { operationId: '', done: false, error: 'invalid_response' };
   }
 
-  const findOperationId = (node: unknown): string | undefined => {
-    if (!node) return;
-    if (typeof node === 'string' && node.length > 20 && !node.includes('/')) {
-      // Heuristic: operation id thường là chuỗi dài không có dấu "/"
-      return node;
-    }
+  // Quét tìm item có [operationId, projectId, taskId, "CAE", ...] (chuẩn 100% từ capture YhhmEf & MZZa6b)
+  const findOperation = (node: unknown): { opId: string; projId?: string; status?: string } | undefined => {
+    if (!node) return undefined;
     if (Array.isArray(node)) {
+      if (node.length >= 4 && typeof node[0] === 'string' && node[3] === 'CAE') {
+        return { opId: node[0], projId: typeof node[1] === 'string' ? node[1] : undefined, status: node[3] };
+      }
       for (const item of node) {
-        const found = findOperationId(item);
+        const found = findOperation(item);
         if (found) return found;
       }
     }
     return undefined;
   };
 
-  const operationId = findOperationId(data) ?? '';
+  const found = findOperation(data);
+  if (found) {
+    return {
+      operationId: found.opId,
+      projectId: found.projId,
+      status: found.status,
+      done: false,
+    };
+  }
+
+  // Fallback: tìm chuỗi UUID
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const findUuid = (node: unknown): string | undefined => {
+    if (!node) return;
+    if (typeof node === 'string' && UUID_RE.test(node)) return node;
+    if (Array.isArray(node)) {
+      for (const item of node) {
+        const u = findUuid(item);
+        if (u) return u;
+      }
+    }
+    return undefined;
+  };
 
   return {
-    operationId,
+    operationId: findUuid(data) ?? '',
     projectId: undefined,
     status: undefined,
     done: false,
@@ -855,7 +933,7 @@ export function extractOperationStatus(data: unknown, rpcId: string): OperationS
 
 /**
  * Trích xuất OperationStatus từ response của jwpduf (poll).
- * Status "CAE" = done.
+ * Video hoàn thành khi xuất hiện link video thật (flow-content.google/video).
  */
 export function extractPollStatus(data: unknown, expectedOperationId?: string): OperationStatus {
   console.log('[FlowBatch] extractPollStatus raw:', JSON.stringify(data)?.slice(0, 400));
@@ -864,23 +942,45 @@ export function extractPollStatus(data: unknown, expectedOperationId?: string): 
     return { operationId: expectedOperationId ?? '', done: false };
   }
 
-  // Tìm string "CAE" trong bất kỳ level nào của nested array
-  const findStatus = (node: unknown): string | undefined => {
-    if (typeof node === 'string') return node;
-    if (Array.isArray(node)) {
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  let videoUrl: string | undefined;
+  let imageUrl: string | undefined;
+  let foundMediaId: string | undefined;
+  let foundProjectId: string | undefined;
+  let foundStatus: string | undefined;
+
+  const scanNode = (node: unknown): void => {
+    if (!node) return;
+    if (typeof node === 'string') {
+      if (node.includes('flow-content.google/video') || (node.includes('flow-content.google') && node.includes('.mp4'))) {
+        videoUrl = node;
+      } else if (node.includes('flow-content.google/image')) {
+        imageUrl = node;
+      }
+    } else if (Array.isArray(node)) {
+      if (node.length >= 4 && typeof node[0] === 'string' && UUID_RE.test(node[0]) && node[3] === 'CAE') {
+        foundMediaId = node[0];
+        foundProjectId = typeof node[1] === 'string' ? node[1] : undefined;
+        foundStatus = node[3];
+      }
       for (const item of node) {
-        const s = findStatus(item);
-        if (s === 'CAE' || (s !== undefined && s.length > 0)) return s;
+        scanNode(item);
       }
     }
-    return undefined;
   };
 
-  const status = findStatus(data);
+  scanNode(data);
+
+  // Video hoàn thành khi xuất hiện link video thật (flow-content.google/video)
+  const isDone = !!videoUrl;
 
   return {
-    operationId: expectedOperationId ?? '',
-    status,
-    done: status === 'CAE',
+    operationId: expectedOperationId ?? foundMediaId ?? '',
+    projectId: foundProjectId,
+    mediaId: foundMediaId,
+    status: foundStatus || (isDone ? 'CAE' : 'RUNNING'),
+    done: isDone,
+    videoUrl,
+    imageUrl,
   };
 }

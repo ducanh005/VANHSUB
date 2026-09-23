@@ -146,6 +146,140 @@ export class FlowBridgeServer {
   }
 
   /**
+   * Yêu cầu Chrome Extension tự reload chính nó (cập nhật code background.js mới).
+   */
+  public async reloadExtension(timeoutMs = 3000): Promise<{ ok: boolean; message: string }> {
+    if (!this.isConnected()) {
+      return { ok: false, message: 'Extension chưa kết nối' };
+    }
+    const client = this.getFirstActiveClient();
+    if (!client) {
+      return { ok: false, message: 'Không tìm thấy client WebSocket hợp lệ' };
+    }
+
+    const id = uuidv4();
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        this.pendingRequests.delete(id);
+        resolve({ ok: true, message: 'Đã gửi lệnh reload tới Extension' });
+      }, timeoutMs);
+
+      this.pendingRequests.set(id, {
+        resolve: () => resolve({ ok: true, message: 'Extension đã reload thành công' }),
+        reject: () => resolve({ ok: true, message: 'Extension đang reload' }),
+        timer,
+      });
+
+      client.send(JSON.stringify({ id, method: 'reload_extension', params: {} }));
+    });
+  }
+
+  /**
+   * Reload tab Flow trên Google Chrome để làm mới phiên làm việc (WIZ_global_data, SNlM0e, reCAPTCHA).
+   */
+  public async reloadTab(timeoutMs = 20000): Promise<{ ok: boolean; message: string }> {
+    if (!this.isConnected()) {
+      return { ok: false, message: 'Extension chưa kết nối' };
+    }
+    const client = this.getFirstActiveClient();
+    if (!client) {
+      return { ok: false, message: 'Không tìm thấy client WebSocket hợp lệ' };
+    }
+
+    const id = uuidv4();
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        this.pendingRequests.delete(id);
+        resolve({ ok: true, message: 'Đã gửi lệnh reload tab tới Extension' });
+      }, timeoutMs);
+
+      this.pendingRequests.set(id, {
+        resolve: () => resolve({ ok: true, message: 'Tab Flow đã reload thành công' }),
+        reject: (err) => resolve({ ok: false, message: err?.message || String(err) }),
+        timer,
+      });
+
+      client.send(JSON.stringify({ id, method: 'reload_tab', params: {} }));
+    });
+  }
+
+  /**
+   * Quét DOM trong tab Flow để tìm các nút bấm, ô nhập prompt và mode toggle.
+   */
+  public async inspectDom(timeoutMs = 5000): Promise<any> {
+    if (!this.isConnected()) return { error: 'NOT_CONNECTED' };
+    const client = this.getFirstActiveClient();
+    if (!client) return { error: 'NO_CLIENT' };
+
+    const id = uuidv4();
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        this.pendingRequests.delete(id);
+        resolve({ error: 'TIMEOUT' });
+      }, timeoutMs);
+
+      this.pendingRequests.set(id, {
+        resolve: (res: any) => resolve(res),
+        reject: (err: any) => resolve({ error: err?.message || String(err) }),
+        timer,
+      });
+
+      client.send(JSON.stringify({ id, method: 'dom_inspect', params: {} }));
+    });
+  }
+
+  /**
+   * Kích hoạt tạo ảnh/video trực tiếp qua giao diện Chrome tab (nhập prompt và click nút tạo thật)
+   * Giúp reCAPTCHA nhận diện tương tác người dùng thật 100%, không bị đánh dấu bot.
+   */
+  public async triggerUiGen(prompt: string, timeoutMs = 20000): Promise<any> {
+    if (!this.isConnected()) return { error: 'NOT_CONNECTED' };
+    const client = this.getFirstActiveClient();
+    if (!client) return { error: 'NO_CLIENT' };
+
+    const id = uuidv4();
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        this.pendingRequests.delete(id);
+        resolve({ error: 'TIMEOUT_TRIGGER_UI_GEN' });
+      }, timeoutMs);
+
+      this.pendingRequests.set(id, {
+        resolve: (res: any) => resolve(res),
+        reject: (err: any) => resolve({ error: err?.message || String(err) }),
+        timer,
+      });
+
+      client.send(JSON.stringify({ id, method: 'trigger_ui_gen', params: { prompt } }));
+    });
+  }
+
+  /**
+   * Chạy trực tiếp 1 biểu thức JavaScript trong MAIN world của tab Flow trên Chrome.
+   */
+  public async tabEval(code: string, timeoutMs = 10000): Promise<any> {
+    if (!this.isConnected()) throw new Error('Extension chưa kết nối');
+    const client = this.getFirstActiveClient();
+    if (!client) throw new Error('Client không khả dụng');
+
+    const id = uuidv4();
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pendingRequests.delete(id);
+        reject(new Error('tabEval timeout'));
+      }, timeoutMs);
+
+      this.pendingRequests.set(id, {
+        resolve: (res) => resolve(res),
+        reject,
+        timer,
+      });
+
+      client.send(JSON.stringify({ id, method: 'tab_eval', params: { code } }));
+    });
+  }
+
+  /**
    * Gửi 1 RPC batchexecute qua Chrome Extension và nhận lại chuỗi raw response.
    */
   public async sendBatchRpc(

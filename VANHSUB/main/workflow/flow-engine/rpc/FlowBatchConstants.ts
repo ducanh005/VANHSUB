@@ -118,8 +118,8 @@ export const VID_ASPECT_BY_NAME: Record<string, number> = {
 // ── Image Model Wire IDs ──────────────────────────────────────────────────────
 // Gọi là "Nano Banana" trong UI; wire id dùng trong batchexecute payload.
 
-/** Model mặc định (Nano Banana 2 / NARWHAL) */
-export const IMG_MODEL_DEFAULT = 'NARWHAL';
+/** Model mặc định (Nano Banana Pro / GEM_PIX_2) — verified từ Google Flow 2026 */
+export const IMG_MODEL_DEFAULT = 'GEM_PIX_2';
 
 /** Tất cả image model wire ids hiện tại */
 export const IMG_MODELS = new Set(['NARWHAL', 'GEM_PIX_2', 'HARBOR_SEAL']);
@@ -131,9 +131,9 @@ export const IMG_MODEL_BY_ALIAS: Record<string, string> = {
   NANO_BANANA_2_LITE: 'HARBOR_SEAL',
   NANO_BANANA_LITE: 'HARBOR_SEAL',
   // Map từ imageEngine config của app hiện tại:
-  'banana-pro': 'NARWHAL',
-  'nano-banana': 'NARWHAL',  // default to NARWHAL (Tier 1 standard)
-  'banana_pro': 'NARWHAL',
+  'banana-pro': 'GEM_PIX_2',
+  'nano-banana': 'GEM_PIX_2',  // default to GEM_PIX_2 (Google Flow 2026 default)
+  'banana_pro': 'GEM_PIX_2',
 };
 
 // ── Video Model Wire IDs ──────────────────────────────────────────────────────

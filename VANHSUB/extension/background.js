@@ -150,6 +150,31 @@ async function handleMessage(msg) {
               hasAtToken: !!wiz.SNlM0e,
               siteKey: wiz.xZbWve || null,
               hasGrecaptcha,
+              wizKeys: Object.keys(wiz),
+              wizValues: Object.fromEntries(
+                Object.entries(wiz).filter(([k, v]) => typeof v === 'string' && v.length < 100)
+              ),
+              vanhsubHeaders: globalThis.__VANHSUB_HEADERS__ || {},
+              captchaCalls: globalThis.__VANHSUB_CAPTCHA_CALLS__ || [],
+              promptSettings: (() => {
+                try {
+                  return JSON.parse(localStorage.getItem('flow-prompt-box-settings') || '{}');
+                } catch (e) {
+                  return null;
+                }
+              })(),
+              domInfo: {
+                hasProseMirror: !!document.querySelector('.ProseMirror'),
+                proseMirrorText: document.querySelector('.ProseMirror')?.innerText?.slice(0, 50) || null,
+                buttons: Array.from(document.querySelectorAll('button'))
+                  .map((b) => ({
+                    text: (b.innerText || '').trim().slice(0, 40),
+                    aria: b.getAttribute('aria-label'),
+                    visible: b.getBoundingClientRect().width > 0,
+                  }))
+                  .filter((b) => b.visible && (b.text || b.aria))
+                  .slice(0, 25),
+              },
               snifferHistory: (globalThis.__VANHSUB_SNIFFER__ && globalThis.__VANHSUB_SNIFFER__.history) ? globalThis.__VANHSUB_SNIFFER__.history : [],
             };
           },
@@ -181,6 +206,248 @@ async function handleMessage(msg) {
     return;
   }
 
+  if (method === 'reload_tab') {
+    const tab = await getFlowTab();
+    if (!tab) {
+      send({ id, error: 'NO_FLOW_TAB' });
+      return;
+    }
+    log(`🔄 Đang reload tab Flow (tab ${tab.id})...`);
+    await chrome.tabs.reload(tab.id);
+    await waitForTabReady(tab.id, 15000);
+    log(`✅ Tab Flow đã reload và sẵn sàng!`);
+    send({ id, result: { ok: true } });
+    return;
+  }
+
+  if (method === 'tab_eval') {
+    const tab = await getFlowTab();
+    if (!tab) {
+      send({ id, error: 'NO_FLOW_TAB' });
+      return;
+    }
+    try {
+      const codeStr = String(params.code || '');
+      if (codeStr === '__INSPECT_SETTINGS__') {
+        const [res] = await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          world: 'MAIN',
+          func: async () => {
+            const trigger = document.querySelector('button[aria-label*="Điều kiện kích hoạt" i], button.settings-trigger-button, flow-settings-button button');
+            if (trigger) trigger.click();
+            await new Promise((r) => setTimeout(r, 800));
+            const container = document.querySelector('.cdk-overlay-container');
+            const items = container
+              ? Array.from(container.querySelectorAll('button, [role="tab"], [role="radio"], [role="button"], mat-button-toggle')).map((b) => ({
+                  text: (b.innerText || '').trim().slice(0, 40),
+                  aria: b.getAttribute('aria-label'),
+                }))
+              : [];
+            // Click backdrop to close
+            const bd = document.querySelector('.cdk-overlay-backdrop');
+            if (bd) bd.click();
+            return {
+              triggerText: trigger ? trigger.innerText : null,
+              hasContainer: !!container,
+              items,
+            };
+          },
+        });
+        send({ id, result: res?.result });
+        return;
+      }
+
+      if (codeStr === '__TEST_SWITCH_MODE__') {
+        const [res] = await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          world: 'MAIN',
+          func: async () => {
+            const trigger = document.querySelector('button[aria-label*="Điều kiện kích hoạt" i], button.settings-trigger-button, flow-settings-button button');
+            if (!trigger) return { ok: false, error: 'NO_TRIGGER' };
+            const beforeText = trigger.innerText;
+            let pane = document.querySelector('.cdk-overlay-pane, flow-settings-popover');
+            if (!pane) {
+              trigger.click();
+              await new Promise((r) => setTimeout(r, 700));
+              pane = document.querySelector('.cdk-overlay-pane, flow-settings-popover');
+            }
+
+            const container = document.querySelector('.cdk-overlay-container') || pane;
+            const btns = container ? Array.from(container.querySelectorAll('mat-button-toggle, button, [role="radio"]')) : [];
+            const allBtnTexts = btns.map(b => (b.innerText || '').trim());
+            const imgBtn = btns.find((b) => {
+              const t = (b.innerText || '').toLowerCase();
+              return t.includes('hình ảnh') || t.includes('image');
+            });
+
+            let clicked = false;
+            let clickedTag = null;
+            if (imgBtn) {
+              const target = imgBtn.querySelector('button') || imgBtn;
+              clickedTag = target.tagName + '.' + target.className;
+              target.click();
+              clicked = true;
+              await new Promise((r) => setTimeout(r, 400));
+            }
+
+            const bd = document.querySelector('.cdk-overlay-backdrop');
+            if (bd) bd.click();
+            await new Promise((r) => setTimeout(r, 500));
+
+            const afterText = trigger.innerText;
+            return { ok: true, beforeText, afterText, clicked, clickedTag, allBtnTexts };
+          },
+        });
+        send({ id, result: res?.result });
+        return;
+      }
+
+      if (codeStr.startsWith('__TRIGGER_GEN__:')) {
+        let cfg;
+        try {
+          cfg = JSON.parse(codeStr.slice('__TRIGGER_GEN__:'.length));
+        } catch {
+          cfg = { mode: 'VIDEO', prompt: codeStr.slice('__TRIGGER_GEN__:'.length) };
+        }
+
+        const [res] = await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          world: 'MAIN',
+          args: [cfg],
+          func: async (config) => {
+            const targetMode = (config.mode || 'IMAGE').toUpperCase();
+            const promptText = config.prompt || '';
+
+            // 1. Kiểm tra và chuyển đổi Mode nếu cần
+            const trigger = document.querySelector(
+              'button[aria-label*="Điều kiện kích hoạt" i], button.settings-trigger-button, flow-settings-button button'
+            );
+            if (trigger) {
+              const curText = (trigger.innerText || '').toLowerCase();
+              const isVideo = curText.includes('video') || curText.includes('veo') || curText.includes('giây');
+              const needsSwitch = (targetMode === 'IMAGE' && isVideo) || (targetMode === 'VIDEO' && !isVideo);
+
+              if (needsSwitch) {
+                console.log(`[VanhSub:UI] 🔄 Đang chuyển chế độ: hiện tại="${curText.slice(0, 25)}" → mục tiêu=${targetMode}...`);
+                let pane = document.querySelector('.cdk-overlay-pane, flow-settings-popover');
+                if (!pane) {
+                  trigger.click();
+                  await new Promise((r) => setTimeout(r, 700));
+                  pane = document.querySelector('.cdk-overlay-pane, flow-settings-popover');
+                }
+
+                const container = document.querySelector('.cdk-overlay-container') || pane;
+                if (container) {
+                  const buttons = Array.from(container.querySelectorAll('mat-button-toggle, button, [role="radio"]'));
+                  const matchKeyword = targetMode === 'IMAGE' ? ['hình ảnh', 'image'] : ['video', 'videocam'];
+                  const targetBtn = buttons.find((b) => {
+                    const t = (b.innerText || '').toLowerCase();
+                    return matchKeyword.some((k) => t.includes(k));
+                  });
+
+                  if (targetBtn) {
+                    const clickTarget = targetBtn.querySelector('button') || targetBtn;
+                    clickTarget.click();
+                    await new Promise((r) => setTimeout(r, 400));
+                  }
+                }
+                const bd = document.querySelector('.cdk-overlay-backdrop');
+                if (bd) bd.click();
+                await new Promise((r) => setTimeout(r, 500));
+              }
+            }
+
+            // 2. Nhập prompt vào .ProseMirror
+            const pm = document.querySelector('.ProseMirror');
+            if (!pm) return { ok: false, error: 'NO_PROSEMIRROR' };
+
+            pm.focus();
+            document.execCommand('selectAll', false, null);
+            document.execCommand('insertText', false, promptText);
+            pm.dispatchEvent(new Event('input', { bubbles: true }));
+
+            await new Promise((r) => setTimeout(r, 600));
+
+            // 3. Click nút Tạo (Generate)
+            const btn = document.querySelector(
+              'button[aria-label*="tạo" i], button[aria-label*="generate" i], button[aria-label*="Bắt đầu tạo" i]'
+            );
+            if (!btn) return { ok: false, error: 'NO_GEN_BUTTON' };
+
+            const prevHistoryCount = (window.__VANHSUB_SNIFFER__?.history || []).length;
+            btn.click();
+
+            // 4. Chờ kết quả RPC hoàn tất
+            const start = Date.now();
+            while (Date.now() - start < 70000) {
+              await new Promise((r) => setTimeout(r, 800));
+              const newHistory = (window.__VANHSUB_SNIFFER__?.history || []).slice(prevHistoryCount);
+
+              if (targetMode === 'IMAGE') {
+                const imgRpc = newHistory.find(
+                  (h) => h.url && h.url.includes('ogiZ0b') && h.status === 200 && h.response
+                );
+                if (imgRpc) {
+                  return {
+                    ok: true,
+                    mode: 'IMAGE',
+                    rpcid: 'ogiZ0b',
+                    url: imgRpc.url,
+                    response: imgRpc.response,
+                  };
+                }
+              } else {
+                // VIDEO: chờ as29s trả về link video cdn cuối cùng
+                const as29sRpc = newHistory.find(
+                  (h) => h.url && h.url.includes('as29s') && h.status === 200 && h.response
+                );
+                if (as29sRpc) {
+                  return {
+                    ok: true,
+                    mode: 'VIDEO',
+                    rpcid: 'as29s',
+                    url: as29sRpc.url,
+                    response: as29sRpc.response,
+                  };
+                }
+              }
+            }
+
+            return {
+              ok: false,
+              error: 'TIMEOUT_WAITING_RESULT',
+              targetMode,
+              recentRpc: (window.__VANHSUB_SNIFFER__?.history || []).slice(prevHistoryCount).map((h) => ({
+                url: h.url,
+                status: h.status,
+                hasResponse: !!h.response,
+              })),
+            };
+          },
+        });
+        send({ id, result: res?.result });
+        return;
+      }
+
+      const [res] = await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        world: 'MAIN',
+        func: (code) => {
+          try {
+            return { ok: true, val: eval(code) };
+          } catch (e) {
+            return { ok: false, err: e.message };
+          }
+        },
+        args: [params.code],
+      });
+      send({ id, result: res?.result });
+    } catch (err) {
+      send({ id, error: err.message });
+    }
+    return;
+  }
+
   if (method === 'batch_rpc') {
     log(`🚀 Nhận lệnh batch_rpc cho rpcid=${params?.rpcid}, action=${params?.captchaAction || 'none'}`);
     const result = await runBatchRpc(params);
@@ -190,6 +457,116 @@ async function handleMessage(msg) {
     } else {
       log(`✅ batch_rpc thành công (status=${result.status}, body length=${result.body ? result.body.length : 0})`);
       send({ id, result });
+    }
+    return;
+  }
+
+  if (method === 'dom_inspect') {
+    const tab = await getFlowTab();
+    if (!tab) {
+      send({ id, error: 'NO_FLOW_TAB' });
+      return;
+    }
+    try {
+      const [res] = await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        world: 'MAIN',
+        func: () => {
+          const promptBoxes = Array.from(document.querySelectorAll('.ProseMirror, textarea, [contenteditable="true"]')).map((el) => ({
+            tag: el.tagName,
+            cls: el.className,
+            placeholder: el.getAttribute('placeholder') || el.getAttribute('data-placeholder'),
+            text: el.innerText?.slice(0, 50),
+            visible: el.getBoundingClientRect().width > 0,
+          }));
+
+          const buttons = Array.from(document.querySelectorAll('button')).map((b) => ({
+            text: b.innerText?.trim().slice(0, 40),
+            aria: b.getAttribute('aria-label'),
+            cls: b.className,
+            disabled: b.disabled,
+            visible: b.getBoundingClientRect().width > 0,
+          })).filter((b) => b.visible && (b.text || b.aria));
+
+          return { promptBoxes, buttons: buttons.slice(0, 30) };
+        },
+      });
+      send({ id, result: res?.result });
+    } catch (err) {
+      send({ id, error: err.message });
+    }
+    return;
+  }
+
+  if (method === 'trigger_ui_gen') {
+    const tab = await getFlowTab();
+    if (!tab) {
+      send({ id, error: 'NO_FLOW_TAB' });
+      return;
+    }
+    try {
+      const [res] = await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        world: 'MAIN',
+        args: [params.prompt || 'a drone shot over ocean waves'],
+        func: async (promptText) => {
+          const pm = document.querySelector('.ProseMirror');
+          if (!pm) return { ok: false, error: 'NO_PROSEMIRROR' };
+
+          pm.focus();
+          document.execCommand('selectAll', false, null);
+          document.execCommand('insertText', false, promptText);
+          pm.dispatchEvent(new Event('input', { bubbles: true }));
+
+          await new Promise((r) => setTimeout(r, 600));
+
+          const btn = document.querySelector(
+            'button[aria-label*="tạo" i], button[aria-label*="generate" i], button[aria-label*="Bắt đầu tạo" i]'
+          );
+          if (!btn) return { ok: false, error: 'NO_GEN_BUTTON' };
+
+          const prevCaptchaCount = (window.__VANHSUB_CAPTCHA_CALLS__ || []).length;
+          const prevHistoryCount = (window.__VANHSUB_SNIFFER__?.history || []).length;
+
+          btn.click();
+
+          const start = Date.now();
+          while (Date.now() - start < 15000) {
+            await new Promise((r) => setTimeout(r, 500));
+            const newHistory = (window.__VANHSUB_SNIFFER__?.history || []).slice(prevHistoryCount);
+            const genRpc = newHistory.find(
+              (h) => h.url && (h.url.includes('ogiZ0b') || h.url.includes('YhhmEf') || h.url.includes('MZZa6b'))
+            );
+            if (genRpc) {
+              const newCaptcha = (window.__VANHSUB_CAPTCHA_CALLS__ || []).slice(prevCaptchaCount);
+              return {
+                ok: true,
+                capturedRpc: {
+                  url: genRpc.url,
+                  rpcid: (genRpc.url.match(/rpcids=([^&]+)/) || [])[1],
+                  status: genRpc.status,
+                  response: genRpc.response,
+                },
+                captchaCalls: newCaptcha,
+              };
+            }
+          }
+
+          return {
+            ok: false,
+            error: 'TIMEOUT_WAITING_RPC',
+            captchaCalls: (window.__VANHSUB_CAPTCHA_CALLS__ || []).slice(prevCaptchaCount),
+            recentHistory: (window.__VANHSUB_SNIFFER__?.history || []).slice(prevHistoryCount).map((h) => ({
+              url: h.url,
+              status: h.status,
+              response: h.response ? h.response.slice(0, 100) : '',
+            })),
+          };
+        },
+      });
+      send({ id, result: res?.result });
+    } catch (err) {
+      send({ id, error: err.message });
     }
     return;
   }
@@ -296,56 +673,41 @@ async function runBatchRpc(cmd) {
     freqStr = freqStr.split(cmd.projectId).join(effectiveProjectId);
   }
 
-  // 2. Mint reCAPTCHA nếu cần
-  if (cmd.captchaAction) {
-    log(`🔐 Đang mint CAPTCHA [${cmd.captchaAction}] trong tab ${tab.id} (project ${effectiveProjectId})...`);
-    let captchaRes = null;
-    try {
-      captchaRes = await chrome.tabs.sendMessage(tab.id, {
-        action: 'SOLVE_CAPTCHA',
-        requestId: 'req_' + Date.now(),
-        pageAction: cmd.captchaAction,
-      });
-    } catch (err) {
-      log('⚠️ sendMessage tới tab thất bại, đang reinject content script...', err.message);
-      try {
-        await chrome.scripting.executeScript({
-          target: { tabId: tab.id },
-          files: ['content.js'],
-        });
-        await new Promise((r) => setTimeout(r, 600));
-        captchaRes = await chrome.tabs.sendMessage(tab.id, {
-          action: 'SOLVE_CAPTCHA',
-          requestId: 'req_' + Date.now(),
-          pageAction: cmd.captchaAction,
-        });
-      } catch (reinjectErr) {
-        return { error: `CAPTCHA_DISPATCH_ERROR: ${reinjectErr.message}. Vui lòng reload tab flow.google.com trên Chrome.` };
-      }
-    }
-
-    if (!captchaRes || !captchaRes.token) {
-      return { error: `CAPTCHA_MINT_FAILED: ${captchaRes?.error || 'Không nhận được token từ tab'}` };
-    }
-
-    log(`✅ Đã mint CAPTCHA token (${captchaRes.token.length} chars). Thay thế vào payload...`);
-    freqStr = freqStr.split(CAPTCHA_SLOT).join(captchaRes.token);
-  }
-
-  // 3. Thực thi fetch trong MAIN world của trang Flow
+  // 2. Thực thi trong MAIN world của trang Flow
   try {
     const [execResult] = await chrome.scripting.executeScript({
       target: { tabId: tab.id },
       world: 'MAIN',
-      args: [cmd.rpcid, freqStr, effectiveProjectId],
-      func: async (rpcid, freq, projectId) => {
+      args: [cmd.rpcid, freqStr, effectiveProjectId, cmd.captchaAction],
+      func: async (rpcid, freq, projectId, captchaAction) => {
         const wiz = globalThis.WIZ_global_data || {};
         const at = wiz.SNlM0e;
         const sid = wiz.FdrFJe;
         const bl = wiz.cfb2h;
+        const siteKey = wiz.xZbWve || '6LdsFiUsAAAAAIjVDZcuLhaHiDn5nnHVXVRQGeMV';
 
         if (!at) {
           return { error: 'NO_AT_TOKEN: Không tìm thấy WIZ_global_data.SNlM0e trong trang Flow' };
+        }
+
+        let finalFreq = freq;
+
+        // Nếu RPC yêu cầu CAPTCHA, mint fresh reCAPTCHA token trực tiếp trong MAIN world ngay trước khi gửi request
+        if (captchaAction && (finalFreq.includes('__CAPTCHA__') || finalFreq.includes('__CAPTCHA_TOKEN_SLOT__'))) {
+          if (!window.grecaptcha || !window.grecaptcha.enterprise || typeof window.grecaptcha.enterprise.execute !== 'function') {
+            return { error: 'NO_GRECAPTCHA: grecaptcha.enterprise chưa sẵn sàng trên trang Flow' };
+          }
+          try {
+            console.log(`[VanhSub:exec] 🔐 Đang mint CAPTCHA token trong MAIN world (action=${captchaAction}, siteKey=${siteKey})...`);
+            const token = await window.grecaptcha.enterprise.execute(siteKey, { action: captchaAction });
+            if (!token) {
+              return { error: 'EMPTY_CAPTCHA_TOKEN: grecaptcha trả về token rỗng' };
+            }
+            console.log(`[VanhSub:exec] ✅ Đã mint CAPTCHA token thành công (${token.length} chars)`);
+            finalFreq = finalFreq.split('__CAPTCHA__').join(token).split('__CAPTCHA_TOKEN_SLOT__').join(token);
+          } catch (captchaErr) {
+            return { error: 'CAPTCHA_EXECUTE_ERROR: ' + (captchaErr.message || String(captchaErr)) };
+          }
         }
 
         const reqid = Math.floor(Math.random() * 900000) + 100000;
@@ -358,12 +720,17 @@ async function runBatchRpc(cmd) {
           `&bl=${encodeURIComponent(bl || '')}&f.sid=${encodeURIComponent(sid || '')}` +
           `&hl=${encodeURIComponent(hl)}&_reqid=${reqid}&rt=c`;
 
+        const body = `f.req=${encodeURIComponent(finalFreq)}&at=${encodeURIComponent(at)}&`;
+
+        // Sử dụng XMLHttpRequest thuần túy — chuẩn 100% theo Google Closure XhrIo của Google Flow
+        // Trình duyệt Chrome sẽ tự động gán cookie session và x-browser metadata hợp lệ mà không bị lỗi bot detection
         return new Promise((resolve) => {
           try {
             const xhr = new XMLHttpRequest();
             xhr.open('POST', url, true);
             xhr.withCredentials = true;
-            xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded;charset=utf-8');
+            xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded;charset=UTF-8');
+            xhr.setRequestHeader('X-Same-Domain', '1');
 
             xhr.onload = function() {
               resolve({
@@ -377,7 +744,10 @@ async function runBatchRpc(cmd) {
               resolve({ error: `XHR_NETWORK_ERROR: status=${xhr.status}` });
             };
 
-            const body = `f.req=${freq}&at=${encodeURIComponent(at)}&`;
+            xhr.ontimeout = function() {
+              resolve({ error: 'XHR_TIMEOUT' });
+            };
+
             xhr.send(body);
           } catch (xhrErr) {
             resolve({ error: 'XHR_EXCEPTION: ' + (xhrErr.message || String(xhrErr)) });

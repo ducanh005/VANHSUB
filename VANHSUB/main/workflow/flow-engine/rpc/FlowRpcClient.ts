@@ -59,6 +59,7 @@ import {
   buildGenVideoFirstLastPayload,
   buildGenVideoReferencesPayload,
   buildPollOperationPayload,
+  buildMediaUrlPayload,
   buildListProjectMediaPayload,
   extractGeneratedImages,
   extractOperationStatus,
@@ -914,12 +915,15 @@ export class FlowRpcClient {
    */
   async generateVideoText(
     win: Electron.BrowserWindow | null | undefined,
-    opts: GenVideoTextPayloadOptions
+    opts: Omit<GenVideoTextPayloadOptions, 'captchaToken'>
   ): Promise<OperationStatus> {
     const bridge = FlowBridgeServer.getInstance();
     if (bridge.isConnected()) {
       console.log(`[FlowRpcClient] 🌐 [Chrome Extension Bridge] Đang tạo video text: "${opts.prompt.slice(0, 40)}"...`);
-      const innerPayload = buildGenVideoTextPayload(opts);
+      const innerPayload = buildGenVideoTextPayload({
+        ...opts,
+        captchaToken: CAPTCHA_SLOT,
+      });
       const rawText = await bridge.sendBatchRpc(
         RPC_GEN_VIDEO_TEXT,
         innerPayload,
@@ -943,19 +947,57 @@ export class FlowRpcClient {
       await new Promise((r) => setTimeout(r, 3000));
     }
 
-    const innerPayload = buildGenVideoTextPayload(opts);
+    const captchaToken = await this.mintCaptchaToken(win, CAPTCHA_ACTION_VIDEO);
+    const innerPayload = buildGenVideoTextPayload({
+      ...opts,
+      captchaToken,
+    });
     const data = await this.callFlowRPC(
       win,
       RPC_GEN_VIDEO_TEXT,
       innerPayload,
       opts.projectId,
       {
-        needsCaptcha: true,
-        captchaAction: CAPTCHA_ACTION_VIDEO,
+        needsCaptcha: false, // CAPTCHA đã nằm trong securityBlock
         label: `YhhmEf(text2video)`,
       }
     );
     return extractOperationStatus(data, RPC_GEN_VIDEO_TEXT);
+  }
+
+  /**
+   * Lấy URL trực tiếp của media (video/ảnh) qua RPC_MEDIA (as29s).
+   * === VERIFIED 100% TỪ GÓI TIN MẠNG THỰC TẾ TRÊN GOOGLE FLOW ===
+   */
+  async getMediaUrl(mediaId: string, projectId?: string): Promise<string | null> {
+    const innerPayload = buildMediaUrlPayload(mediaId);
+    let rawText: string;
+
+    const bridge = FlowBridgeServer.getInstance();
+    if (bridge.isConnected()) {
+      rawText = await bridge.sendBatchRpc(
+        RPC_MEDIA,
+        innerPayload,
+        undefined,
+        projectId
+      );
+    } else {
+      const data = await this.callFlowRPC(
+        null,
+        RPC_MEDIA,
+        innerPayload,
+        projectId,
+        {
+          needsCaptcha: false,
+          label: `as29s(mediaUrl:${mediaId.slice(0, 8)})`,
+        }
+      );
+      rawText = JSON.stringify(data);
+    }
+
+    console.log('[FlowRpcClient] 🔗 as29s response:', rawText.slice(0, 300));
+    const m = rawText.match(/https:\/\/[^"'\s\\]+/);
+    return m ? m[0] : null;
   }
 
   /**

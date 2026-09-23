@@ -49,33 +49,47 @@ export async function pollAndGetMediaUrl(
     isCancelled
   );
 
-  onProgress?.(92, 'Đang lấy URL media...');
+  onProgress?.(95, 'Đang trích xuất URL video...');
 
-  // Lấy danh sách media trong project
+  let videoUrl: string | undefined = operation.videoUrl;
+  let imageUrl: string | undefined = operation.imageUrl;
+  const targetId = targetMediaId || operation.mediaId;
+
+  // Nếu đã có targetId nhưng chưa có URL hoặc muốn lấy link tươi từ as29s (chuẩn 100% Google Flow)
+  if (targetId && !videoUrl) {
+    try {
+      const directUrl = await client.getMediaUrl(targetId, projectId);
+      if (directUrl) {
+        videoUrl = directUrl;
+        console.log(`[FlowOperationPoller] 🎯 Lấy video URL trực tiếp từ as29s: ${videoUrl.slice(0, 60)}`);
+      }
+    } catch (err: any) {
+      console.warn('[FlowOperationPoller] Gọi as29s thất bại, chuyển sang listProjectMedia:', err.message);
+    }
+  }
+
+  // Lấy danh sách media trong project làm fallback
   let allMedia: MediaUrls[] = [];
-  try {
-    allMedia = await client.listProjectMedia(projectId);
-    console.log(`[FlowOperationPoller] 📋 Project media sau khi done: ${allMedia.length} items`);
-  } catch (err: any) {
-    console.warn('[FlowOperationPoller] Không lấy được project media list:', err.message);
-  }
+  if (!videoUrl) {
+    try {
+      allMedia = await client.listProjectMedia(projectId);
+      console.log(`[FlowOperationPoller] 📋 Project media sau khi done: ${allMedia.length} items`);
+    } catch (err: any) {
+      console.warn('[FlowOperationPoller] Không lấy được project media list:', err.message);
+    }
 
-  // Tìm media khớp với targetMediaId nếu có
-  let videoUrl: string | undefined;
-  let imageUrl: string | undefined;
+    if (targetId) {
+      const target = allMedia.find((m) => m.mediaId === targetId);
+      videoUrl = target?.videoUrl;
+      imageUrl = target?.imageUrl;
+    }
 
-  if (targetMediaId) {
-    const target = allMedia.find((m) => m.mediaId === targetMediaId);
-    videoUrl = target?.videoUrl;
-    imageUrl = target?.imageUrl;
-  }
-
-  // Fallback: lấy media mới nhất có video URL
-  if (!videoUrl && allMedia.length > 0) {
-    const withVideo = allMedia.filter((m) => m.videoUrl);
-    if (withVideo.length > 0) {
-      videoUrl = withVideo[withVideo.length - 1].videoUrl;
-      console.log(`[FlowOperationPoller] ℹ️ Dùng video URL mới nhất trong project: ${videoUrl?.slice(0, 60)}`);
+    if (!videoUrl && allMedia.length > 0) {
+      const withVideo = allMedia.filter((m) => m.videoUrl);
+      if (withVideo.length > 0) {
+        videoUrl = withVideo[withVideo.length - 1].videoUrl;
+        console.log(`[FlowOperationPoller] ℹ️ Dùng video URL mới nhất trong project: ${videoUrl?.slice(0, 60)}`);
+      }
     }
   }
 

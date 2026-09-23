@@ -295,5 +295,15 @@ contextBridge.exposeInMainWorld('debug', {
     ipcRenderer.invoke('debug:prewarm-lobby', projectId),
   bridgeStatus: () =>
     ipcRenderer.invoke('bridge:status'),
+  reloadBridge: () =>
+    ipcRenderer.invoke('bridge:reload'),
+  reloadTab: () =>
+    ipcRenderer.invoke('bridge:reload-tab'),
+  tabEval: (code: string) =>
+    ipcRenderer.invoke('bridge:eval', code),
+  inspectDom: () =>
+    ipcRenderer.invoke('bridge:inspect-dom'),
+  triggerUiGen: (prompt: string) =>
+    ipcRenderer.invoke('bridge:trigger-ui-gen', prompt),
 })
 // ── [END DEBUG] ──────────────────────────────────────────────────────────────
