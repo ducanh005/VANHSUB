@@ -699,6 +699,13 @@ async function runBatchRpc(cmd) {
           }
           try {
             console.log(`[VanhSub:exec] 🔐 Đang mint CAPTCHA token trong MAIN world (action=${captchaAction}, siteKey=${siteKey})...`);
+            try {
+              const x = Math.floor(Math.random() * 300) + 100;
+              const y = Math.floor(Math.random() * 300) + 100;
+              window.dispatchEvent(new MouseEvent('mousemove', { clientX: x, clientY: y, bubbles: true }));
+              window.dispatchEvent(new MouseEvent('mousedown', { clientX: x, clientY: y, bubbles: true }));
+              window.dispatchEvent(new MouseEvent('mouseup', { clientX: x, clientY: y, bubbles: true }));
+            } catch {}
             const token = await window.grecaptcha.enterprise.execute(siteKey, { action: captchaAction });
             if (!token) {
               return { error: 'EMPTY_CAPTCHA_TOKEN: grecaptcha trả về token rỗng' };
@@ -715,44 +722,44 @@ async function runBatchRpc(cmd) {
         const hl = (document.documentElement.lang || navigator.language || 'vi').split('-')[0];
 
         const url =
-          `/_/AiSandboxAngularFrontend/data/batchexecute?rpcids=${encodeURIComponent(rpcid)}` +
+          `https://flow.google.com/_/AiSandboxAngularFrontend/data/batchexecute?rpcids=${encodeURIComponent(rpcid)}` +
           `&source-path=${encodeURIComponent(sourcePath)}` +
           `&bl=${encodeURIComponent(bl || '')}&f.sid=${encodeURIComponent(sid || '')}` +
           `&hl=${encodeURIComponent(hl)}&_reqid=${reqid}&rt=c`;
 
         const body = `f.req=${encodeURIComponent(finalFreq)}&at=${encodeURIComponent(at)}&`;
 
-        // Sử dụng XMLHttpRequest thuần túy — chuẩn 100% theo Google Closure XhrIo của Google Flow
-        // Trình duyệt Chrome sẽ tự động gán cookie session và x-browser metadata hợp lệ mà không bị lỗi bot detection
-        return new Promise((resolve) => {
-          try {
-            const xhr = new XMLHttpRequest();
-            xhr.open('POST', url, true);
-            xhr.withCredentials = true;
-            xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded;charset=UTF-8');
-            xhr.setRequestHeader('X-Same-Domain', '1');
+        // Chuẩn hoá headers khớp 100% với DevTool Chrome thật
+        const headers = {
+          'accept': '*/*',
+          'content-type': 'application/x-www-form-urlencoded;charset=UTF-8',
+          'priority': 'u=1, i',
+          'x-browser-channel': 'stable',
+          'x-browser-copyright': 'Copyright 2026 Google LLC. All Rights Reserved.',
+          'x-browser-year': '2026',
+          'x-same-domain': '1',
+          ...(window.__VANHSUB_HEADERS__ || {}),
+        };
 
-            xhr.onload = function() {
-              resolve({
-                status: xhr.status,
-                ok: xhr.status >= 200 && xhr.status < 300,
-                body: xhr.responseText,
-              });
-            };
-
-            xhr.onerror = function() {
-              resolve({ error: `XHR_NETWORK_ERROR: status=${xhr.status}` });
-            };
-
-            xhr.ontimeout = function() {
-              resolve({ error: 'XHR_TIMEOUT' });
-            };
-
-            xhr.send(body);
-          } catch (xhrErr) {
-            resolve({ error: 'XHR_EXCEPTION: ' + (xhrErr.message || String(xhrErr)) });
-          }
-        });
+        try {
+          console.log(`[VanhSub:exec] 📡 Đang fetch thuần RPC rpcid=${rpcid}...`);
+          const res = await window.fetch(url, {
+            method: 'POST',
+            credentials: 'include',
+            mode: 'cors',
+            referrer: 'https://flow.google.com/',
+            headers,
+            body,
+          });
+          const text = await res.text();
+          return {
+            status: res.status,
+            ok: res.ok,
+            body: text,
+          };
+        } catch (fetchErr) {
+          return { error: 'FETCH_EXCEPTION: ' + (fetchErr.message || String(fetchErr)) };
+        }
       },
     });
 

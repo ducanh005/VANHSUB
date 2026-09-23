@@ -456,7 +456,7 @@ export function buildGenImagePayload(opts: GenImagePayloadOptions): unknown[] {
     taskObjects.push([
       null,
       null,
-      imageInputs.length > 0 ? imageInputs : [],
+      imageInputs.length > 0 ? imageInputs : null,
       seedVal,
       aspectInt,
       modelId,
@@ -464,8 +464,8 @@ export function buildGenImagePayload(opts: GenImagePayloadOptions): unknown[] {
       securityBlock,
       [[[prompt]]],
       editAssetId,
-      [],
-      [],
+      null,
+      null,
       u1,
       u2,
     ]);
@@ -474,7 +474,7 @@ export function buildGenImagePayload(opts: GenImagePayloadOptions): unknown[] {
   return [
     null,
     taskObjects,
-    true, // boolean true from user_step_3456.txt
+    1, // Verified Sept 2026: number 1, not boolean true
     securityBlock,
     [sessionUuid],
   ];
