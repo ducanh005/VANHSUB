@@ -1,4 +1,4 @@
-/**
+﻿/**
  * VanhSub Flow Bridge — background.js (Manifest V3 Service Worker)
  *
  * Kết nối WebSocket tới ứng dụng VanhSub Desktop (ws://127.0.0.1:9222).
@@ -310,7 +310,8 @@ async function handleMessage(msg) {
           cfg = { mode: 'VIDEO', prompt: codeStr.slice('__TRIGGER_GEN__:'.length) };
         }
 
-        const [res] = await chrome.scripting.executeScript({
+        // Phase 1: Mode-switch + type prompt + get button screen coords
+        const [phase1] = await chrome.scripting.executeScript({
           target: { tabId: tab.id },
           world: 'MAIN',
           args: [cfg],
@@ -318,38 +319,23 @@ async function handleMessage(msg) {
             const targetMode = (config.mode || 'IMAGE').toUpperCase();
             const promptText = config.prompt || '';
 
-            // 1. Kiểm tra và chuyển đổi Mode nếu cần
+            // 1a. Chuyen che do neu can
             const trigger = document.querySelector(
-              'button[aria-label*="Điều kiện kích hoạt" i], button.settings-trigger-button, flow-settings-button button'
+              'button[aria-label*="Dieu kien kich hoat" i], button.settings-trigger-button, flow-settings-button button'
             );
             if (trigger) {
               const curText = (trigger.innerText || '').toLowerCase();
-              const isVideo = curText.includes('video') || curText.includes('veo') || curText.includes('giây');
+              const isVideo = curText.includes('video') || curText.includes('veo') || curText.includes('giay');
               const needsSwitch = (targetMode === 'IMAGE' && isVideo) || (targetMode === 'VIDEO' && !isVideo);
-
               if (needsSwitch) {
-                console.log(`[VanhSub:UI] 🔄 Đang chuyển chế độ: hiện tại="${curText.slice(0, 25)}" → mục tiêu=${targetMode}...`);
                 let pane = document.querySelector('.cdk-overlay-pane, flow-settings-popover');
-                if (!pane) {
-                  trigger.click();
-                  await new Promise((r) => setTimeout(r, 700));
-                  pane = document.querySelector('.cdk-overlay-pane, flow-settings-popover');
-                }
-
+                if (!pane) { trigger.click(); await new Promise((r) => setTimeout(r, 700)); pane = document.querySelector('.cdk-overlay-pane, flow-settings-popover'); }
                 const container = document.querySelector('.cdk-overlay-container') || pane;
                 if (container) {
-                  const buttons = Array.from(container.querySelectorAll('mat-button-toggle, button, [role="radio"]'));
-                  const matchKeyword = targetMode === 'IMAGE' ? ['hình ảnh', 'image'] : ['video', 'videocam'];
-                  const targetBtn = buttons.find((b) => {
-                    const t = (b.innerText || '').toLowerCase();
-                    return matchKeyword.some((k) => t.includes(k));
-                  });
-
-                  if (targetBtn) {
-                    const clickTarget = targetBtn.querySelector('button') || targetBtn;
-                    clickTarget.click();
-                    await new Promise((r) => setTimeout(r, 400));
-                  }
+                  const btns = Array.from(container.querySelectorAll('mat-button-toggle, button, [role="radio"]'));
+                  const kw = targetMode === 'IMAGE' ? ['hinh anh', 'image'] : ['video', 'videocam'];
+                  const t = btns.find((b) => kw.some((k) => (b.innerText || '').toLowerCase().includes(k)));
+                  if (t) { (t.querySelector('button') || t).click(); await new Promise((r) => setTimeout(r, 400)); }
                 }
                 const bd = document.querySelector('.cdk-overlay-backdrop');
                 if (bd) bd.click();
@@ -357,157 +343,81 @@ async function handleMessage(msg) {
               }
             }
 
-            // 2. Nhập prompt vào .ProseMirror
+            // 1b. Nhap prompt
             const pm = document.querySelector('.ProseMirror');
             if (!pm) return { ok: false, error: 'NO_PROSEMIRROR' };
-
             pm.focus();
             document.execCommand('selectAll', false, null);
+            document.execCommand('delete', false, null);
+            await new Promise((r) => setTimeout(r, 100));
             document.execCommand('insertText', false, promptText);
-            pm.dispatchEvent(new Event('input', { bubbles: true }));
+            pm.dispatchEvent(new InputEvent('input', { bubbles: true, data: promptText, inputType: 'insertText' }));
+            await new Promise((r) => setTimeout(r, 1000));
 
-            await new Promise((r) => setTimeout(r, 800));
-
-            // 3. Click nút Tạo (Generate) — thử nhiều selector
-            const GEN_SELECTORS = [
-              'button[aria-label*="Bắt đầu tạo" i]',
-              'button[aria-label*="tạo" i]',
-              'button[aria-label*="generate" i]',
-              'button[aria-label*="create" i]',
-              'button[aria-label*="submit" i]',
-              // Flow thường có nút send/generate dạng icon trong composer
-              'button.generate-button',
-              'button.submit-button',
-              'button[data-testid*="generate" i]',
-              'button[data-testid*="create" i]',
-              'button[data-testid*="submit" i]',
-              // Tìm nút có icon send (arrow_forward, send, play_arrow)
-              'button:has(mat-icon)',
-              // Tìm nút cuối cùng trong vùng input (thường là nút gửi)
-              '.prompt-area button:last-of-type',
-              '.composer button:last-of-type',
-              'flow-prompt-input button:last-of-type',
-              '[data-component="generate"] button',
-              '[data-component="prompt"] button',
-            ];
-
-            let btn = null;
-            for (const sel of GEN_SELECTORS) {
-              try {
-                const found = document.querySelector(sel);
-                if (found && !found.disabled) {
-                  btn = found;
-                  console.log(`[VanhSub:UI] ✅ Tìm thấy nút Generate với selector: "${sel}" | text="${btn.innerText?.slice(0,30)}" aria="${btn.getAttribute('aria-label')}"`);
-                  break;
-                }
-              } catch {}
+            // 1c. Tim nut Generate - tra ve toa do man hinh
+            const btn = document.querySelector('button[aria-label*="Bat dau tao" i]')
+              || document.querySelector('button[aria-label*="tao" i]')
+              || document.querySelector('button[aria-label*="generate" i]');
+            if (!btn || btn.disabled) {
+              return { ok: false, error: 'NO_GEN_BUTTON', allButtons: Array.from(document.querySelectorAll('button')).map((b) => ({ aria: b.getAttribute('aria-label'), disabled: b.disabled })) };
             }
-
-            if (!btn) {
-              // Diagnostic: log tất cả buttons hiện có
-              const allBtns = Array.from(document.querySelectorAll('button'))
-                .map((b) => ({
-                  text: b.innerText?.slice(0, 40),
-                  aria: b.getAttribute('aria-label'),
-                  cls: b.className?.slice(0, 60),
-                  disabled: b.disabled,
-                }));
-              return {
-                ok: false,
-                error: 'NO_GEN_BUTTON',
-                allButtons: allBtns,
-              };
-            }
-
-            // Ghi timestamp ngay trước khi click — dùng để filter thay vì index (tránh shift() lệch index)
-            const clickTimestamp = Date.now();
-
-            // Giả lập chuỗi sự kiện chuột đầy đủ như người dùng thật
-            // (Angular Material cần PointerEvent + MouseEvent sequence để trigger handler)
-            btn.focus();
             const rect = btn.getBoundingClientRect();
-            const cx = rect.left + rect.width / 2;
-            const cy = rect.top + rect.height / 2;
-            const evtOpts = { bubbles: true, cancelable: true, view: window, clientX: cx, clientY: cy, button: 0, buttons: 1 };
-            btn.dispatchEvent(new PointerEvent('pointerover', evtOpts));
-            btn.dispatchEvent(new MouseEvent('mouseover', evtOpts));
-            btn.dispatchEvent(new PointerEvent('pointermove', evtOpts));
-            btn.dispatchEvent(new MouseEvent('mousemove', evtOpts));
-            btn.dispatchEvent(new PointerEvent('pointerdown', { ...evtOpts, isPrimary: true }));
-            btn.dispatchEvent(new MouseEvent('mousedown', evtOpts));
-            btn.dispatchEvent(new PointerEvent('pointerup', { ...evtOpts, isPrimary: true }));
-            btn.dispatchEvent(new MouseEvent('mouseup', evtOpts));
-            btn.dispatchEvent(new MouseEvent('click', evtOpts));
-            btn.click(); // fallback native click
-            console.log('[VanhSub:UI] 🖱️ Đã click nút Generate lúc', clickTimestamp);
-
-            // 4. Chờ kết quả RPC hoàn tất — filter theo timestamp, không dùng slice(index)
-            const deadline = clickTimestamp + 75000;
-            while (Date.now() < deadline) {
-              await new Promise((r) => setTimeout(r, 600));
-              // Lấy tất cả entries sau khi click (dùng timestamp)
-              const newHistory = (window.__VANHSUB_SNIFFER__?.history || []).filter(
-                (h) => (h.timestamp || 0) >= clickTimestamp
-              );
-
-              if (targetMode === 'IMAGE') {
-                // Ưu tiên entry có đầy đủ response trước
-                const imgRpc = newHistory.find(
-                  (h) => h.url && h.url.includes('ogiZ0b') && h.status === 200 && h.response
-                );
-                if (imgRpc) {
-                  console.log('[VanhSub:UI] ✅ Tìm thấy ogiZ0b response!');
-                  return {
-                    ok: true,
-                    mode: 'IMAGE',
-                    rpcid: 'ogiZ0b',
-                    url: imgRpc.url,
-                    response: imgRpc.response,
-                  };
-                }
-                // Log nếu có ogiZ0b nhưng chưa có response
-                const pending = newHistory.find((h) => h.url && h.url.includes('ogiZ0b'));
-                if (pending) {
-                  console.log('[VanhSub:UI] ⏳ ogiZ0b detected, chờ response... status=', pending.status, 'hasResp=', !!pending.response);
-                }
-              } else {
-                // VIDEO: chờ as29s trả về link video CDN cuối cùng
-                const as29sRpc = newHistory.find(
-                  (h) => h.url && h.url.includes('as29s') && h.status === 200 && h.response
-                );
-                if (as29sRpc) {
-                  console.log('[VanhSub:UI] ✅ Tìm thấy as29s response!');
-                  return {
-                    ok: true,
-                    mode: 'VIDEO',
-                    rpcid: 'as29s',
-                    url: as29sRpc.url,
-                    response: as29sRpc.response,
-                  };
-                }
-              }
-            }
-
-            // Timeout — trả về diagnostic
-            const diagHistory = (window.__VANHSUB_SNIFFER__?.history || []).filter(
-              (h) => (h.timestamp || 0) >= clickTimestamp
-            );
-            return {
-              ok: false,
-              error: 'TIMEOUT_WAITING_RESULT',
-              targetMode,
-              recentRpc: diagHistory.map((h) => ({
-                url: h.url?.match(/rpcids=([^&]+)/)?.[1] || h.url?.slice(-60),
-                status: h.status,
-                hasResponse: !!h.response,
-              })),
-            };
+            const cx = Math.round(rect.left + rect.width / 2);
+            const cy = Math.round(rect.top + rect.height / 2);
+            console.log('[VanhSub:UI] Generate btn at (' + cx + ',' + cy + ') mode=' + targetMode);
+            return { ok: true, cx, cy, targetMode };
           },
         });
-        send({ id, result: res?.result });
+
+        const p1 = phase1?.result;
+        if (!p1?.ok) {
+          if (p1?.allButtons) console.error('[VanhSub] NO_GEN_BUTTON:', JSON.stringify(p1.allButtons));
+          send({ id, result: p1 || { ok: false, error: 'PHASE1_FAILED' } });
+          return;
+        }
+
+        // Phase 2: CDP trusted click (isTrusted=true)
+        const clickTimestamp = Date.now();
+        try { await chrome.debugger.attach({ tabId: tab.id }, '1.3'); } catch {}
+        try {
+          await chrome.debugger.sendCommand({ tabId: tab.id }, 'Input.dispatchMouseEvent', { type: 'mousePressed', x: p1.cx, y: p1.cy, button: 'left', clickCount: 1, modifiers: 0 });
+          await new Promise((r) => setTimeout(r, 80));
+          await chrome.debugger.sendCommand({ tabId: tab.id }, 'Input.dispatchMouseEvent', { type: 'mouseReleased', x: p1.cx, y: p1.cy, button: 'left', clickCount: 1, modifiers: 0 });
+          console.log('[VanhSub] CDP trusted click at (' + p1.cx + ',' + p1.cy + ') ts=' + clickTimestamp);
+        } catch (e) {
+          try { await chrome.debugger.detach({ tabId: tab.id }); } catch {}
+          send({ id, result: { ok: false, error: 'CDP_CLICK_FAILED: ' + (e && e.message) } });
+          return;
+        }
+        try { await chrome.debugger.detach({ tabId: tab.id }); } catch {}
+
+        // Phase 3: Poll sniffer for RPC result
+        const [phase3] = await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          world: 'MAIN',
+          args: [{ targetMode: p1.targetMode, clickTimestamp }],
+          func: async (ctx) => {
+            const deadline = ctx.clickTimestamp + 120000;
+            while (Date.now() < deadline) {
+              await new Promise((r) => setTimeout(r, 800));
+              const hist = (window.__VANHSUB_SNIFFER__?.history || []).filter((h) => (h.timestamp || 0) >= ctx.clickTimestamp);
+              if (ctx.targetMode === 'IMAGE') {
+                const hit = hist.find((h) => h.url && h.url.includes('ogiZ0b') && h.status === 200 && h.response);
+                if (hit) { console.log('[VanhSub] ogiZ0b captured!'); return { ok: true, mode: 'IMAGE', rpcid: 'ogiZ0b', url: hit.url, response: hit.response }; }
+                const pend = hist.find((h) => h.url && h.url.includes('ogiZ0b'));
+                if (pend) console.log('[VanhSub] ogiZ0b pending status=' + pend.status + ' hasResp=' + !!pend.response);
+              } else {
+                const hit = hist.find((h) => h.url && h.url.includes('as29s') && h.status === 200 && h.response);
+                if (hit) { console.log('[VanhSub] as29s captured!'); return { ok: true, mode: 'VIDEO', rpcid: 'as29s', url: hit.url, response: hit.response }; }
+              }
+            }
+            const d = (window.__VANHSUB_SNIFFER__?.history || []).filter((h) => (h.timestamp || 0) >= ctx.clickTimestamp);
+            return { ok: false, error: 'TIMEOUT_WAITING_RESULT', targetMode: ctx.targetMode, recentRpc: d.map((h) => ({ rpcid: h.url && h.url.match(/rpcids=([^&]+)/) && h.url.match(/rpcids=([^&]+)/)[1], status: h.status, hasResp: !!h.response })) };
+          },
+        });
+        send({ id, result: phase3?.result });
         return;
       }
-
       const [res] = await chrome.scripting.executeScript({
         target: { tabId: tab.id },
         world: 'MAIN',
