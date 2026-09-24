@@ -735,6 +735,9 @@ export class FlowRpcClient {
       const cfg = JSON.stringify({ mode: 'IMAGE', prompt: opts.prompt });
       const result = await bridge.tabEval('__TRIGGER_GEN__:' + cfg, 75000);
       if (!result?.ok) {
+        if (result?.allButtons) {
+          console.error('[FlowRpcClient] NO_GEN_BUTTON — Các buttons trong tab:', JSON.stringify(result.allButtons));
+        }
         throw new Error(`[FlowRpcClient] UI gen (IMAGE) lỗi: ${result?.error || JSON.stringify(result)}`);
       }
       // result.response là raw batchexecute response text của ogiZ0b từ sniffer
