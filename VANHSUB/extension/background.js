@@ -419,20 +419,27 @@ async function handleMessage(msg) {
               };
             }
 
-            const prevHistoryCount = (window.__VANHSUB_SNIFFER__?.history || []).length;
+            // Ghi timestamp ngay trước khi click — dùng để filter thay vì index (tránh shift() lệch index)
+            const clickTimestamp = Date.now();
             btn.click();
+            console.log('[VanhSub:UI] 🖱️ Đã click nút Generate lúc', clickTimestamp);
 
-            // 4. Chờ kết quả RPC hoàn tất
-            const start = Date.now();
-            while (Date.now() - start < 70000) {
-              await new Promise((r) => setTimeout(r, 800));
-              const newHistory = (window.__VANHSUB_SNIFFER__?.history || []).slice(prevHistoryCount);
+            // 4. Chờ kết quả RPC hoàn tất — filter theo timestamp, không dùng slice(index)
+            const deadline = clickTimestamp + 75000;
+            while (Date.now() < deadline) {
+              await new Promise((r) => setTimeout(r, 600));
+              // Lấy tất cả entries sau khi click (dùng timestamp)
+              const newHistory = (window.__VANHSUB_SNIFFER__?.history || []).filter(
+                (h) => (h.timestamp || 0) >= clickTimestamp
+              );
 
               if (targetMode === 'IMAGE') {
+                // Ưu tiên entry có đầy đủ response trước
                 const imgRpc = newHistory.find(
                   (h) => h.url && h.url.includes('ogiZ0b') && h.status === 200 && h.response
                 );
                 if (imgRpc) {
+                  console.log('[VanhSub:UI] ✅ Tìm thấy ogiZ0b response!');
                   return {
                     ok: true,
                     mode: 'IMAGE',
@@ -441,12 +448,18 @@ async function handleMessage(msg) {
                     response: imgRpc.response,
                   };
                 }
+                // Log nếu có ogiZ0b nhưng chưa có response
+                const pending = newHistory.find((h) => h.url && h.url.includes('ogiZ0b'));
+                if (pending) {
+                  console.log('[VanhSub:UI] ⏳ ogiZ0b detected, chờ response... status=', pending.status, 'hasResp=', !!pending.response);
+                }
               } else {
-                // VIDEO: chờ as29s trả về link video cdn cuối cùng
+                // VIDEO: chờ as29s trả về link video CDN cuối cùng
                 const as29sRpc = newHistory.find(
                   (h) => h.url && h.url.includes('as29s') && h.status === 200 && h.response
                 );
                 if (as29sRpc) {
+                  console.log('[VanhSub:UI] ✅ Tìm thấy as29s response!');
                   return {
                     ok: true,
                     mode: 'VIDEO',
@@ -458,12 +471,16 @@ async function handleMessage(msg) {
               }
             }
 
+            // Timeout — trả về diagnostic
+            const diagHistory = (window.__VANHSUB_SNIFFER__?.history || []).filter(
+              (h) => (h.timestamp || 0) >= clickTimestamp
+            );
             return {
               ok: false,
               error: 'TIMEOUT_WAITING_RESULT',
               targetMode,
-              recentRpc: (window.__VANHSUB_SNIFFER__?.history || []).slice(prevHistoryCount).map((h) => ({
-                url: h.url,
+              recentRpc: diagHistory.map((h) => ({
+                url: h.url?.match(/rpcids=([^&]+)/)?.[1] || h.url?.slice(-60),
                 status: h.status,
                 hasResponse: !!h.response,
               })),

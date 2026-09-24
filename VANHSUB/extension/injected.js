@@ -107,7 +107,7 @@ try {
       console.log('[VanhSub:sniffer:fetch] 📡 batchexecute detected:', url.slice(0, 100));
       const entry = { type: 'fetch', url, body, timestamp: Date.now() };
       window.__VANHSUB_SNIFFER__.history.push(entry);
-      if (window.__VANHSUB_SNIFFER__.history.length > 30) window.__VANHSUB_SNIFFER__.history.shift();
+      if (window.__VANHSUB_SNIFFER__.history.length > 100) window.__VANHSUB_SNIFFER__.history.shift();
       const res = await originalFetch.apply(this, args);
       try {
         const cloned = res.clone();
@@ -153,7 +153,7 @@ try {
         timestamp: Date.now()
       };
       window.__VANHSUB_SNIFFER__.history.push(entry);
-      if (window.__VANHSUB_SNIFFER__.history.length > 30) window.__VANHSUB_SNIFFER__.history.shift();
+      if (window.__VANHSUB_SNIFFER__.history.length > 100) window.__VANHSUB_SNIFFER__.history.shift();
       this.addEventListener('load', function() {
         try {
           entry.status = this.status;
