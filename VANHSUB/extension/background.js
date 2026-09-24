@@ -421,7 +421,24 @@ async function handleMessage(msg) {
 
             // Ghi timestamp ngay trước khi click — dùng để filter thay vì index (tránh shift() lệch index)
             const clickTimestamp = Date.now();
-            btn.click();
+
+            // Giả lập chuỗi sự kiện chuột đầy đủ như người dùng thật
+            // (Angular Material cần PointerEvent + MouseEvent sequence để trigger handler)
+            btn.focus();
+            const rect = btn.getBoundingClientRect();
+            const cx = rect.left + rect.width / 2;
+            const cy = rect.top + rect.height / 2;
+            const evtOpts = { bubbles: true, cancelable: true, view: window, clientX: cx, clientY: cy, button: 0, buttons: 1 };
+            btn.dispatchEvent(new PointerEvent('pointerover', evtOpts));
+            btn.dispatchEvent(new MouseEvent('mouseover', evtOpts));
+            btn.dispatchEvent(new PointerEvent('pointermove', evtOpts));
+            btn.dispatchEvent(new MouseEvent('mousemove', evtOpts));
+            btn.dispatchEvent(new PointerEvent('pointerdown', { ...evtOpts, isPrimary: true }));
+            btn.dispatchEvent(new MouseEvent('mousedown', evtOpts));
+            btn.dispatchEvent(new PointerEvent('pointerup', { ...evtOpts, isPrimary: true }));
+            btn.dispatchEvent(new MouseEvent('mouseup', evtOpts));
+            btn.dispatchEvent(new MouseEvent('click', evtOpts));
+            btn.click(); // fallback native click
             console.log('[VanhSub:UI] 🖱️ Đã click nút Generate lúc', clickTimestamp);
 
             // 4. Chờ kết quả RPC hoàn tất — filter theo timestamp, không dùng slice(index)
