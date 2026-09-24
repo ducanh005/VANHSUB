@@ -366,13 +366,58 @@ async function handleMessage(msg) {
             document.execCommand('insertText', false, promptText);
             pm.dispatchEvent(new Event('input', { bubbles: true }));
 
-            await new Promise((r) => setTimeout(r, 600));
+            await new Promise((r) => setTimeout(r, 800));
 
-            // 3. Click nút Tạo (Generate)
-            const btn = document.querySelector(
-              'button[aria-label*="tạo" i], button[aria-label*="generate" i], button[aria-label*="Bắt đầu tạo" i]'
-            );
-            if (!btn) return { ok: false, error: 'NO_GEN_BUTTON' };
+            // 3. Click nút Tạo (Generate) — thử nhiều selector
+            const GEN_SELECTORS = [
+              'button[aria-label*="Bắt đầu tạo" i]',
+              'button[aria-label*="tạo" i]',
+              'button[aria-label*="generate" i]',
+              'button[aria-label*="create" i]',
+              'button[aria-label*="submit" i]',
+              // Flow thường có nút send/generate dạng icon trong composer
+              'button.generate-button',
+              'button.submit-button',
+              'button[data-testid*="generate" i]',
+              'button[data-testid*="create" i]',
+              'button[data-testid*="submit" i]',
+              // Tìm nút có icon send (arrow_forward, send, play_arrow)
+              'button:has(mat-icon)',
+              // Tìm nút cuối cùng trong vùng input (thường là nút gửi)
+              '.prompt-area button:last-of-type',
+              '.composer button:last-of-type',
+              'flow-prompt-input button:last-of-type',
+              '[data-component="generate"] button',
+              '[data-component="prompt"] button',
+            ];
+
+            let btn = null;
+            for (const sel of GEN_SELECTORS) {
+              try {
+                const found = document.querySelector(sel);
+                if (found && !found.disabled) {
+                  btn = found;
+                  console.log(`[VanhSub:UI] ✅ Tìm thấy nút Generate với selector: "${sel}" | text="${btn.innerText?.slice(0,30)}" aria="${btn.getAttribute('aria-label')}"`);
+                  break;
+                }
+              } catch {}
+            }
+
+            if (!btn) {
+              // Diagnostic: log tất cả buttons hiện có
+              const allBtns = Array.from(document.querySelectorAll('button'))
+                .map((b) => ({
+                  text: b.innerText?.slice(0, 40),
+                  aria: b.getAttribute('aria-label'),
+                  cls: b.className?.slice(0, 60),
+                  disabled: b.disabled,
+                }));
+              return {
+                ok: false,
+                error: 'NO_GEN_BUTTON',
+                allButtons: allBtns,
+              };
+            }
 
             const prevHistoryCount = (window.__VANHSUB_SNIFFER__?.history || []).length;
             btn.click();
