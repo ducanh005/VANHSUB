@@ -107,6 +107,9 @@ const vanhsub = {
     hideLobbyOffscreen: () => ipcRenderer.invoke('veo:hide-lobby-offscreen'),
     isLobbyDebug: () => ipcRenderer.invoke('veo:is-lobby-debug'),
     bridgeStatus: () => ipcRenderer.invoke('bridge:status'),
+    openChrome: (url?: string) => ipcRenderer.invoke('bridge:open-chrome', url),
+    openExtensionFolder: () => ipcRenderer.invoke('bridge:open-extension-folder'),
+    openChromeExtensionsPage: () => ipcRenderer.invoke('bridge:open-chrome-extensions-page'),
   },
   models: {
     list: () => ipcRenderer.invoke('models:list'),

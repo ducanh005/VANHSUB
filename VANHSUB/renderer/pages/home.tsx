@@ -41,6 +41,7 @@ import TerminalPanel from '../components/TerminalPanel';
 import OnboardingModal from '../components/OnboardingModal';
 import { DownloadModal } from '../components/download/DownloadModal';
 import AiStudioWorkspace from '../components/ai-studio/AiStudioWorkspace';
+import ChromeBridgeModal from '../components/ai-studio/ChromeBridgeModal';
 
 const WorkflowCanvas = dynamic(
   () => import('../components/workflow/WorkflowCanvas'),
@@ -100,6 +101,52 @@ export default function HomePage() {
   // Popup hướng dẫn người dùng mới: hiện lần đầu mở app, mở lại được bằng nút (?)
   const [showGuide, setShowGuide] = useState(false);
   const [guideReady, setGuideReady] = useState(false);
+  const [isFlowLobbyOpen, setIsFlowLobbyOpen] = useState(false);
+  const [isChromeBridgeConnected, setIsChromeBridgeConnected] = useState(false);
+  const [isChromeBridgeModalOpen, setIsChromeBridgeModalOpen] = useState(false);
+
+  const checkChromeBridge = useCallback(async () => {
+    if (typeof window !== 'undefined' && (window as any).vanhsub?.veo?.bridgeStatus) {
+      try {
+        const res = await (window as any).vanhsub.veo.bridgeStatus();
+        setIsChromeBridgeConnected(Boolean(res?.connected));
+      } catch {}
+    }
+  }, []);
+
+  // Kiểm tra trạng thái sảnh và Chrome bridge
+  useEffect(() => {
+    if (typeof window !== 'undefined' && (window as any).vanhsub?.veo?.isLobbyDebug) {
+      (window as any).vanhsub.veo
+        .isLobbyDebug()
+        .then((open: boolean) => setIsFlowLobbyOpen(!!open))
+        .catch(() => {});
+    }
+    checkChromeBridge();
+    const interval = setInterval(checkChromeBridge, 3000);
+    return () => clearInterval(interval);
+  }, [checkChromeBridge]);
+
+  const handleToggleFlowLobby = async () => {
+    try {
+      if (isFlowLobbyOpen) {
+        if ((window as any).vanhsub?.veo?.hideLobbyOffscreen) {
+          await (window as any).vanhsub.veo.hideLobbyOffscreen();
+          setIsFlowLobbyOpen(false);
+        }
+      } else {
+        if ((window as any).vanhsub?.veo?.showLobbyDebug) {
+          await (window as any).vanhsub.veo.showLobbyDebug();
+          setIsFlowLobbyOpen(true);
+        } else if ((window as any).vanhsub?.veo?.openLobby) {
+          await (window as any).vanhsub.veo.openLobby();
+          setIsFlowLobbyOpen(true);
+        }
+      }
+    } catch (err) {
+      console.error('Lỗi khi bật/tắt sảnh Google Flow:', err);
+    }
+  };
 
   const handleCloseGuide = (dontShowAgain: boolean) => {
     setShowGuide(false);
@@ -591,6 +638,40 @@ export default function HomePage() {
 
               {/* Header Right Actions */}
               <div className="flex items-center gap-3">
+                {/* Nút Chrome Flow Bridge (Khuyên Dùng) */}
+                <button
+                  type="button"
+                  onClick={() => setIsChromeBridgeModalOpen(true)}
+                  className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold transition cursor-pointer shadow-sm ${
+                    isChromeBridgeConnected
+                      ? 'border-emerald-500/50 bg-emerald-950/40 text-emerald-400 hover:bg-emerald-900/50'
+                      : 'border-blue-500/40 bg-blue-950/30 text-blue-400 hover:border-blue-500/70 hover:bg-blue-900/40 hover:text-blue-300'
+                  }`}
+                  title={
+                    isChromeBridgeConnected
+                      ? 'Chrome Extension đang kết nối! Mọi tác vụ sinh media sẽ xử lý qua tab Chrome thật.'
+                      : 'Bấm để mở Google Chrome hoặc xem hướng dẫn nạp Extension 30s để tránh 100% lỗi reCAPTCHA.'
+                  }
+                >
+                  <span className={`h-2 w-2 rounded-full ${isChromeBridgeConnected ? 'bg-emerald-400 animate-pulse' : 'bg-blue-400'}`} />
+                  <span>{isChromeBridgeConnected ? 'Chrome: ĐÃ KẾT NỐI' : '🌐 Kết Nối Chrome (Khuyên Dùng)'}</span>
+                </button>
+
+                {/* Nút Mở Sảnh Google Flow */}
+                <button
+                  type="button"
+                  onClick={handleToggleFlowLobby}
+                  className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold transition cursor-pointer shadow-sm ${
+                    isFlowLobbyOpen
+                      ? 'border-amber-500/50 bg-amber-500/20 text-amber-300 hover:bg-amber-500/30'
+                      : 'border-slate-800 bg-[#0F1626] text-slate-300 hover:border-slate-700 hover:text-white'
+                  }`}
+                  title="Mở hoặc ẩn cửa sổ Sảnh Google Flow trên màn hình để kiểm tra session nội bộ"
+                >
+                  <span className={`h-2 w-2 rounded-full ${isFlowLobbyOpen ? 'bg-amber-400' : 'bg-slate-500'}`} />
+                  <span>{isFlowLobbyOpen ? 'Ẩn Sảnh Flow' : 'Sảnh Electron'}</span>
+                </button>
+
                 <button
                   type="button"
                   onClick={() => setShowGuide(true)}
@@ -997,6 +1078,13 @@ export default function HomePage() {
                 setSelectedTaskId(task.id);
               }
             }}
+          />
+          {/* Modal kết nối Chrome Extension Bridge */}
+          <ChromeBridgeModal
+            isOpen={isChromeBridgeModalOpen}
+            onClose={() => setIsChromeBridgeModalOpen(false)}
+            isConnected={isChromeBridgeConnected}
+            onRefresh={checkChromeBridge}
           />
         </main>
       </div>

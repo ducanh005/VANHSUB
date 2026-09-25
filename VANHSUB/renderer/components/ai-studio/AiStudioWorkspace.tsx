@@ -4,6 +4,7 @@ import AutoPilotView from './AutoPilotView';
 import AiStudioSettingsTab from './AiStudioSettingsTab';
 import ProjectSetupScreen from './ProjectSetupScreen';
 import ChannelConfigModal from './ChannelConfigModal';
+import ChromeBridgeModal from './ChromeBridgeModal';
 import { useAiStudioStore } from '../../lib/store/aiStudioStore';
 
 export type AiStudioMode = 'auto' | 'settings';
@@ -12,7 +13,53 @@ export default function AiStudioWorkspace() {
   const [activeMode, setActiveMode] = useState<AiStudioMode>('auto');
   const [isChannelModalOpen, setIsChannelModalOpen] = useState<boolean>(false);
   const [isProjectDropdownOpen, setIsProjectDropdownOpen] = useState<boolean>(false);
+  const [isFlowLobbyOpen, setIsFlowLobbyOpen] = useState<boolean>(false);
+  const [isChromeBridgeConnected, setIsChromeBridgeConnected] = useState<boolean>(false);
+  const [isChromeBridgeModalOpen, setIsChromeBridgeModalOpen] = useState<boolean>(false);
   const dropdownRef = useRef<HTMLDivElement | null>(null);
+
+  const checkChromeBridge = React.useCallback(async () => {
+    if (typeof window !== 'undefined' && (window as any).vanhsub?.veo?.bridgeStatus) {
+      try {
+        const res = await (window as any).vanhsub.veo.bridgeStatus();
+        setIsChromeBridgeConnected(Boolean(res?.connected));
+      } catch {}
+    }
+  }, []);
+
+  // Kiểm tra trạng thái sảnh và Chrome bridge
+  useEffect(() => {
+    if (typeof window !== 'undefined' && (window as any).vanhsub?.veo?.isLobbyDebug) {
+      (window as any).vanhsub.veo
+        .isLobbyDebug()
+        .then((open: boolean) => setIsFlowLobbyOpen(!!open))
+        .catch(() => {});
+    }
+    checkChromeBridge();
+    const interval = setInterval(checkChromeBridge, 3000);
+    return () => clearInterval(interval);
+  }, [checkChromeBridge]);
+
+  const handleToggleFlowLobby = async () => {
+    try {
+      if (isFlowLobbyOpen) {
+        if ((window as any).vanhsub?.veo?.hideLobbyOffscreen) {
+          await (window as any).vanhsub.veo.hideLobbyOffscreen();
+          setIsFlowLobbyOpen(false);
+        }
+      } else {
+        if ((window as any).vanhsub?.veo?.showLobbyDebug) {
+          await (window as any).vanhsub.veo.showLobbyDebug();
+          setIsFlowLobbyOpen(true);
+        } else if ((window as any).vanhsub?.veo?.openLobby) {
+          await (window as any).vanhsub.veo.openLobby();
+          setIsFlowLobbyOpen(true);
+        }
+      }
+    } catch (err) {
+      console.error('Lỗi khi bật/tắt sảnh Google Flow:', err);
+    }
+  };
 
   const {
     config,
@@ -146,34 +193,71 @@ export default function AiStudioWorkspace() {
           </div>
         )}
 
-        {/* Mode Switcher Buttons */}
-        <div className="flex items-center rounded-2xl border border-slate-800 bg-slate-950/80 p-1">
+        {/* Right Action Group */}
+        <div className="flex items-center gap-2.5">
+          {/* Nút Chrome Flow Bridge (Khuyên Dùng) */}
           <button
             type="button"
-            onClick={() => setActiveMode('auto')}
-            className={`flex items-center gap-2 rounded-xl px-4 py-1.5 text-xs font-semibold transition cursor-pointer ${
-              activeMode === 'auto'
-                ? 'bg-gradient-to-r from-brand-cyan to-brand-indigo text-white shadow-md'
-                : 'text-slate-400 hover:text-white'
+            onClick={() => setIsChromeBridgeModalOpen(true)}
+            className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold transition cursor-pointer shadow-sm ${
+              isChromeBridgeConnected
+                ? 'border-emerald-500/50 bg-emerald-950/40 text-emerald-400 hover:bg-emerald-900/50'
+                : 'border-blue-500/40 bg-blue-950/30 text-blue-400 hover:border-blue-500/70 hover:bg-blue-900/40 hover:text-blue-300'
             }`}
+            title={
+              isChromeBridgeConnected
+                ? 'Chrome Extension đang kết nối! Mọi tác vụ sinh media sẽ xử lý qua tab Chrome thật.'
+                : 'Bấm để mở Google Chrome hoặc xem hướng dẫn nạp Extension 30s để tránh 100% lỗi reCAPTCHA.'
+            }
           >
-            <Play className="h-3.5 w-3.5 fill-current" />
-            <span>AI Tự Sản Xuất (Auto)</span>
+            <span className={`h-2 w-2 rounded-full ${isChromeBridgeConnected ? 'bg-emerald-400 animate-pulse' : 'bg-blue-400'}`} />
+            <span>{isChromeBridgeConnected ? 'Chrome: ĐÃ KẾT NỐI' : '🌐 Kết Nối Chrome (Khuyên Dùng)'}</span>
           </button>
 
+          {/* Nút Mở Sảnh Google Flow */}
           <button
             type="button"
-            onClick={() => setActiveMode('settings')}
-            className={`flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-medium transition cursor-pointer ${
-              activeMode === 'settings'
-                ? 'bg-slate-800 text-white'
-                : 'text-slate-400 hover:text-white'
+            onClick={handleToggleFlowLobby}
+            className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold transition cursor-pointer shadow-sm ${
+              isFlowLobbyOpen
+                ? 'border-amber-500/50 bg-amber-500/20 text-amber-300 hover:bg-amber-500/30'
+                : 'border-slate-800 bg-[#0F1626] text-slate-300 hover:border-slate-700 hover:text-white'
             }`}
-            title="Cấu hình AI Studio"
+            title="Mở hoặc ẩn cửa sổ Sảnh Google Flow trên màn hình để kiểm tra session nội bộ"
           >
-            <Settings className="h-3.5 w-3.5" />
-            <span>Cấu hình</span>
+            <span className={`h-2 w-2 rounded-full ${isFlowLobbyOpen ? 'bg-amber-400' : 'bg-slate-500'}`} />
+            <span>{isFlowLobbyOpen ? 'Ẩn Sảnh Flow' : 'Sảnh Electron'}</span>
           </button>
+
+          {/* Mode Switcher Buttons */}
+          <div className="flex items-center rounded-2xl border border-slate-800 bg-slate-950/80 p-1">
+            <button
+              type="button"
+              onClick={() => setActiveMode('auto')}
+              className={`flex items-center gap-2 rounded-xl px-4 py-1.5 text-xs font-semibold transition cursor-pointer ${
+                activeMode === 'auto'
+                  ? 'bg-gradient-to-r from-brand-cyan to-brand-indigo text-white shadow-md'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <Play className="h-3.5 w-3.5 fill-current" />
+              <span>AI Tự Sản Xuất (Auto)</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveMode('settings')}
+              className={`flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-medium transition cursor-pointer ${
+                activeMode === 'settings'
+                  ? 'bg-slate-800 text-white'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+              title="Cấu hình AI Studio"
+            >
+              <Settings className="h-3.5 w-3.5" />
+              <span>Cấu hình</span>
+            </button>
+          </div>
         </div>
       </header>
 
@@ -209,6 +293,14 @@ export default function AiStudioWorkspace() {
       <ChannelConfigModal
         isOpen={isChannelModalOpen}
         onClose={() => setIsChannelModalOpen(false)}
+      />
+
+      {/* Modal kết nối Chrome Extension Bridge */}
+      <ChromeBridgeModal
+        isOpen={isChromeBridgeModalOpen}
+        onClose={() => setIsChromeBridgeModalOpen(false)}
+        isConnected={isChromeBridgeConnected}
+        onRefresh={checkChromeBridge}
       />
     </div>
   );

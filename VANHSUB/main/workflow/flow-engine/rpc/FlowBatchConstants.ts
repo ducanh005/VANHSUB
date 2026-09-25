@@ -97,6 +97,9 @@ export const IMG_ASPECT_BY_NAME: Record<string, number> = {
   '16:9': IMG_ASPECT_LANDSCAPE,
   '3:4': IMG_ASPECT_PORTRAIT_4_3,
   '4:3': IMG_ASPECT_LANDSCAPE_4_3,
+  square: IMG_ASPECT_SQUARE,
+  portrait: IMG_ASPECT_PORTRAIT,
+  landscape: IMG_ASPECT_LANDSCAPE,
 };
 
 // ── Video Aspect Ratios ───────────────────────────────────────────────────────
@@ -113,6 +116,10 @@ export const VID_ASPECT_BY_NAME: Record<string, number> = {
   VIDEO_ASPECT_RATIO_LANDSCAPE: VID_ASPECT_LANDSCAPE,
   '9:16': VID_ASPECT_PORTRAIT,
   '16:9': VID_ASPECT_LANDSCAPE,
+  portrait: VID_ASPECT_PORTRAIT,
+  landscape: VID_ASPECT_LANDSCAPE,
+  PORTRAIT: VID_ASPECT_PORTRAIT,
+  LANDSCAPE: VID_ASPECT_LANDSCAPE,
 };
 
 // ── Image Model Wire IDs ──────────────────────────────────────────────────────
@@ -251,6 +258,9 @@ export const BODY_CAPTCHA_FIELD = 'at';
 
 /** Placeholder token cho reCAPTCHA khi gửi qua Chrome Extension Bridge */
 export const CAPTCHA_SLOT = '__CAPTCHA__';
+
+/** Placeholder projectId khi gửi qua Chrome Extension Bridge để Extension tự động inject project thật của tab Chrome */
+export const PROJECT_ID_SLOT = '__PROJECT_ID_SLOT__';
 
 /** Port WebSocket Server của Electron lắng nghe kết nối từ Chrome Extension */
 export const BRIDGE_WS_PORT = 9222;

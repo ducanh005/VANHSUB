@@ -1655,6 +1655,51 @@ ipcMain.handle('bridge:trigger-ui-gen', async (_event, prompt: string) => {
   }
 });
 
+ipcMain.handle('bridge:open-chrome', async (_event, url = 'https://flow.google.com/') => {
+  const { shell } = require('electron');
+  const { exec } = require('child_process');
+  try {
+    const chromePaths = [
+      'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+      'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+      path.join(process.env.LOCALAPPDATA || '', 'Google\\Chrome\\Application\\chrome.exe'),
+    ];
+    const foundPath = chromePaths.find((p) => p && fs.existsSync(p));
+    if (foundPath) {
+      exec(`"${foundPath}" "${url}"`);
+      return { ok: true, launchedPath: foundPath };
+    }
+    await shell.openExternal(url);
+    return { ok: true, fallback: true };
+  } catch (err: any) {
+    return { ok: false, error: err?.message || String(err) };
+  }
+});
+
+ipcMain.handle('bridge:open-extension-folder', async () => {
+  const { shell } = require('electron');
+  try {
+    const extDir = path.resolve(process.cwd(), 'extension');
+    if (fs.existsSync(extDir)) {
+      await shell.openPath(extDir);
+      return { ok: true, path: extDir };
+    }
+    return { ok: false, error: `Thư mục extension không tồn tại: ${extDir}` };
+  } catch (err: any) {
+    return { ok: false, error: err?.message || String(err) };
+  }
+});
+
+ipcMain.handle('bridge:open-chrome-extensions-page', async () => {
+  const { exec } = require('child_process');
+  try {
+    exec('start chrome chrome://extensions/');
+    return { ok: true };
+  } catch (err: any) {
+    return { ok: false, error: err?.message || String(err) };
+  }
+});
+
 // ── [END DEBUG] ──────────────────────────────────────────────────────────────
 
 ipcMain.on('message', async (event, arg) => {

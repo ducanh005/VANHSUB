@@ -1,7 +1,7 @@
-# BRIEFING — 2026-09-21T16:07:56Z
+# BRIEFING — 2026-09-25T05:53:00Z
 
 ## Mission
-Khắc phục triệt để 4 vấn đề cốt lõi trong phân hệ AI Video Studio của Vanhsub: (1) Ngăn chặn hoàn toàn việc cửa sổ Google Flow cướp focus ở chế độ offscreen; (2) Tối ưu hóa Storyboard: tự động gom cụm câu thoại chung ngữ cảnh vào 1 shot (4-10s); (3) Sửa dứt điểm lỗi lệch phân cảnh khi gán reference images; (4) Xây dựng cơ chế cô lập lỗi và fallback an toàn chống sập dây chuyền khi Flow gặp sự cố.
+Chuẩn hóa toàn diện module Chrome Extension Bridge của VanhSub theo chuẩn mã nguồn mở `crisng95/flowkit` để giải quyết dứt điểm lỗi `PUBLIC_ERROR_UNUSUAL_ACTIVITY` (reCAPTCHA bot flag) khi gọi Web RPC lên Google Flow backend (`flow.google.com`).
 
 ## 🔒 My Identity
 - Archetype: sentinel
@@ -14,8 +14,21 @@ Khắc phục triệt để 4 vấn đề cốt lõi trong phân hệ AI Video S
 - Orchestrator 5: cff1b883-a490-484a-9ce3-a7243b4a3ebf (retired)
 - Victory Auditor 1: 25c05823-5ab4-487d-bee0-f51fcf684b0c (retired)
 - Orchestrator 6: 69cadcf9-da63-48fe-8147-e643dc3d7c4e (server restart)
-- Active Orchestrator: 2c251f15-7b27-4e6f-852b-1823f9457b37 (orchestrator_7)
-- Victory Auditor: [to be spawned on victory claim]
+- Active Orchestrator: 3cee2b70-5c68-442b-95ef-2dda337bc0a3 (swe_1) (retired)
+- Cron 1: 59b0d0d2-11d5-4288-b2d4-80faf970cfcb/task-28
+- Cron 2: 59b0d0d2-11d5-4288-b2d4-80faf970cfcb/task-30
+- Rescheduled Cron 1: 59b0d0d2-11d5-4288-b2d4-80faf970cfcb/task-127
+- Rescheduled Cron 2: 59b0d0d2-11d5-4288-b2d4-80faf970cfcb/task-129
+- Victory Auditor 2: 167f0740-acbe-4327-a894-d71938826f53 (victory_auditor_2 - errored auth)
+- Victory Auditor 3: e3fb0556-7b20-421c-8a6e-2d8940103c15 (victory_auditor_3) (retired)
+- Active Orchestrator 2: b0734dd4-8f79-45a9-a68c-65efacffb9b7 (swe_2) (retired)
+- Post-restart Cron 1 (Progress): 24bbd1a0-258e-4c82-9062-724b7d452508/task-108
+- Post-restart Cron 2 (Liveness): 24bbd1a0-258e-4c82-9062-724b7d452508/task-110
+- Victory Auditor 4: 15007998-ca35-47c5-b161-66bbe85ae582 (victory_auditor_4 - retired)
+- Active Orchestrator 3: 1fe555fd-363e-4686-bee9-9e1cf851efcd (swe_3) (retired)
+- Active Cron 1 (Progress): 03be59a4-fd18-40ce-875e-d84ac58b888f/task-26 (cancelled)
+- Active Cron 2 (Liveness): 03be59a4-fd18-40ce-875e-d84ac58b888f/task-28 (cancelled)
+- Victory Auditor 5: 0893a077-88d6-4506-8c77-28372a0767c7 (VICTORY CONFIRMED, retired)
 
 ## 🔒 Key Constraints
 - No technical decisions — relay only
@@ -42,24 +55,44 @@ Khắc phục triệt để 4 vấn đề cốt lõi trong phân hệ AI Video S
 - R2: Semantic scene clustering in Stage 5 Storyboard (group lines into 4-10s shots)
 - R3: Eliminate off-by-one reference image chain drift (canonical style anchor & explicit previous_shot_id)
 - R4: Fault isolation, fallback asset & Ken Burns fallback for missing video in Stage 7
+- SWE Light path selected: single self-contained feature, kept small and focused
+- GoogleFlowRpcClient.ts runs in Electron session context via executeJavaScript or session.net.fetch
+- Inherit Google session, cookies, CSRF token without DOM click/selector reliance
+- Asset upload, generate_image, generate_video RPC methods
+- Async polling state machine (queued -> processing -> completed/failed) & structured error codes (SESSION_EXPIRED, RATE_LIMITED, CONTENT_REJECTED, TIMEOUT, UPSTREAM_ERROR) with retryable flags
+- Automated tests verifying client, payloads, state machine and 100% clean TypeScript
+- Wire GoogleFlowRpcClient into AiStudioVisualService and AiStudioPipelineEngine
+- Auto-download CDN asset to local disk path (scene_01.png or scene_01.mp4) with size > 0
+- Real-time onProgress forwarding and structured error handling (SESSION_EXPIRED, RATE_LIMITED, CONTENT_POLICY_VIOLATION) with explicit fallback only
+- Automated integration test passing with exit code 0 and npx tsc --noEmit clean
+- Chrome Extension Bridge standardization per FlowKit (crisng95/flowkit)
+- Invisible reCAPTCHA Enterprise widget minting via ensureWidget and executeWithRetry(widgetId)
+- Promise queue (captchaMintTail) for mint concurrency serialization
+- Preload recaptcha_enterprise.js and recaptcha__en.js in manifest.json and content.js
+- Clean URLSearchParams and headers in background.js runBatchRpc
+- Build validation via node node_modules/nextron/bin/webpack.config.cjs
 
 ## User Context
-- **Last user request**: Khắc phục triệt để 4 vấn đề cốt lõi trong phân hệ AI Video Studio của Vanhsub: (1) Ngăn chặn hoàn toàn việc cửa sổ Google Flow tự ý nhảy lên cướp focus; (2) Tối ưu hóa phân cảnh Storyboard: gom cụm thoại; (3) Sửa dứt điểm lỗi lệch phân cảnh gán reference images; (4) Xây dựng cơ chế cô lập lỗi và fallback an toàn chống sập dây chuyền.
+- **Last user request**: Chuẩn hóa module Chrome Extension Bridge theo chuẩn crisng95/flowkit để khắc phục PUBLIC_ERROR_UNUSUAL_ACTIVITY (reCAPTCHA bot flag).
 - **Pending clarifications**: none
-- **Delivered results**: previous milestones delivered. New task in progress.
+- **Delivered results**: swe_3 completed implementation & 3 reviewer rounds; victory_auditor_5 verified and confirmed victory (VICTORY CONFIRMED). Milestone 5 complete.
 
 ## Project Status
-- **Phase**: in progress
-- **Route**: General -> teamwork_preview_orchestrator (orchestrator_6)
+- **Phase**: complete
+- **Route**: SWE Light -> teamwork_preview_swe (swe_3)
 
 ## Victory Audit Status
-- **Triggered**: no
-- **Verdict**: pending
+- **Triggered**: yes
+- **Verdict**: VICTORY CONFIRMED
 - **Retry count**: 0
+- **Auditor**: 0893a077-88d6-4506-8c77-28372a0767c7 (victory_auditor_5)
 
 ## Artifact Index
 - d:\DEAN\DEAN\VANHSUB\.agents\ORIGINAL_REQUEST.md — Verbatim user request record
-- d:\DEAN\DEAN\VANHSUB\AI_STUDIO_SPEC.md — AI Studio specification document
-- d:\DEAN\DEAN\VANHSUB\spec-pipeline-video-automation.md — Pipeline Video Automation specification document
-- d:\DEAN\DEAN\VANHSUB\.agents\orchestrator_5\handoff.md — Orchestrator 5 final handover report
-- d:\DEAN\DEAN\VANHSUB\.agents\victory_auditor_1\audit_report.md — Independent Victory Audit Report (Milestone 1)
+- d:\DEAN\DEAN\VANHSUB\extension\injected.js — Extension injected script (FlowKit standard widget minting)
+- d:\DEAN\DEAN\VANHSUB\extension\content.js — Extension content script (CSP script preload)
+- d:\DEAN\DEAN\VANHSUB\extension\background.js — Extension background service worker (standardized batch RPC & headers)
+- d:\DEAN\DEAN\VANHSUB\extension\manifest.json — Extension manifest v1.0.3
+- d:\DEAN\DEAN\VANHSUB\.agents\swe_3\handoff.md — SWE Light Orchestrator handoff report
+- d:\DEAN\DEAN\VANHSUB\.agents\victory_auditor_5\audit_report.md — Independent Victory Audit Report (VICTORY CONFIRMED)
+- d:\DEAN\DEAN\VANHSUB\scripts\test_flowkit_standardization.ts — Automated verification test suite

@@ -37,6 +37,7 @@ import {
   RPC_OPERATION,
   RPC_PROJECT_MEDIA,
   RPC_UPLOAD_IMAGE,
+  PROJECT_ID_SLOT,
 } from './FlowBatchConstants';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -211,14 +212,16 @@ export function buildEnvelope(
  *   [["di", ...]]\n
  */
 export function parseBatchResponse(rawText: string, expectedRpcId: string): RpcResult {
-  if (!rawText.startsWith(RESPONSE_SENTINEL)) {
+  const trimmed = rawText.trimStart();
+  if (!trimmed.startsWith(")]}'")) {
     throw new Error(
       `[FlowBatch] Response thiếu sentinel ")]}'"  — không phải batchexecute response hợp lệ. ` +
       `Đầu response: ${rawText.slice(0, 120)}`
     );
   }
 
-  const body = rawText.slice(RESPONSE_SENTINEL.length);
+  const firstNewlineIndex = trimmed.indexOf('\n');
+  const body = firstNewlineIndex !== -1 ? trimmed.slice(firstNewlineIndex + 1) : trimmed.slice(4);
 
   // Split theo pattern: số nguyên + newline + JSON array
   // Regex: lấy mọi chuỗi bắt đầu bằng "[" (sau khi loại số + newline)
@@ -238,43 +241,59 @@ export function parseBatchResponse(rawText: string, expectedRpcId: string): RpcR
   if (chunks.length === 0) {
     const lines = body.split(/\r?\n/);
     for (const line of lines) {
-      const trimmed = line.trim();
-      if (trimmed.startsWith('[')) {
+      const l = line.trim();
+      if (l.startsWith('[')) {
         try {
-          chunks.push(JSON.parse(trimmed));
+          chunks.push(JSON.parse(l));
         } catch {}
       }
     }
   }
 
-  // Tìm chunk "wrb.fr" chứa payload thực sự
+  // Tìm chunk "wrb.fr" chứa payload thực sự (ưu tiên khớp expectedRpcId nếu có nhiều chunk)
+  let targetInner: unknown[] | null = null;
+  let fallbackInner: unknown[] | null = null;
+
   for (const chunk of chunks) {
     if (!Array.isArray(chunk)) continue;
-    const inner = chunk[0];
-    if (!Array.isArray(inner)) continue;
+    const entries: unknown[] = Array.isArray(chunk[0]) ? chunk : [chunk];
 
-    // wrb.fr chunk: [["wrb.fr", rpcId, innerPayloadString, ...]]
-    if (inner[0] === 'wrb.fr') {
-      const rpcId = inner[1] as string;
-      const payloadStr = inner[2] as string | null;
-
-      if (payloadStr === null || payloadStr === undefined) {
-        // Error slot: innerPayload null = Flow returned error
-        const errorDetail = {
-          code: inner[3] ?? inner[4] ?? 'unknown',
-          inner,
-          rawSnippet: rawText.slice(0, 800),
-        };
-        return { rpcId, data: null, error: errorDetail, ok: false };
+    for (const entry of entries) {
+      if (!Array.isArray(entry)) continue;
+      if (entry[0] === 'wrb.fr') {
+        if (entry[1] === expectedRpcId) {
+          targetInner = entry;
+          break;
+        }
+        if (!fallbackInner) {
+          fallbackInner = entry;
+        }
       }
+    }
+    if (targetInner) break;
+  }
 
-      try {
-        const data = JSON.parse(payloadStr);
-        return { rpcId, data, ok: true };
-      } catch {
-        // payloadStr không phải JSON — trả về raw string
-        return { rpcId: rpcId ?? expectedRpcId, data: payloadStr, ok: true };
-      }
+  const selectedInner = targetInner || fallbackInner;
+  if (selectedInner) {
+    const rpcId = selectedInner[1] as string;
+    const payloadStr = selectedInner[2] as string | null;
+
+    if (payloadStr === null || payloadStr === undefined) {
+      // Error slot: innerPayload null = Flow returned error
+      const errorDetail = {
+        code: selectedInner[3] ?? selectedInner[4] ?? 'unknown',
+        inner: selectedInner,
+        rawSnippet: rawText.slice(0, 800),
+      };
+      return { rpcId, data: null, error: errorDetail, ok: false };
+    }
+
+    try {
+      const data = JSON.parse(payloadStr);
+      return { rpcId, data, ok: true };
+    } catch {
+      // payloadStr không phải JSON — trả về raw string
+      return { rpcId: rpcId ?? expectedRpcId, data: payloadStr, ok: true };
     }
   }
 
@@ -291,16 +310,47 @@ export function parseBatchResponse(rawText: string, expectedRpcId: string): RpcR
  * Resolve aspect ratio string/name thành integer code cho IMAGE RPC.
  * Input: "16:9", "9:16", "1:1", "IMAGE_ASPECT_RATIO_LANDSCAPE", v.v.
  */
-export function resolveImageAspect(aspect: string): number {
-  return IMG_ASPECT_BY_NAME[aspect] ?? IMG_ASPECT_BY_NAME['16:9'];
+export function resolveImageAspect(aspect: string | number): number {
+  if (typeof aspect === 'number') {
+    return aspect >= 1 && aspect <= 5 ? aspect : 3;
+  }
+  const normalized = String(aspect).trim();
+  const upper = normalized.toUpperCase();
+  if (upper === 'SQUARE' || upper === '1:1') return 1;
+  if (upper === 'PORTRAIT' || upper === '9:16') return 2;
+  if (upper === 'LANDSCAPE' || upper === '16:9') return 3;
+  if (upper === '3:4' || upper === 'PORTRAIT_4_3') return 4;
+  if (upper === '4:3' || upper === 'LANDSCAPE_4_3') return 5;
+  return IMG_ASPECT_BY_NAME[normalized] ?? IMG_ASPECT_BY_NAME[upper] ?? IMG_ASPECT_BY_NAME['16:9'];
 }
 
 /**
  * Resolve aspect ratio string/name thành integer code cho VIDEO RPC.
  * QUAN TRỌNG: Encoding KHÁC với image (portrait=1, landscape=2).
  */
-export function resolveVideoAspect(aspect: string): number {
-  return VID_ASPECT_BY_NAME[aspect] ?? VID_ASPECT_BY_NAME['16:9'];
+export function resolveVideoAspect(aspect: string | number): number {
+  if (typeof aspect === 'number') {
+    return aspect === 1 || aspect === 2 ? aspect : 2;
+  }
+  const normalized = String(aspect).trim();
+  const upper = normalized.toUpperCase();
+  if (
+    upper === 'PORTRAIT' ||
+    upper === '9:16' ||
+    upper === '1' ||
+    upper === 'VIDEO_ASPECT_RATIO_PORTRAIT'
+  ) {
+    return 1;
+  }
+  if (
+    upper === 'LANDSCAPE' ||
+    upper === '16:9' ||
+    upper === '2' ||
+    upper === 'VIDEO_ASPECT_RATIO_LANDSCAPE'
+  ) {
+    return 2;
+  }
+  return VID_ASPECT_BY_NAME[normalized] ?? VID_ASPECT_BY_NAME[upper] ?? VID_ASPECT_BY_NAME['16:9'];
 }
 
 /**
@@ -429,6 +479,8 @@ export function buildGenImagePayload(opts: GenImagePayloadOptions): unknown[] {
     }
   }
 
+  const effectiveProjectId = projectId?.trim() || PROJECT_ID_SLOT;
+
   // Security Context Block mang reCAPTCHA token & context dự án
   const securityBlock = [
     null,
@@ -436,7 +488,7 @@ export function buildGenImagePayload(opts: GenImagePayloadOptions): unknown[] {
     null,
     null,
     editAssetId,
-    projectId,
+    effectiveProjectId,
     null,
     null,
     null,
@@ -445,7 +497,7 @@ export function buildGenImagePayload(opts: GenImagePayloadOptions): unknown[] {
   ];
 
   const sessionUuid = uuidv4().toUpperCase();
-  const count = Math.max(1, outputCount || 1);
+  const count = Math.max(1, Math.min(4, outputCount || 1));
   const taskObjects: unknown[] = [];
 
   for (let i = 0; i < count; i++) {
@@ -507,6 +559,7 @@ export interface UploadPayloadOptions {
  */
 export function buildUploadPayload(opts: UploadPayloadOptions): unknown[] {
   const { projectId, base64Data, mimeType, filename, captchaToken } = opts;
+  const effectiveProjectId = projectId?.trim() || PROJECT_ID_SLOT;
   const clientUuid1 = uuidv4().toUpperCase();
   const clientUuid2 = uuidv4().toUpperCase();
 
@@ -516,7 +569,7 @@ export function buildUploadPayload(opts: UploadPayloadOptions): unknown[] {
     null,
     null,
     null,
-    projectId,
+    effectiveProjectId,
     null,
     null,
     null,
@@ -554,6 +607,8 @@ export interface GenVideoPayloadOptions {
   projectId: string;
   /** Fresh reCAPTCHA Enterprise token */
   captchaToken: string;
+  /** Tùy chọn âm thanh: boolean hoặc cấu hình chi tiết */
+  audio?: boolean | { enabled?: boolean; voice?: string; soundEffects?: boolean };
 }
 
 /**
@@ -583,14 +638,10 @@ export function buildGenVideoPayload(opts: GenVideoPayloadOptions): unknown[] {
     prompt,
     projectId,
     captchaToken,
+    audio,
   } = opts;
 
-  let aspectInt = 2;
-  if (typeof aspectRatio === 'number') {
-    aspectInt = aspectRatio;
-  } else if (aspectRatio === '9:16' || aspectRatio === '1') {
-    aspectInt = 1;
-  }
+  const aspectInt = resolveVideoAspect(aspectRatio);
 
   let modelKey = videoModel;
   if (!modelKey) {
@@ -601,6 +652,8 @@ export function buildGenVideoPayload(opts: GenVideoPayloadOptions): unknown[] {
   const clientUuid2 = uuidv4().toUpperCase();
   const sessionUuid = uuidv4().toUpperCase();
 
+  const audioConfig = audio ? (typeof audio === 'boolean' ? { enabled: audio } : audio) : null;
+
   const taskConfig = [
     [null, null, [[[prompt]]]],
     [
@@ -608,9 +661,11 @@ export function buildGenVideoPayload(opts: GenVideoPayloadOptions): unknown[] {
     ],
     modelKey,
     aspectInt,
-    null,
+    audioConfig,
     [null, null, null, null, clientUuid1, clientUuid2],
   ];
+
+  const effectiveProjectId = projectId?.trim() || PROJECT_ID_SLOT;
 
   const securityBlock = [
     null,
@@ -618,7 +673,7 @@ export function buildGenVideoPayload(opts: GenVideoPayloadOptions): unknown[] {
     null,
     null,
     null,
-    projectId,
+    effectiveProjectId,
     null,
     null,
     null,
@@ -640,6 +695,8 @@ export interface GenVideoTextPayloadOptions {
   videoModel?: string;
   projectId: string;
   captchaToken: string;
+  /** Tùy chọn âm thanh: boolean hoặc cấu hình chi tiết */
+  audio?: boolean | { enabled?: boolean; voice?: string; soundEffects?: boolean };
 }
 
 /**
@@ -654,14 +711,10 @@ export function buildGenVideoTextPayload(opts: GenVideoTextPayloadOptions): unkn
     videoModel,
     projectId,
     captchaToken,
+    audio,
   } = opts;
 
-  let aspectInt = 2;
-  if (typeof aspectRatio === 'number') {
-    aspectInt = aspectRatio;
-  } else if (aspectRatio === '9:16' || aspectRatio === '1') {
-    aspectInt = 1;
-  }
+  const aspectInt = resolveVideoAspect(aspectRatio);
 
   const modelKey = videoModel || 'veo_3_1_t2v_lite';
 
@@ -669,13 +722,17 @@ export function buildGenVideoTextPayload(opts: GenVideoTextPayloadOptions): unkn
   const clientUuid2 = uuidv4().toUpperCase();
   const sessionUuid = uuidv4().toUpperCase();
 
+  const audioConfig = audio ? (typeof audio === 'boolean' ? { enabled: audio } : audio) : null;
+
   const taskConfig = [
     [null, null, [[[prompt]]]],
     modelKey,
     aspectInt,
-    null,
+    audioConfig,
     [null, null, null, null, clientUuid1, clientUuid2],
   ];
+
+  const effectiveProjectId = projectId?.trim() || PROJECT_ID_SLOT;
 
   const securityBlock = [
     null,
@@ -683,7 +740,7 @@ export function buildGenVideoTextPayload(opts: GenVideoTextPayloadOptions): unkn
     null,
     null,
     null,
-    projectId,
+    effectiveProjectId,
     null,
     null,
     null,
@@ -803,15 +860,22 @@ export function extractGeneratedImages(data: unknown): GeneratedImage[] {
       let foundUrl: string | undefined;
       for (const item of node) {
         if (typeof item === 'string') {
-          if (UUID_RE.test(item)) foundId = item;
           if (
             item.includes('googleusercontent.com') ||
             item.includes('flow-content.google') ||
             item.startsWith('https://')
           ) {
             foundUrl = item;
+          } else if (UUID_RE.test(item)) {
+            foundId = item;
+          } else if (/^[a-zA-Z0-9_\-\.]{8,}$/.test(item) && !item.includes(' ') && !foundId) {
+            foundId = item;
           }
         }
+      }
+      if (!foundId && foundUrl && node.length >= 2) {
+        const other = node.find((x) => typeof x === 'string' && x !== foundUrl && !x.startsWith('http')) as string | undefined;
+        if (other) foundId = other;
       }
       if (foundId && foundUrl) {
         // Tránh trùng lặp
@@ -884,56 +948,70 @@ export function extractOperationStatus(data: unknown, rpcId: string): OperationS
     return { operationId: '', done: false, error: 'invalid_response' };
   }
 
-  // Quét tìm item có [operationId, projectId, taskId, "CAE", ...] (chuẩn 100% từ capture YhhmEf & MZZa6b)
-  const findOperation = (node: unknown): { opId: string; projId?: string; status?: string } | undefined => {
-    if (!node) return undefined;
-    if (Array.isArray(node)) {
-      if (node.length >= 4 && typeof node[0] === 'string' && node[3] === 'CAE') {
-        return { opId: node[0], projId: typeof node[1] === 'string' ? node[1] : undefined, status: node[3] };
-      }
-      for (const item of node) {
-        const found = findOperation(item);
-        if (found) return found;
-      }
-    }
-    return undefined;
-  };
-
-  const found = findOperation(data);
-  if (found) {
-    return {
-      operationId: found.opId,
-      projectId: found.projId,
-      status: found.status,
-      done: false,
-    };
-  }
-
-  // Fallback: tìm chuỗi UUID
   const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-  const findUuid = (node: unknown): string | undefined => {
+  const KNOWN_STATUS_RE = /^(CAE|RUNNING|PENDING|QUEUED|PROCESSING|COMPLETED|SUCCESS|FAILED|ERROR|REJECTED|CANCELLED)$/i;
+
+  let foundOpId: string | undefined;
+  let foundProjId: string | undefined;
+  let foundStatus: string | undefined;
+  let foundVideoUrl: string | undefined;
+  let foundImageUrl: string | undefined;
+
+  const scan = (node: unknown): void => {
     if (!node) return;
-    if (typeof node === 'string' && UUID_RE.test(node)) return node;
-    if (Array.isArray(node)) {
-      for (const item of node) {
-        const u = findUuid(item);
-        if (u) return u;
+    if (typeof node === 'string') {
+      if (node.includes('flow-content.google/video') || (node.includes('flow-content.google') && node.includes('.mp4'))) {
+        foundVideoUrl = node;
+      } else if (node.includes('flow-content.google/image')) {
+        foundImageUrl = node;
       }
+      return;
     }
-    return undefined;
+    if (Array.isArray(node)) {
+      if (node.length >= 2 && typeof node[0] === 'string') {
+        const opCandidate = node[0];
+        let statusCandidate: string | undefined;
+        let statusIndex = -1;
+        for (let i = 1; i < Math.min(node.length, 5); i++) {
+          if (typeof node[i] === 'string' && KNOWN_STATUS_RE.test(node[i] as string)) {
+            statusCandidate = node[i] as string;
+            statusIndex = i;
+            break;
+          }
+        }
+
+        if (statusCandidate) {
+          if (!foundOpId || statusCandidate === 'CAE' || UUID_RE.test(opCandidate)) {
+            foundOpId = opCandidate;
+            foundStatus = statusCandidate;
+            if (node.length >= 4 && typeof node[1] === 'string' && statusIndex !== 1) {
+              foundProjId = node[1];
+            }
+          }
+        } else if (!foundOpId && UUID_RE.test(opCandidate)) {
+          foundOpId = opCandidate;
+          if (typeof node[1] === 'string') foundProjId = node[1];
+        }
+      }
+      for (const item of node) scan(item);
+    }
   };
+
+  scan(data);
 
   return {
-    operationId: findUuid(data) ?? '',
-    projectId: undefined,
-    status: undefined,
-    done: false,
+    operationId: foundOpId || '',
+    projectId: foundProjId,
+    status: foundStatus,
+    done: !!foundVideoUrl || foundStatus === 'CAE' || foundStatus === 'COMPLETED' || foundStatus === 'SUCCESS',
+    videoUrl: foundVideoUrl,
+    imageUrl: foundImageUrl,
   };
 }
 
 /**
  * Trích xuất OperationStatus từ response của jwpduf (poll).
- * Video hoàn thành khi xuất hiện link video thật (flow-content.google/video).
+ * Video hoàn thành khi xuất hiện link video thật (flow-content.google/video) HOẶC status là CAE / COMPLETED / SUCCESS.
  */
 export function extractPollStatus(data: unknown, expectedOperationId?: string): OperationStatus {
   console.log('[FlowBatch] extractPollStatus raw:', JSON.stringify(data)?.slice(0, 400));
@@ -943,11 +1021,14 @@ export function extractPollStatus(data: unknown, expectedOperationId?: string): 
   }
 
   const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const KNOWN_STATUS_RE = /^(CAE|RUNNING|PENDING|QUEUED|PROCESSING|COMPLETED|SUCCESS|FAILED|ERROR|REJECTED|CANCELLED)$/i;
   let videoUrl: string | undefined;
   let imageUrl: string | undefined;
   let foundMediaId: string | undefined;
   let foundProjectId: string | undefined;
   let foundStatus: string | undefined;
+  let foundError: string | undefined;
+  let matchedTargetOp = false;
 
   const scanNode = (node: unknown): void => {
     if (!node) return;
@@ -956,12 +1037,74 @@ export function extractPollStatus(data: unknown, expectedOperationId?: string): 
         videoUrl = node;
       } else if (node.includes('flow-content.google/image')) {
         imageUrl = node;
+      } else if (
+        node.includes('SAFETY_BLOCKED') ||
+        node.includes('POLICY_VIOLATION') ||
+        node.includes('content policy') ||
+        node.includes('sensitive content') ||
+        node.includes('safety filter') ||
+        node.includes('cannot generate') ||
+        node.includes('prompt_blocked') ||
+        node.includes('content_rejected') ||
+        node.includes('nsfw') ||
+        node.includes('harmful content')
+      ) {
+        foundError = node;
       }
     } else if (Array.isArray(node)) {
-      if (node.length >= 4 && typeof node[0] === 'string' && UUID_RE.test(node[0]) && node[3] === 'CAE') {
-        foundMediaId = node[0];
-        foundProjectId = typeof node[1] === 'string' ? node[1] : undefined;
-        foundStatus = node[3];
+      if (node.length >= 2 && typeof node[0] === 'string') {
+        const opCandidate = node[0];
+        const isTargetOp = expectedOperationId ? opCandidate === expectedOperationId : false;
+
+        let statusCandidate: string | undefined;
+        let statusIndex = -1;
+        for (let i = 1; i < Math.min(node.length, 5); i++) {
+          if (typeof node[i] === 'string' && KNOWN_STATUS_RE.test(node[i] as string)) {
+            statusCandidate = node[i] as string;
+            statusIndex = i;
+            break;
+          }
+        }
+
+        const isStatusKnown = !!statusCandidate;
+
+        // Ưu tiên 1: Khớp chính xác expectedOperationId
+        if (isTargetOp) {
+          matchedTargetOp = true;
+          foundMediaId = opCandidate;
+          if (isStatusKnown) {
+            foundStatus = statusCandidate;
+          }
+          if (node.length >= 4 && typeof node[1] === 'string' && statusIndex !== 1) {
+            foundProjectId = node[1];
+          }
+          if (statusCandidate === 'FAILED' || statusCandidate === 'ERROR' || statusCandidate === 'REJECTED') {
+            const errAt = statusIndex + 1;
+            foundError =
+              (typeof node[errAt] === 'string' ? (node[errAt] as string) : undefined) ||
+              (typeof node[4] === 'string' ? (node[4] as string) : undefined) ||
+              `Tác vụ ${opCandidate} thất bại với trạng thái ${statusCandidate}`;
+          }
+        } else if (!matchedTargetOp) {
+          // Ưu tiên 2: Chưa khớp targetOp, tìm candidate có status hợp lệ
+          if (isStatusKnown) {
+            foundMediaId = opCandidate;
+            foundStatus = statusCandidate;
+            if (node.length >= 4 && typeof node[1] === 'string' && statusIndex !== 1) {
+              foundProjectId = node[1];
+            }
+            if (statusCandidate === 'FAILED' || statusCandidate === 'ERROR' || statusCandidate === 'REJECTED') {
+              const errAt = statusIndex + 1;
+              foundError =
+                (typeof node[errAt] === 'string' ? (node[errAt] as string) : undefined) ||
+                (typeof node[4] === 'string' ? (node[4] as string) : undefined) ||
+                `Tác vụ ${opCandidate} thất bại với trạng thái ${statusCandidate}`;
+            }
+          } else if (!foundMediaId && UUID_RE.test(opCandidate) && !expectedOperationId) {
+            foundMediaId = opCandidate;
+            if (typeof node[1] === 'string') foundProjectId = node[1];
+          }
+        }
       }
       for (const item of node) {
         scanNode(item);
@@ -971,16 +1114,21 @@ export function extractPollStatus(data: unknown, expectedOperationId?: string): 
 
   scanNode(data);
 
-  // Video hoàn thành khi xuất hiện link video thật (flow-content.google/video)
-  const isDone = !!videoUrl;
+  // Video hoàn thành khi xuất hiện link video thật HOẶC status là CAE / COMPLETED / SUCCESS
+  const isDone =
+    !!videoUrl ||
+    foundStatus === 'CAE' ||
+    foundStatus === 'COMPLETED' ||
+    foundStatus === 'SUCCESS';
 
   return {
     operationId: expectedOperationId ?? foundMediaId ?? '',
     projectId: foundProjectId,
     mediaId: foundMediaId,
-    status: foundStatus || (isDone ? 'CAE' : 'RUNNING'),
+    status: foundStatus || (isDone ? 'CAE' : foundError ? 'FAILED' : 'RUNNING'),
     done: isDone,
     videoUrl,
     imageUrl,
+    error: foundError,
   };
 }

@@ -825,7 +825,28 @@ export default function ProjectSetupScreen({
                   <Link2 className="h-3.5 w-3.5 text-blue-400" />
                   Mã / Link Dự Án Google Flow (Tùy chọn):
                 </span>
-                <span className="text-[10px] text-slate-500">Mở đúng project Canvas thay vì tạo mới</span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        if ((window as any).vanhsub?.veo?.showLobbyDebug) {
+                          await (window as any).vanhsub.veo.showLobbyDebug();
+                        } else if ((window as any).vanhsub?.veo?.openLobby) {
+                          await (window as any).vanhsub.veo.openLobby();
+                        }
+                      } catch (e) {
+                        console.error('Lỗi mở sảnh Flow:', e);
+                      }
+                    }}
+                    className="flex items-center gap-1.5 text-[11px] font-semibold text-emerald-400 hover:text-emerald-300 transition cursor-pointer bg-emerald-950/40 border border-emerald-500/30 px-2.5 py-1 rounded-lg"
+                    title="Mở sảnh Google Flow để đăng nhập, kiểm tra credit hoặc lấy URL dự án"
+                  >
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    <span>🌐 Mở Sảnh Google Flow</span>
+                  </button>
+                  <span className="text-[10px] text-slate-500">Mở đúng project Canvas</span>
+                </div>
               </div>
               <input
                 type="text"

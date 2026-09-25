@@ -1,41 +1,81 @@
 /**
  * VanhSub Flow Bridge — content.js
  * Cầu nối giữa background service worker và injected.js trong MAIN world
+ *
+ * reCAPTCHA preload (chuẩn FlowKit): flow.google.com áp dụng
+ * `require-trusted-types-for 'script'` chặn dynamic external scripts từ google.com.
+ * Nạp trực tiếp injected.js, recaptcha_enterprise.js và recaptcha__en.js
+ * từ chrome-extension:// URL để bypass hoàn toàn CSP của trang.
  */
 
-function injectScript(filePath) {
-  try {
-    const s = document.createElement('script');
-    s.src = chrome.runtime.getURL(filePath);
-    s.onload = function() {
-      this.remove();
-    };
-    (document.head || document.documentElement).appendChild(s);
-  } catch (err) {
-    console.warn('[VanhSub:content] Lỗi inject script:', err);
-  }
-}
+(function () {
+  if (window.__VANHSUB_SCRIPTS_PRELOADED__) return;
+  window.__VANHSUB_SCRIPTS_PRELOADED__ = true;
 
-// Nhúng injected.js vào trang
-injectScript('injected.js');
+  function addExtScript(name) {
+    try {
+      const s = document.createElement('script');
+      const ver = chrome.runtime?.getManifest?.()?.version || '1.0.4';
+      s.src = chrome.runtime.getURL(name) + '?v=' + ver;
+      s.onload = () => s.remove();
+      s.setAttribute('data-flowkit', name);
+      const target = document.head || document.documentElement || document.body;
+      if (target) {
+        target.appendChild(s);
+      } else {
+        document.addEventListener('DOMContentLoaded', () => {
+          (document.head || document.documentElement || document.body)?.appendChild(s);
+        }, { once: true });
+      }
+    } catch (err) {
+      console.warn('[VanhSub:content] Lỗi inject script ' + name + ':', err);
+    }
+  }
+
+  addExtScript('injected.js');
+})();
 
 // Xử lý thông điệp từ background service worker
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-  if (msg.action === 'PING') {
-    sendResponse({ ok: true, url: window.location.href });
+  if (msg.action === 'PING' || msg.type === 'PING') {
+    try {
+      sendResponse({ ok: true, url: window.location.href });
+    } catch {}
     return true;
   }
 
-  if (msg.action === 'SOLVE_CAPTCHA') {
-    const { requestId, pageAction } = msg;
+  if (msg.type === 'GET_CAPTCHA' || msg.action === 'SOLVE_CAPTCHA') {
+    const requestId = msg.requestId || `req_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    const pageAction = msg.pageAction || msg.captchaAction || 'IMAGE_GENERATION';
 
+    let replied = false;
     const onResult = (event) => {
       const detail = event.detail;
       if (detail && detail.requestId === requestId) {
-        window.removeEventListener('CAPTCHA_RESULT', onResult);
-        sendResponse(detail);
+        if (!replied) {
+          replied = true;
+          window.removeEventListener('CAPTCHA_RESULT', onResult);
+          clearTimeout(timer);
+          try {
+            sendResponse({
+              token: detail.token,
+              error: detail.error,
+              requestId: detail.requestId,
+            });
+          } catch {}
+        }
       }
     };
+
+    const timer = setTimeout(() => {
+      if (!replied) {
+        replied = true;
+        window.removeEventListener('CAPTCHA_RESULT', onResult);
+        try {
+          sendResponse({ error: 'CONTENT_TIMEOUT', requestId });
+        } catch {}
+      }
+    }, 25000);
 
     window.addEventListener('CAPTCHA_RESULT', onResult);
     window.dispatchEvent(new CustomEvent('GET_CAPTCHA', {
@@ -74,3 +114,13 @@ setInterval(() => {
   }
 }, 20000);
 
+// TRPC Media URL Monitor
+window.addEventListener('TRPC_MEDIA_URLS', (e) => {
+  const { url, body } = e.detail || {};
+  if (!body) return;
+  chrome.runtime.sendMessage({
+    type: 'TRPC_MEDIA_URLS',
+    trpcUrl: url,
+    body,
+  }).catch(() => {});
+});

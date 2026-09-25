@@ -106,6 +106,10 @@ export interface StoryboardSynthesis {
 }
 
 export interface AiStudioFlowEngineConfig {
+  /** Cơ chế sinh media: 'rpc' (Pure Web RPC - mặc định) | 'flow' | 'dom' | 'synthetic' */
+  engine?: 'flow' | 'synthetic' | 'rpc' | 'flow_rpc' | 'dom' | string;
+  /** Mã dự án trên Google Flow (UUID hoặc target project ID) */
+  projectId?: string;
   /** Chế độ hiển thị cửa sổ sảnh Flow: 'offscreen' | 'live_window' */
   uiMode?: 'offscreen' | 'live_window';
   /** Tỷ lệ khung hình tạo hình ảnh/clip */
@@ -408,6 +412,7 @@ export const DEFAULT_AI_STUDIO_CONFIG: AiStudioConfig = {
     autoWordAlignment: true,
   },
   flowEngine: {
+    engine: 'rpc',
     uiMode: 'offscreen',
     aspectRatio: '16:9',
     outputMode: 'image',

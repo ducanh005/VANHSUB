@@ -83,7 +83,9 @@ export interface IAiStudioPipelineEngineDelegate {
   ): Promise<RenderSingleLineVoiceResult>;
 
   regenerateSceneAsset(
-    payload: RegenerateSceneAssetPayload
+    payload: RegenerateSceneAssetPayload,
+    onProgress?: (pct: number, msg: string) => void,
+    signal?: AbortSignal
   ): Promise<RegenerateSceneAssetResult>;
 
   importSceneMedia?(

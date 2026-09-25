@@ -131,23 +131,36 @@ export class FlowRpcClient {
    * Dùng session.fetch() nếu Electron ≥ 25 (app dùng Electron 43 → OK).
    */
   async getCookieString(): Promise<string> {
-    const { session } = require('electron');
-    const ses = session.fromPartition(this._partition);
+    let electron: any = null;
+    try {
+      electron = require('electron');
+    } catch {}
+    const session = electron?.session;
 
-    // Lấy cookies của cả flow.google.com và .google.com (parent domain)
-    const flowCookies = await ses.cookies.get({ domain: 'flow.google.com' });
-    const googleCookies = await ses.cookies.get({ domain: '.google.com' });
-
-    // Dedup: ưu tiên flow.google.com specific cookie nếu trùng tên
     const cookieMap = new Map<string, string>();
 
-    // Thêm google.com cookies trước (thứ tự thấp hơn)
-    for (const c of googleCookies) {
-      cookieMap.set(c.name, c.value);
-    }
-    // Override bằng flow.google.com specific
-    for (const c of flowCookies) {
-      cookieMap.set(c.name, c.value);
+    if (session && typeof session.fromPartition === 'function') {
+      const ses = session.fromPartition(this._partition);
+
+      // Lấy cookies của cả flow.google.com và .google.com (parent domain)
+      const flowCookies = await ses.cookies.get({ domain: 'flow.google.com' });
+      const googleCookies = await ses.cookies.get({ domain: '.google.com' });
+
+      // Thêm google.com cookies trước (thứ tự thấp hơn)
+      for (const c of googleCookies || []) {
+        cookieMap.set(c.name, c.value);
+      }
+      // Override bằng flow.google.com specific
+      for (const c of flowCookies || []) {
+        cookieMap.set(c.name, c.value);
+      }
+    } else {
+      try {
+        const { GoogleVeoSessionManager } = require('../../../veo/GoogleVeoSessionManager');
+        const sessionMgr = GoogleVeoSessionManager.getInstance();
+        const stored = await sessionMgr.getEffectiveCookieString();
+        if (stored) return stored;
+      } catch {}
     }
 
     const cookieStr = Array.from(cookieMap.entries())
@@ -387,8 +400,12 @@ export class FlowRpcClient {
       label = rpcId,
     } = opts;
 
-    const { session } = require('electron');
-    const ses = session.fromPartition(this._partition);
+    let electron: any = null;
+    try {
+      electron = require('electron');
+    } catch {}
+    const session = electron?.session;
+    const ses = session && typeof session.fromPartition === 'function' ? session.fromPartition(this._partition) : null;
 
     let lastError: Error | null = null;
     let attempt = 0;
@@ -489,7 +506,8 @@ export class FlowRpcClient {
           const controller = new AbortController();
           const timeout = setTimeout(() => controller.abort(), RPC_REQUEST_TIMEOUT_MS);
           try {
-            const response = await ses.fetch(envelope.url, {
+            const fetchFn = ses && typeof ses.fetch === 'function' ? ses.fetch.bind(ses) : fetch;
+            const response = await fetchFn(envelope.url, {
               method: 'POST',
               headers: envelope.headers,
               body: envelope.body,
@@ -730,27 +748,45 @@ export class FlowRpcClient {
     // ── Ưu tiên 1: Chuyển qua Chrome Extension Bridge nếu đang kết nối ────────
     const bridge = FlowBridgeServer.getInstance();
     if (bridge.isConnected()) {
-      console.log(`[FlowRpcClient] 🌐 [Chrome Extension Bridge __TRIGGER_GEN__] Đang tạo ảnh: "${opts.prompt.slice(0, 40)}"...`);
-      // Dùng UI click (isTrusted=true) thay vì sendBatchRpc để bypass reCAPTCHA bot detection
-      const cfg = JSON.stringify({ mode: 'IMAGE', prompt: opts.prompt });
-      const result = await bridge.tabEval('__TRIGGER_GEN__:' + cfg, 75000);
-      if (!result?.ok) {
-        if (result?.allButtons) {
-          console.error('[FlowRpcClient] NO_GEN_BUTTON — Các buttons trong tab:', JSON.stringify(result.allButtons));
+      console.log(`[FlowRpcClient] 🌐 [Chrome Extension Bridge] Đang tạo ảnh: "${opts.prompt.slice(0, 40)}"...`);
+      const innerPayload = buildGenImagePayload({
+        ...opts,
+        captchaToken: CAPTCHA_SLOT,
+      });
+
+      let rawText = '';
+      try {
+        rawText = await bridge.sendBatchRpc(
+          RPC_GEN_IMAGE,
+          innerPayload,
+          CAPTCHA_ACTION_IMAGE,
+          opts.projectId
+        );
+      } catch (bridgeErr: any) {
+        const errStr = bridgeErr?.message || String(bridgeErr);
+        if (errStr.includes('PUBLIC_ERROR_UNUSUAL_ACTIVITY')) {
+          console.warn('[FlowRpcClient] 🛡️ Pure RPC bị UNUSUAL_ACTIVITY, thử fallback __TRIGGER_GEN__...');
+          const cfg = JSON.stringify({ mode: 'IMAGE', prompt: opts.prompt });
+          const result = await bridge.tabEval('__TRIGGER_GEN__:' + cfg, 75000);
+          if (result?.ok && result.response) {
+            rawText = typeof result.response === 'string' ? result.response : JSON.stringify(result.response);
+          } else {
+            throw bridgeErr;
+          }
+        } else {
+          throw bridgeErr;
         }
-        throw new Error(`[FlowRpcClient] UI gen (IMAGE) lỗi: ${result?.error || JSON.stringify(result)}`);
       }
-      // result.response là raw batchexecute response text của ogiZ0b từ sniffer
-      const rawText: string = typeof result.response === 'string' ? result.response : JSON.stringify(result.response);
+
       const res = parseBatchResponse(rawText, RPC_GEN_IMAGE);
       if (!res.ok) {
-        throw new Error(`[FlowRpcClient] Parse ảnh lỗi (ogiZ0b): ${JSON.stringify(res.error)}`);
+        throw new Error(`[FlowRpcClient] Chrome Extension Bridge lỗi: ${JSON.stringify(res.error)}`);
       }
       const images = extractGeneratedImages(res.data);
       if (images.length === 0) {
-        throw new Error(`[FlowRpcClient] Không extract được ảnh từ sniffer response: ${rawText.slice(0, 300)}`);
+        throw new Error(`[FlowRpcClient] Không extract được ảnh từ response: ${rawText.slice(0, 300)}`);
       }
-      console.log(`[FlowRpcClient] ✅ [__TRIGGER_GEN__ IMAGE] Đã tạo thành công ${images.length} ảnh!`);
+      console.log(`[FlowRpcClient] ✅ [Chrome Extension Bridge] Đã tạo thành công ${images.length} ảnh!`);
       return images;
     }
 
@@ -1241,3 +1277,5 @@ export function getFlowRpcClient(partition?: string): FlowRpcClient {
   }
   return _instance;
 }
+
+export { GoogleFlowRpcClient, getGoogleFlowRpcClient } from './GoogleFlowRpcClient';

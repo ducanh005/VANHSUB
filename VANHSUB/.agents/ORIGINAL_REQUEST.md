@@ -293,4 +293,103 @@ Nếu đã hoàn thành, cho tôi biết:
 
 Nếu chưa bắt đầu hoặc còn dang dở, hãy tiếp tục ngay và báo cáo khi xong.
 
+## 2026-09-24T04:13:43Z
 
+This is a single self-contained feature; keep it small and focused.
+
+Thiết kế và xây dựng module lõi GoogleFlowRpcClient.ts hoạt động trực tiếp trong ngữ cảnh Electron Session của ứng dụng Vanhsub, thực hiện việc upload asset, gửi yêu cầu sinh ảnh/video và polling trạng thái generation thông qua Web RPC nội bộ của Google Flow thay thế cho việc click DOM giả lập.
+
+Working directory: d:/DEAN/DEAN/VANHSUB
+Integrity mode: development
+
+## Requirements
+
+### R1. In-Session Google Flow RPC Client
+Xây dựng module GoogleFlowRpcClient.ts tương tác trực tiếp với phiên duyệt web của Google Flow trong Electron (thông qua webContents.executeJavaScript hoặc session.net.fetch). Client tự động kế thừa phiên đăng nhập Google hiện hữu, cookie xác thực và CSRF token từ trang flow.google.com mà không cần phụ thuộc vào tọa độ click hay selector DOM.
+
+### R2. Asset Upload & Generation RPC Methods
+Triển khai các phương thức RPC tiêu chuẩn để:
+- Upload tệp cục bộ lên dịch vụ lưu trữ của Google Flow và nhận diện asset_id hợp lệ.
+- Gửi lệnh tạo ảnh (generate_image) với các tham số: prompt, aspect ratio, seed, reference assets.
+- Gửi lệnh tạo video (generate_video) với các tham số: prompt, aspect ratio, duration, input image asset và tùy chọn audio.
+
+### R3. Async Polling State Machine & Structured Error Handling
+Triển khai cơ chế polling bất đồng bộ theo dõi vòng đời tác vụ từ queued -> processing -> completed/failed. Trả về URL kết quả khi thành công, và phân loại lỗi rõ ràng (SESSION_EXPIRED, RATE_LIMITED, CONTENT_REJECTED, TIMEOUT, UPSTREAM_ERROR) với thông tin retryable cụ thể thay vì lỗi chung chung.
+
+## Acceptance Criteria
+
+### RPC Dispatch & Contract
+- [ ] Module GoogleFlowRpcClient được khởi tạo thành công và kết nối an toàn với context phiên https://flow.google.com trong Electron.
+- [ ] Tạo đúng payload RPC cho tạo ảnh (Imagen/Nano) và tạo video (Veo) phù hợp với giao thức web của Flow.
+- [ ] Luồng upload asset trả về định danh asset hợp lệ để gắn vào payload generation.
+
+### Lifecycle & Reliability
+- [ ] Vòng đời Polling theo dõi trạng thái tác vụ qua các pha và dừng chính xác khi có kết quả hoặc khi gặp lỗi terminal.
+- [ ] Cơ chế xử lý lỗi bóc tách được các mã trạng thái quan trọng (SESSION_EXPIRED, RATE_LIMITED, CONTENT_POLICY_VIOLATION) kèm chỉ thị retry.
+
+### Verification
+- [ ] Có kịch bản kiểm thử tự động (test script chạy qua Electron/Node runner) thực thi kiểm tra tính hợp lệ của RPC client, payload contracts và state machine chuyển trạng thái thành công.
+## 2026-09-24T08:07:11Z
+
+This is a single self-contained feature; keep it small and focused.
+
+Đấu nối module GoogleFlowRpcClient vào phân hệ AI Studio (AiStudioVisualService.ts và AiStudioPipelineEngine.ts) để trực tiếp sinh ảnh (Imagen/Nano) và sinh video (Veo) cho từng phân cảnh bằng Pure Web RPC thay thế cho cơ chế click DOM giả lập và synthetic fallback.
+
+Working directory: d:/DEAN/DEAN/VANHSUB
+Integrity mode: development
+
+## Requirements
+
+### R1. Tích hợp GoogleFlowRpcClient vào AiStudioVisualService
+Trong main/ai-studio/services/AiStudioVisualService.ts, thay thế lệnh gọi generateImageViaBrowserContext bằng getGoogleFlowRpcClient(). Hỗ trợ cả sinh ảnh (generateImage - Imagen/Nano) và sinh video (generateVideo - Veo) tương ứng theo flowConfig.outputMode ('image' | 'video') và flowConfig.aspectRatio.
+
+### R2. Tự động tải Asset kết quả về thư mục dự án cục bộ
+Khi RPC Poller hoàn tất (completed), tự động tải tệp ảnh/video từ CDN về lưu đúng đường dẫn assetPath (scene_01.png hoặc scene_01.mp4) để các công đoạn tiếp theo (FFmpeg render) sử dụng. Kiểm tra tệp tải về tồn tại và kích thước > 0.
+
+### R3. Quản lý trạng thái lỗi và tiến độ thời gian thực
+- Lắng nghe onProgress từ RPC Poller để cập nhật tiến độ phần trăm thời gian thực lên callback onProgress của scene (queued -> processing -> completed).
+- Bóc tách mã lỗi rõ ràng (SESSION_EXPIRED, RATE_LIMITED, CONTENT_POLICY_VIOLATION), chỉ fallback sang synthetic card khi có cấu hình explicit fallback, tránh âm thầm nuốt lỗi sinh ảnh/video thật.
+
+## Acceptance Criteria
+
+### [Integration & Execution]
+- [ ] AiStudioVisualService.generateViaGoogleFlow gọi trực tiếp GoogleFlowRpcClient sinh ảnh hoặc video thành công.
+- [ ] Tệp media được tải về đĩa cứng cục bộ với kích thước > 0 byte và đúng định dạng (.png hoặc .mp4).
+- [ ] Giao diện tiến độ nhận được thông báo thời gian thực từ Polling State Machine.
+- [ ] Có kịch bản kiểm thử tự động xác minh luồng tích hợp AiStudioVisualService với GoogleFlowRpcClient chạy thành công (exit code 0).
+- [ ] npx tsc --noEmit hoàn toàn không có lỗi compilation.
+
+## 2026-09-25T04:50:45Z
+
+This is a single self-contained fix; keep it small and focused.
+
+Chuẩn hóa toàn diện module Chrome Extension Bridge của VanhSub theo chuẩn mã nguồn mở `crisng95/flowkit` để giải quyết dứt điểm lỗi `PUBLIC_ERROR_UNUSUAL_ACTIVITY` (reCAPTCHA bot flag) khi gọi Web RPC lên Google Flow backend (`flow.google.com`).
+
+Working directory: d:/DEAN/DEAN/VANHSUB
+Integrity mode: development
+
+## Requirements
+
+### R1. Cập nhật cơ chế Minting reCAPTCHA Enterprise theo Invisible Widget (Chuẩn FlowKit)
+- Thay thế hoàn toàn lệnh gọi trực tiếp `window.grecaptcha.enterprise.execute(siteKey, { action })` bằng quy trình 3 bước chuẩn của FlowKit:
+  1. `resolveSitekey()`: Trích xuất sitekey động từ `window.___grecaptcha_cfg.clients` (fallback `6LdsFiUsAAAAAIjVDZcuLhaHiDn5nnHVXVRQGeMV`).
+  2. `ensureWidget(sitekey)`: Render invisible widget vào thẻ host `#flowkit-recaptcha-host` bằng `grecaptcha.enterprise.render(host, { sitekey, size: 'invisible' })`.
+  3. `executeWithRetry(sitekey, action)`: Thực thi `grecaptcha.enterprise.execute(widgetId, { action })` với `widgetId` trả về từ render thay vì truyền `sitekey`.
+- Đồng bộ hóa các lượt mint qua Promise queue (`captchaMintTail`) để ngăn xung đột race condition.
+
+### R2. Đóng gói và Preload Bundle reCAPTCHA trong Extension
+- Bổ sung `recaptcha_enterprise.js` và `recaptcha__en.js` (đã được tải sẵn tại d:/DEAN/DEAN/VANHSUB/extension/) vào khai báo `web_accessible_resources` của `manifest.json`. Nâng version extension lên 1.0.3.
+- Trong `extension/content.js`, tự động chèn `recaptcha_enterprise.js` và `recaptcha__en.js` vào DOM để vượt qua chính sách CSP `require-trusted-types-for 'script'` của `flow.google.com` đúng như thiết kế của FlowKit.
+
+### R3. Chuẩn hóa Batch RPC Fetch Headers & Body Envelope
+- Trong `extension/background.js`, chuẩn hóa `runBatchRpc`:
+  - Body đóng gói bằng `new URLSearchParams({ 'f.req': freqStr, at })` (loại bỏ dấu `&` thừa và lỗi encoding).
+  - Headers tối giản và chuẩn xác: `'content-type': 'application/x-www-form-urlencoded;charset=UTF-8'`, `'x-same-domain': '1'`. Loại bỏ các header giả lập bị Google WAF flag.
+
+## Acceptance Criteria
+
+### [FlowKit Compliance & Verification]
+- [ ] `extension/injected.js` áp dụng đúng 100% hàm `ensureWidget` và `executeWithRetry` dùng `widgetId`.
+- [ ] `extension/manifest.json` và `extension/content.js` nạp đầy đủ bundle `recaptcha_enterprise.js` và `recaptcha__en.js`.
+- [ ] Kịch bản test kiểm thử token minting và batch RPC chạy pass 100%.
+- [ ] Build lại ứng dụng VanhSub thành công (`node node_modules/nextron/bin/webpack.config.cjs`).

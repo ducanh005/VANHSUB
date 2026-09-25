@@ -49,7 +49,7 @@ function connectWebSocket() {
       // Gửi thông báo handshake
       send({
         type: 'HANDSHAKE',
-        version: '1.0.0',
+        version: '1.0.4',
         timestamp: Date.now(),
       });
     };
@@ -108,14 +108,25 @@ chrome.runtime.onConnect.addListener((port) => {
 
 // ── Tab Management ─────────────────────────────────────────────────────────────
 
+async function reviveTabIfNeeded(tab) {
+  if (!tab || !tab.discarded) return tab;
+  try {
+    await chrome.tabs.reload(tab.id);
+    await new Promise((r) => setTimeout(r, 2500));
+    return await chrome.tabs.get(tab.id);
+  } catch {
+    return tab;
+  }
+}
+
 async function getFlowTab() {
   const tabs = await chrome.tabs.query({ url: FLOW_URLS });
   if (!tabs || tabs.length === 0) return null;
   // Ưu tiên tab đang active hoặc tab không bị discarded
   const activeTab = tabs.find((t) => t.active);
-  if (activeTab) return activeTab;
   const readyTab = tabs.find((t) => !t.discarded);
-  return readyTab || tabs[0];
+  const target = activeTab || readyTab || tabs[0];
+  return await reviveTabIfNeeded(target);
 }
 
 // ── Message Handlers ───────────────────────────────────────────────────────────
@@ -530,6 +541,51 @@ async function handleMessage(msg) {
     return;
   }
 
+  if (method === 'solve_captcha' || method === 'get_captcha') {
+    const pageAction = params?.captchaAction || params?.pageAction || 'IMAGE_GENERATION';
+    const tab = await getFlowTab();
+    if (!tab) {
+      send({ id, error: 'NO_FLOW_TAB' });
+      return;
+    }
+    try {
+      let resp;
+      try {
+        resp = await chrome.tabs.sendMessage(tab.id, {
+          type: 'GET_CAPTCHA',
+          requestId: id,
+          pageAction,
+        });
+      } catch (sendErr) {
+        const msg = sendErr?.message || '';
+        if (msg.includes('Receiving end does not exist') || msg.includes('Could not establish connection')) {
+          log('🔄 Content script chưa sẵn sàng trong tab, tự động nạp content.js và thử lại...');
+          await chrome.scripting.executeScript({
+            target: { tabId: tab.id },
+            files: ['content.js'],
+          });
+          await new Promise((r) => setTimeout(r, 300));
+          resp = await chrome.tabs.sendMessage(tab.id, {
+            type: 'GET_CAPTCHA',
+            requestId: id,
+            pageAction,
+          });
+        } else {
+          throw sendErr;
+        }
+      }
+
+      if (resp && resp.token) {
+        send({ id, result: { token: resp.token } });
+      } else {
+        send({ id, error: resp?.error || 'NO_TOKEN' });
+      }
+    } catch (e) {
+      send({ id, error: e.message });
+    }
+    return;
+  }
+
   if (method === 'batch_rpc') {
     log(`🚀 Nhận lệnh batch_rpc cho rpcid=${params?.rpcid}, action=${params?.captchaAction || 'none'}`);
     const result = await runBatchRpc(params);
@@ -587,40 +643,159 @@ async function handleMessage(msg) {
       return;
     }
     try {
-      const [res] = await chrome.scripting.executeScript({
+      const promptText = params.prompt || 'a drone shot over ocean waves';
+      const clickTimestamp = Date.now();
+
+      // Bước 1: Điền prompt vào ô ProseMirror và lấy tọa độ nút tạo
+      const [phase1] = await chrome.scripting.executeScript({
         target: { tabId: tab.id },
         world: 'MAIN',
-        args: [params.prompt || 'a drone shot over ocean waves'],
-        func: async (promptText) => {
-          const pm = document.querySelector('.ProseMirror');
-          if (!pm) return { ok: false, error: 'NO_PROSEMIRROR' };
+        args: [promptText],
+        func: async (text) => {
+          let pm = document.querySelector(
+            'flow-prompt-box .ProseMirror, .prosemirror-editor .ProseMirror, .ProseMirror, flow-prompt-box [contenteditable="true"], [contenteditable="true"]:not([contenteditable="false"]), textarea:not(.g-recaptcha-response)'
+          );
+          if (!pm) {
+            const editables = Array.from(document.querySelectorAll('[contenteditable="true"], textarea, flow-prompt-box *'));
+            pm = editables.find((el) => {
+              const rect = el.getBoundingClientRect();
+              return rect.width > 50 && rect.height > 20;
+            });
+          }
+          if (!pm) {
+            console.error('[VanhSub:UI] ❌ Không tìm thấy ô nhập prompt!');
+            return { ok: false, error: 'NO_PROSEMIRROR' };
+          }
 
           pm.focus();
           document.execCommand('selectAll', false, null);
-          document.execCommand('insertText', false, promptText);
+          document.execCommand('delete', false, null);
+          await new Promise((r) => setTimeout(r, 100));
+
+          try {
+            const dt = new DataTransfer();
+            dt.setData('text/plain', text);
+            pm.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: dt }));
+          } catch (e) {}
+
+          document.execCommand('insertText', false, text);
+          pm.dispatchEvent(new InputEvent('input', { bubbles: true, data: text, inputType: 'insertText' }));
           pm.dispatchEvent(new Event('input', { bubbles: true }));
+          pm.dispatchEvent(new Event('change', { bubbles: true }));
+          pm.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, key: ' ' }));
 
           await new Promise((r) => setTimeout(r, 600));
 
-          const btn = document.querySelector(
-            'button[aria-label*="tạo" i], button[aria-label*="generate" i], button[aria-label*="Bắt đầu tạo" i]'
-          );
-          if (!btn) return { ok: false, error: 'NO_GEN_BUTTON' };
+          // Tìm nút Generate
+          const allBtns = Array.from(document.querySelectorAll('button'));
+          let btn = allBtns.find((b) => {
+            if (b.disabled) return false;
+            const aria = (b.getAttribute('aria-label') || '').toLowerCase();
+            const txt = (b.innerText || b.textContent || '').trim().toLowerCase();
+            return (
+              aria.includes('bắt đầu tạo') ||
+              aria.includes('bat dau tao') ||
+              aria.includes('tạo') ||
+              aria.includes('tao') ||
+              aria.includes('generate') ||
+              aria.includes('create') ||
+              aria.includes('submit') ||
+              txt === 'arrow_forward' ||
+              txt === 'send' ||
+              txt.includes('tạo') ||
+              txt.includes('generate')
+            );
+          });
 
-          const prevCaptchaCount = (window.__VANHSUB_CAPTCHA_CALLS__ || []).length;
-          const prevHistoryCount = (window.__VANHSUB_SNIFFER__?.history || []).length;
+          if (!btn) {
+            btn = document.querySelector('button[aria-label*="tạo" i], button[aria-label*="generate" i], flow-prompt-box button');
+          }
 
-          btn.click();
+          if (!btn) {
+            return { ok: false, error: 'NO_GEN_BUTTON' };
+          }
 
-          const start = Date.now();
-          while (Date.now() - start < 15000) {
-            await new Promise((r) => setTimeout(r, 500));
-            const newHistory = (window.__VANHSUB_SNIFFER__?.history || []).slice(prevHistoryCount);
-            const genRpc = newHistory.find(
-              (h) => h.url && (h.url.includes('ogiZ0b') || h.url.includes('YhhmEf') || h.url.includes('MZZa6b'))
+          btn.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+          await new Promise((r) => setTimeout(r, 100));
+          const rect = btn.getBoundingClientRect();
+          const cx = Math.round(rect.left + rect.width / 2);
+          const cy = Math.round(rect.top + rect.height / 2);
+
+          return { ok: true, cx, cy, disabled: btn.disabled };
+        },
+      });
+
+      const p1 = phase1?.result;
+      if (!p1?.ok) {
+        send({ id, result: p1 || { ok: false, error: 'PHASE1_FAILED' } });
+        return;
+      }
+
+      // Bước 2: Bấm nút bằng CDP Trusted Click (phần cứng mô phỏng isTrusted=true)
+      let cdpSuccess = false;
+      try {
+        await chrome.debugger.attach({ tabId: tab.id }, '1.3');
+        await chrome.debugger.sendCommand({ tabId: tab.id }, 'Input.dispatchMouseEvent', {
+          type: 'mouseMoved',
+          x: p1.cx,
+          y: p1.cy,
+        });
+        await new Promise((r) => setTimeout(r, 50));
+        await chrome.debugger.sendCommand({ tabId: tab.id }, 'Input.dispatchMouseEvent', {
+          type: 'mousePressed',
+          x: p1.cx,
+          y: p1.cy,
+          button: 'left',
+          clickCount: 1,
+          modifiers: 0,
+        });
+        await new Promise((r) => setTimeout(r, 80));
+        await chrome.debugger.sendCommand({ tabId: tab.id }, 'Input.dispatchMouseEvent', {
+          type: 'mouseReleased',
+          x: p1.cx,
+          y: p1.cy,
+          button: 'left',
+          clickCount: 1,
+          modifiers: 0,
+        });
+        cdpSuccess = true;
+        log(`🖱️ Đã phát CDP trusted click tại (${p1.cx}, ${p1.cy})`);
+      } catch (cdpErr) {
+        warn('CDP click gặp sự cố, fallback sang DOM click:', cdpErr.message);
+      } finally {
+        try { await chrome.debugger.detach({ tabId: tab.id }); } catch {}
+      }
+
+      if (!cdpSuccess) {
+        // Fallback DOM click
+        await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          world: 'MAIN',
+          func: () => {
+            const allBtns = Array.from(document.querySelectorAll('button'));
+            const b = allBtns.find((btn) => {
+              const a = (btn.getAttribute('aria-label') || '').toLowerCase();
+              return a.includes('tạo') || a.includes('generate');
+            });
+            if (b) b.click();
+          },
+        });
+      }
+
+      // Bước 3: Đợi gói tin RPC phản hồi từ Google Flow (tối đa 45s)
+      const [phase3] = await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        world: 'MAIN',
+        args: [clickTimestamp],
+        func: async (ts) => {
+          const deadline = Date.now() + 45000;
+          while (Date.now() < deadline) {
+            await new Promise((r) => setTimeout(r, 600));
+            const hist = (window.__VANHSUB_SNIFFER__?.history || []).filter((h) => (h.timestamp || 0) >= ts);
+            const genRpc = hist.find(
+              (h) => h.url && (h.url.includes('ogiZ0b') || h.url.includes('YhhmEf') || h.url.includes('eb1hJf') || h.url.includes('MZZa6b')) && h.status === 200 && h.response
             );
             if (genRpc) {
-              const newCaptcha = (window.__VANHSUB_CAPTCHA_CALLS__ || []).slice(prevCaptchaCount);
               return {
                 ok: true,
                 capturedRpc: {
@@ -629,25 +804,19 @@ async function handleMessage(msg) {
                   status: genRpc.status,
                   response: genRpc.response,
                 },
-                captchaCalls: newCaptcha,
               };
             }
           }
-
-          return {
-            ok: false,
-            error: 'TIMEOUT_WAITING_RPC',
-            captchaCalls: (window.__VANHSUB_CAPTCHA_CALLS__ || []).slice(prevCaptchaCount),
-            recentHistory: (window.__VANHSUB_SNIFFER__?.history || []).slice(prevHistoryCount).map((h) => ({
-              url: h.url,
-              status: h.status,
-              response: h.response ? h.response.slice(0, 100) : '',
-            })),
-          };
+          return { ok: false, error: 'TIMEOUT_WAITING_RPC' };
         },
       });
-      send({ id, result: res?.result });
+
+      send({ id, result: phase3?.result || { ok: false, error: 'NO_PHASE3_RESULT' } });
     } catch (err) {
+      send({ id, error: err.message });
+    }
+    return;
+  }
       send({ id, error: err.message });
     }
     return;
@@ -749,46 +918,158 @@ async function runBatchRpc(cmd) {
   const effectiveProjectId = tabProjectId;
   let freqStr = cmd.freq;
 
-  // Thay thế dummy projectId bất kỳ trong payload bằng project thật đang mở
+  // 1. Luôn thay thế placeholder __PROJECT_ID_SLOT__ hoặc __PROJECT_ID__ bằng project thật đang mở
+  freqStr = freqStr.split('__PROJECT_ID_SLOT__').join(effectiveProjectId);
+  freqStr = freqStr.split('__PROJECT_ID__').join(effectiveProjectId);
+
+  // 2. Nếu cmd.projectId được cung cấp và khác effectiveProjectId, thay thế nó
   if (cmd.projectId && cmd.projectId !== effectiveProjectId) {
     log(`🎯 Thay thế projectId "${cmd.projectId}" → project thật "${effectiveProjectId}"`);
     freqStr = freqStr.split(cmd.projectId).join(effectiveProjectId);
   }
 
-  // 2. Thực thi trong MAIN world của trang Flow
+  // 3. Fallback an toàn: Nếu trong securityBlock vị trí projectId bị rỗng
+  freqStr = freqStr.replace(/null,22,null,null,null,"",/g, `null,22,null,null,null,"${effectiveProjectId}",`);
+  freqStr = freqStr.replace(/null,22,null,null,null,\\"\\",/g, `null,22,null,null,null,\\"${effectiveProjectId}\\",`);
+  freqStr = freqStr.replace(/null,22,null,null,null,\\\\\\"\\\\\\",/g, `null,22,null,null,null,\\\\\\"${effectiveProjectId}\\\\\\",`);
+  // 2. Đảm bảo content script và injected.js đã sẵn sàng trong tab trước khi thực thi RPC
+  try {
+    const [check] = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      world: 'MAIN',
+      func: () => typeof window.mintCaptcha === 'function',
+    });
+    if (!check?.result) {
+      log('🔄 Tab chưa nạp injected.js / content.js, đang tự động nạp content.js...');
+      await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        files: ['content.js'],
+      });
+      // Đợi nạp injected.js vào MAIN world (tối đa 3s)
+      for (let i = 0; i < 15; i++) {
+        await new Promise((r) => setTimeout(r, 200));
+        const [recheck] = await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          world: 'MAIN',
+          func: () => typeof window.mintCaptcha === 'function',
+        });
+        if (recheck?.result) break;
+      }
+    }
+  } catch (injectErr) {
+    warn('Không thể tự động nạp content.js vào tab:', injectErr.message);
+  }
+
+  // 3. Thực thi trong MAIN world của trang Flow
   try {
     const [execResult] = await chrome.scripting.executeScript({
       target: { tabId: tab.id },
       world: 'MAIN',
       args: [cmd.rpcid, freqStr, effectiveProjectId, cmd.captchaAction],
       func: async (rpcid, freq, projectId, captchaAction) => {
-        const wiz = globalThis.WIZ_global_data || {};
-        const at = wiz.SNlM0e;
-        const sid = wiz.FdrFJe;
-        const bl = wiz.cfb2h;
-        const siteKey = wiz.xZbWve || '6LdsFiUsAAAAAIjVDZcuLhaHiDn5nnHVXVRQGeMV';
+        let wiz = globalThis.WIZ_global_data || {};
+        let at = wiz.SNlM0e;
+        let sid = wiz.FdrFJe;
+        let bl = wiz.cfb2h;
+
+        // Chờ WIZ_global_data hydrate nếu trang vừa nạp
+        if (!at) {
+          for (let i = 0; i < 6 && !at; i++) {
+            await new Promise((r) => setTimeout(r, 500));
+            wiz = globalThis.WIZ_global_data || {};
+            at = wiz.SNlM0e;
+            sid = wiz.FdrFJe;
+            bl = wiz.cfb2h;
+          }
+        }
 
         if (!at) {
           return { error: 'NO_AT_TOKEN: Không tìm thấy WIZ_global_data.SNlM0e trong trang Flow' };
         }
 
         let finalFreq = freq;
+        if (projectId) {
+          finalFreq = finalFreq.split('__PROJECT_ID_SLOT__').join(projectId).split('__PROJECT_ID__').join(projectId);
+          finalFreq = finalFreq.replace(/null,22,null,null,null,"",/g, `null,22,null,null,null,"${projectId}",`);
+          finalFreq = finalFreq.replace(/null,22,null,null,null,\\"\\",/g, `null,22,null,null,null,\\"${projectId}\\",`);
+          finalFreq = finalFreq.replace(/null,22,null,null,null,\\\\\\"\\\\\\",/g, `null,22,null,null,null,\\\\\\"${projectId}\\\\\\",`);
+          finalFreq = finalFreq.replace(/(null,22,null,null,null,)(?:\\*["']){2},/g, `$1\\"${projectId}\\",`);
+        }
 
-        // Nếu RPC yêu cầu CAPTCHA, mint fresh reCAPTCHA token trực tiếp trong MAIN world ngay trước khi gửi request
+        // Nếu RPC yêu cầu CAPTCHA, mint fresh reCAPTCHA token qua invisible widget (chuẩn FlowKit)
         if (captchaAction && (finalFreq.includes('__CAPTCHA__') || finalFreq.includes('__CAPTCHA_TOKEN_SLOT__'))) {
-          if (!window.grecaptcha || !window.grecaptcha.enterprise || typeof window.grecaptcha.enterprise.execute !== 'function') {
-            return { error: 'NO_GRECAPTCHA: grecaptcha.enterprise chưa sẵn sàng trên trang Flow' };
-          }
           try {
-            console.log(`[VanhSub:exec] 🔐 Đang mint CAPTCHA token trong MAIN world (action=${captchaAction}, siteKey=${siteKey})...`);
-            try {
-              const x = Math.floor(Math.random() * 300) + 100;
-              const y = Math.floor(Math.random() * 300) + 100;
-              window.dispatchEvent(new MouseEvent('mousemove', { clientX: x, clientY: y, bubbles: true }));
-              window.dispatchEvent(new MouseEvent('mousedown', { clientX: x, clientY: y, bubbles: true }));
-              window.dispatchEvent(new MouseEvent('mouseup', { clientX: x, clientY: y, bubbles: true }));
-            } catch {}
-            const token = await window.grecaptcha.enterprise.execute(siteKey, { action: captchaAction });
+            console.log(`[VanhSub:exec] 🔐 Đang mint CAPTCHA token trong MAIN world (action=${captchaAction})...`);
+            let token = null;
+
+            // Đợi window.mintCaptcha sẵn sàng (tối đa 15s) nếu injected.js đang nạp
+            let waitMint = 0;
+            while (typeof window.mintCaptcha !== 'function' && waitMint < 30) {
+              await new Promise((r) => setTimeout(r, 500));
+              waitMint++;
+            }
+
+            if (typeof window.mintCaptcha === 'function') {
+              token = await window.mintCaptcha(captchaAction);
+            } else if (typeof window.executeWithRetry === 'function') {
+              const sk = typeof window.resolveSitekey === 'function' ? window.resolveSitekey() : '6LdsFiUsAAAAAIjVDZcuLhaHiDn5nnHVXVRQGeMV';
+              token = await window.executeWithRetry(sk, captchaAction);
+            } else if (window.grecaptcha?.enterprise) {
+              await new Promise((res) => {
+                try { window.grecaptcha.enterprise.ready(res); } catch (e) { res(); }
+                setTimeout(res, 5000);
+              });
+              const siteKey = (function() {
+                try {
+                  const cfg = window.___grecaptcha_cfg || {};
+                  const clients = cfg.clients || {};
+                  for (const k of Object.keys(clients)) {
+                    const c = clients[k];
+                    if (!c) continue;
+                    if (typeof c === 'string' && (c.length > 20 || c.startsWith('6L'))) return c;
+                    if (c.sitekey) return c.sitekey;
+                    if (c.siteKey) return c.siteKey;
+                    if (c.site_key) return c.site_key;
+                  }
+                } catch (e) {}
+                return window.WIZ_global_data?.xZbWve || '6LdsFiUsAAAAAIjVDZcuLhaHiDn5nnHVXVRQGeMV';
+              })();
+              for (let att = 0; att < 2 && !token; att++) {
+                try {
+                  let host = document.getElementById('flowkit-recaptcha-host');
+                  if (!host) {
+                    host = document.createElement('div');
+                    host.id = 'flowkit-recaptcha-host';
+                    host.style.cssText = 'position:fixed;left:-9999px;top:0;width:1px;height:1px;';
+                    (document.documentElement || document.body).appendChild(host);
+                  } else if (typeof host.hasChildNodes === 'function' && host.hasChildNodes()) {
+                    host.remove();
+                    host = document.createElement('div');
+                    host.id = 'flowkit-recaptcha-host';
+                    host.style.cssText = 'position:fixed;left:-9999px;top:0;width:1px;height:1px;';
+                    (document.documentElement || document.body).appendChild(host);
+                  }
+                  const widgetId = await new Promise((res, rej) => {
+                    try {
+                      const wid = window.grecaptcha.enterprise.render(host, {
+                        sitekey: siteKey,
+                        size: 'invisible',
+                        callback: () => {},
+                        'error-callback': (m) => rej(new Error('render_error: ' + m)),
+                      });
+                      res(wid);
+                    } catch (e) { rej(e); }
+                  });
+                  token = await Promise.race([
+                    window.grecaptcha.enterprise.execute(widgetId, { action: captchaAction }),
+                    new Promise((_, rej) => setTimeout(() => rej(new Error('execute_hang')), 8000)),
+                  ]);
+                } catch (fallbackErr) {
+                  if (att === 1) throw fallbackErr;
+                  await new Promise((r) => setTimeout(r, 600));
+                }
+              }
+            }
             if (!token) {
               return { error: 'EMPTY_CAPTCHA_TOKEN: grecaptcha trả về token rỗng' };
             }
@@ -803,24 +1084,19 @@ async function runBatchRpc(cmd) {
         const sourcePath = projectId ? `/project/${projectId}` : (location.pathname || '/');
         const hl = (document.documentElement.lang || navigator.language || 'vi').split('-')[0];
 
+        // Chuẩn hoá URL dạng relative cùng origin theo chuẩn FlowKit
         const url =
-          `https://flow.google.com/_/AiSandboxAngularFrontend/data/batchexecute?rpcids=${encodeURIComponent(rpcid)}` +
+          `/_/AiSandboxAngularFrontend/data/batchexecute?rpcids=${encodeURIComponent(rpcid)}` +
           `&source-path=${encodeURIComponent(sourcePath)}` +
           `&bl=${encodeURIComponent(bl || '')}&f.sid=${encodeURIComponent(sid || '')}` +
           `&hl=${encodeURIComponent(hl)}&_reqid=${reqid}&rt=c`;
 
-        const body = `f.req=${encodeURIComponent(finalFreq)}&at=${encodeURIComponent(at)}&`;
+        // Chuẩn hoá URLSearchParams envelope và headers tối giản theo chuẩn FlowKit (loại bỏ artificial headers bị Google WAF flag)
+        const body = new URLSearchParams({ 'f.req': finalFreq, at });
 
-        // Chuẩn hoá headers khớp 100% với DevTool Chrome thật
         const headers = {
-          'accept': '*/*',
           'content-type': 'application/x-www-form-urlencoded;charset=UTF-8',
-          'priority': 'u=1, i',
-          'x-browser-channel': 'stable',
-          'x-browser-copyright': 'Copyright 2026 Google LLC. All Rights Reserved.',
-          'x-browser-year': '2026',
           'x-same-domain': '1',
-          ...(window.__VANHSUB_HEADERS__ || {}),
         };
 
         try {
@@ -828,8 +1104,6 @@ async function runBatchRpc(cmd) {
           const res = await window.fetch(url, {
             method: 'POST',
             credentials: 'include',
-            mode: 'cors',
-            referrer: 'https://flow.google.com/',
             headers,
             body,
           });

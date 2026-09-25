@@ -1270,11 +1270,20 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
 
         {/* Right Actions */}
         <div className="flex items-center gap-2">
-          {/* Flow status */}
-          <span className="flex items-center gap-1.5 rounded-lg border border-slate-800 bg-[#0F1626] px-2.5 py-1 text-xs font-mono text-emerald-400">
-            <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
-            <span>Flow 1/1 •</span>
-          </span>
+          {/* Nút Mở Sảnh Google Flow */}
+          <button
+            type="button"
+            onClick={handleToggleFlowLive}
+            className={`flex items-center gap-1.5 rounded-lg border px-3 py-1 text-xs font-semibold transition cursor-pointer shadow-sm ${
+              isFlowWindowOpen
+                ? 'border-amber-500/50 bg-amber-500/20 text-amber-300 hover:bg-amber-500/30'
+                : 'border-slate-800 bg-[#0F1626] text-emerald-400 hover:border-emerald-500/40 hover:bg-emerald-950/20'
+            }`}
+            title="Mở hoặc ẩn cửa sổ Sảnh Google Flow trên màn hình để đăng nhập và quan sát AI trực tiếp"
+          >
+            <span className={`h-2 w-2 rounded-full ${isFlowWindowOpen ? 'bg-amber-400' : 'bg-emerald-400 animate-pulse'}`} />
+            <span>{isFlowWindowOpen ? 'Ẩn Sảnh Flow' : '🌐 Mở Sảnh Google Flow'}</span>
+          </button>
 
           {/* Telegram shortcut button */}
           <button

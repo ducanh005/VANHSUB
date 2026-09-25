@@ -36,4 +36,13 @@ flow_outputs/
 .agents/victory_*
 .agents/explorer_*
 .agents/teamwork_preview_*
+.agents/implementer_*
+.agents/reviewer_*
+.agents/swe_*
 TEST_READY.md
+
+# Debug dumps & scratch references
+sniffer_dump*.json
+flowkit_*
+extension/recaptcha*
+

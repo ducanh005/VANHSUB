@@ -354,6 +354,9 @@ export class GoogleVeoSessionManager {
             delete details.requestHeaders['sec-ch-ua-model'];
           } else {
             details.requestHeaders['User-Agent'] = CHROME_DESKTOP_UA;
+            details.requestHeaders['sec-ch-ua'] = '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"';
+            details.requestHeaders['sec-ch-ua-mobile'] = '?0';
+            details.requestHeaders['sec-ch-ua-platform'] = '"Windows"';
           }
           callback({ requestHeaders: details.requestHeaders });
         }

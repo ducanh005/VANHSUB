@@ -71,8 +71,14 @@ export interface StoryboardSynthesis {
 }
 
 export interface AiStudioFlowEngineConfig {
-  /** Động cơ sinh visual media: 'flow' (Google Flow Automation) | 'synthetic' */
-  engine?: 'flow' | 'synthetic' | string;
+  /** Động cơ sinh visual media: 'flow' (Google Flow Automation) | 'synthetic' | 'rpc' | 'flow_rpc' */
+  engine?: 'flow' | 'synthetic' | 'rpc' | 'flow_rpc' | string;
+  /** Mã dự án trên Google Flow (UUID hoặc target project ID) */
+  projectId?: string;
+  /** Cho phép fallback sang synthetic scene card khi sinh media thất bại (mặc định false) */
+  allowSyntheticFallback?: boolean;
+  /** Alias cho explicit fallback */
+  fallbackToSynthetic?: boolean;
   /** Chế độ hiển thị cửa sổ sảnh Flow: 'offscreen' | 'live_window' */
   uiMode?: 'offscreen' | 'live_window';
   /** Tỷ lệ khung hình tạo ảnh/video: '16:9' | '9:16' | '1:1' */
@@ -325,7 +331,7 @@ export const DEFAULT_VOICE_CONFIG: Readonly<AiStudioVoiceConfig> = Object.freeze
 });
 
 export const DEFAULT_FLOW_ENGINE_CONFIG: Readonly<AiStudioFlowEngineConfig> = Object.freeze({
-  engine: 'flow',
+  engine: 'rpc',
   uiMode: 'offscreen',
   aspectRatio: '16:9',
   outputMode: 'image',
@@ -526,6 +532,7 @@ export interface WordTimestamp {
 export interface StoryboardScene {
   id: string;
   shotId?: string;
+  sceneId?: string;
   lineIndex: number;
   startMs: number;
   endMs: number;
@@ -537,6 +544,9 @@ export interface StoryboardScene {
   assetPath?: string;
   imagePath?: string;
   videoPath?: string;
+  referenceImagePath?: string;
+  referenceAssets?: string[];
+  inputImageAsset?: string;
   status: 'pending' | 'generating' | 'ready' | 'error';
   error?: string;
 }

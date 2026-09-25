@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "VanhSub Flow Bridge",
-  "version": "1.0.0",
+  "version": "1.0.4",
   "description": "Cầu nối Chrome Extension cho VanhSub — ký reCAPTCHA thật và thực thi batchexecute RPC trong tab flow.google.com",
   "permissions": [
     "storage",

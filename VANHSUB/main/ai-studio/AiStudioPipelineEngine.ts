@@ -52,6 +52,7 @@ import { aiStudioModelConfigService } from './services/AiStudioModelConfigServic
 import { FlowMediaAutomationEngine } from '../workflow/flow-engine/FlowMediaAutomationEngine';
 import { GoogleVeoSessionManager, OFFSCREEN_X, OFFSCREEN_Y } from '../veo/GoogleVeoSessionManager';
 import { GoogleFlowBrowserMutex } from '../workflow/dispatcher/GoogleFlowBrowserMutex';
+import { FlowBridgeServer } from '../workflow/flow-engine/rpc/FlowBridgeServer';
 import { broadcastPipelineActionLog } from './ipc';
 
 /**
@@ -299,7 +300,12 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
     // Hard-block check: outputDir bắt buộc phải có để tránh rò rỉ chéo dự án
     const config: AiStudioConfig = getDecryptedAiStudioConfig();
     const activeProject = config.savedProjects?.find((p) => p.id === config.activeProjectId);
-    const resolvedOutputDir = payload.outputDir?.trim() || activeProject?.outputDir?.trim() || undefined;
+    const resolvedOutputDir =
+      payload.outputDir?.trim() ||
+      activeProject?.outputDir?.trim() ||
+      config.outputDir?.trim() ||
+      config.channelProfile?.customMediaDir?.trim() ||
+      (process.env.VANHSUB_AI_STUDIO_DIR ? path.join(process.env.VANHSUB_AI_STUDIO_DIR, 'output') : undefined);
 
     if (!resolvedOutputDir) {
       throw new Error(
@@ -1016,14 +1022,93 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
           }
 
           case 6: {
-            // Stage 6: Ảnh / Video (Visual Assets via FlowMediaAutomationEngine)
-            const isFlowEngine = !config.flowEngine.engine || config.flowEngine.engine === 'flow';
-            if (!isFlowEngine) {
-              const scenes = session.artifacts.scenes || [];
+            // Stage 6: Ảnh / Video (Visual Assets via Google Flow Pure Web RPC mặc định)
+            const isLegacyDom = config.flowEngine.engine === 'dom' || config.flowEngine.engine === 'legacy_dom';
+            const isRpcEngine = !isLegacyDom;
+            if (isRpcEngine) {
+              let scenes = session.artifacts.scenes || [];
+              if (scenes.length === 0) {
+                // Phục hồi scenes từ Storyboard trong storage nếu session.artifacts.scenes rỗng
+                const storyboard = storage.readStoryboard();
+                if (storyboard?.scenes && storyboard.scenes.length > 0) {
+                  scenes = [];
+                  for (let sIdx = 0; sIdx < storyboard.scenes.length; sIdx++) {
+                    const sc = storyboard.scenes[sIdx];
+                    for (const shot of sc.shots) {
+                      const forceImageOnly = config.flowEngine.outputMode === 'image';
+                      const motionType = (!forceImageOnly && shot.media_type === 'video') ? 'video' : 'ken_burns';
+                      scenes.push({
+                        id: shot.shot_id,
+                        shotId: shot.shot_id,
+                        sceneId: sc.scene_id,
+                        lineIndex: shot.assigned_sentences?.[0] ? shot.assigned_sentences[0] - 1 : sIdx,
+                        startMs: Math.round(shot.start_sec * 1000),
+                        endMs: Math.round((shot.start_sec + shot.duration_sec) * 1000),
+                        durationMs: Math.round(shot.duration_sec * 1000),
+                        lineText: shot.dialogue_lines?.join(' ') || sc.narration || '',
+                        visualPrompt: shot.image_prompt,
+                        negativePrompt: config.flowEngine.negativePrompt,
+                        motionType,
+                        status: 'pending',
+                      });
+                    }
+                  }
+                  session.artifacts.scenes = scenes;
+                }
+              }
+
+              const targetVisualDir = storage.paths.mediaDir || assetsDir;
+
+              const onSceneComplete = (completedScene: StoryboardScene, idx: number) => {
+                const shotId = completedScene.shotId || completedScene.id;
+                let targetSceneId = (completedScene as any).sceneId;
+                if (!targetSceneId) {
+                  const idxData = storage.readIndex();
+                  for (const [sId, sData] of Object.entries(idxData.scenes || {})) {
+                    if (sData.shots && sData.shots[shotId]) {
+                      targetSceneId = sId;
+                      break;
+                    }
+                  }
+                  if (!targetSceneId) {
+                    targetSceneId = shotId.includes('_shot_') ? shotId.split('_shot_')[0] : shotId;
+                  }
+                }
+
+                if (completedScene.videoPath && fs.existsSync(completedScene.videoPath)) {
+                  storage.updateShotMetadata(targetSceneId, shotId, {
+                    status: 'video_ready',
+                    video_path: completedScene.videoPath,
+                  });
+                } else if (completedScene.imagePath && fs.existsSync(completedScene.imagePath)) {
+                  storage.updateShotMetadata(targetSceneId, shotId, {
+                    status: 'image_ready',
+                    image_path: completedScene.imagePath,
+                    video_path: '',
+                  });
+                }
+
+                this.persistSessionStateAtomic(session);
+
+                const stepProgress = 70 + Math.round(((idx + 1) / scenes.length) * 15);
+                onProgress({
+                  sessionId: session.sessionId,
+                  stage: 6,
+                  stageName: STAGE_CONFIG[6].label,
+                  progress: Math.min(84, stepProgress),
+                  status: 'running',
+                  message: `[RPC] Hoàn tất media phân cảnh ${idx + 1}/${scenes.length}`,
+                  artifacts: {
+                    ...session.artifacts,
+                    scenes: session.artifacts.scenes,
+                  },
+                });
+              };
+
               const dispatchResult = await aiStudioVisualService.dispatchVisualAssets(
                 scenes,
                 config.flowEngine,
-                assetsDir,
+                targetVisualDir,
                 (pct, msg) => {
                   onProgress({
                     sessionId: session.sessionId,
@@ -1034,9 +1119,23 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
                     message: msg,
                   });
                 },
-                signal
+                signal,
+                onSceneComplete
               );
               session.artifacts.scenes = dispatchResult.scenes;
+              session.artifacts.mediaDir = targetVisualDir;
+              session.progress = 85;
+              this.persistSessionStateAtomic(session);
+
+              onProgress({
+                sessionId: session.sessionId,
+                stage: 6,
+                stageName: STAGE_CONFIG[6].label,
+                progress: 85,
+                status: 'running',
+                message: `Đã hoàn tất toàn bộ media assets (${dispatchResult.scenes.length} phân cảnh).`,
+                artifacts: session.artifacts,
+              });
               break;
             }
 
@@ -1091,21 +1190,27 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
             const resolvedStoryboard = storyboard!;
 
             // Dual UI Modes (Offscreen vs Live Window)
+            const bridge = FlowBridgeServer.getInstance();
+            const isBridgeConnected = bridge.isConnected();
             const sessionMgr = GoogleVeoSessionManager.getInstance();
             const mutex = GoogleFlowBrowserMutex.getInstance();
-            // Mở sảnh Google Flow theo uiMode đã cấu hình (mặc định offscreen)
-            const flowUiMode: 'offscreen' | 'live_window' =
-              config.channelProfile?.flowUiMode || config.flowEngine?.uiMode || 'offscreen';
-            let lobbyWin = sessionMgr.getLobbyWindow();
-            if (!lobbyWin || lobbyWin.isDestroyed()) {
-              await sessionMgr.openLobbyWindow({ uiMode: flowUiMode });
+
+            let lobbyWin: any = null;
+            if (!isBridgeConnected) {
+              // Mở sảnh Google Flow theo uiMode đã cấu hình (mặc định offscreen) khi KHÔNG dùng Chrome Extension
+              const flowUiMode: 'offscreen' | 'live_window' =
+                config.channelProfile?.flowUiMode || config.flowEngine?.uiMode || 'offscreen';
               lobbyWin = sessionMgr.getLobbyWindow();
-            } else if (flowUiMode === 'offscreen') {
-              sessionMgr.hideLobbyOffscreen();
-            }
-            if (flowUiMode === 'live_window' && lobbyWin && !lobbyWin.isDestroyed()) {
-              lobbyWin.show();
-              lobbyWin.focus();
+              if (!lobbyWin || lobbyWin.isDestroyed()) {
+                await sessionMgr.openLobbyWindow({ uiMode: flowUiMode });
+                lobbyWin = sessionMgr.getLobbyWindow();
+              } else if (flowUiMode === 'offscreen') {
+                sessionMgr.hideLobbyOffscreen();
+              }
+              if (flowUiMode === 'live_window' && lobbyWin && !lobbyWin.isDestroyed()) {
+                lobbyWin.show();
+                lobbyWin.focus();
+              }
             }
 
             // Flatten all shots
@@ -1642,11 +1747,13 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
   }
 
   public async regenerateSceneAsset(
-    payload: RegenerateSceneAssetPayload
+    payload: RegenerateSceneAssetPayload,
+    onProgress?: (pct: number, msg: string) => void,
+    signal?: AbortSignal
   ): Promise<RegenerateSceneAssetResult> {
     if (payload.sessionId) {
+      const config = getDecryptedAiStudioConfig();
       try {
-        const config = getDecryptedAiStudioConfig();
         const customMediaDir = config.channelProfile?.customMediaDir;
         const storage = this.getDiskStorageManager(payload.sessionId, customMediaDir);
         const shotId = payload.sceneId;
@@ -1654,19 +1761,71 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
         const sessionMgr = GoogleVeoSessionManager.getInstance();
         const mutex = GoogleFlowBrowserMutex.getInstance();
 
-        // Đảm bảo cửa sổ Flow sẵn sàng theo uiMode đã cấu hình (mặc định offscreen)
-        const flowUiMode: 'offscreen' | 'live_window' =
-          config.channelProfile?.flowUiMode || config.flowEngine?.uiMode || 'offscreen';
-        let lobbyWin = sessionMgr.getLobbyWindow();
-        if (!lobbyWin || lobbyWin.isDestroyed()) {
-          await sessionMgr.openLobbyWindow({ uiMode: flowUiMode });
-          lobbyWin = sessionMgr.getLobbyWindow();
-        } else if (flowUiMode === 'offscreen') {
-          sessionMgr.hideLobbyOffscreen();
+        // Mặc định luôn ưu tiên Pure Web RPC trừ khi người dùng chỉ định rõ engine === 'dom'
+        const isLegacyDom =
+          payload.flowConfig?.engine === 'dom' ||
+          payload.flowConfig?.engine === 'legacy_dom' ||
+          config.flowEngine.engine === 'dom' ||
+          config.flowEngine.engine === 'legacy_dom';
+        const isRpc = !isLegacyDom;
+
+        if (isRpc) {
+          const rpcRes = await aiStudioVisualService.regenerateSceneAsset(
+            payload,
+            storage.paths.mediaDir,
+            onProgress,
+            signal
+          );
+          if (rpcRes.assetPath && fs.existsSync(rpcRes.assetPath)) {
+            const session = await this.getState({ sessionId: payload.sessionId });
+            if (session && session.artifacts.scenes) {
+              const targetScene = session.artifacts.scenes.find((s) => s.id === shotId || s.shotId === shotId);
+              if (targetScene) {
+                if (rpcRes.videoPath) {
+                  targetScene.videoPath = rpcRes.videoPath;
+                  targetScene.assetPath = rpcRes.assetPath;
+                } else if (rpcRes.imagePath) {
+                  targetScene.imagePath = rpcRes.imagePath;
+                  targetScene.assetPath = rpcRes.assetPath;
+                  delete targetScene.videoPath;
+                }
+                targetScene.visualPrompt = payload.visualPrompt;
+                targetScene.status = 'ready';
+                this.persistSessionStateAtomic(session);
+              }
+            }
+            if (rpcRes.videoPath) {
+              storage.updateShotMetadata(sceneId, shotId, {
+                status: 'video_ready',
+                video_path: rpcRes.videoPath,
+              });
+            } else if (rpcRes.imagePath) {
+              storage.updateShotMetadata(sceneId, shotId, {
+                status: 'image_ready',
+                image_path: rpcRes.imagePath,
+                video_path: '',
+              });
+            }
+          }
+          return rpcRes;
         }
-        if (flowUiMode === 'live_window' && lobbyWin && !lobbyWin.isDestroyed()) {
-          lobbyWin.show();
-          lobbyWin.focus();
+
+        // Đảm bảo cửa sổ Flow sẵn sàng theo uiMode đã cấu hình (mặc định offscreen) khi KHÔNG dùng Chrome Extension
+        let lobbyWin: any = null;
+        if (!FlowBridgeServer.getInstance().isConnected()) {
+          const flowUiMode: 'offscreen' | 'live_window' =
+            config.channelProfile?.flowUiMode || config.flowEngine?.uiMode || 'offscreen';
+          lobbyWin = sessionMgr.getLobbyWindow();
+          if (!lobbyWin || lobbyWin.isDestroyed()) {
+            await sessionMgr.openLobbyWindow({ uiMode: flowUiMode });
+            lobbyWin = sessionMgr.getLobbyWindow();
+          } else if (flowUiMode === 'offscreen') {
+            sessionMgr.hideLobbyOffscreen();
+          }
+          if (flowUiMode === 'live_window' && lobbyWin && !lobbyWin.isDestroyed()) {
+            lobbyWin.show();
+            lobbyWin.focus();
+          }
         }
 
         const mode = payload.mode || (payload.flowConfig?.outputMode === 'video' ? 'video' : 'both');
@@ -1820,10 +1979,19 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
           }
         }
       } catch (regErr) {
+        const isLegacyDom =
+          payload.flowConfig?.engine === 'dom' ||
+          payload.flowConfig?.engine === 'legacy_dom' ||
+          config?.flowEngine?.engine === 'dom' ||
+          config?.flowEngine?.engine === 'legacy_dom';
+        const isRpc = !isLegacyDom;
+        if (isRpc) {
+          throw regErr;
+        }
         console.warn('[AiStudioPipelineEngine] Storage-backed regenerateSceneAsset error, falling back to visual service:', regErr);
       }
     }
-    return aiStudioVisualService.regenerateSceneAsset(payload);
+    return aiStudioVisualService.regenerateSceneAsset(payload, undefined, onProgress, signal);
   }
 
   public async importSceneMedia(

@@ -13,7 +13,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { BRIDGE_WS_PORT } from './FlowBatchConstants';
 
 interface PendingRequest {
-  resolve: (value: { status: number; body: string }) => void;
+  resolve: (value: any) => void;
   reject: (reason: any) => void;
   timer: NodeJS.Timeout;
 }
@@ -315,7 +315,7 @@ export class FlowBridgeServer {
       this.pendingRequests.set(id, {
         resolve: (res) => {
           if (res.status !== 200 && res.status !== 0) {
-            reject(new Error(`HTTP ${res.status} từ Chrome: ${res.body.slice(0, 300)}`));
+            reject(new Error(`HTTP ${res.status} từ Chrome: ${(res.body || res.error || '').slice(0, 300)}`));
           } else {
             resolve(res.body);
           }
@@ -339,6 +339,43 @@ export class FlowBridgeServer {
     });
   }
 
+  /**
+   * Yêu cầu Extension mint fresh reCAPTCHA token qua invisible widget (chuẩn FlowKit).
+   */
+  public async mintCaptcha(captchaAction = 'IMAGE_GENERATION', timeoutMs = 30000): Promise<string> {
+    if (!this.isConnected()) {
+      throw new Error('EXTENSION_NOT_CONNECTED: Chưa có Chrome Extension kết nối.');
+    }
+    const client = this.getFirstActiveClient();
+    if (!client) {
+      throw new Error('EXTENSION_CLIENT_UNAVAILABLE: Không tìm thấy client WebSocket hợp lệ.');
+    }
+
+    const id = uuidv4();
+    return new Promise<string>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pendingRequests.delete(id);
+        reject(new Error(`BRIDGE_TIMEOUT: Extension không trả về captcha token sau ${timeoutMs / 1000}s`));
+      }, timeoutMs);
+
+      this.pendingRequests.set(id, {
+        resolve: (res: any) => {
+          if (res?.token) {
+            resolve(res.token);
+          } else if (typeof res === 'string') {
+            resolve(res);
+          } else {
+            reject(new Error(res?.error || 'NO_TOKEN_RETURNED'));
+          }
+        },
+        reject,
+        timer,
+      });
+
+      client.send(JSON.stringify({ id, method: 'solve_captcha', params: { captchaAction } }));
+    });
+  }
+
   private getFirstActiveClient(): WebSocket | null {
     for (const ws of this.clients) {
       if (ws.readyState === WebSocket.OPEN) return ws;
@@ -350,7 +387,14 @@ export class FlowBridgeServer {
     const { id, result, error, type } = msg;
 
     if (type === 'HANDSHAKE') {
-      console.log(`[FlowBridgeServer] 🤝 Nhận handshake từ Extension v${msg.version || '1.0.0'}`);
+      const ver = msg.version || '1.0.0';
+      console.log(`[FlowBridgeServer] 🤝 Nhận handshake từ Extension v${ver}`);
+      if (ver !== '1.0.4') {
+        console.log(`[FlowBridgeServer] 🔄 Phát hiện Extension v${ver} cũ. Tự động yêu cầu Extension reload lên v1.0.4...`);
+        setTimeout(() => {
+          this.reloadExtension().catch(() => {});
+        }, 500);
+      }
       return;
     }
 
