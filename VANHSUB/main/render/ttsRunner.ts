@@ -1,10 +1,12 @@
+import fs from 'fs';
 import path from 'path';
 import { TaskStore, type Task } from '../store/taskStore';
 import { SettingsStore } from '../store/settingsStore';
 import { generateTtsFromSrt, regenerateTtsLine, type TTSEngine } from '../render/ttsEngine';
 import { getSharedTikTokProvider } from '../tts-providers/tiktok/sessionStores';
 import { isCancelledError } from '../lib/cancel';
-import { getOrCreateProjectDir } from '../utils/projectFolder';
+import { getOrCreateProjectDir, getProjectArtifactPaths } from '../utils/projectFolder';
+import { mergeAudioFiles } from './dubbingEngine';
 
 export class TTSRunner {
   private static runningTasks = new Set<string>();
@@ -86,6 +88,47 @@ export class TTSRunner {
     }
   }
 
+  /**
+   * Ghép lại hoặc xuất file MP3 tổng hợp chính xác theo timeline cho dự án
+   */
+  static async exportMergedAudio(
+    taskId: string,
+    targetPath?: string,
+    mode: 'strict' | 'flexible' = 'flexible'
+  ): Promise<{ ok: boolean; audioPath?: string; error?: string }> {
+    const task = TaskStore.getById(taskId);
+    if (!task) return { ok: false, error: 'Không tìm thấy tác vụ.' };
+    const srtPath = task.translatedSrtPath || task.srtPath;
+    if (!srtPath || !fs.existsSync(srtPath)) {
+      return { ok: false, error: 'Không tìm thấy file phụ đề SRT của tác vụ.' };
+    }
+    const ttsAudioDir = task.ttsAudioDir || path.join(getOrCreateProjectDir(task), 'tts_audio');
+    if (!fs.existsSync(ttsAudioDir)) {
+      return { ok: false, error: 'Chưa có các file audio lồng tiếng — hãy chạy tạo TTS trước.' };
+    }
+
+    const artifactPaths = getProjectArtifactPaths(task);
+    const outputPath = targetPath || artifactPaths.ttsMergedAudioPath;
+
+    try {
+      const { audioPath, overruns } = await mergeAudioFiles(
+        srtPath,
+        ttsAudioDir,
+        outputPath,
+        undefined,
+        { mode }
+      );
+      if (overruns && overruns.length > 0) {
+        TaskStore.update(taskId, { ttsOverruns: overruns });
+      }
+      TaskStore.update(taskId, { ttsMergedAudioPath: outputPath });
+      return { ok: true, audioPath };
+    } catch (err: any) {
+      console.error(`[TTSRunner] Lỗi khi xuất file MP3 tổng hợp task ${taskId}:`, err);
+      return { ok: false, error: err?.message || 'Không thể ghép file MP3 tổng hợp.' };
+    }
+  }
+
   static async runTTS(
     taskId: string,
     voice?: string,
@@ -158,12 +201,43 @@ export class TTSRunner {
         }
       );
 
+      // Tự động ghép các câu thành 1 file MP3 tổng hợp chuẩn xác theo timeline dự án
+      const artifactPaths = getProjectArtifactPaths(task);
+      const mergedMp3Path = artifactPaths.ttsMergedAudioPath;
+      let finalMergedPath: string | undefined = undefined;
+
+      try {
+        TaskStore.update(taskId, {
+          stageDescription: 'Đang ghép file MP3 lồng tiếng tổng hợp theo timeline dự án...',
+        });
+        onUpdate?.();
+
+        const { audioPath, overruns } = await mergeAudioFiles(
+          srtPath,
+          ttsAudioDir,
+          mergedMp3Path,
+          undefined,
+          { mode: 'flexible' }
+        );
+        if (fs.existsSync(audioPath)) {
+          finalMergedPath = audioPath;
+        }
+        if (overruns && overruns.length > 0) {
+          TaskStore.update(taskId, { ttsOverruns: overruns });
+        }
+      } catch (mergeErr) {
+        console.warn(`[TTS] Cảnh báo: Tự động ghép MP3 tổng hợp gặp lỗi:`, mergeErr);
+      }
+
       const updated = TaskStore.update(taskId, {
         status: 'done',
         progress: 100,
         projectDir,
         ttsAudioDir, // Lưu thư mục audio để dùng cho bước dubbing tiếp theo
-        stageDescription: 'Đã hoàn tất tạo lồng tiếng vào thư mục dự án',
+        ...(finalMergedPath ? { ttsMergedAudioPath: finalMergedPath } : {}),
+        stageDescription: finalMergedPath
+          ? 'Đã hoàn tất tạo lồng tiếng và xuất file MP3 tổng hợp dự án'
+          : 'Đã hoàn tất tạo lồng tiếng vào thư mục dự án',
       });
       onUpdate?.();
 

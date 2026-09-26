@@ -210,6 +210,11 @@ export interface VanhsubAPI {
     ) => Promise<boolean>;
     cancel: (id: string) => Promise<boolean>;
     regenerateLine: (id: string, lineIndex: number) => Promise<{ ok: boolean; error?: string }>;
+    exportMergedAudio: (
+      id: string,
+      targetPath?: string,
+      mode?: 'strict' | 'flexible'
+    ) => Promise<{ ok: boolean; audioPath?: string; error?: string }>;
     voices: () => Promise<string[]>;
     getEdgeVoices: () => Promise<Array<{ id: string; name: string; gender: string; locale: string }>>;
     checkConnection: () => Promise<boolean>;

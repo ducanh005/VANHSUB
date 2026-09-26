@@ -58,6 +58,8 @@ export interface ProjectArtifactPaths {
   softsubPath: string;
   dubbedPath: string;
   ttsAudioDir: string;
+  /** File audio MP3 lồng tiếng tổng hợp chuẩn xác theo timeline dự án */
+  ttsMergedAudioPath: string;
 }
 
 /**
@@ -81,5 +83,6 @@ export function getProjectArtifactPaths(task: Task): ProjectArtifactPaths {
     softsubPath: path.join(projectDir, `${cleanBase}.softsub.mp4`),
     dubbedPath: path.join(projectDir, `${cleanBase}.dubbed.mp4`),
     ttsAudioDir: path.join(projectDir, 'tts_audio'),
+    ttsMergedAudioPath: path.join(projectDir, `${cleanBase}_voice.mp3`),
   };
 }

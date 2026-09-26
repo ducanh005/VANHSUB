@@ -75,7 +75,7 @@ function escapeConcatPath(p: string): string {
 /**
  * Chạy ffmpeg với danh sách tham số (không qua shell nên không lo escape space/unicode)
  */
-async function runFfmpeg(args: string[]): Promise<void> {
+export async function runFfmpeg(args: string[]): Promise<void> {
   await execFileAsync(getFfmpegBinPath(), args);
 }
 
@@ -354,12 +354,16 @@ export async function mergeAudioFiles(
 
     fs.writeFileSync(tempListFile, segPaths.map(escapeConcatPath).join('\n'));
 
+    const isMp3 = outputAudioPath.toLowerCase().endsWith('.mp3');
+    const audioCodecArgs = isMp3
+      ? ['-c:a', 'libmp3lame', '-b:a', '192k']
+      : ['-c:a', 'aac', '-b:a', '192k'];
+
     await runFfmpeg([
       '-f', 'concat',
       '-safe', '0',
       '-i', tempListFile,
-      '-c:a', 'aac',
-      '-b:a', '192k',
+      ...audioCodecArgs,
       '-y', outputAudioPath,
     ]);
     onProgress?.(100);

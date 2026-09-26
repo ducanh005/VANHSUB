@@ -16,8 +16,10 @@ import {
   FolderOpen,
   RotateCcw,
   Edit3,
+  Minimize2,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { backgroundDownloadManager } from '../../lib/downloadManager';
 
 interface MediaInfo {
   url: string;
@@ -57,33 +59,46 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
   onSuccess,
   initialUrl,
 }) => {
+  const downloadState = React.useSyncExternalStore(
+    backgroundDownloadManager.subscribe,
+    backgroundDownloadManager.getState,
+    backgroundDownloadManager.getState
+  );
+  const activeDownload = downloadState.active;
+
   const [urlInput, setUrlInput] = useState('');
   const [isInspecting, setIsInspecting] = useState(false);
-  const [isDownloading, setIsDownloading] = useState(false);
   const [mediaInfo, setMediaInfo] = useState<MediaInfo | null>(null);
   const [selectedQuality, setSelectedQuality] = useState<string>('1080p');
-  const [progress, setProgress] = useState<DownloadProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saveDir, setSaveDir] = useState<string>('');
   const [defaultDir, setDefaultDir] = useState<string>('');
   const [customTitle, setCustomTitle] = useState<string>('');
 
-  // Lắng nghe progress qua IPC
+  const isDownloading = Boolean(activeDownload?.isDownloading);
+  const progress = activeDownload?.progress || null;
+
+  // Đồng bộ thông tin khi mở modal trong lúc đang có tải ngầm
   useEffect(() => {
-    if (!open || typeof window === 'undefined' || !window.vanhsub?.downloader) return;
-
-    const unsubscribe = window.vanhsub.downloader.onProgress((p) => {
-      setProgress(p);
-      if (p.status === 'error') {
-        setIsDownloading(false);
-        setError(p.stageDescription || 'Lỗi khi tải video');
+    if (activeDownload && open) {
+      if (!urlInput) setUrlInput(activeDownload.url);
+      if (!customTitle) setCustomTitle(activeDownload.title);
+      if (!mediaInfo) {
+        setMediaInfo({
+          url: activeDownload.url,
+          cleanUrl: activeDownload.cleanUrl,
+          platform: activeDownload.platform,
+          title: activeDownload.title,
+          author: activeDownload.author,
+          duration: activeDownload.duration,
+          durationFormatted: activeDownload.durationFormatted,
+          thumbnail: activeDownload.thumbnail,
+          availableQualities: [{ id: activeDownload.quality || '1080p', label: activeDownload.quality || '1080p' }],
+          noWatermarkUrl: activeDownload.noWatermarkUrl,
+        });
       }
-    });
-
-    return () => {
-      unsubscribe();
-    };
-  }, [open]);
+    }
+  }, [activeDownload, open]);
 
   // Lấy thư mục lưu trữ mặc định và tùy chọn đã lưu
   useEffect(() => {
@@ -127,18 +142,16 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
     }
   }, [open, initialUrl]);
 
-  // Reset state khi mở/đóng modal
+  // Reset state khi mở/đóng modal (không reset nếu đang có video tải chạy nền)
   useEffect(() => {
-    if (!open) {
+    if (!open && !activeDownload?.isDownloading) {
       setUrlInput('');
       setMediaInfo(null);
       setCustomTitle('');
-      setProgress(null);
       setError(null);
       setIsInspecting(false);
-      setIsDownloading(false);
     }
-  }, [open]);
+  }, [open, activeDownload?.isDownloading]);
 
   // Chọn thư mục lưu trữ mới qua hộp thoại hệ thống
   const handleChooseDirectory = async () => {
@@ -190,7 +203,6 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
     setError(null);
     setMediaInfo(null);
     setCustomTitle('');
-    setProgress(null);
 
     try {
       if (!window.vanhsub?.downloader?.inspect) {
@@ -213,42 +225,33 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
     }
   };
 
-  // Tải video
+  // Tải video (quản lý qua backgroundDownloadManager để tải xuyên suốt các tab)
   const handleDownload = async () => {
     const targetUrl = mediaInfo?.cleanUrl || urlInput.trim();
-    if (!targetUrl) return;
+    if (!targetUrl || !mediaInfo) return;
 
-    setIsDownloading(true);
     setError(null);
-    setProgress({
-      percent: 0,
-      status: 'downloading',
-      stageDescription: 'Đang chuẩn bị tải video...',
-    });
-
     try {
-      if (!window.vanhsub?.downloader?.download) {
-        throw new Error('Tính năng tải video chưa sẵn sàng');
-      }
-
-      const result = await window.vanhsub.downloader.download({
-        url: targetUrl,
+      const result = await backgroundDownloadManager.startDownload({
+        url: urlInput.trim(),
+        cleanUrl: targetUrl,
+        platform: mediaInfo.platform,
+        title: customTitle.trim() || mediaInfo.title,
+        author: mediaInfo.author,
+        duration: mediaInfo.duration,
+        durationFormatted: mediaInfo.durationFormatted,
+        thumbnail: mediaInfo.thumbnail,
         quality: selectedQuality,
-        // Truyền URL không watermark đã lấy từ bước inspect (Douyin/TikTok)
-        noWatermarkUrl: mediaInfo?.noWatermarkUrl,
+        noWatermarkUrl: mediaInfo.noWatermarkUrl,
         outputDir: saveDir.trim() || undefined,
         customFileName: customTitle.trim() || undefined,
       });
 
-      toast.success('Tải video thành công! Đã tạo thư mục dự án riêng.');
       onSuccess?.(result.task);
       onOpenChange(false);
     } catch (err: any) {
       console.error('Lỗi tải video:', err);
-      setError(err.message || 'Tải video thất bại');
-      toast.error(err.message || 'Tải video thất bại');
-    } finally {
-      setIsDownloading(false);
+      setError(err?.message || 'Tải video thất bại');
     }
   };
 
@@ -316,10 +319,14 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
             <Dialog.Close asChild>
               <button
                 type="button"
-                disabled={isDownloading}
-                className="flex h-7 w-7 items-center justify-center rounded-lg border border-slate-700 bg-slate-800 text-slate-400 transition hover:bg-slate-700 hover:text-white cursor-pointer disabled:opacity-50"
+                className="flex h-7 w-7 items-center justify-center rounded-lg border border-slate-700 bg-slate-800 text-slate-400 transition hover:bg-slate-700 hover:text-white cursor-pointer"
+                title={isDownloading ? 'Thu nhỏ cửa sổ tải (video vẫn tiếp tục tải ngầm)' : 'Đóng'}
               >
-                <X className="h-3.5 w-3.5" />
+                {isDownloading ? (
+                  <Minimize2 className="h-3.5 w-3.5 text-cyan-400" />
+                ) : (
+                  <X className="h-3.5 w-3.5" />
+                )}
               </button>
             </Dialog.Close>
           </div>
@@ -597,36 +604,53 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
         </div>
 
         {/* Footer Actions */}
-        <div className="mt-4 flex items-center justify-end gap-2.5 pt-3 border-t border-slate-800">
-          <button
-            type="button"
-            onClick={() => onOpenChange(false)}
-            disabled={isDownloading}
-            className="px-4 py-2 rounded-xl text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800 transition cursor-pointer disabled:opacity-50"
-          >
-            Đóng
-          </button>
+        <div className="mt-4 flex items-center justify-between gap-2.5 pt-3 border-t border-slate-800">
+          <div>
+            {isDownloading && (
+              <span className="text-[11px] text-cyan-300 flex items-center gap-1.5 font-medium">
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-cyan-500"></span>
+                </span>
+                Đang tải chạy nền — bạn có thể thu nhỏ hoặc chuyển tab khác
+              </span>
+            )}
+          </div>
 
-          {mediaInfo && (
+          <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={handleDownload}
-              disabled={isDownloading}
-              className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-cyan-500 to-teal-400 px-5 py-2 text-xs font-bold text-slate-950 hover:opacity-90 transition cursor-pointer shadow-lg shadow-cyan-500/20 disabled:opacity-50"
+              onClick={() => onOpenChange(false)}
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800 transition cursor-pointer"
             >
               {isDownloading ? (
                 <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  <span>Đang tải xuống...</span>
+                  <Minimize2 className="h-3.5 w-3.5 text-cyan-400" />
+                  <span>Thu nhỏ & Chạy nền</span>
                 </>
               ) : (
-                <>
-                  <Download className="h-4 w-4" />
-                  <span>Tải video & Bắt đầu làm việc</span>
-                </>
+                <span>Đóng</span>
               )}
             </button>
-          )}
+
+            {mediaInfo && !isDownloading && (
+              <button
+                type="button"
+                onClick={handleDownload}
+                className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-cyan-500 to-teal-400 px-5 py-2 text-xs font-bold text-slate-950 hover:opacity-90 transition cursor-pointer shadow-lg shadow-cyan-500/20"
+              >
+                <Download className="h-4 w-4" />
+                <span>Tải video & Bắt đầu làm việc</span>
+              </button>
+            )}
+
+            {isDownloading && (
+              <div className="inline-flex items-center gap-2 rounded-xl bg-cyan-500/20 border border-cyan-500/40 px-4 py-2 text-xs font-semibold text-cyan-300">
+                <Loader2 className="h-4 w-4 animate-spin text-cyan-400" />
+                <span>Đang tải xuống ({progress?.percent ?? 0}%)...</span>
+              </div>
+            )}
+          </div>
         </div>
       </Dialog.Content>
     </Dialog.Portal>

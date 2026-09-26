@@ -713,6 +713,16 @@ ipcMain.handle('tts:regenerateLine', async (_event, id: string, lineIndex: numbe
   return TTSRunner.regenerateLine(id, lineIndex)
 })
 
+// Ghép lại hoặc xuất file MP3 tổng hợp chính xác theo timeline cho dự án
+ipcMain.handle(
+  'tts:export-merged-audio',
+  async (_event, id: string, targetPath?: string, mode?: 'strict' | 'flexible') => {
+    const res = await TTSRunner.exportMergedAudio(id, targetPath, mode)
+    broadcastTasksUpdate()
+    return res
+  }
+)
+
 // Kiểm tra kết nối VietTTS
 ipcMain.handle('tts:check-connection', async () => {
   return checkVietTtsConnection()

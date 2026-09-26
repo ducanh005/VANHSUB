@@ -28,6 +28,8 @@ export interface Task {
   /** Engine tạo audio: 'viettts', 'tiktok', hoặc 'edge' */
   ttsEngine?: 'viettts' | 'tiktok' | 'edge';
   ttsAudioDir?: string;
+  /** Đường dẫn file MP3 lồng tiếng tổng hợp chuẩn xác theo timeline dự án */
+  ttsMergedAudioPath?: string;
   /** Gán giọng riêng theo dòng phụ đề: key = số dòng SRT (chuỗi), value = tên giọng */
   ttsVoiceOverrides?: Record<string, string>;
   /** Các câu TTS tràn thời lượng khung của nó (cập nhật sau mỗi lần dubbing) */

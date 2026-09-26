@@ -67,6 +67,8 @@ const vanhsub = {
     cancel: (id: string) => ipcRenderer.invoke('tts:cancel', id),
     regenerateLine: (id: string, lineIndex: number) =>
       ipcRenderer.invoke('tts:regenerateLine', id, lineIndex),
+    exportMergedAudio: (id: string, targetPath?: string, mode?: 'strict' | 'flexible') =>
+      ipcRenderer.invoke('tts:export-merged-audio', id, targetPath, mode),
     voices: () => ipcRenderer.invoke('tts:voices'),
     getEdgeVoices: () => ipcRenderer.invoke('tts:getEdgeVoices'),
     checkConnection: () => ipcRenderer.invoke('tts:check-connection'),

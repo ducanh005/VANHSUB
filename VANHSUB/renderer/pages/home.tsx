@@ -28,6 +28,9 @@ import {
   Workflow,
   PanelLeftClose,
   PanelLeftOpen,
+  AlertCircle,
+  Maximize2,
+  X,
 } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import type { Task, WorkflowType } from '../types/task';
@@ -42,6 +45,7 @@ import OnboardingModal from '../components/OnboardingModal';
 import { DownloadModal } from '../components/download/DownloadModal';
 import AiStudioWorkspace from '../components/ai-studio/AiStudioWorkspace';
 import ChromeBridgeModal from '../components/ai-studio/ChromeBridgeModal';
+import { backgroundDownloadManager } from '../lib/downloadManager';
 
 const WorkflowCanvas = dynamic(
   () => import('../components/workflow/WorkflowCanvas'),
@@ -83,6 +87,13 @@ const SHORTCUTS: ShortcutItem[] = [
 
 export default function HomePage() {
   const [activeTab, setActiveTab] = useState('home');
+  const downloadState = React.useSyncExternalStore(
+    backgroundDownloadManager.subscribe,
+    backgroundDownloadManager.getState,
+    backgroundDownloadManager.getState
+  );
+  const activeDownload = downloadState.active;
+
   const [greeting, setGreeting] = useState(t('home.greeting_evening'));
   const [currentDateStr, setCurrentDateStr] = useState('');
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -217,6 +228,12 @@ export default function HomePage() {
       return () => unsubscribe();
     }
   }, [loadTasks]);
+
+  useEffect(() => {
+    if (activeDownload?.completedTask) {
+      loadTasks();
+    }
+  }, [activeDownload?.completedTask, loadTasks]);
 
   const handleSelectFiles = useCallback(async (workflow: WorkflowType = 'fast-transcribe') => {
     if (typeof window === 'undefined' || !window.vanhsub?.dialog) return;
@@ -690,6 +707,73 @@ export default function HomePage() {
                 </button>
               </div>
             </header>
+          )}
+
+          {/* Banner tiến trình tải video chạy nền khi đang ở các tab khác */}
+          {activeDownload && !downloadModalOpen && (
+            <div className="flex items-center justify-between border-b border-cyan-500/30 bg-gradient-to-r from-cyan-950/90 via-slate-900/90 to-cyan-950/90 px-6 py-2.5 backdrop-blur-md z-20 shadow-md">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-cyan-500/20 text-cyan-400 border border-cyan-500/40">
+                  {activeDownload.isDownloading ? (
+                    <Loader2 className="h-4 w-4 animate-spin text-cyan-400" />
+                  ) : activeDownload.error ? (
+                    <AlertCircle className="h-4 w-4 text-rose-400" />
+                  ) : (
+                    <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+                  )}
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-white truncate max-w-[280px] md:max-w-[460px]">
+                      {activeDownload.title || 'Đang tải video từ liên kết...'}
+                    </span>
+                    <span className="rounded-full bg-cyan-500/20 px-2 py-0.5 text-[10px] font-semibold text-cyan-300 border border-cyan-500/40 uppercase">
+                      {activeDownload.platform}
+                    </span>
+                    {activeDownload.isDownloading && (
+                      <span className="text-[11px] font-mono font-bold text-cyan-400">
+                        {activeDownload.progress.percent}%
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-3 text-[11px] text-slate-400 font-mono">
+                    <span>{activeDownload.progress.stageDescription || 'Đang tải video chạy nền...'}</span>
+                    {activeDownload.progress.speed && <span>• {activeDownload.progress.speed}</span>}
+                    {activeDownload.progress.eta && <span>• Còn lại: {activeDownload.progress.eta}</span>}
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3 shrink-0">
+                {activeDownload.isDownloading && (
+                  <div className="hidden sm:block w-36 h-2 rounded-full bg-slate-800 overflow-hidden border border-slate-700">
+                    <div
+                      className="h-full bg-gradient-to-r from-cyan-500 to-teal-400 transition-all duration-300"
+                      style={{ width: `${activeDownload.progress.percent}%` }}
+                    />
+                  </div>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setDownloadModalOpen(true)}
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-cyan-500/40 bg-cyan-500/10 px-3 py-1.5 text-xs font-semibold text-cyan-300 hover:bg-cyan-500/20 transition cursor-pointer"
+                  title="Mở lại hộp thoại tải video"
+                >
+                  <Maximize2 className="h-3.5 w-3.5" />
+                  <span>Mở chi tiết</span>
+                </button>
+                {!activeDownload.isDownloading && (
+                  <button
+                    type="button"
+                    onClick={() => backgroundDownloadManager.dismiss()}
+                    className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
+                    title="Đóng thông báo"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                )}
+              </div>
+            </div>
           )}
 
           {/* Body Dashboard (2 Columns)

@@ -2,6 +2,9 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   AlertTriangle,
   CheckCircle2,
+  Pause,
+  Download,
+  FileAudio,
   FolderOpen,
   Headphones,
   Loader2,
@@ -32,6 +35,13 @@ function formatTimeAgo(isoString: string): string {
   }
 }
 
+function formatSeconds(sec: number): string {
+  if (!sec || isNaN(sec)) return '00:00';
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60);
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
+
 /** Câu nghe thử cố định — bấm nghe ngay, không cần đọc file SRT */
 const SAMPLE_TEXT = 'Xin chào, bạn đang nghe thử giọng đọc tại Vanh sub.';
 
@@ -53,6 +63,13 @@ export default function TTSPage({ tasks }: Props) {
   const [vocalSeparation, setVocalSeparation] = useState(false);
   const [startingDubbing, setStartingDubbing] = useState(false);
   const previewAudioRef = useRef<HTMLAudioElement | null>(null);
+
+  // File MP3 tổng hợp của cả dự án
+  const mergedAudioRef = useRef<HTMLAudioElement | null>(null);
+  const [isMergedPlaying, setIsMergedPlaying] = useState(false);
+  const [mergedCurrentTime, setMergedCurrentTime] = useState(0);
+  const [mergedDuration, setMergedDuration] = useState(0);
+  const [isExportingMp3, setIsExportingMp3] = useState(false);
 
   // Gán giọng riêng theo từng dòng phụ đề
   const [showVoicePanel, setShowVoicePanel] = useState(false);
@@ -108,9 +125,16 @@ export default function TTSPage({ tasks }: Props) {
   const dubbedOutput = selectedTask?.outputPath;
   const customVoiceCount = Object.keys(voiceOverrides).length;
 
-  // Reset trạng thái gán giọng khi đổi tác vụ (playback 1 mạch vẫn chạy tiếp)
+  // Reset trạng thái gán giọng & audio khi đổi tác vụ (playback 1 mạch vẫn chạy tiếp)
   useEffect(() => {
     previewAudioRef.current?.pause();
+    if (mergedAudioRef.current) {
+      mergedAudioRef.current.pause();
+      mergedAudioRef.current.currentTime = 0;
+    }
+    setIsMergedPlaying(false);
+    setMergedCurrentTime(0);
+    setMergedDuration(0);
     setShowVoicePanel(false);
     setSrtLines([]);
     setVoiceOverrides({});
@@ -144,6 +168,9 @@ export default function TTSPage({ tasks }: Props) {
   useEffect(() => {
     return () => {
       previewAudioRef.current?.pause();
+      if (mergedAudioRef.current) {
+        mergedAudioRef.current.pause();
+      }
     };
   }, []);
 
@@ -271,6 +298,86 @@ export default function TTSPage({ tasks }: Props) {
       setMessage('Đã gửi yêu cầu huỷ — dừng sau câu hiện tại.');
     } catch {
       // bỏ qua
+    }
+  };
+
+  const handleTogglePlayMerged = () => {
+    if (!mergedAudioRef.current || !selectedTask?.ttsMergedAudioPath) return;
+    if (isMergedPlaying) {
+      mergedAudioRef.current.pause();
+      setIsMergedPlaying(false);
+    } else {
+      if (previewAudioRef.current) previewAudioRef.current.pause();
+      if (fullPreviewing) stopFullPreview();
+      mergedAudioRef.current
+        .play()
+        .then(() => setIsMergedPlaying(true))
+        .catch((e) => {
+          console.error('Lỗi phát file MP3 tổng hợp:', e);
+          setIsError(true);
+          setMessage('Không thể phát file MP3 tổng hợp. File có thể đang được tạo hoặc chưa sẵn sàng.');
+        });
+    }
+  };
+
+  const handleExportMergedMp3 = async () => {
+    if (!selectedTaskId) return;
+    setIsExportingMp3(true);
+    setMessage('');
+    setIsError(false);
+    try {
+      const res = await window.vanhsub.tts.exportMergedAudio(
+        selectedTaskId,
+        undefined,
+        syncMode === 'strict' ? 'strict' : 'flexible'
+      );
+      if (res?.ok) {
+        setMessage('Đã tổng hợp thành công file MP3 lồng tiếng chính xác theo timeline dự án!');
+      } else {
+        setIsError(true);
+        setMessage(res?.error || 'Không thể tổng hợp file MP3.');
+      }
+    } catch (err: any) {
+      setIsError(true);
+      setMessage(err?.message || 'Lỗi khi tổng hợp file MP3.');
+    } finally {
+      setIsExportingMp3(false);
+    }
+  };
+
+  const handleOpenMergedFolder = async () => {
+    if (!selectedTask?.ttsMergedAudioPath) return;
+    try {
+      await window.vanhsub.dialog.showInFolder(selectedTask.ttsMergedAudioPath);
+    } catch (err) {
+      console.error('Lỗi mở thư mục chứa file MP3:', err);
+    }
+  };
+
+  const handleSaveMergedMp3To = async () => {
+    if (!selectedTaskId || !window.vanhsub?.dialog?.chooseDirectory) return;
+    try {
+      const targetDir = await window.vanhsub.dialog.chooseDirectory();
+      if (!targetDir) return;
+      setIsExportingMp3(true);
+      const cleanBase = selectedTask?.fileName.replace(/\.[^/.]+$/, '') || 'voice';
+      const outPath = `${targetDir.replace(/[\\/]$/, '')}\\${cleanBase}_voice.mp3`;
+      const res = await window.vanhsub.tts.exportMergedAudio(
+        selectedTaskId,
+        outPath,
+        syncMode === 'strict' ? 'strict' : 'flexible'
+      );
+      if (res?.ok) {
+        setMessage(`Đã xuất và lưu file MP3 tổng hợp thành công vào: ${outPath}`);
+      } else {
+        setIsError(true);
+        setMessage(res?.error || 'Không thể lưu file MP3 ra thư mục đã chọn.');
+      }
+    } catch (err: any) {
+      setIsError(true);
+      setMessage(err?.message || 'Lỗi khi lưu file MP3.');
+    } finally {
+      setIsExportingMp3(false);
     }
   };
 
@@ -768,6 +875,132 @@ export default function TTSPage({ tasks }: Props) {
               </div>
             </div>
           </div>
+
+          {/* File MP3 lồng tiếng tổng hợp cho dự án đã chọn */}
+          {(selectedTask?.ttsMergedAudioPath || hasTtsAudio) && (
+            <div className="rounded-2xl border border-cyan-500/30 bg-cyan-950/20 p-4 shadow-lg shadow-cyan-950/20">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-cyan-500/20 pb-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-cyan-500/20 text-cyan-400 border border-cyan-500/30">
+                    <FileAudio className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-white">
+                        File MP3 Lồng Tiếng Tổng Hợp Dự Án
+                      </span>
+                      <span className="rounded-full bg-cyan-500/20 px-2 py-0.5 text-[10px] font-semibold text-cyan-300 border border-cyan-500/30">
+                        Chuẩn timeline 100%
+                      </span>
+                    </div>
+                    <p className="mt-0.5 font-mono text-[11px] text-slate-400 truncate max-w-[420px]">
+                      {selectedTask?.ttsMergedAudioPath
+                        ? selectedTask.ttsMergedAudioPath.split(/[/\\]/).pop()
+                        : `${selectedTask?.fileName.replace(/\.[^/.]+$/, '')}_voice.mp3`}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  {selectedTask?.ttsMergedAudioPath && (
+                    <button
+                      type="button"
+                      onClick={handleOpenMergedFolder}
+                      className="inline-flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs font-medium text-slate-300 hover:bg-slate-700 hover:text-white cursor-pointer transition"
+                      title="Mở thư mục chứa file MP3 tổng hợp"
+                    >
+                      <FolderOpen className="h-3.5 w-3.5 text-amber-400" />
+                      <span>Mở thư mục</span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={handleExportMergedMp3}
+                    disabled={isExportingMp3 || isTtsRunning}
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-cyan-500/40 bg-cyan-500/10 px-3 py-1.5 text-xs font-semibold text-cyan-300 hover:bg-cyan-500/20 cursor-pointer disabled:opacity-50 transition"
+                    title="Tổng hợp lại toàn bộ các câu thành 1 file MP3 duy nhất theo timeline"
+                  >
+                    {isExportingMp3 ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <RefreshCw className="h-3.5 w-3.5" />
+                    )}
+                    <span>{isExportingMp3 ? 'Đang tổng hợp...' : 'Tổng hợp lại MP3'}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSaveMergedMp3To}
+                    disabled={isExportingMp3 || !selectedTask?.ttsMergedAudioPath}
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs font-medium text-slate-300 hover:bg-slate-700 hover:text-white cursor-pointer disabled:opacity-50 transition"
+                    title="Lưu file MP3 ra thư mục khác tuỳ chọn"
+                  >
+                    <Download className="h-3.5 w-3.5 text-cyan-400" />
+                    <span>Lưu ra thư mục khác...</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Trình phát Audio Player cho file MP3 tổng hợp */}
+              {selectedTask?.ttsMergedAudioPath ? (
+                <div className="mt-3 flex items-center gap-3 rounded-xl bg-slate-900/80 px-3.5 py-2.5 border border-slate-800">
+                  <audio
+                    ref={mergedAudioRef}
+                    src={`vanhmedia://local/${encodeURIComponent(selectedTask.ttsMergedAudioPath)}`}
+                    onTimeUpdate={() => {
+                      if (mergedAudioRef.current) {
+                        setMergedCurrentTime(mergedAudioRef.current.currentTime);
+                      }
+                    }}
+                    onLoadedMetadata={() => {
+                      if (mergedAudioRef.current) {
+                        setMergedDuration(mergedAudioRef.current.duration);
+                      }
+                    }}
+                    onEnded={() => setIsMergedPlaying(false)}
+                    onError={() => setIsMergedPlaying(false)}
+                  />
+                  <button
+                    type="button"
+                    onClick={handleTogglePlayMerged}
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-cyan-500 text-slate-950 hover:bg-cyan-400 transition cursor-pointer shadow-md shadow-cyan-500/20"
+                    title={isMergedPlaying ? 'Tạm dừng nghe' : 'Nghe thử file MP3 tổng hợp'}
+                  >
+                    {isMergedPlaying ? (
+                      <Pause className="h-4 w-4" />
+                    ) : (
+                      <Play className="h-4 w-4 ml-0.5" />
+                    )}
+                  </button>
+
+                  <div className="flex-1 space-y-1">
+                    <div className="flex justify-between text-[11px] font-mono text-slate-400">
+                      <span>{formatSeconds(mergedCurrentTime)}</span>
+                      <span>{formatSeconds(mergedDuration)}</span>
+                    </div>
+                    <input
+                      type="range"
+                      min={0}
+                      max={mergedDuration || 100}
+                      step={0.1}
+                      value={mergedCurrentTime}
+                      onChange={(e) => {
+                        const val = Number(e.target.value);
+                        setMergedCurrentTime(val);
+                        if (mergedAudioRef.current) {
+                          mergedAudioRef.current.currentTime = val;
+                        }
+                      }}
+                      className="h-1.5 w-full cursor-pointer appearance-none rounded-lg bg-slate-800 accent-cyan-400"
+                    />
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-2.5 flex items-center justify-between text-xs text-slate-400">
+                  <span>File MP3 tổng hợp chưa được tạo. Bấm "Tổng hợp lại MP3" để tạo ngay.</span>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Bước 2: sau khi TTS xong → ghép vào video */}
           {hasTtsAudio && (
