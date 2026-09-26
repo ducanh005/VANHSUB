@@ -1,6 +1,7 @@
 import { spawn } from 'child_process';
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
 import { app } from 'electron';
 import ffmpegInstaller from '@ffmpeg-installer/ffmpeg';
 
@@ -16,7 +17,10 @@ const YTDLP_URL = 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-
 /** Thư mục chứa yt-dlp binary — override bằng env cho script test */
 function getBinDir(): string {
   if (process.env.VANHSUB_BIN_DIR) return process.env.VANHSUB_BIN_DIR;
-  return path.join(app.getPath('userData'), 'bin');
+  const userData = (app && typeof app.getPath === 'function')
+    ? app.getPath('userData')
+    : path.join(process.env.APPDATA || os.homedir(), 'vanhsub (development)');
+  return path.join(userData, 'bin');
 }
 
 /** Đường dẫn ffmpeg của @ffmpeg-installer (yt-dlp cần để extract audio) */

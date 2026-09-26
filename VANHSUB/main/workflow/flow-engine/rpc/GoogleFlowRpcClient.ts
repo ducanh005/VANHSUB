@@ -67,6 +67,7 @@ import {
 } from './FlowBatchBuilder';
 
 import { FlowBridgeServer } from './FlowBridgeServer';
+import { GoogleFlowBrowserMutex } from '../../dispatcher/GoogleFlowBrowserMutex';
 
 // ══════════════════════════════════════════════════════════════════════════════
 // 1. Structured Error Handling & Types
@@ -75,6 +76,7 @@ import { FlowBridgeServer } from './FlowBridgeServer';
 export type FlowRpcErrorCode =
   | 'SESSION_EXPIRED'
   | 'RATE_LIMITED'
+  | 'PUBLIC_ERROR_UNUSUAL_ACTIVITY'
   | 'CONTENT_REJECTED'
   | 'CONTENT_POLICY_VIOLATION'
   | 'TIMEOUT'
@@ -122,6 +124,78 @@ export class GoogleFlowRpcError extends Error {
   public get isContentPolicyViolation(): boolean {
     return this.code === 'CONTENT_POLICY_VIOLATION' || this.code === 'CONTENT_REJECTED';
   }
+
+  public get isUnusualActivity(): boolean {
+    const msg = (this.message || '').toLowerCase();
+    return (
+      this.code === 'PUBLIC_ERROR_UNUSUAL_ACTIVITY' ||
+      Boolean((this.details as any)?.isUnusualActivity) ||
+      msg.includes('public_error_unusual_activity') ||
+      msg.includes('unusual_activity') ||
+      msg.includes('unusual activity')
+    );
+  }
+}
+
+/**
+ * Tính toán thời gian lùi bước luỹ tiến (Exponential Backoff):
+ * Formula: 2^(retry) * 10s (cap ở 120s)
+ * @param retryCount Lần retry (0-indexed: 0 -> 10s, 1 -> 20s, 2 -> 40s, 3 -> 80s, 4 -> 120s)
+ * @param baseMs Thời gian cơ sở (mặc định 10,000ms = 10s)
+ * @param maxMs Thời gian trần tối đa (mặc định 120,000ms = 120s)
+ */
+export function calculateExponentialBackoffMs(
+  retryCount: number,
+  baseMs = 10_000,
+  maxMs = 120_000
+): number {
+  const safeRetry = typeof retryCount === 'number' && Number.isFinite(retryCount) ? Math.max(0, Math.floor(retryCount)) : 0;
+  const safeBase = typeof baseMs === 'number' && Number.isFinite(baseMs) && baseMs >= 0 ? baseMs : 10_000;
+  const safeMax = typeof maxMs === 'number' && Number.isFinite(maxMs) && maxMs >= 0 ? maxMs : 120_000;
+  const exp = Math.pow(2, safeRetry);
+  const delay = exp * safeBase;
+  return Math.min(safeMax, Math.round(delay));
+}
+
+/**
+ * Ngủ có hỗ trợ ngắt tức thì qua AbortSignal và ném CANCELLED.
+ */
+export async function sleepWithSignal(ms: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) {
+    throw new GoogleFlowRpcError('Tác vụ đã bị người dùng huỷ bỏ.', { code: 'CANCELLED', retryable: false });
+  }
+  return new Promise((resolve, reject) => {
+    let timer: NodeJS.Timeout | null = null;
+    const onAbort = () => {
+      if (timer) clearTimeout(timer);
+      reject(new GoogleFlowRpcError('Tác vụ đã bị người dùng huỷ bỏ.', { code: 'CANCELLED', retryable: false }));
+    };
+    if (signal) {
+      signal.addEventListener('abort', onAbort, { once: true });
+    }
+    timer = setTimeout(() => {
+      if (signal) {
+        signal.removeEventListener('abort', onAbort);
+      }
+      resolve();
+    }, ms);
+  });
+}
+
+/**
+ * Kiểm tra xem một lỗi có phải là do phát hiện hành vi tự động / reCAPTCHA bot flag hay không.
+ */
+export function isUnusualActivityError(err: unknown): boolean {
+  if (!err) return false;
+  if (err instanceof GoogleFlowRpcError) {
+    return err.isUnusualActivity;
+  }
+  const msg = String((err as any)?.message || err || '').toLowerCase();
+  return (
+    msg.includes('public_error_unusual_activity') ||
+    msg.includes('unusual_activity') ||
+    msg.includes('unusual activity')
+  );
 }
 
 /**
@@ -222,11 +296,11 @@ export function classifyFlowRpcError(
       'hoặc 2. Cài đặt VanhSub Flow Bridge Extension trên Chrome để ký reCAPTCHA thật; ' +
       'hoặc 3. Tạm dừng 1-2 phút trước khi bấm thử lại.',
       {
-        code: 'RATE_LIMITED',
+        code: 'PUBLIC_ERROR_UNUSUAL_ACTIVITY',
         retryable: true,
         retryAfterMs: 20000,
-        suggestedAction: 'WAIT_AND_RETRY',
-        details: { rawMsg, context },
+        suggestedAction: 'RETRY_WITH_BACKOFF',
+        details: { rawMsg, context, isUnusualActivity: true },
         cause: err,
       }
     );
@@ -301,7 +375,13 @@ export function classifyFlowRpcError(
   // 6. Huỷ bỏ bởi người dùng (Cancelled)
   if (
     lowerMsg.includes('cancelled') ||
+    lowerMsg.includes('canceled') ||
     lowerMsg.includes('đã bị huỷ') ||
+    lowerMsg.includes('đã bị hủy') ||
+    lowerMsg.includes('bị huỷ') ||
+    lowerMsg.includes('bị hủy') ||
+    lowerMsg.includes('huỷ bỏ') ||
+    lowerMsg.includes('hủy bỏ') ||
     lowerMsg.includes('user abort') ||
     lowerMsg.includes('abort')
   ) {
@@ -545,6 +625,10 @@ export interface GenerateImageRpcParams {
   editAssetId?: string | null;
   edit_asset_id?: string | null; // Alias snake_case
   win?: any;
+  signal?: AbortSignal;
+  maxRetries?: number;
+  maxAttempts?: number;
+  backoffBaseMs?: number;
 }
 
 export type GenerateImageParams = GenerateImageRpcParams;
@@ -580,6 +664,10 @@ export interface GenerateVideoRpcParams {
   projectId?: string;
   project_id?: string; // Alias snake_case
   win?: any;
+  signal?: AbortSignal;
+  maxRetries?: number;
+  maxAttempts?: number;
+  backoffBaseMs?: number;
 }
 
 export type GenerateVideoParams = GenerateVideoRpcParams;
@@ -980,6 +1068,7 @@ export class GoogleFlowRpcClient {
       captchaAction?: typeof CAPTCHA_ACTION_IMAGE | typeof CAPTCHA_ACTION_VIDEO;
       maxRetries?: number;
       label?: string;
+      signal?: AbortSignal;
     } = {}
   ): Promise<unknown> {
     const {
@@ -987,6 +1076,7 @@ export class GoogleFlowRpcClient {
       captchaAction = CAPTCHA_ACTION_IMAGE,
       maxRetries = this._maxRetries,
       label = rpcId,
+      signal,
     } = opts;
 
     let lastError: Error | null = null;
@@ -1157,8 +1247,18 @@ export class GoogleFlowRpcClient {
             rawResponse: rawText,
           });
 
+          if (isUnusualActivityError(classified)) {
+            throw classified;
+          }
+
           if (classified.retryable && attempt <= maxRetries) {
-            await new Promise((r) => setTimeout(r, RPC_TRANSIENT_RETRY_DELAY_MS));
+            const expDelay = calculateExponentialBackoffMs(attempt - 1, 10000, 120000);
+            const delay = classified.retryAfterMs ? Math.max(classified.retryAfterMs, expDelay) : expDelay;
+            console.log(
+              `[GoogleFlowRpcClient] ⏳ Tác vụ ${label} gặp lỗi tạm thời [${classified.code}]. ` +
+              `Exponential Backoff lần ${attempt}/${maxRetries}: chờ ${Math.round(delay / 1000)}s...`
+            );
+            await sleepWithSignal(delay, signal);
             lastError = classified;
             continue;
           }
@@ -1172,9 +1272,17 @@ export class GoogleFlowRpcClient {
         if (classified.code === 'SESSION_EXPIRED') {
           this.invalidateAtTokenCache();
         }
+        if (isUnusualActivityError(classified)) {
+          throw classified;
+        }
         if (classified.retryable && attempt <= maxRetries) {
-          const delay = classified.retryAfterMs || RPC_TRANSIENT_RETRY_DELAY_MS;
-          await new Promise((r) => setTimeout(r, delay));
+          const expDelay = calculateExponentialBackoffMs(attempt - 1, 10000, 120000);
+          const delay = classified.retryAfterMs ? Math.max(classified.retryAfterMs, expDelay) : expDelay;
+          console.log(
+            `[GoogleFlowRpcClient] ⏳ Tác vụ ${label} gặp lỗi tạm thời [${classified.code}]. ` +
+            `Exponential Backoff lần ${attempt}/${maxRetries}: chờ ${Math.round(delay / 1000)}s...`
+          );
+          await sleepWithSignal(delay, signal);
         } else {
           throw classified;
         }
@@ -1410,13 +1518,14 @@ export class GoogleFlowRpcClient {
 
   /**
    * Tự động phục hồi khi gặp PUBLIC_ERROR_UNUSUAL_ACTIVITY (reCAPTCHA bot flag).
-   * Kéo Sảnh Google Flow từ chế độ offscreen ra màn hình chính, kích hoạt layout GPU render
+   * Kéo Sảnh Google Flow từ chế độ offscreen ra màn hình chính, kích hoạt layout GPU render,
+   * thực hiện cơ chế dự phòng số 1 (CDP Trusted Click phần hardware) qua Chrome DevTools Protocol,
    * và mô phỏng tương tác người dùng tự nhiên để nâng reCAPTCHA Enterprise score lên mức an toàn.
    */
-  private async _handleUnusualActivityAutoRecovery(win?: any): Promise<any> {
+  public async handleUnusualActivityRecovery(win?: any): Promise<any> {
     console.warn(
       '[GoogleFlowRpcClient] 🛡️ Phát hiện PUBLIC_ERROR_UNUSUAL_ACTIVITY (reCAPTCHA bot flag). ' +
-      'Đang tự động kéo Sảnh Google Flow ra màn hình chính (live_window) để vượt bot check...'
+      'Tự động kích hoạt cơ chế dự phòng số 1 (CDP Trusted Click phần hardware)...'
     );
 
     let activeWin = win;
@@ -1432,6 +1541,46 @@ export class GoogleFlowRpcClient {
     if (activeWin && !activeWin.isDestroyed?.()) {
       try {
         activeWin.focus?.();
+
+        // 1. CDP Trusted Click (phần hardware qua Chrome DevTools Protocol)
+        let cdpSuccess = false;
+        const dbg = activeWin.webContents?.debugger;
+        if (dbg) {
+          try {
+            if (!dbg.isAttached()) {
+              dbg.attach('1.3');
+            }
+            if (dbg.isAttached()) {
+              await dbg.sendCommand('Input.dispatchMouseEvent', {
+                type: 'mouseMoved',
+                x: 450,
+                y: 350,
+              });
+              await new Promise((r) => setTimeout(r, 50));
+              await dbg.sendCommand('Input.dispatchMouseEvent', {
+                type: 'mousePressed',
+                x: 450,
+                y: 350,
+                button: 'left',
+                clickCount: 1,
+              });
+              await new Promise((r) => setTimeout(r, 80));
+              await dbg.sendCommand('Input.dispatchMouseEvent', {
+                type: 'mouseReleased',
+                x: 450,
+                y: 350,
+                button: 'left',
+                clickCount: 1,
+              });
+              cdpSuccess = true;
+              console.log('[GoogleFlowRpcClient] 🖱️ Đã phát tín hiệu CDP Trusted Click phần hardware thành công.');
+            }
+          } catch (cdpErr: any) {
+            console.warn('[GoogleFlowRpcClient] CDP Trusted Click error:', cdpErr?.message || cdpErr);
+          }
+        }
+
+        // 2. Tương tác bổ trợ qua Electron native sendInputEvent
         if (typeof activeWin.webContents?.sendInputEvent === 'function') {
           const jitterMoves = [
             { x: 350, y: 250 },
@@ -1444,6 +1593,11 @@ export class GoogleFlowRpcClient {
             activeWin.webContents.sendInputEvent({ type: 'mouseMove', x: m.x, y: m.y });
             await new Promise((r) => setTimeout(r, 40));
           }
+          if (!cdpSuccess) {
+            activeWin.webContents.sendInputEvent({ type: 'mouseDown', x: 500, y: 280, button: 'left', clickCount: 1 });
+            await new Promise((r) => setTimeout(r, 60));
+            activeWin.webContents.sendInputEvent({ type: 'mouseUp', x: 500, y: 280, button: 'left', clickCount: 1 });
+          }
         }
       } catch {}
     }
@@ -1451,6 +1605,11 @@ export class GoogleFlowRpcClient {
     // Đợi 2.5s để Chromium hoàn tất layout render trên màn hình và reCAPTCHA script nhận diện viewport
     await new Promise((r) => setTimeout(r, 2500));
     return activeWin;
+  }
+
+  /** Alias tương thích ngược cho internal / subclass override */
+  protected async _handleUnusualActivityAutoRecovery(win?: any): Promise<any> {
+    return await this.handleUnusualActivityRecovery(win);
   }
 
   /**
@@ -1465,148 +1624,76 @@ export class GoogleFlowRpcClient {
     maybePromptOrOpts?: any,
     maybeOpts?: any
   ): Promise<RpcGenerateImageResult> {
-    let params: GenerateImageParams;
+    return await GoogleFlowBrowserMutex.getInstance().runExclusive(async () => {
+      let params: GenerateImageParams;
 
-    if (typeof winOrParams === 'string') {
-      if (typeof maybePromptOrOpts === 'string') {
-        params = { prompt: winOrParams, projectId: maybePromptOrOpts, ...(typeof maybeOpts === 'object' ? maybeOpts : {}) };
+      if (typeof winOrParams === 'string') {
+        if (typeof maybePromptOrOpts === 'string') {
+          params = { prompt: winOrParams, projectId: maybePromptOrOpts, ...(typeof maybeOpts === 'object' ? maybeOpts : {}) };
+        } else if (maybePromptOrOpts && typeof maybePromptOrOpts === 'object') {
+          params = { prompt: winOrParams, ...maybePromptOrOpts };
+        } else {
+          params = { prompt: winOrParams };
+        }
+      } else if (typeof maybePromptOrOpts === 'string') {
+        params = { win: winOrParams, prompt: maybePromptOrOpts, ...(typeof maybeOpts === 'object' ? maybeOpts : {}) };
       } else if (maybePromptOrOpts && typeof maybePromptOrOpts === 'object') {
-        params = { prompt: winOrParams, ...maybePromptOrOpts };
+        params = { ...maybePromptOrOpts, win: winOrParams };
       } else {
-        params = { prompt: winOrParams };
-      }
-    } else if (typeof maybePromptOrOpts === 'string') {
-      params = { win: winOrParams, prompt: maybePromptOrOpts, ...(typeof maybeOpts === 'object' ? maybeOpts : {}) };
-    } else if (maybePromptOrOpts && typeof maybePromptOrOpts === 'object') {
-      params = { ...maybePromptOrOpts, win: winOrParams };
-    } else {
-      params = winOrParams || {};
-    }
-
-    const {
-      prompt,
-      aspectRatio = params.aspect_ratio || '16:9',
-      seed = Math.floor(Math.random() * 2147483647),
-      outputCount = params.output_count ?? 1,
-      imageModel = params.image_model || 'GEM_PIX_2',
-      projectId = params.project_id || '',
-      editAssetId = params.edit_asset_id ?? null,
-      baseImageAsset = params.base_image_asset,
-      win,
-    } = params;
-
-    if (!prompt || typeof prompt !== 'string' || prompt.trim().length === 0) {
-      throw new GoogleFlowRpcError('Prompt tạo ảnh không được để trống.', {
-        code: 'INVALID_ARGUMENT',
-        retryable: false,
-      });
-    }
-
-    const rawRefs: unknown =
-      params.referenceAssets ||
-      params.reference_assets ||
-      params.referenceMediaIds;
-    const referenceMediaIds = Array.isArray(rawRefs)
-      ? (rawRefs as string[])
-      : typeof rawRefs === 'string' && rawRefs.trim()
-      ? [rawRefs.trim()]
-      : [];
-
-    // Kiểm tra Extension Bridge nếu đang active trên Chrome
-    const bridge = FlowBridgeServer.getInstance();
-    if (bridge.isConnected()) {
-      let finalProjectId = projectId?.trim() || '';
-      if (!finalProjectId) {
-        try {
-          const tabInfo = await bridge.getFlowTabInfo(3000);
-          if (tabInfo && tabInfo.projectId) {
-            finalProjectId = tabInfo.projectId;
-          }
-        } catch {}
-      }
-      if (!finalProjectId) {
-        finalProjectId = PROJECT_ID_SLOT;
+        params = winOrParams || {};
       }
 
-      console.log(`[GoogleFlowRpcClient] 🌐 [Chrome Extension Bridge] Đang tạo ảnh (project: ${finalProjectId}): "${prompt.slice(0, 40)}"...`);
-      const innerPayload = buildGenImagePayload({
+      const {
         prompt,
-        aspectRatio,
-        outputCount,
-        referenceMediaIds,
-        baseImageMediaId: baseImageAsset,
-        imageModel,
-        projectId: finalProjectId,
-        editAssetId,
-        captchaToken: CAPTCHA_SLOT,
-        seed,
-      });
+        aspectRatio = params.aspect_ratio || '16:9',
+        seed = Math.floor(Math.random() * 2147483647),
+        outputCount = params.output_count ?? 1,
+        imageModel = params.image_model || 'GEM_PIX_2',
+        projectId = params.project_id || '',
+        editAssetId = params.edit_asset_id ?? null,
+        baseImageAsset = params.base_image_asset,
+        win,
+        signal = params.signal,
+      } = params;
 
-      let rawText = '';
-      try {
-        rawText = await bridge.sendBatchRpc(
-          RPC_GEN_IMAGE,
-          innerPayload,
-          CAPTCHA_ACTION_IMAGE,
-          finalProjectId
-        );
-      } catch (bridgeErr: any) {
-        throw classifyFlowRpcError(bridgeErr);
+      if (signal?.aborted) {
+        throw new GoogleFlowRpcError('Tác vụ đã bị người dùng huỷ bỏ.', { code: 'CANCELLED', retryable: false });
       }
-      let res = parseBatchResponse(rawText, RPC_GEN_IMAGE);
-      if (!res.ok) {
-        const errStr = JSON.stringify(res.error);
-        if (errStr.includes('PUBLIC_ERROR_UNUSUAL_ACTIVITY')) {
-          console.warn('[GoogleFlowRpcClient] 🛡️ Pure RPC bị Google chặn (UNUSUAL_ACTIVITY). Tự động kích hoạt cơ chế Native UI DOM Trigger trên Chrome...');
+
+      if (!prompt || typeof prompt !== 'string' || prompt.trim().length === 0) {
+        throw new GoogleFlowRpcError('Prompt tạo ảnh không được để trống.', {
+          code: 'INVALID_ARGUMENT',
+          retryable: false,
+        });
+      }
+
+      const rawRefs: unknown =
+        params.referenceAssets ||
+        params.reference_assets ||
+        params.referenceMediaIds;
+      const referenceMediaIds = Array.isArray(rawRefs)
+        ? (rawRefs as string[])
+        : typeof rawRefs === 'string' && rawRefs.trim()
+        ? [rawRefs.trim()]
+        : [];
+
+      // Kiểm tra Extension Bridge nếu đang active trên Chrome
+      const bridge = FlowBridgeServer.getInstance();
+      if (bridge.isConnected()) {
+        let finalProjectId = projectId?.trim() || '';
+        if (!finalProjectId) {
           try {
-            const uiRes = await bridge.triggerUiGen(prompt, 30000);
-            console.log('[GoogleFlowRpcClient] 🔍 uiRes result:', JSON.stringify(uiRes)?.slice(0, 300));
-            if (uiRes && uiRes.ok && uiRes.capturedRpc && uiRes.capturedRpc.response) {
-              const uiParsed = parseBatchResponse(uiRes.capturedRpc.response, RPC_GEN_IMAGE);
-              if (uiParsed.ok && uiParsed.data) {
-                console.log('[GoogleFlowRpcClient] ✅ Native UI DOM Trigger thành công, nhận được phản hồi ảnh từ Flow!');
-                res = uiParsed;
-              }
-            } else if (uiRes && !uiRes.ok) {
-              console.warn('[GoogleFlowRpcClient] ⚠️ triggerUiGen trả về lỗi:', uiRes.error || uiRes);
+            const tabInfo = await bridge.getFlowTabInfo(3000);
+            if (tabInfo && tabInfo.projectId) {
+              finalProjectId = tabInfo.projectId;
             }
-          } catch (uiErr: any) {
-            console.warn('[GoogleFlowRpcClient] Fallback triggerUiGen thất bại:', uiErr?.message || uiErr);
-          }
+          } catch {}
         }
-      }
-      if (!res.ok) {
-        throw classifyFlowRpcError(new Error(`Extension Bridge image error: ${JSON.stringify(res.error)}`));
-      }
-      const images = extractGeneratedImages(res.data);
-      if (!images || images.length === 0) {
-        throw new GoogleFlowRpcError(
-          `Không trích xuất được ảnh nào từ response Extension ogiZ0b. Raw data: ${JSON.stringify(res.data)?.slice(0, 300)}`,
-          { code: 'UPSTREAM_ERROR', retryable: true }
-        );
-      }
-      const formatted = images.map((img) => ({
-        assetId: img.mediaId,
-        mediaId: img.mediaId,
-        url: img.url,
-      }));
-      return {
-        images: formatted,
-        firstImageUrl: formatted[0]?.url,
-        projectId: finalProjectId,
-      };
-    }
-
-    let activeWin = win;
-    let lastGenErr: any = null;
-
-    for (let attempt = 1; attempt <= 2; attempt++) {
-      try {
-        let captchaToken = CAPTCHA_SLOT;
-        if (activeWin || this._sessionAdapter) {
-          captchaToken = await this.mintCaptchaToken(activeWin, CAPTCHA_ACTION_IMAGE);
+        if (!finalProjectId) {
+          finalProjectId = PROJECT_ID_SLOT;
         }
 
+        console.log(`[GoogleFlowRpcClient] 🌐 [Chrome Extension Bridge] Đang tạo ảnh (project: ${finalProjectId}): "${prompt.slice(0, 40)}"...`);
         const innerPayload = buildGenImagePayload({
           prompt,
           aspectRatio,
@@ -1614,54 +1701,152 @@ export class GoogleFlowRpcClient {
           referenceMediaIds,
           baseImageMediaId: baseImageAsset,
           imageModel,
-          projectId,
+          projectId: finalProjectId,
           editAssetId,
-          captchaToken,
+          captchaToken: CAPTCHA_SLOT,
           seed,
         });
 
-        const data = await this.callFlowRPC(activeWin, RPC_GEN_IMAGE, innerPayload, projectId, {
-          needsCaptcha: false,
-          maxRetries: IMAGE_TRANSIENT_MAX_RETRIES,
-          label: `ogiZ0b(image:${prompt.slice(0, 30)})`,
-        });
-
-        const images = extractGeneratedImages(data);
+        let rawText = '';
+        try {
+          rawText = await bridge.sendBatchRpc(
+            RPC_GEN_IMAGE,
+            innerPayload,
+            CAPTCHA_ACTION_IMAGE,
+            finalProjectId
+          );
+        } catch (bridgeErr: any) {
+          throw classifyFlowRpcError(bridgeErr);
+        }
+        let res = parseBatchResponse(rawText, RPC_GEN_IMAGE);
+        if (!res.ok) {
+          const errStr = JSON.stringify(res.error);
+          if (errStr.includes('PUBLIC_ERROR_UNUSUAL_ACTIVITY')) {
+            console.warn('[GoogleFlowRpcClient] 🛡️ Pure RPC bị Google chặn (UNUSUAL_ACTIVITY). Tự động kích hoạt cơ chế Native UI DOM Trigger trên Chrome...');
+            try {
+              const uiRes = await bridge.triggerUiGen(prompt, 30000);
+              console.log('[GoogleFlowRpcClient] 🔍 uiRes result:', JSON.stringify(uiRes)?.slice(0, 300));
+              if (uiRes && uiRes.ok && uiRes.capturedRpc && uiRes.capturedRpc.response) {
+                const uiParsed = parseBatchResponse(uiRes.capturedRpc.response, RPC_GEN_IMAGE);
+                if (uiParsed.ok && uiParsed.data) {
+                  console.log('[GoogleFlowRpcClient] ✅ Native UI DOM Trigger thành công, nhận được phản hồi ảnh từ Flow!');
+                  res = uiParsed;
+                }
+              } else if (uiRes && !uiRes.ok) {
+                console.warn('[GoogleFlowRpcClient] ⚠️ triggerUiGen trả về lỗi:', uiRes.error || uiRes);
+              }
+            } catch (uiErr: any) {
+              console.warn('[GoogleFlowRpcClient] Fallback triggerUiGen thất bại:', uiErr?.message || uiErr);
+            }
+          }
+        }
+        if (!res.ok) {
+          throw classifyFlowRpcError(new Error(`Extension Bridge image error: ${JSON.stringify(res.error)}`));
+        }
+        const images = extractGeneratedImages(res.data);
         if (!images || images.length === 0) {
           throw new GoogleFlowRpcError(
-            `Không trích xuất được ảnh nào từ response ogiZ0b. Raw data: ${JSON.stringify(data)?.slice(0, 300)}`,
+            `Không trích xuất được ảnh nào từ response Extension ogiZ0b. Raw data: ${JSON.stringify(res.data)?.slice(0, 300)}`,
             { code: 'UPSTREAM_ERROR', retryable: true }
           );
         }
-
         const formatted = images.map((img) => ({
           assetId: img.mediaId,
           mediaId: img.mediaId,
           url: img.url,
         }));
-
         return {
           images: formatted,
           firstImageUrl: formatted[0]?.url,
-          projectId,
+          projectId: finalProjectId,
         };
-      } catch (err: any) {
-        lastGenErr = err;
-        const msg = String(err?.message || err).toLowerCase();
-        const isUnusualActivity =
-          msg.includes('public_error_unusual_activity') ||
-          msg.includes('unusual_activity') ||
-          msg.includes('unusual activity');
-
-        if (isUnusualActivity && attempt === 1) {
-          activeWin = await this._handleUnusualActivityAutoRecovery(activeWin);
-          continue;
-        }
-        throw err;
       }
-    }
 
-    throw lastGenErr;
+      let activeWin = win;
+      let lastGenErr: any = null;
+      const maxAttempts = typeof params.maxAttempts === 'number'
+        ? Math.max(1, params.maxAttempts)
+        : typeof params.maxRetries === 'number'
+        ? Math.max(1, params.maxRetries + 1)
+        : 3;
+      const baseMs = typeof params.backoffBaseMs === 'number' ? params.backoffBaseMs : 10000;
+
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+          let captchaToken = CAPTCHA_SLOT;
+          if (activeWin || this._sessionAdapter) {
+            captchaToken = await this.mintCaptchaToken(activeWin, CAPTCHA_ACTION_IMAGE);
+          }
+
+          const innerPayload = buildGenImagePayload({
+            prompt,
+            aspectRatio,
+            outputCount,
+            referenceMediaIds,
+            baseImageMediaId: baseImageAsset,
+            imageModel,
+            projectId,
+            editAssetId,
+            captchaToken,
+            seed,
+          });
+
+          const data = await this.callFlowRPC(activeWin, RPC_GEN_IMAGE, innerPayload, projectId, {
+            needsCaptcha: false,
+            maxRetries: 0,
+            label: `ogiZ0b(image:${prompt.slice(0, 30)})`,
+          });
+
+          const images = extractGeneratedImages(data);
+          if (!images || images.length === 0) {
+            throw new GoogleFlowRpcError(
+              `Không trích xuất được ảnh nào từ response ogiZ0b. Raw data: ${JSON.stringify(data)?.slice(0, 300)}`,
+              { code: 'UPSTREAM_ERROR', retryable: true }
+            );
+          }
+
+          const formatted = images.map((img) => ({
+            assetId: img.mediaId,
+            mediaId: img.mediaId,
+            url: img.url,
+          }));
+
+          return {
+            images: formatted,
+            firstImageUrl: formatted[0]?.url,
+            projectId,
+          };
+        } catch (err: any) {
+          lastGenErr = err;
+          if (signal?.aborted) {
+            throw new GoogleFlowRpcError('Tác vụ đã bị người dùng huỷ bỏ.', { code: 'CANCELLED', retryable: false });
+          }
+          const classified = classifyFlowRpcError(err);
+          if (classified.code === 'CANCELLED') {
+            throw classified;
+          }
+          const isUnusual = isUnusualActivityError(err);
+
+          if (attempt < maxAttempts && (isUnusual || classified.retryable)) {
+            if (isUnusual) {
+              // R2: Tự động kích hoạt cơ chế dự phòng số 1 (CDP Trusted Click phần hardware) trước khi chuyển sang giãn cách lùi bước
+              activeWin = await this.handleUnusualActivityRecovery(activeWin);
+            }
+            const delay = calculateExponentialBackoffMs(attempt - 1, baseMs, 120000);
+            const waitMs = classified.retryAfterMs ? Math.max(classified.retryAfterMs, delay) : delay;
+            console.warn(
+              `[GoogleFlowRpcClient] Sinh ảnh gặp lỗi [${classified.code}] (attempt ${attempt}/${maxAttempts}). ` +
+              `Giãn cách lùi bước: chờ ${Math.round(waitMs / 1000)}s...`
+            );
+            await sleepWithSignal(waitMs, signal);
+            continue;
+          }
+          throw classified;
+        }
+      }
+
+      throw lastGenErr ? classifyFlowRpcError(lastGenErr) : new GoogleFlowRpcError('Sinh ảnh thất bại.', { code: 'UNKNOWN' });
+    }, 'google_flow_rpc_generate_image');
   }
 
   /** Alias snake_case */
@@ -1687,184 +1872,242 @@ export class GoogleFlowRpcClient {
     maybePromptOrOpts?: any,
     maybeOpts?: any
   ): Promise<RpcGenerateVideoResult> {
-    let params: GenerateVideoParams;
+    return await GoogleFlowBrowserMutex.getInstance().runExclusive(async () => {
+      let params: GenerateVideoParams;
 
-    if (typeof winOrParams === 'string') {
-      if (typeof maybePromptOrOpts === 'string') {
-        params = { prompt: winOrParams, projectId: maybePromptOrOpts, ...(typeof maybeOpts === 'object' ? maybeOpts : {}) };
+      if (typeof winOrParams === 'string') {
+        if (typeof maybePromptOrOpts === 'string') {
+          params = { prompt: winOrParams, projectId: maybePromptOrOpts, ...(typeof maybeOpts === 'object' ? maybeOpts : {}) };
+        } else if (maybePromptOrOpts && typeof maybePromptOrOpts === 'object') {
+          params = { prompt: winOrParams, ...maybePromptOrOpts };
+        } else {
+          params = { prompt: winOrParams };
+        }
+      } else if (typeof maybePromptOrOpts === 'string') {
+        params = { win: winOrParams, prompt: maybePromptOrOpts, ...(typeof maybeOpts === 'object' ? maybeOpts : {}) };
       } else if (maybePromptOrOpts && typeof maybePromptOrOpts === 'object') {
-        params = { prompt: winOrParams, ...maybePromptOrOpts };
+        params = { ...maybePromptOrOpts, win: winOrParams };
       } else {
-        params = { prompt: winOrParams };
+        params = winOrParams || {};
       }
-    } else if (typeof maybePromptOrOpts === 'string') {
-      params = { win: winOrParams, prompt: maybePromptOrOpts, ...(typeof maybeOpts === 'object' ? maybeOpts : {}) };
-    } else if (maybePromptOrOpts && typeof maybePromptOrOpts === 'object') {
-      params = { ...maybePromptOrOpts, win: winOrParams };
-    } else {
-      params = winOrParams || {};
-    }
 
-    const {
-      prompt,
-      aspectRatio = params.aspect_ratio || '16:9',
-      duration = params.duration_seconds ?? params.durationSeconds ?? 8,
-      videoModel = params.video_model,
-      audio,
-      projectId = params.project_id || '',
-      win,
-    } = params;
+      const {
+        prompt,
+        aspectRatio = params.aspect_ratio || '16:9',
+        duration = params.duration_seconds ?? params.durationSeconds ?? 8,
+        videoModel = params.video_model,
+        audio,
+        projectId = params.project_id || '',
+        win,
+        signal = params.signal,
+      } = params;
 
-    const rawRefCandidate: unknown =
-      params.referenceAssets ||
-      params.reference_assets;
+      if (signal?.aborted) {
+        throw new GoogleFlowRpcError('Tác vụ đã bị người dùng huỷ bỏ.', { code: 'CANCELLED', retryable: false });
+      }
 
-    const inputImageAsset =
-      typeof params.inputImageAsset === 'string' && params.inputImageAsset
-        ? params.inputImageAsset
-        : typeof params.input_image_asset === 'string' && params.input_image_asset
-        ? params.input_image_asset
-        : typeof params.imageMediaId === 'string' && params.imageMediaId
-        ? params.imageMediaId
-        : Array.isArray(rawRefCandidate) && rawRefCandidate.length > 0
-        ? (rawRefCandidate[0] as string)
-        : typeof rawRefCandidate === 'string' && rawRefCandidate.trim()
-        ? rawRefCandidate.trim()
-        : undefined;
+      const rawRefCandidate: unknown =
+        params.referenceAssets ||
+        params.reference_assets;
 
-    if (!prompt || typeof prompt !== 'string' || prompt.trim().length === 0) {
-      throw new GoogleFlowRpcError('Prompt tạo video không được để trống.', {
-        code: 'INVALID_ARGUMENT',
-        retryable: false,
-      });
-    }
+      const inputImageAsset =
+        typeof params.inputImageAsset === 'string' && params.inputImageAsset
+          ? params.inputImageAsset
+          : typeof params.input_image_asset === 'string' && params.input_image_asset
+          ? params.input_image_asset
+          : typeof params.imageMediaId === 'string' && params.imageMediaId
+          ? params.imageMediaId
+          : Array.isArray(rawRefCandidate) && rawRefCandidate.length > 0
+          ? (rawRefCandidate[0] as string)
+          : typeof rawRefCandidate === 'string' && rawRefCandidate.trim()
+          ? rawRefCandidate.trim()
+          : undefined;
 
-    const parsedDuration = typeof duration === 'string' ? parseInt(duration, 10) : duration;
-    const durationSec = parsedDuration && parsedDuration > 0 ? parsedDuration : 8;
+      if (!prompt || typeof prompt !== 'string' || prompt.trim().length === 0) {
+        throw new GoogleFlowRpcError('Prompt tạo video không được để trống.', {
+          code: 'INVALID_ARGUMENT',
+          retryable: false,
+        });
+      }
 
-    // Kiểm tra Extension Bridge nếu đang active trên Chrome
-    const bridge = FlowBridgeServer.getInstance();
-    if (bridge.isConnected()) {
-      let finalProjectId = projectId?.trim() || '';
-      if (!finalProjectId) {
+      const parsedDuration = typeof duration === 'string' ? parseInt(duration, 10) : duration;
+      const durationSec = parsedDuration && parsedDuration > 0 ? parsedDuration : 8;
+
+      // Kiểm tra Extension Bridge nếu đang active trên Chrome
+      const bridge = FlowBridgeServer.getInstance();
+      if (bridge.isConnected()) {
+        let finalProjectId = projectId?.trim() || '';
+        if (!finalProjectId) {
+          try {
+            const tabInfo = await bridge.getFlowTabInfo(3000);
+            if (tabInfo && tabInfo.projectId) {
+              finalProjectId = tabInfo.projectId;
+            }
+          } catch {}
+        }
+        if (!finalProjectId) {
+          finalProjectId = PROJECT_ID_SLOT;
+        }
+
+        console.log(`[GoogleFlowRpcClient] 🌐 [Chrome Extension Bridge] Đang tạo video (project: ${finalProjectId}): "${prompt.slice(0, 40)}"...`);
+        const rpcName = inputImageAsset ? RPC_GEN_VIDEO_REFERENCES : RPC_GEN_VIDEO_TEXT;
+        const innerPayload = inputImageAsset
+          ? buildGenVideoPayload({
+              imageMediaId: inputImageAsset,
+              aspectRatio,
+              durationSeconds: durationSec,
+              videoModel,
+              prompt,
+              projectId: finalProjectId,
+              captchaToken: CAPTCHA_SLOT,
+              audio,
+            })
+          : buildGenVideoTextPayload({
+              prompt,
+              aspectRatio,
+              durationSeconds: durationSec,
+              videoModel,
+              projectId: finalProjectId,
+              captchaToken: CAPTCHA_SLOT,
+              audio,
+            });
+
+        let rawText = '';
         try {
-          const tabInfo = await bridge.getFlowTabInfo(3000);
-          if (tabInfo && tabInfo.projectId) {
-            finalProjectId = tabInfo.projectId;
+          rawText = await bridge.sendBatchRpc(
+            rpcName,
+            innerPayload,
+            CAPTCHA_ACTION_VIDEO,
+            finalProjectId
+          );
+        } catch (bridgeErr: any) {
+          throw classifyFlowRpcError(bridgeErr);
+        }
+        let res = parseBatchResponse(rawText, rpcName);
+        if (!res.ok) {
+          const errStr = JSON.stringify(res.error);
+          if (errStr.includes('PUBLIC_ERROR_UNUSUAL_ACTIVITY')) {
+            console.warn('[GoogleFlowRpcClient] 🛡️ Pure RPC video bị Google chặn (UNUSUAL_ACTIVITY). Tự động kích hoạt cơ chế Native UI DOM Trigger trên Chrome...');
+            try {
+              const uiRes = await bridge.triggerUiGen(prompt, 30000);
+              console.log('[GoogleFlowRpcClient] 🔍 uiRes video result:', JSON.stringify(uiRes)?.slice(0, 300));
+              if (uiRes && uiRes.ok && uiRes.capturedRpc && uiRes.capturedRpc.response) {
+                const capturedRpcId = uiRes.capturedRpc.rpcid || rpcName;
+                const uiParsed = parseBatchResponse(uiRes.capturedRpc.response, capturedRpcId);
+                if (uiParsed.ok && uiParsed.data) {
+                  console.log('[GoogleFlowRpcClient] ✅ Native UI DOM Trigger video thành công, nhận được phản hồi từ Flow!');
+                  res = uiParsed;
+                }
+              } else if (uiRes && !uiRes.ok) {
+                console.warn('[GoogleFlowRpcClient] ⚠️ triggerUiGen video trả về lỗi:', uiRes.error || uiRes);
+              }
+            } catch (uiErr: any) {
+              console.warn('[GoogleFlowRpcClient] Fallback triggerUiGen video thất bại:', uiErr?.message || uiErr);
+            }
           }
-        } catch {}
-      }
-      if (!finalProjectId) {
-        finalProjectId = PROJECT_ID_SLOT;
+        }
+        if (!res.ok) {
+          throw classifyFlowRpcError(new Error(`Extension Bridge video error: ${JSON.stringify(res.error)}`));
+        }
+        const opStatus = extractOperationStatus(res.data, rpcName);
+        if (!opStatus.operationId) {
+          throw new GoogleFlowRpcError(
+            `Không thể trích xuất operationId từ phản hồi Extension video. Raw data: ${JSON.stringify(res.data)?.slice(0, 300)}`,
+            { code: 'UPSTREAM_ERROR', retryable: true }
+          );
+        }
+        return {
+          operationId: opStatus.operationId,
+          projectId: opStatus.projectId || finalProjectId,
+          status: opStatus.status || 'RUNNING',
+          done: opStatus.done,
+          videoUrl: opStatus.videoUrl,
+          imageUrl: opStatus.imageUrl,
+        };
       }
 
-      console.log(`[GoogleFlowRpcClient] 🌐 [Chrome Extension Bridge] Đang tạo video (project: ${finalProjectId}): "${prompt.slice(0, 40)}"...`);
-      const rpcName = inputImageAsset ? RPC_GEN_VIDEO_REFERENCES : RPC_GEN_VIDEO_TEXT;
-      const innerPayload = inputImageAsset
-        ? buildGenVideoPayload({
+      let activeWin = win;
+      let lastVideoErr: any = null;
+      const maxAttempts = typeof params.maxAttempts === 'number'
+        ? Math.max(1, params.maxAttempts)
+        : typeof params.maxRetries === 'number'
+        ? Math.max(1, params.maxRetries + 1)
+        : 3;
+      const baseMs = typeof params.backoffBaseMs === 'number' ? params.backoffBaseMs : 10000;
+
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+          // Trường hợp 1: Text-to-Video nếu không có inputImageAsset
+          if (!inputImageAsset) {
+            let captchaToken = CAPTCHA_SLOT;
+            if (activeWin || this._sessionAdapter) {
+              captchaToken = await this.mintCaptchaToken(activeWin, CAPTCHA_ACTION_VIDEO);
+            }
+            const innerPayload = buildGenVideoTextPayload({
+              prompt,
+              aspectRatio,
+              durationSeconds: durationSec,
+              videoModel,
+              projectId,
+              captchaToken,
+              audio,
+            });
+
+            const data = await this.callFlowRPC(activeWin, RPC_GEN_VIDEO_TEXT, innerPayload, projectId, {
+              needsCaptcha: false,
+              maxRetries: 0,
+              label: 'YhhmEf(text2video)',
+            });
+
+            const status = extractOperationStatus(data, RPC_GEN_VIDEO_TEXT);
+            if (!status.operationId) {
+              throw new GoogleFlowRpcError(
+                `Không thể trích xuất operationId từ phản hồi tạo video. Raw data: ${JSON.stringify(data)?.slice(0, 300)}`,
+                {
+                  code: 'UPSTREAM_ERROR',
+                  retryable: true,
+                  details: { data },
+                }
+              );
+            }
+
+            return {
+              operationId: status.operationId,
+              projectId: status.projectId || projectId,
+              status: status.status || 'RUNNING',
+              done: status.done,
+              videoUrl: status.videoUrl,
+              imageUrl: status.imageUrl,
+            };
+          }
+
+          // Trường hợp 2: Image-to-Video / Reference-to-Video (MZZa6b)
+          let captchaToken = CAPTCHA_SLOT;
+          if (activeWin || this._sessionAdapter) {
+            captchaToken = await this.mintCaptchaToken(activeWin, CAPTCHA_ACTION_VIDEO);
+          }
+
+          const innerPayload = buildGenVideoPayload({
             imageMediaId: inputImageAsset,
             aspectRatio,
             durationSeconds: durationSec,
             videoModel,
             prompt,
-            projectId: finalProjectId,
-            captchaToken: CAPTCHA_SLOT,
-            audio,
-          })
-        : buildGenVideoTextPayload({
-            prompt,
-            aspectRatio,
-            durationSeconds: durationSec,
-            videoModel,
-            projectId: finalProjectId,
-            captchaToken: CAPTCHA_SLOT,
-            audio,
-          });
-
-      let rawText = '';
-      try {
-        rawText = await bridge.sendBatchRpc(
-          rpcName,
-          innerPayload,
-          CAPTCHA_ACTION_VIDEO,
-          finalProjectId
-        );
-      } catch (bridgeErr: any) {
-        throw classifyFlowRpcError(bridgeErr);
-      }
-      let res = parseBatchResponse(rawText, rpcName);
-      if (!res.ok) {
-        const errStr = JSON.stringify(res.error);
-        if (errStr.includes('PUBLIC_ERROR_UNUSUAL_ACTIVITY')) {
-          console.warn('[GoogleFlowRpcClient] 🛡️ Pure RPC video bị Google chặn (UNUSUAL_ACTIVITY). Tự động kích hoạt cơ chế Native UI DOM Trigger trên Chrome...');
-          try {
-            const uiRes = await bridge.triggerUiGen(prompt, 30000);
-            console.log('[GoogleFlowRpcClient] 🔍 uiRes video result:', JSON.stringify(uiRes)?.slice(0, 300));
-            if (uiRes && uiRes.ok && uiRes.capturedRpc && uiRes.capturedRpc.response) {
-              const capturedRpcId = uiRes.capturedRpc.rpcid || rpcName;
-              const uiParsed = parseBatchResponse(uiRes.capturedRpc.response, capturedRpcId);
-              if (uiParsed.ok && uiParsed.data) {
-                console.log('[GoogleFlowRpcClient] ✅ Native UI DOM Trigger video thành công, nhận được phản hồi từ Flow!');
-                res = uiParsed;
-              }
-            } else if (uiRes && !uiRes.ok) {
-              console.warn('[GoogleFlowRpcClient] ⚠️ triggerUiGen video trả về lỗi:', uiRes.error || uiRes);
-            }
-          } catch (uiErr: any) {
-            console.warn('[GoogleFlowRpcClient] Fallback triggerUiGen video thất bại:', uiErr?.message || uiErr);
-          }
-        }
-      }
-      if (!res.ok) {
-        throw classifyFlowRpcError(new Error(`Extension Bridge video error: ${JSON.stringify(res.error)}`));
-      }
-      const opStatus = extractOperationStatus(res.data, rpcName);
-      if (!opStatus.operationId) {
-        throw new GoogleFlowRpcError(
-          `Không thể trích xuất operationId từ phản hồi Extension video. Raw data: ${JSON.stringify(res.data)?.slice(0, 300)}`,
-          { code: 'UPSTREAM_ERROR', retryable: true }
-        );
-      }
-      return {
-        operationId: opStatus.operationId,
-        projectId: opStatus.projectId || finalProjectId,
-        status: opStatus.status || 'RUNNING',
-        done: opStatus.done,
-        videoUrl: opStatus.videoUrl,
-        imageUrl: opStatus.imageUrl,
-      };
-    }
-
-    let activeWin = win;
-    let lastVideoErr: any = null;
-
-    for (let attempt = 1; attempt <= 2; attempt++) {
-      try {
-        // Trường hợp 1: Text-to-Video nếu không có inputImageAsset
-        if (!inputImageAsset) {
-          let captchaToken = CAPTCHA_SLOT;
-          if (activeWin || this._sessionAdapter) {
-            captchaToken = await this.mintCaptchaToken(activeWin, CAPTCHA_ACTION_VIDEO);
-          }
-          const innerPayload = buildGenVideoTextPayload({
-            prompt,
-            aspectRatio,
-            durationSeconds: durationSec,
-            videoModel,
             projectId,
             captchaToken,
             audio,
           });
 
-          const data = await this.callFlowRPC(activeWin, RPC_GEN_VIDEO_TEXT, innerPayload, projectId, {
+          const data = await this.callFlowRPC(activeWin, RPC_GEN_VIDEO_REFERENCES, innerPayload, projectId, {
             needsCaptcha: false,
-            label: 'YhhmEf(text2video)',
+            maxRetries: 0,
+            label: 'MZZa6b(video)',
           });
 
-          const status = extractOperationStatus(data, RPC_GEN_VIDEO_TEXT);
+          const status = extractOperationStatus(data, RPC_GEN_VIDEO_REFERENCES);
           if (!status.operationId) {
             throw new GoogleFlowRpcError(
-              `Không thể trích xuất operationId từ phản hồi tạo video. Raw data: ${JSON.stringify(data)?.slice(0, 300)}`,
+              `Không thể trích xuất operationId từ phản hồi tạo video tham chiếu. Raw data: ${JSON.stringify(data)?.slice(0, 300)}`,
               {
                 code: 'UPSTREAM_ERROR',
                 retryable: true,
@@ -1881,67 +2124,37 @@ export class GoogleFlowRpcClient {
             videoUrl: status.videoUrl,
             imageUrl: status.imageUrl,
           };
-        }
+        } catch (err: any) {
+          lastVideoErr = err;
+          if (signal?.aborted) {
+            throw new GoogleFlowRpcError('Tác vụ đã bị người dùng huỷ bỏ.', { code: 'CANCELLED', retryable: false });
+          }
+          const classified = classifyFlowRpcError(err);
+          if (classified.code === 'CANCELLED') {
+            throw classified;
+          }
+          const isUnusual = isUnusualActivityError(err);
 
-        // Trường hợp 2: Image-to-Video / Reference-to-Video (MZZa6b)
-        let captchaToken = CAPTCHA_SLOT;
-        if (activeWin || this._sessionAdapter) {
-          captchaToken = await this.mintCaptchaToken(activeWin, CAPTCHA_ACTION_VIDEO);
-        }
-
-        const innerPayload = buildGenVideoPayload({
-          imageMediaId: inputImageAsset,
-          aspectRatio,
-          durationSeconds: durationSec,
-          videoModel,
-          prompt,
-          projectId,
-          captchaToken,
-          audio,
-        });
-
-        const data = await this.callFlowRPC(activeWin, RPC_GEN_VIDEO_REFERENCES, innerPayload, projectId, {
-          needsCaptcha: false,
-          label: 'MZZa6b(video)',
-        });
-
-        const status = extractOperationStatus(data, RPC_GEN_VIDEO_REFERENCES);
-        if (!status.operationId) {
-          throw new GoogleFlowRpcError(
-            `Không thể trích xuất operationId từ phản hồi tạo video tham chiếu. Raw data: ${JSON.stringify(data)?.slice(0, 300)}`,
-            {
-              code: 'UPSTREAM_ERROR',
-              retryable: true,
-              details: { data },
+          if (attempt < maxAttempts && (isUnusual || classified.retryable)) {
+            if (isUnusual) {
+              // R2: Tự động kích hoạt cơ chế dự phòng số 1 (CDP Trusted Click phần hardware) trước khi chuyển sang giãn cách lùi bước
+              activeWin = await this.handleUnusualActivityRecovery(activeWin);
             }
-          );
+            const delay = calculateExponentialBackoffMs(attempt - 1, baseMs, 120000);
+            const waitMs = classified.retryAfterMs ? Math.max(classified.retryAfterMs, delay) : delay;
+            console.warn(
+              `[GoogleFlowRpcClient] Sinh video gặp lỗi [${classified.code}] (attempt ${attempt}/${maxAttempts}). ` +
+              `Giãn cách lùi bước: chờ ${Math.round(waitMs / 1000)}s...`
+            );
+            await sleepWithSignal(waitMs, signal);
+            continue;
+          }
+          throw classified;
         }
-
-        return {
-          operationId: status.operationId,
-          projectId: status.projectId || projectId,
-          status: status.status || 'RUNNING',
-          done: status.done,
-          videoUrl: status.videoUrl,
-          imageUrl: status.imageUrl,
-        };
-      } catch (err: any) {
-        lastVideoErr = err;
-        const msg = String(err?.message || err).toLowerCase();
-        const isUnusualActivity =
-          msg.includes('public_error_unusual_activity') ||
-          msg.includes('unusual_activity') ||
-          msg.includes('unusual activity');
-
-        if (isUnusualActivity && attempt === 1) {
-          activeWin = await this._handleUnusualActivityAutoRecovery(activeWin);
-          continue;
-        }
-        throw err;
       }
-    }
 
-    throw lastVideoErr;
+      throw lastVideoErr ? classifyFlowRpcError(lastVideoErr) : new GoogleFlowRpcError('Sinh video thất bại.', { code: 'UNKNOWN' });
+    }, 'google_flow_rpc_generate_video');
   }
 
   /** Alias snake_case */

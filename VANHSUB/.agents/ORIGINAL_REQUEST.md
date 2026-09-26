@@ -393,3 +393,107 @@ Integrity mode: development
 - [ ] `extension/manifest.json` và `extension/content.js` nạp đầy đủ bundle `recaptcha_enterprise.js` và `recaptcha__en.js`.
 - [ ] Kịch bản test kiểm thử token minting và batch RPC chạy pass 100%.
 - [ ] Build lại ứng dụng VanhSub thành công (`node node_modules/nextron/bin/webpack.config.cjs`).
+
+## 2026-09-25T13:53:32Z
+
+This is a single self-contained fix; keep it small and focused.
+
+Triển khai cơ chế điều phối hàng đợi (Sequential Generation Queue) với khoảng giãn cách (Cooldown 8-12s kèm random jitter) và lũy tiến lùi bước (Exponential Backoff) giữa các lượt sinh ảnh/video trong AI Studio của VanhSub, ngăn chặn triệt để mã lỗi `PUBLIC_ERROR_UNUSUAL_ACTIVITY` do spam request.
+
+Working directory: d:/DEAN/DEAN/VANHSUB
+Integrity mode: development
+
+## Requirements
+
+### R1. Bộ Điều Phối Hàng Đợi & Cooldown (Flow Cooldown & Concurrency Limiter)
+- Thiết lập hàng đợi tạo media nghiêm ngặt (Concurrency = 1) cho tác vụ sinh ảnh (Imagen) và video (Veo) trong `AiStudioVisualService.ts` và `GoogleFlowRpcClient.ts`.
+- Bổ sung thời gian nghỉ bắt buộc (cooldown) từ 8 đến 12 giây (kèm random jitter ±2s) giữa 2 cảnh liên tiếp khi chạy pipeline tự động hoặc sinh hàng loạt (`dispatchVisualAssets`).
+- Trong thời gian cooldown, gọi callback `onProgress` đếm ngược từng giây (`Đang giãn cách an toàn: Còn X giây trước cảnh tiếp theo...`) và cho phép hủy ngay lập tức nếu `signal.aborted`.
+
+### R2. Chiến Lược Retry với Exponential Backoff & Phân Loại Lỗi Chuẩn Hóa
+- Nâng cấp cơ chế retry trong `GoogleFlowRpcClient.ts` và `AiStudioVisualService.ts` với Exponential Backoff: $2^{\text{retry}} \times 10\text{s}$ (cap ở 120s) khi gặp các lỗi tạm thời (`RATE_LIMITED`, `UPSTREAM_ERROR`, `TIMEOUT`).
+- Đối với `PUBLIC_ERROR_UNUSUAL_ACTIVITY`: Tự động kích hoạt cơ chế dự phòng số 1 (CDP Trusted Click phần cứng) trước khi chuyển sang giãn cách lùi bước.
+
+### R3. Sniffer Capture Tooling & RPC Payload Verifier
+- Bổ sung tiện ích trong `FlowBridgeServer.ts` hoặc script hỗ trợ phân tích `sniffer_dump.json` để kiểm tra tính toàn vẹn của payload `f.req` và `rpcids`.
+
+## Acceptance Criteria
+
+### [Rate-Limiting & Reliability]
+- [ ] Giữa 2 cảnh liên tiếp trong `dispatchVisualAssets` có khoảng nghỉ cooldown >= 8s và hiển thị thông báo tiến độ từng giây.
+- [ ] Khi gặp phản hồi 429 hoặc rate limit, hệ thống áp dụng exponential backoff tự động thay vì dừng đột ngột hoặc spam lặp lại.
+- [ ] Có kịch bản kiểm thử tự động (test script chạy qua Node/tsx) xác minh bộ điều phối hàng đợi và logic backoff hoạt động chính xác 100%.
+- [ ] Ứng dụng biên dịch thành công (`npx tsc --noEmit` và `node node_modules/nextron/bin/webpack.config.cjs`).
+
+## 2026-09-26T13:58:41Z
+
+Nâng cấp 4 nhóm tính năng cốt lõi cho ứng dụng desktop VANHSUB (Nextron/Electron + React + TypeScript): (1) Hỗ trợ phân tích và tải video không watermark từ mọi định dạng link TikTok quốc tế (bao gồm link rút gọn), (2) Chế độ kết hợp kép Whisper ASR + Quét OCR cùng lúc (neo mốc thời gian theo OCR khớp khung hình gốc, dùng Whisper + AI để sửa lỗi chữ và hoàn thiện câu), (3) Bảo toàn chính xác tuyệt đối mốc `startMs` / `endMs` theo khung hình video gốc khi dùng "AI Gọn Phụ Đề" cho phụ đề OCR, và (4) Bổ sung bộ công cụ chỉnh sửa video kiểu CapCut Mini ở tab Xuất Video (Hardsub & Preview) gồm Phản chiếu gương (Horizontal Mirror) và Tua nhanh video độ chính xác `0.01x` (`1.00` – `2.00`).
+
+Working directory: d:\DEAN\DEAN\VANHSUB
+Integrity mode: development
+
+## Requirements
+
+### R1. Phân tích & Tải video từ link TikTok Quốc Tế (`main/helpers/videoDownloader.ts`)
+- Hiện tại `videoDownloader.ts` đang gộp chung `platform === 'tiktok'` vào luồng `douyin` (`normalizeDouyinUrl` chỉ giải mã `v.douyin.com` và gọi `api.amemv.com` vốn chỉ chứa dữ liệu Douyin nội địa Trung Quốc), khiến link TikTok quốc tế bị lỗi.
+- Cần tách và xử lý chuẩn luồng TikTok quốc tế:
+  - Hỗ trợ giải mã mọi dạng link rút gọn TikTok (`vt.tiktok.com/...`, `vm.tiktok.com/...`, `tiktok.com/t/...`, cũng như link đầy đủ `tiktok.com/@.../video/...`).
+  - Hỗ trợ bóc tách metadata (`inspectMediaUrl`: tiêu đề, tác giả, thời lượng, ảnh thu nhỏ, danh sách chất lượng) và tải video MP4 không watermark (`downloadVideoFromUrl`) cho TikTok quốc tế (kết hợp API không watermark cho TikTok quốc tế và fallback tự động sang `yt-dlp` đã tích hợp sẵn trong dự án để đảm bảo tỷ lệ thành công 100%).
+  - Giữ nguyên sự hoạt động ổn định của luồng Douyin, YouTube, Bilibili hiện có.
+
+### R2. Chế độ Kết hợp Kép Whisper ASR + Quét OCR (Hybrid Subtitle Extraction)
+- Bổ sung tùy chọn chạy **Kết hợp Whisper + OCR (Độ chính xác tuyệt đối)** trong không gian làm việc Phụ đề & ASR (`ASRWorkspace.tsx` và IPC/runner ở `main/`).
+- Cơ chế hợp nhất (Cross-Modal Fusion):
+  - Chạy cả nhận diện giọng nói Whisper ASR và quét chữ khung hình OCR cho cùng tác vụ video.
+  - **Neo thời gian theo OCR**: Lấy mốc `startMs` và `endMs` của các phân đoạn OCR làm chuẩn để phụ đề hiển thị/biến mất khớp 100% với thời điểm chữ xuất hiện trên khung hình video gốc.
+  - **Hợp nhất nội dung văn bản bằng Whisper + AI/Matching**: Đối chiếu các đoạn văn bản Whisper trùng/gần khớp khung thời gian với từng phân đoạn OCR để sửa lỗi nhận diện ký tự quang học, bổ sung từ bị khuất/mờ và hoàn thiện câu chữ chính xác tuyệt đối (hỗ trợ cả chế độ kết hợp thuật toán so khớp thời gian cục bộ và làm mượt bằng Gemini AI nếu đã cấu hình API Key).
+
+### R3. Giữ chuẩn xác mốc `startMs` / `endMs` theo video gốc khi nhấn "AI Gọn Phụ Đề" (`cleanAndDeduplicateSubtitles`)
+- Trong `main/ai/geminiClient.ts` (`cleanAndDeduplicateSubtitles`), khắc phục triệt để tình trạng sau khi AI gộp/tóm gọn phụ đề OCR thì một số câu bị lệch `startMs`/`endMs`, bị kéo dài lơ lửng qua khoảng lặng hoặc bị cắt quá ngắn so với video gốc.
+- Cụ thể:
+  - Không để LLM tự tính toán hoặc tự sinh số mili-giây (`startMs`, `endMs`) tự do gây sai lệch (hallucination). Thay vào đó, mỗi dòng đầu vào có chỉ số định danh (`id` / `index`), yêu cầu AI trả về danh sách/khoảng chỉ số dòng gốc được gộp (`sourceIndices` hoặc `startIndex`..`endIndex`) cùng `text` đã làm sạch.
+  - Hệ thống dùng chính chỉ số dòng gốc để lấy chính xác `startMs` của dòng đầu tiên và `endMs` của dòng cuối cùng trong nhóm gộp từ dữ liệu OCR gốc.
+  - Áp dụng bộ chặn khoảng nghỉ (**Max Gap Guard**, ví dụ không gộp 2 cụm cách nhau quá một ngưỡng khoảng trống hợp lý như `> 1200ms`–`1500ms`) hoặc tách nhóm nếu giữa các chỉ số dòng có khoảng lặng lớn trên video, đảm bảo phụ đề không bao giờ bị kéo dài qua đoạn video không có chữ.
+
+### R4. Tính năng Xuất Video "CapCut Mini": Phản chiếu gương (Mirror) & Tua nhanh (`1.00x` – `2.00x`, bước `0.01x`)
+- Mở rộng `ExportFormatOptions` (trong `renderer/types/electron.d.ts`, `main/render/videoRenderer.ts`, `main/render/exportRunner.ts`, `ExportFormatPanel.tsx`, `ExportPage.tsx`, `VideoPreviewCanvas.tsx`) với 2 tính năng mới áp dụng cho chế độ **Hardsub** và khung **Xem trước (Preview)**:
+  - **Phản chiếu video (Lật gương ngang - Horizontal Mirror `mirrorHorizontal?: boolean`)**:
+    - Giao diện có nút bật/tắt trực quan ("Phản chiếu gương / Lật ngang video").
+    - Trên `VideoPreviewCanvas`: lật ngang khung hình `<video>` (`scaleX(-1)`) ngay lập tức để xem trước, nhưng **giữ nguyên chiều xuôi** cho lớp phụ đề mới và watermark đè lên.
+    - Khi render FFmpeg (`burnHardsub`): áp dụng filter `hflip` lên luồng video gốc (và vùng che nếu cần) **TRƯỚC** khi đốt phụ đề (`subtitles=...`) và watermark, để hình ảnh video lật như gương nhưng chữ phụ đề mới hiển thị xuôi bình thường.
+  - **Tua nhanh video (`speed?: number`, giá trị từ `1.00` đến `2.00`, độ chính xác `0.01` như `1.02`, `1.03`, ...)**:
+    - Giao diện cho phép kéo thanh trượt (step `0.01`) và nhập số trực tiếp trong khoảng `1.00` – `2.00` (kèm các mốc chọn nhanh như `1.00x`, `1.05x`, `1.10x`, `1.25x`, `1.50x`, `2.00x`).
+    - Trên `VideoPreviewCanvas`: đồng bộ `videoRef.current.playbackRate = speed` khi phát thử.
+    - Khi render FFmpeg (`burnHardsub`):
+      - Điều chỉnh tốc độ hình ảnh bằng `setpts=PTS/${speed}` và tốc độ âm thanh bằng `atempo=${speed}` (giữ nguyên cao độ giọng nói/nhạc không bị méo tiếng).
+      - Đồng bộ chính xác 100% thời gian xuất hiện của phụ đề (đốt phụ đề trước khi `setpts` hoặc co giãn toàn bộ mốc thời gian SRT/ASS theo hệ số `1 / speed`) và tính toán lại tổng thời lượng video sau khi tua (`duration / speed`) để thanh tiến trình xuất video (`progress %`) hiển thị chính xác đến 100%.
+
+## Verification Resources
+
+- Dự án sử dụng TypeScript + Nextron. Có thể kiểm tra kiểu tĩnh bằng `npx tsc --noEmit` và chạy các bài kiểm thử tự động bằng `npx tsx tests/<test_file>.ts`.
+- Đội ngũ cần viết thêm các file test tự động trong `tests/` để kiểm chứng độc lập cả 4 yêu cầu trên.
+
+## Acceptance Criteria
+
+### 1. Kiểm tra biên dịch & Kiểu dữ liệu (Type Safety)
+- [ ] Lệnh `npx tsc --noEmit` chạy sạch sẽ, không phát sinh lỗi TypeScript ở cả `main/` và `renderer/`.
+
+### 2. R1 — Tải video TikTok Quốc Tế
+- [ ] Unit/Integration test kiểm tra `detectPlatform`, chuẩn hóa URL TikTok (bao gồm link rút gọn `vt.tiktok.com`, `vm.tiktok.com` và link đầy đủ `tiktok.com/@user/video/123456`) và luồng `inspectMediaUrl` / `downloadVideoFromUrl` không còn gọi nhầm `api.amemv.com` gây lỗi trên link TikTok quốc tế.
+
+### 3. R2 — Chế độ Kết hợp Whisper ASR + OCR (Hybrid)
+- [ ] Giao diện `ASRWorkspace.tsx` hiển thị nút/tùy chọn chạy kết hợp Whisper + OCR rõ ràng.
+- [ ] Unit test kiểm tra hàm hợp nhất (merge) giữa phân đoạn OCR và phân đoạn Whisper: giữ nguyên `startMs`/`endMs` chuẩn của OCR và cập nhật văn bản đã được đối chiếu/hiệu chỉnh từ Whisper.
+
+### 4. R3 — Bảo toàn Timestamp khi "AI Gọn Phụ Đề"
+- [ ] Unit test kiểm tra `cleanAndDeduplicateSubtitles` (và hàm ánh xạ/hậu xử lý timestamp):
+  - Mốc `startMs` của câu sau khi gộp luôn khớp chính xác tuyệt đối với `startMs` của dòng gốc đầu tiên trong cụm, và `endMs` khớp với `endMs` của dòng gốc cuối cùng trong cụm (không nhận số mili-giây bịa từ LLM).
+  - Nếu AI cố tình gộp 2 dòng gốc có khoảng nghỉ (gap) ở giữa vượt ngưỡng cho phép (ví dụ `> 1500ms`), bộ lọc hậu xử lý tự động tách hoặc giới hạn lại để phụ đề không bao giờ bị treo kéo dài qua đoạn video không có chữ.
+
+### 5. R4 — Xuất Video "CapCut Mini" (Phản chiếu gương & Tua nhanh `1.00x`–`2.00x`)
+- [ ] Giao diện `ExportFormatPanel.tsx` / `ExportPage.tsx` có điều khiển bật/tắt Phản chiếu gương (`mirrorHorizontal`) và chỉnh Tốc độ video (`1.00` – `2.00`, bước `0.01`, nhập được `1.02`, `1.03`...).
+- [ ] `VideoPreviewCanvas.tsx` phản chiếu hình ảnh `<video>` khi bật Mirror (chữ phụ đề preview không bị ngược) và áp dụng `playbackRate` theo tốc độ đã chọn.
+- [ ] Unit test kiểm tra chuỗi filter FFmpeg trong `videoRenderer.ts`:
+  - Khi bật `mirrorHorizontal: true`, filter `hflip` nằm trước filter `subtitles=...`.
+  - Khi đặt `speed: 1.03` (hoặc bất kỳ giá trị nào trong `(1.00, 2.00]`), chuỗi filter video có `setpts` tương ứng, chuỗi filter audio có `atempo=1.03`, và thời gian phụ đề + tiến trình render được đồng bộ chuẩn xác với tốc độ mới.
+

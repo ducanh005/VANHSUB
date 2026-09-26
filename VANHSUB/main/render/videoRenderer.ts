@@ -162,6 +162,10 @@ export interface ExportFormatOptions {
   bitrateKbps?: number;    // ví dụ 6000
   videoCodec?: 'libx264' | 'libx265';
   preset?: 'ultrafast' | 'veryfast' | 'fast' | 'medium';
+  /** R4 CapCut Mini: Phản chiếu gương ngang (lật ngược video, giữ xuôi phụ đề & logo) */
+  mirrorHorizontal?: boolean;
+  /** R4 CapCut Mini: Tua nhanh video từ 1.00x đến 2.00x (bước 0.01x, ví dụ 1.02, 1.03) */
+  speed?: number;
 }
 
 export interface RenderOptions {
@@ -309,25 +313,59 @@ function buildAspectRatioFilter(aspectRatio: string | undefined, inLabel: string
   return `[${inLabel}]null[${outLabel}]`;
 }
 
+export interface VideoMetadata {
+  duration: number;
+  hasAudio: boolean;
+}
+
 /**
- * Trích xuất thời lượng video (giây) bằng ffmpeg.ffprobe hoặc fallback.
+ * Trích xuất thời lượng (giây) và kiểm tra audio stream bằng ffprobe.
  */
-function getVideoDuration(videoPath: string): Promise<number> {
+export function getVideoMetadata(videoPath: string): Promise<VideoMetadata> {
   return new Promise((resolve) => {
     ffmpeg.ffprobe(videoPath, (err, metadata) => {
-      if (err || !metadata || !metadata.format || !metadata.format.duration) {
-        resolve(0);
-      } else {
-        resolve(Number(metadata.format.duration) || 0);
+      if (err || !metadata) {
+        resolve({ duration: 0, hasAudio: false });
+        return;
       }
+      const duration = Number(metadata.format?.duration) || 0;
+      const hasAudio = Array.isArray(metadata.streams) && metadata.streams.some((s) => s.codec_type === 'audio');
+      resolve({ duration, hasAudio });
     });
   });
 }
 
 /**
+ * Trích xuất thời lượng video (giây) bằng ffmpeg.ffprobe hoặc fallback.
+ * (Giữ tương thích ngược)
+ */
+export async function getVideoDuration(videoPath: string): Promise<number> {
+  const meta = await getVideoMetadata(videoPath);
+  return meta.duration;
+}
+
+/**
+ * Tính toán thời lượng hiệu dụng sau khi tua nhanh: effectiveDuration = rawDuration / speed
+ */
+export function calculateEffectiveDuration(rawDuration: number, speed?: number): number {
+  const clampedSpeed = typeof speed === 'number' && !isNaN(speed)
+    ? Math.max(1.0, Math.min(2.0, Math.round(speed * 100) / 100))
+    : 1.0;
+  return clampedSpeed > 1.0 && rawDuration > 0 ? rawDuration / clampedSpeed : rawDuration;
+}
+
+/**
+ * Tính toán phần trăm tiến trình render mượt mà dựa trên thời lượng hiệu dụng
+ */
+export function calculateRenderProgress(currentSec: number, effectiveDuration: number): number {
+  if (effectiveDuration <= 0) return 0;
+  return Math.min(99.9, Math.round(((currentSec / effectiveDuration) * 100) * 10) / 10);
+}
+
+/**
  * Chuyển đổi chuỗi timemark (HH:MM:SS.ms) sang giây.
  */
-function timemarkToSeconds(timemark: string): number {
+export function timemarkToSeconds(timemark: string): number {
   if (!timemark) return 0;
   const parts = timemark.split(':');
   if (parts.length === 3) {
@@ -342,6 +380,207 @@ function timemarkToSeconds(timemark: string): number {
     return m * 60 + s;
   }
   return Number(timemark) || 0;
+}
+
+export interface HardsubFilterGraphInput {
+  formatOptions?: ExportFormatOptions | null;
+  customMasks?: CustomMaskRegion[] | null;
+  customMask?: CustomMaskRegion | null;
+  mask?: MaskRegion | null;
+  watermark?: WatermarkOptions | null;
+  escapedSubPath: string;
+  styleSuffix?: string;
+  hasAudio: boolean;
+}
+
+export interface HardsubFilterGraphOutput {
+  filterChains: string[];
+  hasAudioFilter: boolean;
+  effectiveSpeed: number;
+}
+
+/**
+ * Xây dựng filtergraph hoàn chỉnh cho burnHardsub với kiến trúc đa tầng CapCut Mini:
+ * [0:v] -> [v_aspect] -> [v_mirror] -> [v_mask] -> [v_sub] -> [v_wm] -> [v_speed] -> [vout]
+ * [0:a:0] -> [atempo] -> [aout]
+ */
+export function buildHardsubFilterGraph(options: HardsubFilterGraphInput): HardsubFilterGraphOutput {
+  const {
+    formatOptions,
+    customMasks,
+    customMask,
+    mask,
+    watermark,
+    escapedSubPath,
+    styleSuffix = '',
+    hasAudio,
+  } = options;
+
+  const filterChains: string[] = [];
+  let currentVLabel = '0:v';
+
+  // 1. Tỉ lệ khung hình (Aspect Ratio / Scaling)
+  if (formatOptions?.aspectRatio && formatOptions.aspectRatio !== 'original') {
+    const nextLabel = 'v_aspect';
+    filterChains.push(buildAspectRatioFilter(formatOptions.aspectRatio, currentVLabel, nextLabel));
+    currentVLabel = nextLabel;
+  }
+
+  // 2. CapCut Mini: Phản chiếu gương ngang (Horizontal Mirror) - ÁP DỤNG TRƯỚC PHỤ ĐỀ
+  if (formatOptions?.mirrorHorizontal) {
+    const nextLabel = 'v_mirror';
+    filterChains.push(`[${currentVLabel}]hflip[${nextLabel}]`);
+    currentVLabel = nextLabel;
+  }
+
+  // 3. Vùng che mờ (Custom Masks hoặc Mask dải cố định)
+  const activeMasks: CustomMaskRegion[] = [];
+  if (customMasks && Array.isArray(customMasks) && customMasks.length > 0) {
+    activeMasks.push(...customMasks.filter((m) => m.enabled !== false));
+  } else if (customMask && customMask.enabled !== false) {
+    activeMasks.push(customMask);
+  }
+
+  if (activeMasks.length > 0) {
+    for (let i = 0; i < activeMasks.length; i++) {
+      const nextLabel = `v_mask_${i}`;
+      filterChains.push(buildCustomMaskFilter(activeMasks[i], currentVLabel, nextLabel, i));
+      currentVLabel = nextLabel;
+    }
+  } else if (mask) {
+    const nextLabel = 'v_mask';
+    const height = clampMaskHeight(mask.heightPercent);
+    const bandH = `ih*${height}/100`;
+    const bandY = mask.position === 'top' ? '0' : `ih-${bandH}`;
+    if (mask.mode === 'blur') {
+      const overlayY = mask.position === 'top' ? '0' : `main_h-main_h*${height}/100`;
+      filterChains.push(
+        `[${currentVLabel}]split=2[m_base][m_band];` +
+        `[m_band]crop=iw:${bandH}:0:${bandY},boxblur=16:2[m_blur];` +
+        `[m_base][m_blur]overlay=0:${overlayY}[${nextLabel}]`
+      );
+    } else {
+      filterChains.push(`[${currentVLabel}]drawbox=x=0:y=${bandY}:w=iw:h=${bandH}:color=black@1:t=fill[${nextLabel}]`);
+    }
+    currentVLabel = nextLabel;
+  }
+
+  // 4. Phụ đề (Subtitles / ASS)
+  const subNextLabel = 'v_sub';
+  filterChains.push(`[${currentVLabel}]subtitles=filename='${escapedSubPath}'${styleSuffix}[${subNextLabel}]`);
+  currentVLabel = subNextLabel;
+
+  // 5. Watermark (Hình ảnh hoặc Chữ)
+  if (watermark && watermark.content) {
+    const wmSpeed = watermark.speed || 'medium';
+    const speedMult = wmSpeed === 'slow' ? 0.6 : wmSpeed === 'fast' ? 1.5 : 1.0;
+
+    const wx = (0.42 * speedMult).toFixed(3);
+    const wx2 = (0.42 * 1.62 * speedMult).toFixed(3);
+    const wy = (0.31 * speedMult).toFixed(3);
+    const wy2 = (0.31 * 1.41 * speedMult).toFixed(3);
+
+    const tx = (6.4 / speedMult).toFixed(2);
+    const ty = (4.5 / speedMult).toFixed(2);
+    const cycleX = (2 * (6.4 / speedMult)).toFixed(2);
+    const cycleY = (2 * (4.5 / speedMult)).toFixed(2);
+
+    if (watermark.type === 'image' && fs.existsSync(watermark.content)) {
+      const wmScale = Math.max(5, Math.min(50, watermark.scalePercent || 15)) / 100;
+      const wmOpacity = Math.max(0.1, Math.min(1.0, watermark.opacity ?? 0.8));
+
+      let wmPos = 'x=W-w-25:y=H-h-25';
+      if (watermark.position === 'bounce') {
+        wmPos = `x='(W-w)*(1-abs(mod(t,${cycleX})-${tx})/${tx})':y='(H-h)*(1-abs(mod(t,${cycleY})-${ty})/${ty})'`;
+      } else if (watermark.position === 'floating') {
+        wmPos = `x='(W-w)*(0.5+0.38*sin(t*${wx})+0.10*sin(t*${wx2}))':y='(H-h)*(0.5+0.38*cos(t*${wy})+0.10*cos(t*${wy2}))'`;
+      } else if (watermark.position === 'top_left') {
+        wmPos = 'x=25:y=25';
+      } else if (watermark.position === 'top_right') {
+        wmPos = 'x=W-w-25:y=25';
+      } else if (watermark.position === 'bottom_left') {
+        wmPos = 'x=25:y=H-h-25';
+      } else if (watermark.position === 'center') {
+        wmPos = 'x=(W-w)/2:y=(H-h)/2';
+      } else if (watermark.position === 'custom' && watermark.customPos) {
+        wmPos = `x=W*${watermark.customPos.xPercent / 100}:y=H*${watermark.customPos.yPercent / 100}`;
+      }
+
+      const nextLabel = 'v_wm';
+      filterChains.push(
+        `[1:v][${currentVLabel}]scale2ref=w=main_w*${wmScale}:h=-1[wm_scaled][wm_base];` +
+        `[wm_scaled]format=rgba,colorchannelmixer=aa=${wmOpacity}[wm_prep];` +
+        `[wm_base][wm_prep]overlay=${wmPos}[${nextLabel}]`
+      );
+      currentVLabel = nextLabel;
+    } else if (watermark.type === 'text' && watermark.content.trim()) {
+      const wmOpacity = Math.max(0.1, Math.min(1.0, watermark.opacity ?? 0.8));
+      const fontSize = Math.max(14, Math.min(80, Math.round((watermark.scalePercent || 18) * 1.8)));
+      const escapedContent = watermark.content
+        .replace(/\\/g, '\\\\')
+        .replace(/'/g, "\\'")
+        .replace(/:/g, '\\:')
+        .replace(/%/g, '\\%');
+
+      let posX = 'w-text_w-25';
+      let posY = 'h-text_h-25';
+
+      if (watermark.position === 'bounce') {
+        posX = `'(w-text_w)*(1-abs(mod(t,${cycleX})-${tx})/${tx})'`;
+        posY = `'(h-text_h)*(1-abs(mod(t,${cycleY})-${ty})/${ty})'`;
+      } else if (watermark.position === 'floating') {
+        posX = `'(w-text_w)*(0.5+0.38*sin(t*${wx})+0.10*sin(t*${wx2}))'`;
+        posY = `'(h-text_h)*(0.5+0.38*cos(t*${wy})+0.10*cos(t*${wy2}))'`;
+      } else if (watermark.position === 'top_left') {
+        posX = '25'; posY = '25';
+      } else if (watermark.position === 'top_right') {
+        posX = 'w-text_w-25'; posY = '25';
+      } else if (watermark.position === 'bottom_left') {
+        posX = '25'; posY = 'h-text_h-25';
+      } else if (watermark.position === 'center') {
+        posX = '(w-text_w)/2'; posY = '(h-text_h)/2';
+      } else if (watermark.position === 'custom' && watermark.customPos) {
+        posX = `w*${watermark.customPos.xPercent / 100}`;
+        posY = `h*${watermark.customPos.yPercent / 100}`;
+      }
+
+      const nextLabel = 'v_wm';
+      filterChains.push(
+        `[${currentVLabel}]drawtext=text='${escapedContent}':fontsize=${fontSize}:fontcolor=white@${wmOpacity}:shadowcolor=black@${wmOpacity}:shadowx=2:shadowy=2:x=${posX}:y=${posY}[${nextLabel}]`
+      );
+      currentVLabel = nextLabel;
+    }
+  }
+
+  // 6. CapCut Mini: Tua nhanh video (Speedup setpts) - ÁP DỤNG SAU PHỤ ĐỀ & WATERMARK
+  const rawSpeed = formatOptions?.speed;
+  const speed = typeof rawSpeed === 'number' && !isNaN(rawSpeed)
+    ? Math.max(1.0, Math.min(2.0, Math.round(rawSpeed * 100) / 100))
+    : 1.0;
+
+  if (speed > 1.0) {
+    const nextLabel = 'v_speed';
+    filterChains.push(`[${currentVLabel}]setpts=PTS/${speed}[${nextLabel}]`);
+    currentVLabel = nextLabel;
+  }
+
+  // Đổi label video cuối cùng thành vout
+  const lastChainIndex = filterChains.length - 1;
+  const lastChain = filterChains[lastChainIndex];
+  filterChains[lastChainIndex] = lastChain.replace(new RegExp(`\\[${currentVLabel}\\]$`), '[vout]');
+
+  // 7. CapCut Mini: Tua nhanh âm thanh (Speedup atempo) - Chỉ khi video có audio stream
+  let hasAudioFilter = false;
+  if (hasAudio && speed > 1.0) {
+    filterChains.push(`[0:a:0]atempo=${speed}[aout]`);
+    hasAudioFilter = true;
+  }
+
+  return {
+    filterChains,
+    hasAudioFilter,
+    effectiveSpeed: speed,
+  };
 }
 
 /**
@@ -364,7 +603,24 @@ export async function burnHardsub(options: RenderOptions): Promise<void> {
   fs.copyFileSync(srtPath, tempSrtPath);
 
   const escapedSubPath = escapeFfmpegSubtitlesPath(tempSrtPath);
-  const duration = await getVideoDuration(videoPath);
+  const { duration: rawDuration, hasAudio } = await getVideoMetadata(videoPath);
+
+  const styleSuffix = !isAss && options.style
+    ? `:force_style='${buildForceStyle(options.style)}'`
+    : '';
+
+  const { filterChains, hasAudioFilter, effectiveSpeed } = buildHardsubFilterGraph({
+    formatOptions,
+    customMasks: options.customMasks,
+    customMask,
+    mask,
+    watermark,
+    escapedSubPath,
+    styleSuffix,
+    hasAudio,
+  });
+
+  const effectiveDuration = calculateEffectiveDuration(rawDuration, effectiveSpeed);
 
   return new Promise<void>((resolve, reject) => {
     const cleanup = () => {
@@ -378,151 +634,29 @@ export async function burnHardsub(options: RenderOptions): Promise<void> {
     };
 
     const command = ffmpeg(videoPath);
-    const filterChains: string[] = [];
-    let currentVLabel = '0:v';
 
-    // 1. Tỉ lệ khung hình (Aspect Ratio / Scaling)
-    if (formatOptions?.aspectRatio && formatOptions.aspectRatio !== 'original') {
-      const nextLabel = 'v_aspect';
-      filterChains.push(buildAspectRatioFilter(formatOptions.aspectRatio, currentVLabel, nextLabel));
-      currentVLabel = nextLabel;
+    // Nếu watermark là ảnh hợp lệ thì add input 1
+    if (watermark && watermark.content && watermark.type === 'image' && fs.existsSync(watermark.content)) {
+      command.input(watermark.content);
     }
-
-    // 2. Vùng che mờ (Nhiều vùng Custom Masks hoặc Mask dải cố định)
-    const activeMasks: CustomMaskRegion[] = [];
-    if (options.customMasks && Array.isArray(options.customMasks) && options.customMasks.length > 0) {
-      activeMasks.push(...options.customMasks.filter((m) => m.enabled !== false));
-    } else if (customMask && customMask.enabled !== false) {
-      activeMasks.push(customMask);
-    }
-
-    if (activeMasks.length > 0) {
-      for (let i = 0; i < activeMasks.length; i++) {
-        const nextLabel = `v_mask_${i}`;
-        filterChains.push(buildCustomMaskFilter(activeMasks[i], currentVLabel, nextLabel, i));
-        currentVLabel = nextLabel;
-      }
-    } else if (mask) {
-      const nextLabel = 'v_mask';
-      const height = clampMaskHeight(mask.heightPercent);
-      const bandH = `ih*${height}/100`;
-      const bandY = mask.position === 'top' ? '0' : `ih-${bandH}`;
-      if (mask.mode === 'blur') {
-        const overlayY = mask.position === 'top' ? '0' : `main_h-main_h*${height}/100`;
-        filterChains.push(
-          `[${currentVLabel}]split=2[m_base][m_band];` +
-          `[m_band]crop=iw:${bandH}:0:${bandY},boxblur=16:2[m_blur];` +
-          `[m_base][m_blur]overlay=0:${overlayY}[${nextLabel}]`
-        );
-      } else {
-        filterChains.push(`[${currentVLabel}]drawbox=x=0:y=${bandY}:w=iw:h=${bandH}:color=black@1:t=fill[${nextLabel}]`);
-      }
-      currentVLabel = nextLabel;
-    }
-
-    // 3. Phụ đề (Subtitles / ASS)
-    const styleSuffix = !isAss && options.style
-      ? `:force_style='${buildForceStyle(options.style)}'`
-      : '';
-    const subNextLabel = 'v_sub';
-    filterChains.push(`[${currentVLabel}]subtitles=filename='${escapedSubPath}'${styleSuffix}[${subNextLabel}]`);
-    currentVLabel = subNextLabel;
-
-    // 4. Watermark (Hình ảnh hoặc Chữ, hỗ trợ chạy khắp màn hình)
-    if (watermark && watermark.content) {
-      const speed = watermark.speed || 'medium';
-      const speedMult = speed === 'slow' ? 0.6 : speed === 'fast' ? 1.5 : 1.0;
-
-      // 1. Chế độ lượn sóng (Harmonic Lissajous): lướt êm ái hình vô cực, không bao giờ bị đứng khựng
-      const wx = (0.42 * speedMult).toFixed(3);
-      const wx2 = (0.42 * 1.62 * speedMult).toFixed(3);
-      const wy = (0.31 * speedMult).toFixed(3);
-      const wy2 = (0.31 * 1.41 * speedMult).toFixed(3);
-
-      // 2. Chế độ nảy cạnh DVD (DVD Screensaver Bounce): Vận tốc đều đặn, tỉ lệ chu kỳ vô tỉ tránh lặp góc
-      const tx = (6.4 / speedMult).toFixed(2);
-      const ty = (4.5 / speedMult).toFixed(2);
-      const cycleX = (2 * (6.4 / speedMult)).toFixed(2);
-      const cycleY = (2 * (4.5 / speedMult)).toFixed(2);
-
-      if (watermark.type === 'image' && fs.existsSync(watermark.content)) {
-        command.input(watermark.content); // Input 1: watermark image
-        const wmScale = Math.max(5, Math.min(50, watermark.scalePercent || 15)) / 100;
-        const wmOpacity = Math.max(0.1, Math.min(1.0, watermark.opacity ?? 0.8));
-
-        let wmPos = 'x=W-w-25:y=H-h-25'; // mặc định: bottom_right
-        if (watermark.position === 'bounce') {
-          wmPos = `x='(W-w)*(1-abs(mod(t,${cycleX})-${tx})/${tx})':y='(H-h)*(1-abs(mod(t,${cycleY})-${ty})/${ty})'`;
-        } else if (watermark.position === 'floating') {
-          wmPos = `x='(W-w)*(0.5+0.38*sin(t*${wx})+0.10*sin(t*${wx2}))':y='(H-h)*(0.5+0.38*cos(t*${wy})+0.10*cos(t*${wy2}))'`;
-        } else if (watermark.position === 'top_left') {
-          wmPos = 'x=25:y=25';
-        } else if (watermark.position === 'top_right') {
-          wmPos = 'x=W-w-25:y=25';
-        } else if (watermark.position === 'bottom_left') {
-          wmPos = 'x=25:y=H-h-25';
-        } else if (watermark.position === 'center') {
-          wmPos = 'x=(W-w)/2:y=(H-h)/2';
-        } else if (watermark.position === 'custom' && watermark.customPos) {
-          wmPos = `x=W*${watermark.customPos.xPercent / 100}:y=H*${watermark.customPos.yPercent / 100}`;
-        }
-
-        const nextLabel = 'v_wm';
-        filterChains.push(
-          `[1:v][${currentVLabel}]scale2ref=w=main_w*${wmScale}:h=-1[wm_scaled][wm_base];` +
-          `[wm_scaled]format=rgba,colorchannelmixer=aa=${wmOpacity}[wm_prep];` +
-          `[wm_base][wm_prep]overlay=${wmPos}[${nextLabel}]`
-        );
-        currentVLabel = nextLabel;
-      } else if (watermark.type === 'text' && watermark.content.trim()) {
-        const wmOpacity = Math.max(0.1, Math.min(1.0, watermark.opacity ?? 0.8));
-        const fontSize = Math.max(14, Math.min(80, Math.round((watermark.scalePercent || 18) * 1.8)));
-        const escapedContent = watermark.content
-          .replace(/\\/g, '\\\\')
-          .replace(/'/g, "\\'")
-          .replace(/:/g, '\\:')
-          .replace(/%/g, '\\%');
-
-        let posX = 'w-text_w-25';
-        let posY = 'h-text_h-25';
-
-        if (watermark.position === 'bounce') {
-          posX = `'(w-text_w)*(1-abs(mod(t,${cycleX})-${tx})/${tx})'`;
-          posY = `'(h-text_h)*(1-abs(mod(t,${cycleY})-${ty})/${ty})'`;
-        } else if (watermark.position === 'floating') {
-          posX = `'(w-text_w)*(0.5+0.38*sin(t*${wx})+0.10*sin(t*${wx2}))'`;
-          posY = `'(h-text_h)*(0.5+0.38*cos(t*${wy})+0.10*cos(t*${wy2}))'`;
-        } else if (watermark.position === 'top_left') {
-          posX = '25'; posY = '25';
-        } else if (watermark.position === 'top_right') {
-          posX = 'w-text_w-25'; posY = '25';
-        } else if (watermark.position === 'bottom_left') {
-          posX = '25'; posY = 'h-text_h-25';
-        } else if (watermark.position === 'center') {
-          posX = '(w-text_w)/2'; posY = '(h-text_h)/2';
-        } else if (watermark.position === 'custom' && watermark.customPos) {
-          posX = `w*${watermark.customPos.xPercent / 100}`;
-          posY = `h*${watermark.customPos.yPercent / 100}`;
-        }
-
-        const nextLabel = 'v_wm';
-        filterChains.push(
-          `[${currentVLabel}]drawtext=text='${escapedContent}':fontsize=${fontSize}:fontcolor=white@${wmOpacity}:shadowcolor=black@${wmOpacity}:shadowx=2:shadowy=2:x=${posX}:y=${posY}[${nextLabel}]`
-        );
-        currentVLabel = nextLabel;
-      }
-    }
-
-    // Đổi label cuối cùng thành vout
-    const lastChainIndex = filterChains.length - 1;
-    const lastChain = filterChains[lastChainIndex];
-    filterChains[lastChainIndex] = lastChain.replace(new RegExp(`\\[${currentVLabel}\\]$`), '[vout]');
 
     command.complexFilter(filterChains.join(';'));
-    command.outputOptions([
-      '-map', '[vout]',
-      '-map', '0:a:0?',
-    ]);
+
+    if (hasAudioFilter) {
+      command.outputOptions([
+        '-map', '[vout]',
+        '-map', '[aout]',
+      ]);
+    } else if (hasAudio) {
+      command.outputOptions([
+        '-map', '[vout]',
+        '-map', '0:a:0?',
+      ]);
+    } else {
+      command.outputOptions([
+        '-map', '[vout]',
+      ]);
+    }
 
     const vCodec = formatOptions?.videoCodec || 'libx264';
     const preset = formatOptions?.preset || 'veryfast';
@@ -539,8 +673,13 @@ export async function burnHardsub(options: RenderOptions): Promise<void> {
       command.outputOptions([`-b:v ${formatOptions.bitrateKbps}k`]);
     }
 
+    if (hasAudio) {
+      command.audioCodec('aac');
+    } else {
+      command.noAudio();
+    }
+
     command
-      .audioCodec('aac')
       .output(outputPath)
       .on('start', (cmd) => {
         console.log('Bắt đầu ffmpeg burn hardsub với command:', cmd);
@@ -548,10 +687,15 @@ export async function burnHardsub(options: RenderOptions): Promise<void> {
       .on('progress', (progress) => {
         if (!onProgress) return;
         let percent = progress.percent;
-        if (percent === undefined || isNaN(percent) || percent < 0) {
-          if (duration > 0 && progress.timemark) {
+        if (
+          percent === undefined ||
+          isNaN(percent) ||
+          percent < 0 ||
+          (effectiveSpeed > 1.0 && effectiveDuration > 0 && progress.timemark)
+        ) {
+          if (effectiveDuration > 0 && progress.timemark) {
             const currentSec = timemarkToSeconds(progress.timemark);
-            percent = Math.min(99.9, (currentSec / duration) * 100);
+            percent = calculateRenderProgress(currentSec, effectiveDuration);
           } else {
             percent = 0;
           }

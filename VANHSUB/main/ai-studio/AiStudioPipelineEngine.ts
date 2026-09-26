@@ -26,6 +26,7 @@ import type {
   ApproveStagePayload,
   ApproveStageResult,
   AiStudioConfig,
+  AiStudioFlowEngineConfig,
   AiStudioVoiceConfig,
   AiStudioStageId,
   AiStudioStageName,
@@ -1105,9 +1106,20 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
                 });
               };
 
+              const targetFlowProjectId = extractFlowProjectId(
+                activeProject?.flowProjectUrl ||
+                (config as any).flowProjectUrl ||
+                (config.flowEngine as any)?.projectId ||
+                (config.flowEngine as any)?.flowProjectUrl
+              );
+              const effectiveFlowEngineConfig: AiStudioFlowEngineConfig = {
+                ...config.flowEngine,
+                projectId: config.flowEngine?.projectId || targetFlowProjectId || undefined,
+              };
+
               const dispatchResult = await aiStudioVisualService.dispatchVisualAssets(
                 scenes,
-                config.flowEngine,
+                effectiveFlowEngineConfig,
                 targetVisualDir,
                 (pct, msg) => {
                   onProgress({
@@ -1761,17 +1773,35 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
         const sessionMgr = GoogleVeoSessionManager.getInstance();
         const mutex = GoogleFlowBrowserMutex.getInstance();
 
+        const activeProj = config.savedProjects?.find((p) => p.id === config.activeProjectId);
+        const targetFlowProjectId = extractFlowProjectId(
+          payload.flowConfig?.projectId ||
+          activeProj?.flowProjectUrl ||
+          (config as any).flowProjectUrl ||
+          (config.flowEngine as any)?.projectId ||
+          (config.flowEngine as any)?.flowProjectUrl
+        );
+        const targetFlowProjectName = activeProj?.name || (config as any).projectName || (config as any).topic;
+
+        const effectivePayload: RegenerateSceneAssetPayload = {
+          ...payload,
+          flowConfig: {
+            ...payload.flowConfig,
+            projectId: payload.flowConfig?.projectId || targetFlowProjectId || undefined,
+          },
+        };
+
         // Mặc định luôn ưu tiên Pure Web RPC trừ khi người dùng chỉ định rõ engine === 'dom'
         const isLegacyDom =
-          payload.flowConfig?.engine === 'dom' ||
-          payload.flowConfig?.engine === 'legacy_dom' ||
+          effectivePayload.flowConfig?.engine === 'dom' ||
+          effectivePayload.flowConfig?.engine === 'legacy_dom' ||
           config.flowEngine.engine === 'dom' ||
           config.flowEngine.engine === 'legacy_dom';
         const isRpc = !isLegacyDom;
 
         if (isRpc) {
           const rpcRes = await aiStudioVisualService.regenerateSceneAsset(
-            payload,
+            effectivePayload,
             storage.paths.mediaDir,
             onProgress,
             signal
@@ -1881,10 +1911,6 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
           }
         }
 
-        const activeProj = config.savedProjects?.find((p) => p.id === config.activeProjectId);
-        const targetFlowProjectId = extractFlowProjectId(activeProj?.flowProjectUrl || (config as any).flowProjectUrl);
-        const targetFlowProjectName = activeProj?.name || (config as any).projectName || (config as any).topic;
-
         if (mode === 'image') {
           const imgResult = await mutex.runExclusive(async () => {
             return FlowMediaAutomationEngine.generateImageForShot({
@@ -1991,7 +2017,22 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
         console.warn('[AiStudioPipelineEngine] Storage-backed regenerateSceneAsset error, falling back to visual service:', regErr);
       }
     }
-    return aiStudioVisualService.regenerateSceneAsset(payload, undefined, onProgress, signal);
+
+    const cfg = getDecryptedAiStudioConfig();
+    const activePrj = cfg.savedProjects?.find((p) => p.id === cfg.activeProjectId);
+    const fallbackProjectId = extractFlowProjectId(
+      payload.flowConfig?.projectId ||
+      activePrj?.flowProjectUrl ||
+      (cfg as any).flowProjectUrl
+    );
+    const effectiveFallbackPayload: RegenerateSceneAssetPayload = {
+      ...payload,
+      flowConfig: {
+        ...payload.flowConfig,
+        projectId: payload.flowConfig?.projectId || fallbackProjectId || undefined,
+      },
+    };
+    return aiStudioVisualService.regenerateSceneAsset(effectiveFallbackPayload, undefined, onProgress, signal);
   }
 
   public async importSceneMedia(

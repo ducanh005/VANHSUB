@@ -10,6 +10,7 @@ import { TaskStore, type CreateTaskInput, type Task } from './store/taskStore'
 import { SettingsStore, type AppSettings } from './store/settingsStore'
 import { polishSubtitleLine, translateSubtitleLine, cleanAndDeduplicateSubtitles } from './ai/geminiClient'
 import { TaskRunner } from './asr/taskRunner'
+import { HybridRunner, type HybridRunOptions } from './asr/hybridRunner'
 import { TranslateRunner } from './translate/translateRunner'
 import { ExportRunner } from './render/exportRunner'
 import type { AdvancedExportOptions } from './render/exportRunner'
@@ -490,6 +491,19 @@ ipcMain.handle('tasks:start', async (_event, id: string) => {
 // Huỷ phiên âm đang chạy (dừng giữa các chunk audio)
 ipcMain.handle('tasks:cancel', async (_event, id: string) => {
   return TaskRunner.cancel(id)
+})
+
+// Chạy kết hợp kép Whisper ASR + Quét OCR (R2 - Độ chính xác tuyệt đối)
+ipcMain.handle('tasks:startHybrid', async (_event, id: string, options?: HybridRunOptions) => {
+  HybridRunner.runHybrid(id, options, () => {
+    broadcastTasksUpdate()
+  })
+  return true
+})
+
+// Huỷ tác vụ kết hợp Whisper + OCR
+ipcMain.handle('tasks:cancelHybrid', async (_event, id: string) => {
+  return HybridRunner.cancel(id)
 })
 
 ipcMain.handle('tasks:readSrt', async (_event, srtPath: string) => {

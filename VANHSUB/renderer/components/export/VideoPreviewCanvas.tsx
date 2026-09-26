@@ -32,11 +32,17 @@ interface VideoPreviewCanvasProps {
   secondaryStyle?: Partial<SubStyle>;
   dualSubtitlesEnabled?: boolean;
   onUpdateSubtitlePosition?: (pos: { alignment?: SubStyle['alignment']; marginV?: number; marginH?: number; posPercent?: { x: number; y: number } }) => void;
+  /** R4 CapCut Mini: Phản chiếu gương ngang khung hình video */
+  mirrorHorizontal?: boolean;
+  /** R4 CapCut Mini: Tua nhanh tốc độ phát 1.00x đến 2.00x */
+  speed?: number;
 }
 
 export const VideoPreviewCanvas: React.FC<VideoPreviewCanvasProps> = ({
   videoPath,
   aspectRatio,
+  mirrorHorizontal = false,
+  speed = 1.0,
   customMaskEnabled,
   customMask,
   customMasks,
@@ -242,12 +248,22 @@ export const VideoPreviewCanvas: React.FC<VideoPreviewCanvasProps> = ({
 
   const videoSrc = videoPath ? `vanhmedia://local/${encodeURIComponent(videoPath)}` : '';
 
+  // Đồng bộ tốc độ phát video (playbackRate) khi speed thay đổi
+  useEffect(() => {
+    if (videoRef.current) {
+      const validSpeed = speed && speed >= 1.0 ? speed : 1.0;
+      videoRef.current.playbackRate = validSpeed;
+    }
+  }, [speed]);
+
   const togglePlay = () => {
     if (!videoRef.current) return;
     if (isPlaying) {
       videoRef.current.pause();
       setIsPlaying(false);
     } else {
+      const validSpeed = speed && speed >= 1.0 ? speed : 1.0;
+      videoRef.current.playbackRate = validSpeed;
       videoRef.current.play().catch(() => {});
       setIsPlaying(true);
     }
@@ -504,6 +520,9 @@ export const VideoPreviewCanvas: React.FC<VideoPreviewCanvasProps> = ({
               src={videoSrc}
               muted={isMuted}
               playsInline
+              style={{
+                transform: mirrorHorizontal ? 'scaleX(-1)' : undefined,
+              }}
               onTimeUpdate={() => {
                 if (videoRef.current) {
                   onTimeUpdate(videoRef.current.currentTime);
@@ -511,6 +530,8 @@ export const VideoPreviewCanvas: React.FC<VideoPreviewCanvasProps> = ({
               }}
               onLoadedMetadata={() => {
                 if (videoRef.current) {
+                  const validSpeed = speed && speed >= 1.0 ? speed : 1.0;
+                  videoRef.current.playbackRate = validSpeed;
                   setDuration(videoRef.current.duration);
                   if (videoRef.current.videoWidth > 0 && videoRef.current.videoHeight > 0) {
                     setVideoDimensions({
@@ -521,7 +542,7 @@ export const VideoPreviewCanvas: React.FC<VideoPreviewCanvasProps> = ({
                 }
               }}
               onEnded={() => setIsPlaying(false)}
-              className={`h-full w-full pointer-events-none ${
+              className={`h-full w-full pointer-events-none transition-transform duration-200 ${
                 aspectRatio === 'original' ? 'object-fill' : 'object-contain'
               }`}
             />

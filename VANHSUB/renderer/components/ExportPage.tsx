@@ -244,13 +244,15 @@ export default function ExportPage({ tasks }: Props) {
     scalePercent: 18,
   });
 
-  // Phase 4: Tùy chọn tỉ lệ & định dạng xuất video (16:9, 9:16 TikTok, FPS, Bitrate)
+  // Phase 4: Tùy chọn tỉ lệ & định dạng xuất video (16:9, 9:16 TikTok, FPS, Bitrate, Mirror, Speed)
   const [formatOptions, setFormatOptions] = useState<ExportFormatOptions>({
     aspectRatio: 'original',
     resolution: 'original',
     fps: 0,
     bitrateKbps: 0,
     videoCodec: 'libx264',
+    mirrorHorizontal: false,
+    speed: 1.0,
   });
   const [currentVideoTime, setCurrentVideoTime] = useState(0);
 
@@ -384,7 +386,9 @@ export default function ExportPage({ tasks }: Props) {
         (formatOptions.fps && formatOptions.fps > 0) ||
         (formatOptions.bitrateKbps && formatOptions.bitrateKbps > 0) ||
         (formatOptions.resolution && formatOptions.resolution !== 'original') ||
-        formatOptions.videoCodec === 'libx265';
+        formatOptions.videoCodec === 'libx265' ||
+        Boolean(formatOptions.mirrorHorizontal) ||
+        (typeof formatOptions.speed === 'number' && formatOptions.speed !== 1.0);
 
       const advancedOptions: AdvancedExportOptions | null =
         mode === 'hardsub'
@@ -431,12 +435,15 @@ export default function ExportPage({ tasks }: Props) {
     mode === 'hardsub' && formatOptions.aspectRatio && formatOptions.aspectRatio !== 'original'
       ? `_${formatOptions.aspectRatio.replace(':', '-')}`
       : '';
+  const mirrorSuffix = mode === 'hardsub' && formatOptions.mirrorHorizontal ? '_mirrored' : '';
+  const speedSuffix =
+    mode === 'hardsub' && formatOptions.speed && formatOptions.speed !== 1 ? `_${formatOptions.speed}x` : '';
   const resultFileName =
     mode === 'dub'
       ? `${selectedTask?.fileName.replace(/\.[^.]+$/, '') || ''}_dubbed_${dubSuffix}.mp4`
       : mode === 'stems'
         ? `${selectedTask?.fileName.replace(/\.[^.]+$/, '') || ''}.nhacnen.mp3 + .giong.mp3`
-        : `${selectedTask?.fileName.replace(/\.[^.]+$/, '') || ''}.${mode}${ratioSuffix}.mp4`;
+        : `${selectedTask?.fileName.replace(/\.[^.]+$/, '') || ''}.${mode}${ratioSuffix}${mirrorSuffix}${speedSuffix}.mp4`;
 
   // Outline preview bằng text-shadow 4 hướng (xấp xỉ viền ASS của libass)
   const outlineShadow =
@@ -538,6 +545,8 @@ export default function ExportPage({ tasks }: Props) {
                 <VideoPreviewCanvas
                   videoPath={selectedTask.filePath}
                   aspectRatio={formatOptions.aspectRatio || 'original'}
+                  mirrorHorizontal={formatOptions.mirrorHorizontal}
+                  speed={formatOptions.speed}
                   customMaskEnabled={customMaskEnabled}
                   customMasks={customMasks}
                   classicMask={mask}
@@ -615,9 +624,13 @@ export default function ExportPage({ tasks }: Props) {
                 >
                   <Film className="h-4 w-4" />
                   <span>4. Tỉ lệ & Định dạng xuất</span>
-                  {formatOptions.aspectRatio && formatOptions.aspectRatio !== 'original' && (
+                  {((formatOptions.aspectRatio && formatOptions.aspectRatio !== 'original') ||
+                    formatOptions.mirrorHorizontal ||
+                    (typeof formatOptions.speed === 'number' && formatOptions.speed !== 1.0)) && (
                     <span className="rounded-full bg-brand-cyan/30 px-1.5 py-0.5 text-[10px] text-brand-cyan">
-                      {formatOptions.aspectRatio}
+                      {formatOptions.aspectRatio !== 'original' ? formatOptions.aspectRatio : ''}
+                      {formatOptions.mirrorHorizontal ? (formatOptions.aspectRatio !== 'original' ? ' • Lật gương' : 'Lật gương') : ''}
+                      {formatOptions.speed && formatOptions.speed !== 1.0 ? ` • ${formatOptions.speed}x` : ''}
                     </span>
                   )}
                 </button>

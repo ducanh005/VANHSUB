@@ -871,47 +871,19 @@ async function runBatchRpc(cmd) {
     if (m) tabProjectId = m[1];
   }
 
-  // Nếu tab chưa vào project cụ thể nào:
-  if (!tabProjectId) {
-    if (cmd.projectId) {
-      tabProjectId = cmd.projectId;
-      log(`🎯 Điều hướng tab tới project được chỉ định: "${tabProjectId}"...`);
-      await chrome.tabs.update(tab.id, { url: `https://flow.google.com/project/${tabProjectId}` });
-      await waitForTabReady(tab.id, 10000);
-      tab = await chrome.tabs.get(tab.id);
-    } else {
-      // Thử tìm project link có sẵn trên trang https://flow.google.com/
-      try {
-        const [scan] = await chrome.scripting.executeScript({
-          target: { tabId: tab.id },
-          world: 'MAIN',
-          func: () => {
-            const links = Array.from(document.querySelectorAll('a[href*="/project/"]'));
-            for (const a of links) {
-              const m = (a.getAttribute('href') || '').match(/\/project\/([0-9a-f-]{36})/i);
-              if (m) return m[1];
-            }
-            return null;
-          },
-        });
-        if (scan?.result) {
-          tabProjectId = scan.result;
-          log(`🎯 Tìm thấy dự án có sẵn: "${tabProjectId}". Đang tự động mở dự án này trên Chrome...`);
-          await chrome.tabs.update(tab.id, { url: `https://flow.google.com/project/${tabProjectId}` });
-          await waitForTabReady(tab.id, 10000);
-          // Lấy lại tab sau khi điều hướng
-          tab = await chrome.tabs.get(tab.id);
-        }
-      } catch (e) {
-        warn('Không thể quét project link trên trang:', e.message);
-      }
-    }
+  // Nếu VanhSub chỉ định projectId cụ thể và tab hiện tại chưa ở đúng project đó:
+  if (cmd.projectId && cmd.projectId !== tabProjectId) {
+    tabProjectId = cmd.projectId;
+    log(`🎯 Điều hướng tab tới project được chỉ định: "${tabProjectId}"...`);
+    await chrome.tabs.update(tab.id, { url: `https://flow.google.com/project/${tabProjectId}` });
+    await waitForTabReady(tab.id, 10000);
+    tab = await chrome.tabs.get(tab.id);
   }
 
-  // Nếu vẫn chưa có project:
+  // Nếu vẫn chưa có project (tab đang ở trang chủ và VanhSub không chỉ định projectId cụ thể):
   if (!tabProjectId) {
     return {
-      error: 'TAB_NOT_IN_PROJECT: Tab Google Chrome hiện đang ở trang chủ (https://flow.google.com/). Vui lòng click mở một Dự án (Project) bất kỳ trên Google Chrome (hoặc bấm "+ New project") để vào trang làm việc của dự án trước khi tạo ảnh/video!',
+      error: 'TAB_NOT_IN_PROJECT: Tab Google Chrome hiện đang ở trang chủ (https://flow.google.com/). Vui lòng click mở một Dự án (Project) của bạn trên Google Chrome (hoặc bấm "+ New project") để vào trang làm việc của dự án trước khi tạo ảnh/video!',
     };
   }
 

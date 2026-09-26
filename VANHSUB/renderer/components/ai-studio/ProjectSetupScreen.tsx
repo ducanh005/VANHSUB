@@ -830,6 +830,19 @@ export default function ProjectSetupScreen({
                     type="button"
                     onClick={async () => {
                       try {
+                        let targetUrl = 'https://flow.google.com/';
+                        const trimmed = flowProjectUrl?.trim() || '';
+                        if (trimmed) {
+                          if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+                            targetUrl = trimmed;
+                          } else if (/^[a-zA-Z0-9_-]{8,}$/.test(trimmed)) {
+                            targetUrl = `https://flow.google.com/project/${trimmed}`;
+                          }
+                        }
+                        if ((window as any).vanhsub?.veo?.openChrome) {
+                          const res = await (window as any).vanhsub.veo.openChrome(targetUrl);
+                          if (res?.ok) return;
+                        }
                         if ((window as any).vanhsub?.veo?.showLobbyDebug) {
                           await (window as any).vanhsub.veo.showLobbyDebug();
                         } else if ((window as any).vanhsub?.veo?.openLobby) {
@@ -840,7 +853,7 @@ export default function ProjectSetupScreen({
                       }
                     }}
                     className="flex items-center gap-1.5 text-[11px] font-semibold text-emerald-400 hover:text-emerald-300 transition cursor-pointer bg-emerald-950/40 border border-emerald-500/30 px-2.5 py-1 rounded-lg"
-                    title="Mở sảnh Google Flow để đăng nhập, kiểm tra credit hoặc lấy URL dự án"
+                    title="Mở Google Chrome tới đúng dự án Google Flow (hoặc sảnh chính để đăng nhập/chọn dự án)"
                   >
                     <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
                     <span>🌐 Mở Sảnh Google Flow</span>

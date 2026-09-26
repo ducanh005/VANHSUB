@@ -146,6 +146,10 @@ export interface ExportFormatOptions {
   bitrateKbps?: number;
   videoCodec?: 'libx264' | 'libx265';
   preset?: 'ultrafast' | 'veryfast' | 'fast' | 'medium';
+  /** R4 CapCut Mini: Phản chiếu gương ngang (lật ngược video, giữ xuôi phụ đề & logo) */
+  mirrorHorizontal?: boolean;
+  /** R4 CapCut Mini: Tua nhanh video từ 1.00x đến 2.00x (bước 0.01x, ví dụ 1.02, 1.03) */
+  speed?: number;
 }
 
 export interface DualSubtitleOption {
@@ -294,6 +298,10 @@ export interface VanhsubAPI {
     showLobbyDebug: () => Promise<boolean>;
     hideLobbyOffscreen: () => Promise<boolean>;
     isLobbyDebug: () => Promise<boolean>;
+    openChrome: (url?: string) => Promise<{ ok: boolean; launchedPath?: string; fallback?: boolean; error?: string }>;
+    openExtensionFolder: () => Promise<{ ok: boolean; path?: string; error?: string }>;
+    openChromeExtensionsPage: () => Promise<{ ok: boolean; error?: string }>;
+    bridgeStatus: () => Promise<{ running: boolean; connected: boolean; clientCount: number; port: number }>;
   };
   export: {
     start: (

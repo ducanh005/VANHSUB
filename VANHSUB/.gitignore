@@ -39,6 +39,10 @@ flow_outputs/
 .agents/implementer_*
 .agents/reviewer_*
 .agents/swe_*
+.agents/worker_*
+.agents/challenger_*
+.agents/auditor_*
+.agents/sentinel*
 TEST_READY.md
 
 # Debug dumps & scratch references

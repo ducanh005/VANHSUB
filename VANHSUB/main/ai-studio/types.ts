@@ -110,6 +110,16 @@ export interface AiStudioFlowEngineConfig {
   referenceImagePath?: string;
   /** Số task sinh đồng thời (khuyến nghị 1) */
   concurrency: number;
+  /** Thời gian nghỉ bắt buộc (giây) giữa 2 cảnh liên tiếp (mặc định 8-12s) */
+  cooldownSec?: number;
+  /** Bỏ qua thời gian nghỉ cooldown (dùng cho test) */
+  skipCooldown?: boolean;
+  /** Số lần thử lại tối đa khi gặp lỗi tạm thời (RATE_LIMITED, UPSTREAM_ERROR, TIMEOUT) */
+  maxRetries?: number;
+  /** Thời gian cơ sở cho Exponential Backoff (ms, mặc định 10000ms = 10s) */
+  backoffBaseMs?: number;
+  /** Alias bật fallback tường minh */
+  explicitFallback?: boolean;
 }
 
 export type RenderingResolution = '1080p' | '720p' | '4k';

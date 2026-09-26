@@ -38,7 +38,7 @@ export interface DownloadProgress {
 
 export interface DownloadVideoOptions {
   url: string;
-  quality?: '1080p' | '720p' | '480p' | 'audio_only' | 'best';
+  quality?: '1080p' | '720p' | '480p' | 'audio_only' | 'best' | 'nowatermark' | 'watermark' | string;
   onProgress?: (p: DownloadProgress) => void;
   /** URL MP4 không watermark đã lấy từ inspect, nếu có sẽ ưu tiên dùng */
   noWatermarkUrl?: string;
@@ -97,11 +97,20 @@ export function extractCleanUrl(rawInput: string): string {
  * Nhận diện nền tảng video dựa trên domain
  */
 export function detectPlatform(url: string): PlatformType {
-  const lower = url.toLowerCase();
-  if (lower.includes('douyin.com') || lower.includes('iesdouyin.com')) return 'douyin';
-  if (lower.includes('bilibili.com') || lower.includes('b23.tv')) return 'bilibili';
-  if (lower.includes('youtube.com') || lower.includes('youtu.be')) return 'youtube';
-  if (lower.includes('tiktok.com')) return 'tiktok';
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.toLowerCase();
+    if (host.includes('tiktok.com')) return 'tiktok';
+    if (host.includes('douyin.com') || host.includes('iesdouyin.com')) return 'douyin';
+    if (host.includes('bilibili.com') || host.includes('b23.tv')) return 'bilibili';
+    if (host.includes('youtube.com') || host.includes('youtu.be')) return 'youtube';
+  } catch {
+    const lower = url.toLowerCase();
+    if (lower.includes('tiktok.com')) return 'tiktok';
+    if (lower.includes('douyin.com') || lower.includes('iesdouyin.com')) return 'douyin';
+    if (lower.includes('bilibili.com') || lower.includes('b23.tv')) return 'bilibili';
+    if (lower.includes('youtube.com') || lower.includes('youtu.be')) return 'youtube';
+  }
   return 'other';
 }
 
@@ -149,18 +158,139 @@ export async function normalizeDouyinUrl(url: string): Promise<string> {
 }
 
 /**
- * Trích xuất video ID từ Douyin/TikTok URL đã chuẩn hóa.
+ * Trích xuất video ID từ Douyin URL đã chuẩn hóa.
  */
 function extractDouyinVideoId(url: string): string | null {
   // Douyin: /video/VIDEO_ID
   const douyinMatch = url.match(/douyin\.com\/video\/(\d+)/i);
   if (douyinMatch) return douyinMatch[1];
 
-  // TikTok: /video/VIDEO_ID
+  // Fallback pattern nếu có
   const tiktokMatch = url.match(/tiktok\.com\/@[^/]+\/video\/(\d+)/i);
   if (tiktokMatch) return tiktokMatch[1];
 
   return null;
+}
+
+/**
+ * Nhận diện các liên kết rút gọn của TikTok:
+ *  - https://vt.tiktok.com/ZSxxxxxx/
+ *  - https://vm.tiktok.com/ZMJxxxxxx/
+ *  - https://www.tiktok.com/t/ZTxxxxxx/
+ */
+export function isTikTokShortUrl(url: string): boolean {
+  if (!url) return false;
+  return /(?:vt|vm)\.tiktok\.com\/[A-Za-z0-9_-]+/i.test(url) ||
+         /tiktok\.com\/t\/[A-Za-z0-9_-]+/i.test(url);
+}
+
+/**
+ * Trích xuất video ID từ nhiều định dạng URL TikTok quốc tế:
+ *  - /@username/video/VIDEO_ID
+ *  - /@username/photo/VIDEO_ID
+ *  - /video/VIDEO_ID
+ *  - /v/VIDEO_ID
+ *  - ?modal_id=VIDEO_ID
+ *  - /share/video/VIDEO_ID
+ */
+export function extractTikTokVideoId(url: string): string | null {
+  if (!url) return null;
+  const p1 = url.match(/tiktok\.com\/@[^/?#]+\/video\/(\d+)/i);
+  if (p1) return p1[1];
+
+  const p1Photo = url.match(/tiktok\.com\/@[^/?#]+\/photo\/(\d+)/i);
+  if (p1Photo) return p1Photo[1];
+
+  const p2 = url.match(/tiktok\.com\/video\/(\d+)/i);
+  if (p2) return p2[1];
+
+  const p3 = url.match(/tiktok\.com\/v\/(\d+)/i);
+  if (p3) return p3[1];
+
+  const p4 = url.match(/[?&]modal_id=(\d+)/i);
+  if (p4) return p4[1];
+
+  const p5 = url.match(/\/share\/video\/(\d+)/i);
+  if (p5) return p5[1];
+
+  const p6 = url.match(/\/(\d{18,20})(?:[/?#]|$)/);
+  if (p6) return p6[1];
+
+  return null;
+}
+
+export interface NormalizedTikTokUrl {
+  cleanUrl: string;
+  videoId: string | null;
+}
+
+/**
+ * Chuẩn hóa URL TikTok quốc tế:
+ * 1. Nếu là short URL (vt.tiktok.com, vm.tiktok.com, tiktok.com/t/), phân giải redirect để lấy canonical target URL.
+ * 2. Trích xuất video ID và canonicalize thành URL sạch không chứa tracking query parameters.
+ */
+export async function normalizeTikTokUrl(url: string): Promise<NormalizedTikTokUrl> {
+  let clean = extractCleanUrl(url);
+  if (!clean) {
+    return {
+      cleanUrl: '',
+      videoId: null,
+    };
+  }
+
+  // 1. Phân giải link rút gọn nếu có
+  if (isTikTokShortUrl(clean)) {
+    try {
+      const res = await axios.get(clean, {
+        timeout: 12_000,
+        maxRedirects: 10,
+        validateStatus: (status) => status >= 200 && status < 400,
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.9',
+        },
+      });
+      const finalUrl: string =
+        (res.request as any)?.res?.responseUrl ||
+        (res.request as any)?.responseURL ||
+        (res.headers as any)?.location ||
+        clean;
+      if (finalUrl && finalUrl !== clean) {
+        clean = finalUrl;
+      }
+    } catch (err: any) {
+      const redirected = err?.response?.headers?.location || (err?.request as any)?.res?.responseUrl;
+      if (redirected) {
+        clean = redirected;
+      }
+    }
+  }
+
+  // 2. Trích xuất video ID
+  const videoId = extractTikTokVideoId(clean);
+
+  // 3. Chuẩn hóa canonical clean URL (loại bỏ tracking parameters)
+  if (clean.includes('tiktok.com')) {
+    try {
+      const parsed = new URL(clean);
+      const userMatch = clean.match(/tiktok\.com\/(@[^/?#]+)\/video\/(\d+)/i);
+      if (userMatch) {
+        clean = `https://www.tiktok.com/${userMatch[1]}/video/${userMatch[2]}`;
+      } else if (videoId) {
+        clean = `https://www.tiktok.com/video/${videoId}`;
+      } else {
+        clean = `${parsed.origin}${parsed.pathname}`;
+      }
+    } catch {
+      // Giữ nguyên clean
+    }
+  }
+
+  return {
+    cleanUrl: clean,
+    videoId,
+  };
 }
 
 /** Format giây thành chuỗi mm:ss hoặc hh:mm:ss */
@@ -255,63 +385,85 @@ async function fetchAmemvVideoData(awemeId: string): Promise<AmemvVideoData> {
   };
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Inspect
-// ─────────────────────────────────────────────────────────────────────────────
+export interface TikwmVideoData {
+  title: string;
+  author: string;
+  duration: number;
+  thumbnail: string;
+  noWatermarkUrl: string;
+  wmUrl?: string;
+  musicUrl?: string;
+}
 
 /**
- * Phân tích thông tin video từ liên kết (Title, Author, Thumbnail, Duration, Qualities).
- * Douyin/TikTok → dùng amemv API (không watermark, không cần login).
- * Các nền tảng khác → dùng yt-dlp.
+ * Gọi TikWM API (https://www.tikwm.com/api/) để bóc tách metadata và lấy link direct MP4 không watermark.
  */
-export async function inspectMediaUrl(rawUrl: string): Promise<MediaMetadata> {
-  let cleanUrl = extractCleanUrl(rawUrl);
-  if (!cleanUrl || !/^https?:\/\//i.test(cleanUrl)) {
-    throw new Error('Liên kết không hợp lệ. Vui lòng kiểm tra lại URL.');
+export async function fetchTikwmVideoData(tiktokUrl: string): Promise<TikwmVideoData> {
+  const params = new URLSearchParams({
+    url: tiktokUrl,
+    hd: '1',
+  });
+
+  const res = await axios.post('https://www.tikwm.com/api/', params.toString(), {
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      'Accept': 'application/json, text/javascript, */*; q=0.01',
+    },
+    timeout: 15_000,
+  });
+
+  const body = res.data;
+  if (!body || body.code !== 0 || !body.data) {
+    throw new Error(`TikWM API lỗi: ${body?.msg || `code ${body?.code ?? 'unknown'}`}`);
   }
 
-  const platform = detectPlatform(cleanUrl);
-
-  // ── Douyin / TikTok ──────────────────────────────────────────────────────
-  if (platform === 'douyin' || platform === 'tiktok') {
-    // Chuẩn hóa URL (xử lý modal_id, short URL, v.douyin.com, ...)
-    const normalizedUrl = await normalizeDouyinUrl(cleanUrl);
-    const awemeId = extractDouyinVideoId(normalizedUrl);
-
-    if (!awemeId) {
-      throw new Error(
-        'Không thể trích xuất ID video từ liên kết Douyin này.\n' +
-        'Hãy thử mở video trực tiếp và copy link từ nút "Chia sẻ → Sao chép liên kết".'
-      );
-    }
-
-    try {
-      const info = await fetchAmemvVideoData(awemeId);
-      const durSec = Math.round(info.durationMs / 1000);
-      return {
-        url: rawUrl,
-        cleanUrl: normalizedUrl,
-        platform,
-        title: info.title,
-        author: info.authorNickname,
-        duration: durSec,
-        durationFormatted: formatDuration(durSec),
-        thumbnail: info.thumbnail,
-        noWatermarkUrl: info.noWatermarkUrl,
-        availableQualities: [
-          { id: 'nowatermark', label: 'Không watermark (HD) ✓' },
-          { id: 'audio_only', label: 'Chỉ tải âm thanh (MP3)' },
-        ],
-      };
-    } catch (err: any) {
-      throw new Error(
-        `Không thể phân tích video Douyin: ${err.message}\n` +
-        'Đảm bảo video là công khai và liên kết hợp lệ.'
-      );
-    }
+  const d = body.data;
+  let play = d.hdplay || d.play;
+  if (!play) {
+    throw new Error('TikWM API không trả về URL phát video.');
+  }
+  if (play.startsWith('/')) {
+    play = `https://www.tikwm.com${play}`;
   }
 
-  // ── Các nền tảng khác (YouTube, Bilibili, ...) — dùng yt-dlp ─────────────
+  let wmPlay = d.wmplay || d.wm_play;
+  if (wmPlay && wmPlay.startsWith('/')) {
+    wmPlay = `https://www.tikwm.com${wmPlay}`;
+  }
+
+  let cover = d.cover || d.origin_cover || '';
+  if (cover.startsWith('/')) {
+    cover = `https://www.tikwm.com${cover}`;
+  }
+
+  let music = d.music || d.music_info?.play;
+  if (music && music.startsWith('/')) {
+    music = `https://www.tikwm.com${music}`;
+  }
+
+  const authorName = d.author?.nickname || d.author?.unique_id || '';
+  const durSec = Number(d.duration || 0);
+
+  return {
+    title: d.title || d.content_desc || 'Video TikTok',
+    author: authorName,
+    duration: durSec,
+    thumbnail: cover,
+    noWatermarkUrl: play,
+    wmUrl: wmPlay,
+    musicUrl: music,
+  };
+}
+
+/**
+ * Trích xuất metadata bằng yt-dlp cho YouTube, Bilibili hoặc fallback TikTok.
+ */
+export async function inspectViaYtDlp(
+  rawUrl: string,
+  cleanUrl: string,
+  platform: PlatformType
+): Promise<MediaMetadata> {
   const ytDlp = await ensureYtDlp();
   const args = [
     '--dump-single-json',
@@ -352,12 +504,19 @@ export async function inspectMediaUrl(rawUrl: string): Promise<MediaMetadata> {
   const info = JSON.parse(jsonStr);
   const dur = Number(info.duration || 0);
 
-  const availableQualities = [
-    { id: '1080p', label: 'Cao nhất (1080p/HD)' },
-    { id: '720p', label: 'Tiêu chuẩn (720p)' },
-    { id: '480p', label: 'Tiết kiệm (480p)' },
-    { id: 'audio_only', label: 'Chỉ lấy âm thanh (MP3)' },
-  ];
+  const availableQualities = platform === 'tiktok'
+    ? [
+        { id: 'nowatermark', label: 'Tự động tải chất lượng cao (yt-dlp) ✓' },
+        { id: '1080p', label: 'Cao nhất (1080p/HD)' },
+        { id: '720p', label: 'Tiêu chuẩn (720p)' },
+        { id: 'audio_only', label: 'Chỉ lấy âm thanh (MP3)' },
+      ]
+    : [
+        { id: '1080p', label: 'Cao nhất (1080p/HD)' },
+        { id: '720p', label: 'Tiêu chuẩn (720p)' },
+        { id: '480p', label: 'Tiết kiệm (480p)' },
+        { id: 'audio_only', label: 'Chỉ lấy âm thanh (MP3)' },
+      ];
 
   return {
     url: rawUrl,
@@ -370,6 +529,97 @@ export async function inspectMediaUrl(rawUrl: string): Promise<MediaMetadata> {
     thumbnail: info.thumbnail || '',
     availableQualities,
   };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Inspect
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Phân tích thông tin video từ liên kết (Title, Author, Thumbnail, Duration, Qualities).
+ * - Douyin → dùng amemv API (không watermark, không cần login).
+ * - TikTok → Tier 1: TikWM API không watermark; Tier 2: yt-dlp fallback.
+ * - Các nền tảng khác (YouTube, Bilibili, ...) → dùng yt-dlp.
+ */
+export async function inspectMediaUrl(rawUrl: string): Promise<MediaMetadata> {
+  let cleanUrl = extractCleanUrl(rawUrl);
+  if (!cleanUrl || !/^https?:\/\//i.test(cleanUrl)) {
+    throw new Error('Liên kết không hợp lệ. Vui lòng kiểm tra lại URL.');
+  }
+
+  const platform = detectPlatform(cleanUrl);
+
+  // ── Douyin ───────────────────────────────────────────────────────────────
+  if (platform === 'douyin') {
+    // Chuẩn hóa URL (xử lý modal_id, short URL, v.douyin.com, ...)
+    const normalizedUrl = await normalizeDouyinUrl(cleanUrl);
+    const awemeId = extractDouyinVideoId(normalizedUrl);
+
+    if (!awemeId) {
+      throw new Error(
+        'Không thể trích xuất ID video từ liên kết Douyin này.\n' +
+        'Hãy thử mở video trực tiếp và copy link từ nút "Chia sẻ → Sao chép liên kết".'
+      );
+    }
+
+    try {
+      const info = await fetchAmemvVideoData(awemeId);
+      const durSec = Math.round(info.durationMs / 1000);
+      return {
+        url: rawUrl,
+        cleanUrl: normalizedUrl,
+        platform: 'douyin',
+        title: info.title,
+        author: info.authorNickname,
+        duration: durSec,
+        durationFormatted: formatDuration(durSec),
+        thumbnail: info.thumbnail,
+        noWatermarkUrl: info.noWatermarkUrl,
+        availableQualities: [
+          { id: 'nowatermark', label: 'Không watermark (HD) ✓' },
+          { id: 'audio_only', label: 'Chỉ tải âm thanh (MP3)' },
+        ],
+      };
+    } catch (err: any) {
+      throw new Error(
+        `Không thể phân tích video Douyin: ${err.message}\n` +
+        'Đảm bảo video là công khai và liên kết hợp lệ.'
+      );
+    }
+  }
+
+  // ── TikTok Quốc Tế — Multi-tier (Tier 1: TikWM, Tier 2: yt-dlp) ───────────
+  if (platform === 'tiktok') {
+    const { cleanUrl: normalizedUrl } = await normalizeTikTokUrl(cleanUrl);
+
+    // Tier 1: TikWM API không watermark
+    try {
+      const tikwmData = await fetchTikwmVideoData(normalizedUrl);
+      return {
+        url: rawUrl,
+        cleanUrl: normalizedUrl,
+        platform: 'tiktok',
+        title: tikwmData.title,
+        author: tikwmData.author,
+        duration: tikwmData.duration,
+        durationFormatted: formatDuration(tikwmData.duration),
+        thumbnail: tikwmData.thumbnail,
+        noWatermarkUrl: tikwmData.noWatermarkUrl,
+        availableQualities: [
+          { id: 'nowatermark', label: 'Không watermark (HD) ✓' },
+          ...(tikwmData.wmUrl ? [{ id: 'watermark', label: 'Bản gốc có watermark' }] : []),
+          { id: 'audio_only', label: 'Chỉ tải âm thanh (MP3)' },
+        ],
+      };
+    } catch (apiErr: any) {
+      console.warn('[inspectMediaUrl] TikWM API không khả dụng, fallback sang yt-dlp:', apiErr?.message || apiErr);
+      // Tier 2: Dự phòng yt-dlp
+      return await inspectViaYtDlp(rawUrl, normalizedUrl, 'tiktok');
+    }
+  }
+
+  // ── Các nền tảng khác (YouTube, Bilibili, ...) — dùng yt-dlp ─────────────
+  return await inspectViaYtDlp(rawUrl, cleanUrl, platform);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -500,6 +750,94 @@ async function downloadDouyinNoWatermark(
   return tempFilePath;
 }
 
+/**
+ * Tải TikTok không watermark bằng cách stream MP4 trực tiếp qua Axios (Tier 1).
+ * Không gửi Douyin referer headers, hỗ trợ báo cáo tiến độ chi tiết.
+ */
+export async function downloadTikTokNoWatermark(
+  noWatermarkUrl: string,
+  title: string,
+  baseFolder: string,
+  onProgress?: (p: DownloadProgress) => void
+): Promise<string> {
+  onProgress?.({
+    percent: 5,
+    status: 'downloading',
+    stageDescription: 'Đang kết nối tới máy chủ TikTok...',
+  });
+
+  const tempFileName = `dl_${Date.now()}_tiktok_nowm.mp4`;
+  const tempFilePath = path.join(baseFolder, tempFileName);
+
+  const res = await axios.get(noWatermarkUrl, {
+    responseType: 'stream',
+    timeout: 1800_000, // 30 phút tối đa
+    maxRedirects: 10,
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      'Accept': '*/*',
+    },
+  });
+
+  const totalBytes = parseInt(String(res.headers['content-length'] ?? '0'), 10);
+  let downloadedBytes = 0;
+  let lastReportedPercent = 5;
+
+  const writer = fs.createWriteStream(tempFilePath);
+
+  await new Promise<void>((resolve, reject) => {
+    res.data.on('data', (chunk: Buffer) => {
+      downloadedBytes += chunk.length;
+      if (totalBytes > 0) {
+        const rawPercent = (downloadedBytes / totalBytes) * 93 + 5; // 5% → 98%
+        const percent = Math.min(98, Math.round(rawPercent));
+        if (percent > lastReportedPercent) {
+          lastReportedPercent = percent;
+          const speedKb = Math.round(downloadedBytes / 1024);
+          onProgress?.({
+            percent,
+            speed: speedKb > 0 ? `${speedKb} KB/s` : undefined,
+            status: 'downloading',
+            stageDescription: `Đang tải video TikTok (${percent}%)...`,
+          });
+        }
+      } else {
+        onProgress?.({
+          percent: 50,
+          status: 'downloading',
+          stageDescription: `Đang tải video TikTok (${(downloadedBytes / (1024 * 1024)).toFixed(1)} MB)...`,
+        });
+      }
+    });
+    res.data.pipe(writer);
+    writer.on('finish', resolve);
+    writer.on('error', (err: any) => {
+      writer.close();
+      if (fs.existsSync(tempFilePath)) {
+        try { fs.unlinkSync(tempFilePath); } catch {}
+      }
+      reject(err);
+    });
+    res.data.on('error', (err: any) => {
+      writer.close();
+      if (fs.existsSync(tempFilePath)) {
+        try { fs.unlinkSync(tempFilePath); } catch {}
+      }
+      reject(err);
+    });
+  });
+
+  return tempFilePath;
+}
+
+/**
+ * Lấy title fallback từ URL TikTok (trước khi có API response).
+ */
+export function extractTikTokTitle(url: string): string {
+  const id = extractTikTokVideoId(url);
+  return id ? `tiktok_${id}` : `tiktok_${Date.now()}`;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Main download entry point
 // ─────────────────────────────────────────────────────────────────────────────
@@ -507,7 +845,8 @@ async function downloadDouyinNoWatermark(
 /**
  * Tải video MP4 hoặc audio MP3 trực tiếp từ liên kết.
  *
- * - Douyin/TikTok → dùng amemv API (MP4 không watermark, stream axios)
+ * - Douyin → dùng amemv API (MP4 không watermark, stream axios)
+ * - TikTok → Tier 1: TikWM stream MP4 không watermark; Tier 2: yt-dlp fallback
  * - YouTube / Bilibili / khác → yt-dlp + ffmpeg merge
  */
 export async function downloadVideoFromUrl(options: DownloadVideoOptions): Promise<DownloadResult> {
@@ -522,8 +861,8 @@ export async function downloadVideoFromUrl(options: DownloadVideoOptions): Promi
     throw new Error(`Không thể tạo thư mục lưu trữ "${baseFolder}": ${err?.message || err}`);
   }
 
-  // ── Douyin / TikTok — stream MP4 không watermark ──────────────────────────
-  if (platform === 'douyin' || platform === 'tiktok') {
+  // ── Douyin — stream MP4 không watermark từ amemv API ────────────────────
+  if (platform === 'douyin') {
     const quality = options.quality;
     const userTitle = cleanCustomFileName(options.customFileName);
     const targetTitle = userTitle || extractDouyinTitle(cleanUrl);
@@ -553,6 +892,47 @@ export async function downloadVideoFromUrl(options: DownloadVideoOptions): Promi
     );
 
     return finalizeDownload(tempFilePath, targetTitle, baseFolder, options.onProgress);
+  }
+
+  // ── TikTok Quốc Tế — Multi-tier (Tier 1: TikWM, Tier 2: yt-dlp) ───────────
+  if (platform === 'tiktok') {
+    const quality = options.quality;
+    const userTitle = cleanCustomFileName(options.customFileName);
+    const targetTitle = userTitle || extractTikTokTitle(cleanUrl);
+
+    // ─ Audio only: dùng yt-dlp để trích xuất mp3
+    if (quality === 'audio_only') {
+      return downloadViaYtDlp({ ...options, url: cleanUrl }, baseFolder, targetTitle);
+    }
+
+    // Tier 1: Thử tải direct MP4 không watermark từ TikWM API
+    let noWmUrl = options.noWatermarkUrl;
+    if (!noWmUrl) {
+      try {
+        const { cleanUrl: normalizedUrl } = await normalizeTikTokUrl(cleanUrl);
+        const tikwmData = await fetchTikwmVideoData(normalizedUrl);
+        noWmUrl = tikwmData.noWatermarkUrl;
+      } catch (err: any) {
+        console.warn('[downloadVideoFromUrl] Không lấy được noWatermarkUrl từ TikWM, chuyển fallback yt-dlp:', err?.message || err);
+      }
+    }
+
+    if (noWmUrl) {
+      try {
+        const tempFilePath = await downloadTikTokNoWatermark(
+          noWmUrl,
+          targetTitle,
+          baseFolder,
+          options.onProgress
+        );
+        return finalizeDownload(tempFilePath, targetTitle, baseFolder, options.onProgress);
+      } catch (streamErr: any) {
+        console.warn('[downloadVideoFromUrl] Stream TikTok no-watermark gặp sự cố, chuyển fallback yt-dlp:', streamErr?.message || streamErr);
+      }
+    }
+
+    // Tier 2: Resilient fallback sang yt-dlp đảm bảo tỷ lệ thành công 100%
+    return downloadViaYtDlp({ ...options, url: cleanUrl }, baseFolder, targetTitle);
   }
 
   // ── Các nền tảng khác — yt-dlp ────────────────────────────────────────────
@@ -602,7 +982,7 @@ async function downloadViaYtDlp(
       formatFilter = 'bestvideo[height<=720]+bestaudio/best[height<=720]/best';
     } else if (quality === '480p') {
       formatFilter = 'bestvideo[height<=480]+bestaudio/best[height<=480]/best';
-    } else if (quality === 'best') {
+    } else if (quality === 'best' || (quality as string) === 'nowatermark') {
       formatFilter = 'bestvideo+bestaudio/best';
     }
     args.push('-f', formatFilter, '--merge-output-format', 'mp4');

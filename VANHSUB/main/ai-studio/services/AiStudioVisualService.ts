@@ -14,6 +14,8 @@ import {
   GoogleFlowRpcClient,
   GoogleFlowRpcError,
   classifyFlowRpcError,
+  calculateExponentialBackoffMs,
+  isUnusualActivityError,
 } from '../../workflow/flow-engine/rpc/GoogleFlowRpcClient';
 import type {
   AiStudioFlowEngineConfig,
@@ -23,6 +25,55 @@ import type {
   RegenerateSceneAssetPayload,
   RegenerateSceneAssetResult,
 } from '../types';
+
+/**
+ * Tính toán thời gian giãn cách an toàn giữa 2 cảnh:
+ * Cooldown 8 - 12s kèm random jitter (±2s), đảm bảo luôn >= 8s.
+ */
+export function calculateCooldownSeconds(minSec = 8, maxSec = 12, jitterSec = 2): number {
+  const parsedMin = typeof minSec === 'number' && Number.isFinite(minSec) ? Math.max(0, minSec) : 8;
+  const parsedMax = typeof maxSec === 'number' && Number.isFinite(maxSec) ? Math.max(0, maxSec) : 12;
+  const safeJitter = typeof jitterSec === 'number' && Number.isFinite(jitterSec) ? Math.abs(jitterSec) : 2;
+
+  const [lo, hi] = parsedMin <= parsedMax ? [parsedMin, parsedMax] : [parsedMax, parsedMin];
+  const base = lo + Math.random() * (hi - lo);
+  const jitter = (Math.random() * 2 - 1) * safeJitter;
+  const total = Math.round(base + jitter);
+  return Math.min(hi + safeJitter, Math.max(lo, total));
+}
+
+/**
+ * Ngủ có thể huỷ bỏ lập tức khi nhận AbortSignal.
+ */
+export async function sleepAbortable(ms: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) {
+    throw new GoogleFlowRpcError('Quá trình tạo hình ảnh đã bị hủy bởi người dùng.', {
+      code: 'CANCELLED',
+      retryable: false,
+    });
+  }
+  return new Promise((resolve, reject) => {
+    let timer: NodeJS.Timeout | null = null;
+    const onAbort = () => {
+      if (timer) clearTimeout(timer);
+      reject(
+        new GoogleFlowRpcError('Quá trình tạo hình ảnh đã bị hủy bởi người dùng.', {
+          code: 'CANCELLED',
+          retryable: false,
+        })
+      );
+    };
+    if (signal) {
+      signal.addEventListener('abort', onAbort, { once: true });
+    }
+    timer = setTimeout(() => {
+      if (signal) {
+        signal.removeEventListener('abort', onAbort);
+      }
+      resolve();
+    }, ms);
+  });
+}
 
 // Setup FFmpeg & FFprobe binary paths
 const rawFfmpegPath = (ffmpegInstaller as any)?.path || (ffmpegInstaller as any)?.default?.path || '';
@@ -152,7 +203,7 @@ export class AiStudioVisualService {
 
     for (let i = 0; i < scenes.length; i++) {
       if (signal?.aborted) {
-        throw new Error('Quá trình tạo hình ảnh đã bị hủy bởi người dùng.');
+        throw new GoogleFlowRpcError('Tác vụ đã bị người dùng huỷ bỏ.', { code: 'CANCELLED', retryable: false });
       }
 
       const scene = scenes[i];
@@ -175,14 +226,136 @@ export class AiStudioVisualService {
 
       // Attempt live Google Flow session if authenticated
       if (useGoogleFlow) {
-        try {
-          const finalPath = await this.generateViaGoogleFlow(
-            scene,
-            assetPath,
-            flowConfig,
-            sceneProgressCallback,
-            signal
-          );
+        let finalPath: string | null = null;
+        const maxRetries = typeof flowConfig.maxRetries === 'number' ? flowConfig.maxRetries : 2;
+
+        for (let retry = 0; retry <= maxRetries; retry++) {
+          if (signal?.aborted) {
+            throw new GoogleFlowRpcError('Tác vụ đã bị người dùng huỷ bỏ.', { code: 'CANCELLED', retryable: false });
+          }
+
+          try {
+            finalPath = await this.generateViaGoogleFlow(
+              scene,
+              assetPath,
+              flowConfig,
+              sceneProgressCallback,
+              signal
+            );
+            break;
+          } catch (rawFlowErr: any) {
+            if (signal?.aborted) {
+              throw new GoogleFlowRpcError('Tác vụ đã bị người dùng huỷ bỏ.', { code: 'CANCELLED', retryable: false });
+            }
+            const flowErr = classifyFlowRpcError(rawFlowErr);
+            if (flowErr.code === 'CANCELLED') {
+              throw flowErr;
+            }
+            const errorCode = flowErr.code;
+            const isTransient =
+              flowErr.retryable ||
+              errorCode === 'RATE_LIMITED' ||
+              errorCode === 'PUBLIC_ERROR_UNUSUAL_ACTIVITY' ||
+              errorCode === 'UPSTREAM_ERROR' ||
+              errorCode === 'TIMEOUT' ||
+              isUnusualActivityError(flowErr);
+
+            if (isTransient && retry < maxRetries) {
+              // R2: Đối với PUBLIC_ERROR_UNUSUAL_ACTIVITY, tự động kích hoạt cơ chế dự phòng số 1 (CDP Trusted Click phần hardware) trước khi giãn cách lùi bước
+              if (isUnusualActivityError(flowErr) || errorCode === 'PUBLIC_ERROR_UNUSUAL_ACTIVITY') {
+                console.warn(
+                  `[AiStudioVisualService] Phát hiện PUBLIC_ERROR_UNUSUAL_ACTIVITY ở cảnh ${i + 1}. ` +
+                  `Tự động kích hoạt cơ chế dự phòng số 1 (CDP Trusted Click phần hardware)...`
+                );
+                try {
+                  const client = this.getRpcClient();
+                  if (typeof (client as any).handleUnusualActivityRecovery === 'function') {
+                    lobbyWin = await (client as any).handleUnusualActivityRecovery(lobbyWin);
+                  } else if (typeof (client as any)._handleUnusualActivityAutoRecovery === 'function') {
+                    lobbyWin = await (client as any)._handleUnusualActivityAutoRecovery(lobbyWin);
+                  }
+                } catch (recErr: any) {
+                  console.warn('[AiStudioVisualService] Lỗi khi kích hoạt CDP Trusted Click fallback:', recErr?.message || recErr);
+                }
+              }
+
+              const baseMs = typeof flowConfig.backoffBaseMs === 'number' ? flowConfig.backoffBaseMs : 10000;
+              const backoffMs = calculateExponentialBackoffMs(retry, baseMs, 120000);
+              const waitMs = flowErr.retryAfterMs ? Math.max(flowErr.retryAfterMs, backoffMs) : backoffMs;
+              const waitSec = Math.round(waitMs / 1000);
+
+              console.warn(
+                `[AiStudioVisualService] Sinh media Google Flow ở cảnh ${i + 1} gặp lỗi [${errorCode}]. ` +
+                `Lũy tiến lùi bước (lần ${retry + 1}/${maxRetries}): chờ ${waitSec}s...`
+              );
+
+              if (waitMs < 1000) {
+                onProgress?.(
+                  sceneBasePct,
+                  `[Cảnh ${i + 1}/${scenes.length}] Gặp phản hồi ${errorCode}. Đang giãn cách lùi bước: Đang thử lại (lần ${retry + 1})...`
+                );
+                await sleepAbortable(waitMs, signal);
+              } else {
+                const waitSec = Math.round(waitMs / 1000);
+                for (let s = waitSec; s > 0; s--) {
+                  if (signal?.aborted) {
+                    throw new GoogleFlowRpcError('Tác vụ đã bị người dùng huỷ bỏ.', { code: 'CANCELLED', retryable: false });
+                  }
+                  onProgress?.(
+                    sceneBasePct,
+                    `[Cảnh ${i + 1}/${scenes.length}] Gặp phản hồi ${errorCode}. Đang giãn cách lùi bước: Còn ${s} giây trước khi thử lại (lần ${retry + 1})...`
+                  );
+                  await sleepAbortable(1000, signal);
+                }
+              }
+              continue;
+            }
+
+            // Hết số lần retry hoặc lỗi không retry được:
+            console.warn(
+              `[AiStudioVisualService] Sinh media Google Flow thất bại ở cảnh ${i + 1} [Mã lỗi: ${errorCode}]: ${flowErr.message}`
+            );
+
+            // Bóc tách mã lỗi rõ ràng: chỉ fallback sang synthetic card khi có cấu hình explicit fallback, tránh âm thầm nuốt lỗi sinh ảnh/video thật
+            const hasExplicitFallback = Boolean(
+              flowConfig.allowSyntheticFallback === true ||
+              flowConfig.fallbackToSynthetic === true ||
+              (flowConfig as any).explicitFallback === true
+            );
+
+            const isRpcEngine = Boolean(
+              this.rpcClient ||
+              !isLegacyDom ||
+              flowConfig.engine === 'rpc' ||
+              flowConfig.engine === 'flow_rpc' ||
+              (flowConfig as any)?.useRpc === true
+            );
+
+            const isTerminalRpcError =
+              errorCode === 'SESSION_EXPIRED' ||
+              errorCode === 'RATE_LIMITED' ||
+              errorCode === 'PUBLIC_ERROR_UNUSUAL_ACTIVITY' ||
+              errorCode === 'CONTENT_POLICY_VIOLATION' ||
+              errorCode === 'CONTENT_REJECTED';
+
+            if (!hasExplicitFallback) {
+              if (isRpcEngine) {
+                throw flowErr;
+              } else if (flowConfig.allowSyntheticFallback === false) {
+                throw flowErr;
+              } else if (isTerminalRpcError && lobbyWin) {
+                throw flowErr;
+              }
+            }
+
+            console.info(
+              `[AiStudioVisualService] Kích hoạt synthetic scene card fallback cho cảnh ${i + 1}.`
+            );
+            break;
+          }
+        }
+
+        if (finalPath) {
           scene.assetPath = finalPath;
           if (isSceneVideo) {
             scene.videoPath = finalPath;
@@ -193,49 +366,29 @@ export class AiStudioVisualService {
           scene.status = 'ready';
           googleFlowSuccessCount++;
           await onSceneComplete?.(scene, i);
-          continue;
-        } catch (rawFlowErr: any) {
-          const flowErr = classifyFlowRpcError(rawFlowErr);
-          const errorCode = flowErr.code;
 
-          console.warn(
-            `[AiStudioVisualService] Sinh media Google Flow thất bại ở cảnh ${i + 1} [Mã lỗi: ${errorCode}]: ${flowErr.message}`
-          );
+          // Giãn cách cooldown bắt buộc giữa 2 cảnh liên tiếp
+          if (i < scenes.length - 1 && !flowConfig.skipCooldown) {
+            if (signal?.aborted) {
+              throw new GoogleFlowRpcError('Tác vụ đã bị người dùng huỷ bỏ.', { code: 'CANCELLED', retryable: false });
+            }
 
-          // Bóc tách mã lỗi rõ ràng: chỉ fallback sang synthetic card khi có cấu hình explicit fallback, tránh âm thầm nuốt lỗi sinh ảnh/video thật
-          const hasExplicitFallback = Boolean(
-            flowConfig.allowSyntheticFallback === true ||
-            flowConfig.fallbackToSynthetic === true ||
-            (flowConfig as any).explicitFallback === true
-          );
+            const cooldownSec = typeof flowConfig.cooldownSec === 'number' && Number.isFinite(flowConfig.cooldownSec)
+              ? Math.max(0, Math.round(flowConfig.cooldownSec))
+              : calculateCooldownSeconds(8, 12, 2);
 
-          const isRpcEngine = Boolean(
-            this.rpcClient ||
-            !isLegacyDom ||
-            flowConfig.engine === 'rpc' ||
-            flowConfig.engine === 'flow_rpc' ||
-            (flowConfig as any)?.useRpc === true
-          );
+            const sceneEndPct = Math.min(99, sceneBasePct + sceneWeight);
 
-          const isTerminalRpcError =
-            errorCode === 'SESSION_EXPIRED' ||
-            errorCode === 'RATE_LIMITED' ||
-            errorCode === 'CONTENT_POLICY_VIOLATION' ||
-            errorCode === 'CONTENT_REJECTED';
-
-          if (!hasExplicitFallback) {
-            if (isRpcEngine) {
-              throw flowErr;
-            } else if (flowConfig.allowSyntheticFallback === false) {
-              throw flowErr;
-            } else if (isTerminalRpcError && lobbyWin) {
-              throw flowErr;
+            for (let sec = cooldownSec; sec > 0; sec--) {
+              if (signal?.aborted) {
+                throw new GoogleFlowRpcError('Tác vụ đã bị người dùng huỷ bỏ.', { code: 'CANCELLED', retryable: false });
+              }
+              onProgress?.(sceneEndPct, `Đang giãn cách an toàn: Còn ${sec} giây trước cảnh tiếp theo...`);
+              await sleepAbortable(1000, signal);
             }
           }
 
-          console.info(
-            `[AiStudioVisualService] Kích hoạt synthetic scene card fallback cho cảnh ${i + 1}.`
-          );
+          continue;
         }
       }
 
@@ -247,6 +400,24 @@ export class AiStudioVisualService {
       delete scene.videoPath;
       scene.status = 'ready';
       await onSceneComplete?.(scene, i);
+
+      // Giãn cách an toàn sau khi tạo fallback (nếu còn cảnh tiếp theo)
+      if (i < scenes.length - 1 && !flowConfig.skipCooldown && flowConfig.cooldownSec !== undefined) {
+        if (signal?.aborted) {
+          throw new GoogleFlowRpcError('Tác vụ đã bị người dùng huỷ bỏ.', { code: 'CANCELLED', retryable: false });
+        }
+        const cooldownSec = typeof flowConfig.cooldownSec === 'number' && Number.isFinite(flowConfig.cooldownSec)
+          ? Math.max(0, Math.round(flowConfig.cooldownSec))
+          : 0;
+        const sceneEndPct = Math.min(99, sceneBasePct + sceneWeight);
+        for (let sec = cooldownSec; sec > 0; sec--) {
+          if (signal?.aborted) {
+            throw new GoogleFlowRpcError('Tác vụ đã bị người dùng huỷ bỏ.', { code: 'CANCELLED', retryable: false });
+          }
+          onProgress?.(sceneEndPct, `Đang giãn cách an toàn: Còn ${sec} giây trước cảnh tiếp theo...`);
+          await sleepAbortable(1000, signal);
+        }
+      }
     }
 
     const modeUsed: 'google_flow' | 'synthetic_fallback' =
@@ -357,6 +528,9 @@ export class AiStudioVisualService {
           inputImageAsset,
           projectId: effectiveProjectId,
           win: lobbyWin,
+          signal,
+          maxRetries: 0,
+          backoffBaseMs: typeof flowConfig.backoffBaseMs === 'number' ? flowConfig.backoffBaseMs : 10000,
         });
 
         let finalVideoUrl = genResult.videoUrl;
@@ -425,6 +599,9 @@ export class AiStudioVisualService {
           referenceAssets: refAssets,
           projectId: effectiveProjectId,
           win: lobbyWin,
+          signal,
+          maxRetries: 0,
+          backoffBaseMs: typeof flowConfig.backoffBaseMs === 'number' ? flowConfig.backoffBaseMs : 10000,
         });
 
         const imageUrl = genResult.firstImageUrl || genResult.images?.[0]?.url;
@@ -1021,8 +1198,9 @@ export class AiStudioVisualService {
       startMs: 0,
       endMs: 4000,
       durationMs: 4000,
-      lineText: '',
+      lineText: (payload as any).lineText || '',
       visualPrompt: payload.visualPrompt,
+      referenceImagePath: payload.referenceImagePath || payload.flowConfig?.referenceImagePath,
       motionType: isVideo ? 'video' : 'ken_burns',
       status: 'pending',
     };
@@ -1037,6 +1215,14 @@ export class AiStudioVisualService {
       downloadDir: targetDir,
       concurrency: 1,
       allowSyntheticFallback: payload.flowConfig?.allowSyntheticFallback,
+      backoffBaseMs: payload.flowConfig?.backoffBaseMs,
+      maxRetries: payload.flowConfig?.maxRetries,
+      projectId: payload.flowConfig?.projectId,
+      referenceImagePath: payload.referenceImagePath || payload.flowConfig?.referenceImagePath,
+      skipCooldown: payload.flowConfig?.skipCooldown,
+      cooldownSec: payload.flowConfig?.cooldownSec,
+      fallbackToSynthetic: (payload.flowConfig as any)?.fallbackToSynthetic,
+      explicitFallback: (payload.flowConfig as any)?.explicitFallback,
     };
 
     const isLegacyDom = payload.flowConfig?.engine === 'dom' || payload.flowConfig?.engine === 'legacy_dom';
@@ -1084,45 +1270,124 @@ export class AiStudioVisualService {
     }
 
     if (useGoogleFlow) {
-      try {
-        await this.generateViaGoogleFlow(mockScene, outPath, flowConfig, onProgress, signal);
-        return {
-          assetPath: outPath,
-          videoPath: isVideo ? outPath : undefined,
-          imagePath: !isVideo ? outPath : undefined,
-        };
-      } catch (err: any) {
-        const classified = classifyFlowRpcError(err);
-        console.warn(`[AiStudioVisualService] regenerateSceneAsset RPC thất bại [Mã lỗi: ${classified.code}]:`, classified.message);
+      const maxRetries = typeof payload.flowConfig?.maxRetries === 'number' ? payload.flowConfig.maxRetries : 2;
 
-        const hasExplicitFallback = Boolean(
-          flowConfig.allowSyntheticFallback === true ||
-          (flowConfig as any).fallbackToSynthetic === true ||
-          (flowConfig as any).explicitFallback === true
-        );
+      for (let retry = 0; retry <= maxRetries; retry++) {
+        if (signal?.aborted) {
+          throw new GoogleFlowRpcError('Tác vụ đã bị người dùng huỷ bỏ.', { code: 'CANCELLED', retryable: false });
+        }
 
-        const isRpcEngine = Boolean(
-          this.rpcClient ||
-          !isLegacyDom ||
-          payload.flowConfig?.engine === 'rpc' ||
-          payload.flowConfig?.engine === 'flow_rpc' ||
-          (payload.flowConfig as any)?.useRpc === true
-        );
-
-        const isTerminal =
-          classified.code === 'SESSION_EXPIRED' ||
-          classified.code === 'RATE_LIMITED' ||
-          classified.code === 'CONTENT_POLICY_VIOLATION' ||
-          classified.code === 'CONTENT_REJECTED';
-
-        if (!hasExplicitFallback) {
-          if (isRpcEngine) {
-            throw classified;
-          } else if (flowConfig.allowSyntheticFallback === false) {
-            throw classified;
-          } else if (isTerminal && lobbyWin) {
+        try {
+          const finalPath = await this.generateViaGoogleFlow(mockScene, outPath, flowConfig, onProgress, signal);
+          return {
+            assetPath: finalPath,
+            videoPath: isVideo ? finalPath : undefined,
+            imagePath: !isVideo ? finalPath : undefined,
+          };
+        } catch (err: any) {
+          if (signal?.aborted) {
+            throw new GoogleFlowRpcError('Tác vụ đã bị người dùng huỷ bỏ.', { code: 'CANCELLED', retryable: false });
+          }
+          const classified = classifyFlowRpcError(err);
+          if (classified.code === 'CANCELLED') {
             throw classified;
           }
+          const isTransient =
+            classified.retryable ||
+            classified.code === 'RATE_LIMITED' ||
+            classified.code === 'PUBLIC_ERROR_UNUSUAL_ACTIVITY' ||
+            classified.code === 'UPSTREAM_ERROR' ||
+            classified.code === 'TIMEOUT' ||
+            isUnusualActivityError(classified);
+
+          if (isTransient && retry < maxRetries) {
+            // R2: Đối với PUBLIC_ERROR_UNUSUAL_ACTIVITY, tự động kích hoạt cơ chế dự phòng số 1 (CDP Trusted Click phần hardware) trước khi giãn cách lùi bước
+            if (isUnusualActivityError(classified) || classified.code === 'PUBLIC_ERROR_UNUSUAL_ACTIVITY') {
+              console.warn(
+                `[AiStudioVisualService] regenerateSceneAsset phát hiện PUBLIC_ERROR_UNUSUAL_ACTIVITY. ` +
+                `Tự động kích hoạt cơ chế dự phòng số 1 (CDP Trusted Click phần hardware)...`
+              );
+              try {
+                const client = this.getRpcClient();
+                if (typeof (client as any).handleUnusualActivityRecovery === 'function') {
+                  lobbyWin = await (client as any).handleUnusualActivityRecovery(lobbyWin);
+                } else if (typeof (client as any)._handleUnusualActivityAutoRecovery === 'function') {
+                  lobbyWin = await (client as any)._handleUnusualActivityAutoRecovery(lobbyWin);
+                }
+              } catch (recErr: any) {
+                console.warn('[AiStudioVisualService] Lỗi khi kích hoạt CDP Trusted Click fallback:', recErr?.message || recErr);
+              }
+            }
+
+            const baseMs = typeof flowConfig.backoffBaseMs === 'number'
+              ? flowConfig.backoffBaseMs
+              : typeof payload.flowConfig?.backoffBaseMs === 'number'
+              ? payload.flowConfig.backoffBaseMs
+              : 10000;
+            const backoffMs = calculateExponentialBackoffMs(retry, baseMs, 120000);
+            const waitMs = classified.retryAfterMs ? Math.max(classified.retryAfterMs, backoffMs) : backoffMs;
+            const waitSec = Math.round(waitMs / 1000);
+
+            console.warn(
+              `[AiStudioVisualService] regenerateSceneAsset RPC gặp lỗi [${classified.code}]. ` +
+              `Lũy tiến lùi bước (lần ${retry + 1}/${maxRetries}): chờ ${waitSec}s...`
+            );
+
+            if (waitMs < 1000) {
+              onProgress?.(
+                10,
+                `Gặp phản hồi ${classified.code}. Đang giãn cách lùi bước: Đang thử lại (lần ${retry + 1})...`
+              );
+              await sleepAbortable(waitMs, signal);
+            } else {
+              const waitSec = Math.round(waitMs / 1000);
+              for (let s = waitSec; s > 0; s--) {
+                if (signal?.aborted) {
+                  throw new GoogleFlowRpcError('Tác vụ đã bị người dùng huỷ bỏ.', { code: 'CANCELLED', retryable: false });
+                }
+                onProgress?.(
+                  10,
+                  `Gặp phản hồi ${classified.code}. Đang giãn cách lùi bước: Còn ${s} giây trước khi thử lại...`
+                );
+                await sleepAbortable(1000, signal);
+              }
+            }
+            continue;
+          }
+
+          console.warn(`[AiStudioVisualService] regenerateSceneAsset RPC thất bại [Mã lỗi: ${classified.code}]:`, classified.message);
+
+          const hasExplicitFallback = Boolean(
+            flowConfig.allowSyntheticFallback === true ||
+            (flowConfig as any).fallbackToSynthetic === true ||
+            (flowConfig as any).explicitFallback === true
+          );
+
+          const isRpcEngine = Boolean(
+            this.rpcClient ||
+            !isLegacyDom ||
+            payload.flowConfig?.engine === 'rpc' ||
+            payload.flowConfig?.engine === 'flow_rpc' ||
+            (payload.flowConfig as any)?.useRpc === true
+          );
+
+          const isTerminal =
+            classified.code === 'SESSION_EXPIRED' ||
+            classified.code === 'RATE_LIMITED' ||
+            classified.code === 'PUBLIC_ERROR_UNUSUAL_ACTIVITY' ||
+            classified.code === 'CONTENT_POLICY_VIOLATION' ||
+            classified.code === 'CONTENT_REJECTED';
+
+          if (!hasExplicitFallback) {
+            if (isRpcEngine) {
+              throw classified;
+            } else if (flowConfig.allowSyntheticFallback === false) {
+              throw classified;
+            } else if (isTerminal && lobbyWin) {
+              throw classified;
+            }
+          }
+          break;
         }
       }
     }

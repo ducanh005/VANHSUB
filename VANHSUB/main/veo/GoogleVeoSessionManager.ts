@@ -680,6 +680,9 @@ export class GoogleVeoSessionManager {
     SettingsStore.set('veoSessionStatus', 'unauthenticated');
     SettingsStore.set('veoLastChecked', Date.now());
 
+    this.currentProjectId = null;
+    this.lastPermissionConfirmedAt = 0;
+
     try {
       const electron = require('electron');
       const session = electron?.session;

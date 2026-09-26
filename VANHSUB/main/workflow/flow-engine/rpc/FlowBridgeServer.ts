@@ -8,9 +8,44 @@
  * sang tab Google Chrome thật của người dùng để ký reCAPTCHA với điểm tín nhiệm cao (0.9).
  */
 
+import fs from 'fs';
+import path from 'path';
 import { WebSocketServer, WebSocket } from 'ws';
 import { v4 as uuidv4 } from 'uuid';
 import { BRIDGE_WS_PORT } from './FlowBatchConstants';
+
+export interface SnifferEntry {
+  type: string;
+  url: string;
+  body: string;
+  response?: string;
+  timestamp: number;
+  headers?: Record<string, string>;
+}
+
+export interface SnifferVerificationReport {
+  valid: boolean;
+  totalEntries: number;
+  batchExecuteCount: number;
+  validPayloadCount: number;
+  corruptedPayloadCount: number;
+  rpcidCounts: Record<string, number>;
+  unusualActivityDetected: boolean;
+  errors: string[];
+  details: Array<{
+    index: number;
+    timestamp: number;
+    url: string;
+    rpcidInUrl?: string;
+    rpcidInPayload?: string;
+    matches: boolean;
+    validFReq: boolean;
+    validInnerPayload: boolean;
+    hasResponseSentinel?: boolean;
+    unusualActivityDetected?: boolean;
+    error?: string;
+  }>;
+}
 
 interface PendingRequest {
   resolve: (value: any) => void;
@@ -389,8 +424,8 @@ export class FlowBridgeServer {
     if (type === 'HANDSHAKE') {
       const ver = msg.version || '1.0.0';
       console.log(`[FlowBridgeServer] 🤝 Nhận handshake từ Extension v${ver}`);
-      if (ver !== '1.0.4') {
-        console.log(`[FlowBridgeServer] 🔄 Phát hiện Extension v${ver} cũ. Tự động yêu cầu Extension reload lên v1.0.4...`);
+      if (ver !== '1.0.5') {
+        console.log(`[FlowBridgeServer] 🔄 Phát hiện Extension v${ver} cũ. Tự động yêu cầu Extension reload lên v1.0.5...`);
         setTimeout(() => {
           this.reloadExtension().catch(() => {});
         }, 500);
@@ -411,6 +446,227 @@ export class FlowBridgeServer {
     } else {
       req.reject(new Error('Phản hồi trống từ Extension'));
     }
+  }
+
+  /**
+   * Phân tích và kiểm tra tính toàn vẹn của file hoặc danh sách sniffer_dump.json:
+   * 1. Giải mã f.req từ body form data
+   * 2. Kiểm tra tính hợp lệ của cấu trúc batch execute [[[rpcid, innerPayload, ...]]]
+   * 3. Đối chiếu rpcid trong URL với rpcid trong payload
+   * 4. Kiểm tra JSON cú pháp của innerPayload
+   * 5. Nhận diện các lỗi PUBLIC_ERROR_UNUSUAL_ACTIVITY trong response
+   */
+  public static verifySnifferDump(input?: string | SnifferEntry[]): SnifferVerificationReport {
+    let entries: SnifferEntry[] = [];
+    const errors: string[] = [];
+
+    if (!input) {
+      input = path.join(process.cwd(), 'sniffer_dump.json');
+    }
+
+    if (typeof input === 'string') {
+      try {
+        if (!fs.existsSync(input)) {
+          return {
+            valid: false,
+            totalEntries: 0,
+            batchExecuteCount: 0,
+            validPayloadCount: 0,
+            corruptedPayloadCount: 0,
+            rpcidCounts: {},
+            unusualActivityDetected: false,
+            errors: [`Tệp sniffer_dump không tồn tại: ${input}`],
+            details: [],
+          };
+        }
+        const raw = fs.readFileSync(input, 'utf-8');
+        entries = JSON.parse(raw);
+        if (!Array.isArray(entries)) {
+          return {
+            valid: false,
+            totalEntries: 0,
+            batchExecuteCount: 0,
+            validPayloadCount: 0,
+            corruptedPayloadCount: 0,
+            rpcidCounts: {},
+            unusualActivityDetected: false,
+            errors: ['Nội dung sniffer_dump.json không phải là một mảng JSON hợp lệ'],
+            details: [],
+          };
+        }
+      } catch (e: any) {
+        return {
+          valid: false,
+          totalEntries: 0,
+          batchExecuteCount: 0,
+          validPayloadCount: 0,
+          corruptedPayloadCount: 0,
+          rpcidCounts: {},
+          unusualActivityDetected: false,
+          errors: [`Lỗi khi đọc file sniffer dump: ${e.message || e}`],
+          details: [],
+        };
+      }
+    } else if (Array.isArray(input)) {
+      entries = input;
+    }
+
+    let batchExecuteCount = 0;
+    let validPayloadCount = 0;
+    let corruptedPayloadCount = 0;
+    let unusualActivityDetected = false;
+    const rpcidCounts: Record<string, number> = {};
+    const details: SnifferVerificationReport['details'] = [];
+
+    for (let i = 0; i < entries.length; i++) {
+      const entry = entries[i];
+      const url = String(entry.url || '');
+      const body = String(entry.body || '');
+      const response = String(entry.response || '');
+
+      const isBatch = url.includes('batchexecute') || body.includes('f.req');
+      if (!isBatch) {
+        continue;
+      }
+      batchExecuteCount++;
+
+      // Trích xuất rpcids từ URL query param
+      let rpcidInUrl: string | undefined;
+      const urlMatch = url.match(/[?&]rpcids=([^&]+)/);
+      if (urlMatch) {
+        rpcidInUrl = decodeURIComponent(urlMatch[1]);
+      }
+
+      // Trích xuất f.req từ body
+      let validFReq = false;
+      let validInnerPayload = false;
+      let rpcidInPayload: string | undefined;
+      let entryError: string | undefined;
+
+      let fReqRaw: string | undefined;
+      if (body.startsWith('f.req=')) {
+        const rawVal = body.slice(6);
+        const ampIdx = rawVal.indexOf('&');
+        fReqRaw = ampIdx >= 0 ? rawVal.slice(0, ampIdx) : rawVal;
+      } else {
+        const match = body.match(/(?:^|&)f\.req=([^&]+)/);
+        if (match) {
+          fReqRaw = match[1];
+        }
+      }
+
+      const payloadRpcids: string[] = [];
+      if (fReqRaw) {
+        try {
+          const decoded = decodeURIComponent(fReqRaw.replace(/\+/g, ' '));
+          const parsedEnvelope = JSON.parse(decoded);
+
+          if (Array.isArray(parsedEnvelope) && Array.isArray(parsedEnvelope[0]) && Array.isArray(parsedEnvelope[0][0])) {
+            validFReq = true;
+            let allCallsValid = parsedEnvelope[0].length > 0;
+            if (parsedEnvelope[0].length === 0) {
+              entryError = 'Gói tin f.req rỗng, không chứa RPC call nào';
+              validInnerPayload = false;
+            } else {
+              for (const call of parsedEnvelope[0]) {
+                if (!Array.isArray(call) || typeof call[0] !== 'string' || !call[0]) {
+                  allCallsValid = false;
+                  entryError = 'Cấu trúc RPC call bên trong f.req không hợp lệ';
+                  break;
+                }
+                const curRpcId = call[0];
+                payloadRpcids.push(curRpcId);
+                rpcidCounts[curRpcId] = (rpcidCounts[curRpcId] || 0) + 1;
+
+                const innerRaw = call[1];
+                let callInnerValid = false;
+                if (typeof innerRaw === 'string') {
+                  try {
+                    const innerParsed = JSON.parse(innerRaw);
+                    callInnerValid = Array.isArray(innerParsed) || (typeof innerParsed === 'object' && innerParsed !== null);
+                    if (!callInnerValid) {
+                      entryError = `Inner payload của ${curRpcId} không phải JSON object hoặc array hợp lệ`;
+                    }
+                  } catch (innerErr: any) {
+                    entryError = `Inner payload của ${curRpcId} không thể parse JSON: ${innerErr.message}`;
+                    callInnerValid = false;
+                  }
+                } else if (Array.isArray(innerRaw) || (typeof innerRaw === 'object' && innerRaw !== null)) {
+                  callInnerValid = true;
+                } else {
+                  entryError = `Inner payload của ${curRpcId} không tồn tại hoặc sai định dạng`;
+                }
+
+                if (!callInnerValid) {
+                  allCallsValid = false;
+                  break;
+                }
+              }
+              validInnerPayload = allCallsValid;
+            }
+            rpcidInPayload = payloadRpcids.join(',');
+          } else {
+            entryError = 'Cấu trúc f.req không khớp quy chuẩn batchexecute array [[[rpcid, innerPayload, ...]]]';
+          }
+        } catch (fReqErr: any) {
+          entryError = `Lỗi phân tích cú pháp f.req: ${fReqErr.message}`;
+        }
+      } else {
+        entryError = 'Không tìm thấy tham số f.req trong body request';
+      }
+
+      const hasResponseSentinel = response ? response.startsWith(")]}'\n") || response.startsWith(")]}'") : undefined;
+      const entryUnusual = response.includes('PUBLIC_ERROR_UNUSUAL_ACTIVITY') || body.includes('PUBLIC_ERROR_UNUSUAL_ACTIVITY');
+      if (entryUnusual) {
+        unusualActivityDetected = true;
+      }
+
+      const urlRpcids = rpcidInUrl ? rpcidInUrl.split(',').map((s) => s.trim()).filter(Boolean) : [];
+      const matches = Boolean(
+        urlRpcids.length > 0 && payloadRpcids.length > 0
+          ? payloadRpcids.some((id) => urlRpcids.includes(id)) || urlRpcids.some((id) => payloadRpcids.includes(id))
+          : validFReq && payloadRpcids.length > 0
+      );
+
+      if (validFReq && validInnerPayload && (urlRpcids.length === 0 || matches)) {
+        validPayloadCount++;
+      } else {
+        corruptedPayloadCount++;
+        errors.push(`Gói tin #${i + 1} (${rpcidInPayload || rpcidInUrl || 'unknown'}): ${entryError || 'Mismatch rpcid giữa URL và payload'}`);
+      }
+
+      details.push({
+        index: i,
+        timestamp: entry.timestamp,
+        url,
+        rpcidInUrl,
+        rpcidInPayload,
+        matches,
+        validFReq,
+        validInnerPayload,
+        hasResponseSentinel,
+        unusualActivityDetected: entryUnusual,
+        error: entryError,
+      });
+    }
+
+    const isValid = batchExecuteCount > 0 && corruptedPayloadCount === 0;
+
+    return {
+      valid: isValid,
+      totalEntries: entries.length,
+      batchExecuteCount,
+      validPayloadCount,
+      corruptedPayloadCount,
+      rpcidCounts,
+      unusualActivityDetected,
+      errors,
+      details,
+    };
+  }
+
+  public verifySnifferDump(filePathOrEntries?: string | SnifferEntry[]): SnifferVerificationReport {
+    return FlowBridgeServer.verifySnifferDump(filePathOrEntries);
   }
 }
 

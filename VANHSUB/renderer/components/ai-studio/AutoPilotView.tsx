@@ -242,6 +242,22 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
 
   const handleToggleFlowLive = async () => {
     try {
+      const activeProj = config?.savedProjects?.find((p: any) => p.id === config?.activeProjectId);
+      let targetUrl = 'https://flow.google.com/';
+      const rawUrl = activeProj?.flowProjectUrl?.trim();
+      if (rawUrl) {
+        if (rawUrl.startsWith('http://') || rawUrl.startsWith('https://')) {
+          targetUrl = rawUrl;
+        } else if (/^[a-zA-Z0-9_-]{8,}$/.test(rawUrl)) {
+          targetUrl = `https://flow.google.com/project/${rawUrl}`;
+        }
+      }
+
+      if (window.vanhsub?.veo?.openChrome) {
+        const res = await window.vanhsub.veo.openChrome(targetUrl);
+        if (res?.ok) return;
+      }
+
       if (isFlowWindowOpen) {
         if (window.vanhsub?.veo?.hideLobbyOffscreen) {
           await window.vanhsub.veo.hideLobbyOffscreen();
