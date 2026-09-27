@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Sparkles, Play, Settings, ChevronDown, Folder, Plus, Check } from 'lucide-react';
+import { Sparkles, Play, Settings, ChevronDown, Folder, Plus, Check, Cpu } from 'lucide-react';
 import AutoPilotView from './AutoPilotView';
 import AiStudioSettingsTab from './AiStudioSettingsTab';
 import ProjectSetupScreen from './ProjectSetupScreen';
 import ChannelConfigModal from './ChannelConfigModal';
 import ChromeBridgeModal from './ChromeBridgeModal';
+import SelfTestDiagnosticsModal from './SelfTestDiagnosticsModal';
 import { useAiStudioStore } from '../../lib/store/aiStudioStore';
 
 export type AiStudioMode = 'auto' | 'settings';
@@ -16,6 +17,7 @@ export default function AiStudioWorkspace() {
   const [isFlowLobbyOpen, setIsFlowLobbyOpen] = useState<boolean>(false);
   const [isChromeBridgeConnected, setIsChromeBridgeConnected] = useState<boolean>(false);
   const [isChromeBridgeModalOpen, setIsChromeBridgeModalOpen] = useState<boolean>(false);
+  const [isDiagnosticsModalOpen, setIsDiagnosticsModalOpen] = useState<boolean>(false);
   const dropdownRef = useRef<HTMLDivElement | null>(null);
 
   const checkChromeBridge = React.useCallback(async () => {
@@ -91,8 +93,11 @@ export default function AiStudioWorkspace() {
     };
   }, [isProjectDropdownOpen]);
 
-  const currentProjectName = config.channelProfile?.projectName?.trim();
   const savedProjects = config.savedProjects || [];
+  const activeProjectObj = config.activeProjectId
+    ? savedProjects.find((p) => p.id === config.activeProjectId) || null
+    : null;
+  const currentProjectName = activeProjectObj?.name?.trim() || config.channelProfile?.projectName?.trim();
 
   return (
     <div className="flex h-full w-full flex-col overflow-hidden bg-[#080D1A]">
@@ -137,7 +142,7 @@ export default function AiStudioWorkspace() {
 
                 <div className="max-h-56 overflow-y-auto custom-scrollbar space-y-0.5">
                   {savedProjects.map((p) => {
-                    const isActive = config.activeProjectId === p.id || currentProjectName === p.name;
+                    const isActive = config.activeProjectId === p.id;
                     return (
                       <button
                         key={p.id}
@@ -167,8 +172,9 @@ export default function AiStudioWorkspace() {
                 <div className="border-t border-slate-800/80 pt-1 mt-1 space-y-0.5">
                   <button
                     type="button"
-                    onClick={() => {
+                    onClick={async () => {
                       setIsProjectDropdownOpen(false);
+                      await switchProject('');
                       setProjectEntered(false);
                     }}
                     className="w-full flex items-center gap-2 rounded-xl px-2.5 py-2 text-xs text-slate-300 hover:bg-slate-800/80 hover:text-white transition cursor-pointer"
@@ -227,6 +233,17 @@ export default function AiStudioWorkspace() {
           >
             <span className={`h-2 w-2 rounded-full ${isFlowLobbyOpen ? 'bg-amber-400' : 'bg-slate-500'}`} />
             <span>{isFlowLobbyOpen ? 'Ẩn Sảnh Flow' : 'Sảnh Electron'}</span>
+          </button>
+
+          {/* Nút Tự Chẩn Đoán 1-Click (Mới) */}
+          <button
+            type="button"
+            onClick={() => setIsDiagnosticsModalOpen(true)}
+            className="flex items-center gap-1.5 rounded-xl border border-indigo-500/40 bg-indigo-950/30 text-indigo-300 hover:border-indigo-500/70 hover:bg-indigo-900/40 hover:text-white px-3 py-1.5 text-xs font-semibold transition cursor-pointer shadow-sm"
+            title="Kiểm tra toàn diện 4 mắt xích hệ thống (Bridge, Sảnh, Quyền ghi ổ đĩa, AI) trong 3 giây"
+          >
+            <Cpu className="h-3.5 w-3.5 text-indigo-400" />
+            <span>⚡ Tự Chẩn Đoán</span>
           </button>
 
           {/* Mode Switcher Buttons */}
@@ -301,6 +318,14 @@ export default function AiStudioWorkspace() {
         onClose={() => setIsChromeBridgeModalOpen(false)}
         isConnected={isChromeBridgeConnected}
         onRefresh={checkChromeBridge}
+      />
+
+      {/* Modal Tự Chẩn Đoán 1-Click */}
+      <SelfTestDiagnosticsModal
+        isOpen={isDiagnosticsModalOpen}
+        onClose={() => setIsDiagnosticsModalOpen(false)}
+        onOpenChromeBridge={() => setIsChromeBridgeModalOpen(true)}
+        onOpenSettings={() => setActiveMode('settings')}
       />
     </div>
   );

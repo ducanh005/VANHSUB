@@ -51,6 +51,9 @@ import type {
 import IdeaGenerationModal from './IdeaGenerationModal';
 import ChannelConfigModal from './ChannelConfigModal';
 import ScriptWorkspaceView from './ScriptWorkspaceView';
+import ActionableErrorBanner from './ActionableErrorBanner';
+import SelfTestDiagnosticsModal from './SelfTestDiagnosticsModal';
+import ChromeBridgeModal from './ChromeBridgeModal';
 
 const STAGES = [
   { id: 1, name: 'Dữ kiện', icon: FileText },
@@ -149,6 +152,10 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
   const [isRunning, setIsRunning] = useState(false);
   const [isApproving, setIsApproving] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [errorCode, setErrorCode] = useState<string | null>(null);
+  const [isDiagnosticsModalOpen, setIsDiagnosticsModalOpen] = useState(false);
+  const [isChromeBridgeModalOpen, setIsChromeBridgeModalOpen] = useState(false);
+  const [countdownSeconds, setCountdownSeconds] = useState<number | null>(null);
   const [isGatedMode, setIsGatedMode] = useState(true); // Chu trình từng bước có phê duyệt
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isChannelModalOpen, setIsChannelModalOpen] = useState(false);
@@ -375,13 +382,20 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
             });
           }
           showSceneNotice(`✓ Đã tạo lại thành công media cho ${targetId}!`);
+          setErrorMessage(null);
+          setErrorCode(null);
         } else if (result?.error) {
           showSceneNotice(`✗ Lỗi tạo lại: ${result.error}`);
+          setErrorMessage(result.error);
+          setErrorCode(result.errorCode || 'REGENERATE_FAILED');
         }
       }
     } catch (err: any) {
       console.error('Lỗi khi tạo lại media phân cảnh:', err);
-      showSceneNotice(`✗ Lỗi: ${err?.message || err}`);
+      const msg = err?.message || String(err);
+      showSceneNotice(`✗ Lỗi: ${msg}`);
+      setErrorMessage(msg);
+      setErrorCode(err?.code || 'REGENERATE_FAILED');
     } finally {
       setRegeneratingSceneId(null);
     }
@@ -619,10 +633,20 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
         } else if (event.status === 'error') {
           next.status = 'failed';
           setErrorMessage(event.error || 'Có lỗi xảy ra trong tiến trình');
+          setErrorCode((event as any).errorCode || (event as any).code || null);
           setIsRunning(false);
+          setCountdownSeconds(null);
         } else if (event.status === 'running') {
           next.status = 'running';
           setIsRunning(true);
+          if (event.message && event.message.includes('Còn ') && event.message.includes(' giây')) {
+            const match = event.message.match(/Còn (\d+) giây/);
+            if (match) {
+              setCountdownSeconds(parseInt(match[1], 10));
+            }
+          } else {
+            setCountdownSeconds(null);
+          }
         }
         if (event.progress >= 100) {
           next.status = 'completed';
@@ -2886,31 +2910,20 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
                   </div>
                 )}
 
-                {/* Real Error Banner with Explicit Retry (No Fake Fallback) */}
+                {/* Actionable Error Banner with 1-Click Fixes */}
                 {(errorMessage || session.status === 'failed') && (
-                  <div className="rounded-2xl border border-rose-500/40 bg-gradient-to-r from-rose-950/40 via-slate-900/90 to-slate-950/90 p-4 shadow-xl">
-                    <div className="flex items-start gap-3">
-                      <AlertCircle className="h-5 w-5 shrink-0 text-rose-400 mt-0.5" />
-                      <div className="flex-1 min-w-0">
-                        <h4 className="text-xs font-bold uppercase tracking-wider text-rose-300">
-                          Lỗi tại Công đoạn {session.currentStage} (Không chạy giả lập)
-                        </h4>
-                        <p className="text-xs text-rose-200/90 mt-1">
-                          {errorMessage || 'Tiến trình gặp lỗi kết nối hoặc xử lý dữ liệu.'}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="mt-3 flex justify-end">
-                      <button
-                        type="button"
-                        onClick={handleRetryCurrentStage}
-                        className="flex items-center gap-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 px-4 py-1.5 text-xs font-bold text-white shadow-md active:scale-95 transition cursor-pointer"
-                      >
-                        <RotateCcw className="h-3.5 w-3.5" />
-                        <span>Thử lại bước này</span>
-                      </button>
-                    </div>
-                  </div>
+                  <ActionableErrorBanner
+                    error={errorMessage || 'Tiến trình gặp lỗi kết nối hoặc xử lý dữ liệu.'}
+                    errorCode={errorCode}
+                    countdownSeconds={countdownSeconds}
+                    onDismiss={() => {
+                      setErrorMessage(null);
+                      setErrorCode(null);
+                    }}
+                    onRetry={handleRetryCurrentStage}
+                    onOpenChromeBridge={() => setIsChromeBridgeModalOpen(true)}
+                    onOpenDiagnostics={() => setIsDiagnosticsModalOpen(true)}
+                  />
                 )}
 
                 {/* Overall Progress Bar */}
@@ -3315,6 +3328,20 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
           </div>
         </div>
       )}
+
+      {/* Modal Tự Chẩn Đoán 1-Click */}
+      <SelfTestDiagnosticsModal
+        isOpen={isDiagnosticsModalOpen}
+        onClose={() => setIsDiagnosticsModalOpen(false)}
+        onOpenChromeBridge={() => setIsChromeBridgeModalOpen(true)}
+      />
+
+      {/* Modal Kết Nối Chrome Bridge */}
+      <ChromeBridgeModal
+        isOpen={isChromeBridgeModalOpen}
+        onClose={() => setIsChromeBridgeModalOpen(false)}
+        isConnected={false}
+      />
     </div>
   );
 }

@@ -112,75 +112,40 @@ export default function ProjectSetupScreen({
   const savedProjects = config.savedProjects || [];
   const activeProj = config.activeProjectId
     ? savedProjects.find((p) => p.id === config.activeProjectId) || null
-    : savedProjects[0] || null;
+    : null;
 
-  const [editingProjectId, setEditingProjectId] = useState<string | null>(activeProj?.id || null);
-  const [isCreatingNew, setIsCreatingNew] = useState<boolean>(savedProjects.length === 0);
+  const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
+  const [isCreatingNew, setIsCreatingNew] = useState<boolean>(true);
 
-  // Form Fields - Step 1: Project name
-  const [projectName, setProjectName] = useState(activeProj?.name || config.channelProfile?.projectName || '');
+  // Form Fields - Step 1: Project name (mặc định trống khi tạo dự án mới, không tự động khoá vào dự án cũ lúc khởi động)
+  const [projectName, setProjectName] = useState('');
   
   // Form Fields - Step 2: Output Folder
-  const [outputDir, setOutputDir] = useState(activeProj?.outputDir || config.outputDir || '');
+  const [outputDir, setOutputDir] = useState('');
 
   // Form Fields - Step 3: Channel profile & AI config & Google Flow URL
-  const [channelNiche, setChannelNiche] = useState(activeProj?.channelProfile.channelNiche || config.channelProfile?.channelNiche || '');
-  const [channelOrientation, setChannelOrientation] = useState(activeProj?.channelProfile.channelOrientation || config.channelProfile?.channelOrientation || '');
-  const [flowProjectUrl, setFlowProjectUrl] = useState(activeProj?.flowProjectUrl || config.flowProjectUrl || '');
+  const [channelNiche, setChannelNiche] = useState('');
+  const [channelOrientation, setChannelOrientation] = useState('');
+  const [flowProjectUrl, setFlowProjectUrl] = useState('');
   const [selectedProvider, setSelectedProvider] = useState<ChannelEvaluationLlm>(
-    (activeProj?.channelProfile.aiProvider && activeProj.channelProfile.aiProvider !== 'default'
-      ? activeProj.channelProfile.aiProvider
-      : (config.channelProfile?.aiProvider && config.channelProfile.aiProvider !== 'default'
-        ? config.channelProfile.aiProvider
-        : (config.llm?.provider as ChannelEvaluationLlm))) || 'gemini_web'
+    (config.llm?.provider as ChannelEvaluationLlm) || 'gemini_web'
   );
   const [aspectRatio, setAspectRatio] = useState<'16:9' | '9:16'>(
-    (activeProj?.flowConfig?.aspectRatio as '16:9' | '9:16') ||
-      (config.flowEngine?.aspectRatio as '16:9' | '9:16') ||
-      '16:9'
+    (config.flowEngine?.aspectRatio as '16:9' | '9:16') || '16:9'
   );
-  const [duration, setDuration] = useState<ChannelLongDuration>(
-    activeProj?.channelProfile.targetLongDuration || config.channelProfile?.targetLongDuration || '3_5_min'
-  );
+  const [duration, setDuration] = useState<ChannelLongDuration>('3_5_min');
 
   // Form Fields - Step 4: Character avatar & background style
-  const [hostAvatarUrl, setHostAvatarUrl] = useState<string>(
-    activeProj?.channelProfile.hostAvatarUrl || config.channelProfile?.hostAvatarUrl || ''
-  );
-  const [hostDescription, setHostDescription] = useState<string>(
-    activeProj?.channelProfile.hostDescription || config.channelProfile?.hostDescription || ''
-  );
-  const [selectedStyleId, setSelectedStyleId] = useState<string>(
-    activeProj?.channelProfile.videoStyleId ||
-      activeProj?.channelProfile.visualArtStylePreset ||
-      config.channelProfile?.videoStyleId ||
-      config.channelProfile?.visualArtStylePreset ||
-      'cinematic'
-  );
+  const [hostAvatarUrl, setHostAvatarUrl] = useState<string>('');
+  const [hostDescription, setHostDescription] = useState<string>('');
+  const [selectedStyleId, setSelectedStyleId] = useState<string>('cinematic');
   const [projectBackgroundPrompt, setProjectBackgroundPrompt] = useState<string>(
-    activeProj?.channelProfile.projectBackgroundPrompt ||
-      config.channelProfile?.projectBackgroundPrompt ||
-      STYLE_PRESETS[0].sampleBg
+    STYLE_PRESETS[0].sampleBg
   );
   const [bgPromptToast, setBgPromptToast] = useState<string | null>(null);
 
   const [validationError, setValidationError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-
-  // Đồng bộ form khi chọn sửa project hoặc chuyển đổi
-  const hasInitializedRef = React.useRef<boolean>(false);
-  useEffect(() => {
-    if (hasInitializedRef.current) return;
-    if (savedProjects.length > 0 && !isCreatingNew) {
-      const target =
-        (config.activeProjectId && savedProjects.find((p) => p.id === config.activeProjectId)) ||
-        savedProjects[0];
-      if (target) {
-        handleLoadProjectIntoForm(target);
-        hasInitializedRef.current = true;
-      }
-    }
-  }, [config.activeProjectId, savedProjects, isCreatingNew]);
 
   const handleApplyPreset = (preset: typeof NICHE_PRESETS[0]) => {
     setChannelNiche(preset.niche);
@@ -230,6 +195,7 @@ export default function ProjectSetupScreen({
     setSelectedStyleId('cinematic');
     setProjectBackgroundPrompt(STYLE_PRESETS[0].sampleBg);
     setValidationError(null);
+    void switchProject('');
   };
 
   const handleSelectStylePreset = (st: (typeof STYLE_PRESETS)[0]) => {
@@ -473,7 +439,7 @@ export default function ProjectSetupScreen({
     onEnterStudio();
   };
 
-  const hasSavedProject = Boolean(config.channelProfile?.projectName?.trim());
+  const hasSavedProject = Boolean(activeProj);
 
   return (
     <div className="h-full w-full overflow-y-auto bg-[#080D1A] custom-scrollbar text-slate-200 p-4 md:p-8 flex flex-col items-center">
@@ -500,14 +466,14 @@ export default function ProjectSetupScreen({
             </div>
 
             {/* Quick Resume Button if project exists */}
-            {hasSavedProject && (
+            {hasSavedProject && activeProj && (
               <div className="shrink-0 rounded-2xl border border-emerald-500/30 bg-emerald-950/20 p-4 flex flex-col gap-2 min-w-[220px]">
                 <div className="flex items-center gap-2 text-xs font-semibold text-emerald-400">
                   <CheckCircle2 className="h-4 w-4" />
-                  <span>Dự án đang mở</span>
+                  <span>Dự án gần nhất</span>
                 </div>
-                <div className="text-sm font-bold text-white truncate max-w-[200px]" title={config.channelProfile?.projectName}>
-                  📁 {config.channelProfile?.projectName}
+                <div className="text-sm font-bold text-white truncate max-w-[200px]" title={activeProj.name}>
+                  📁 {activeProj.name}
                 </div>
                 <button
                   type="button"
@@ -552,7 +518,7 @@ export default function ProjectSetupScreen({
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
               {savedProjects.map((p) => {
-                const isActive = config.activeProjectId === p.id || config.channelProfile?.projectName === p.name;
+                const isActive = config.activeProjectId === p.id;
                 const isCurrentEditing = editingProjectId === p.id;
                 return (
                   <div
@@ -696,7 +662,7 @@ export default function ProjectSetupScreen({
                   }}
                   className="text-xs font-semibold text-slate-400 hover:text-white cursor-pointer flex items-center gap-1"
                 >
-                  <span>Huỷ tạo mới, sửa dự án đã có</span>
+                  <span>Nạp dự án gần nhất vào form để sửa</span>
                 </button>
               )}
             </div>
@@ -820,12 +786,36 @@ export default function ProjectSetupScreen({
 
             {/* Google Flow Project URL Input */}
             <div className="space-y-1.5 pl-8">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <span className="text-xs text-slate-300 font-semibold flex items-center gap-1.5">
                   <Link2 className="h-3.5 w-3.5 text-blue-400" />
                   Mã / Link Dự Án Google Flow (Tùy chọn):
                 </span>
                 <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        if ((window as any).vanhsub?.veo?.bridgeStatus) {
+                          const st = await (window as any).vanhsub.veo.bridgeStatus();
+                          if (st?.chromeTab?.projectId) {
+                            setFlowProjectUrl(`https://flow.google.com/project/${st.chromeTab.projectId}`);
+                            return;
+                          }
+                          if (st?.chromeTab?.url && st.chromeTab.url.includes('/project/')) {
+                            setFlowProjectUrl(st.chromeTab.url);
+                            return;
+                          }
+                        }
+                      } catch (e) {
+                        console.warn('Không thể lấy URL từ tab Chrome:', e);
+                      }
+                    }}
+                    className="flex items-center gap-1.5 text-[11px] font-semibold text-cyan-300 hover:text-cyan-200 transition cursor-pointer bg-cyan-950/40 border border-cyan-500/30 px-2.5 py-1 rounded-lg"
+                    title="Tự động lấy link/ID dự án Google Flow từ tab Chrome đang mở"
+                  >
+                    <span>🔄 Lấy từ Tab Chrome</span>
+                  </button>
                   <button
                     type="button"
                     onClick={async () => {
@@ -858,14 +848,13 @@ export default function ProjectSetupScreen({
                     <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
                     <span>🌐 Mở Sảnh Google Flow</span>
                   </button>
-                  <span className="text-[10px] text-slate-500">Mở đúng project Canvas</span>
                 </div>
               </div>
               <input
                 type="text"
                 value={flowProjectUrl}
                 onChange={(e) => setFlowProjectUrl(e.target.value)}
-                placeholder="VD: https://flow.google.com/project/d61a20dc-635e-4770-b568-1155c8c9b5a2 hoặc UUID..."
+                placeholder="Để trống để tự động dùng dự án trên Tab Chrome đang mở, hoặc dán link/ID dự án Google Flow..."
                 className="w-full rounded-xl border border-slate-700 bg-slate-900/90 px-3.5 py-2.5 text-xs text-white placeholder:text-slate-500 focus:border-blue-400 focus:outline-none font-mono"
               />
             </div>

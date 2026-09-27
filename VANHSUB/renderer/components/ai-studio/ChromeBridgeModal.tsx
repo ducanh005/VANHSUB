@@ -17,6 +17,23 @@ export default function ChromeBridgeModal({
   const [isOpeningFolder, setIsOpeningFolder] = useState(false);
   const [isOpeningChrome, setIsOpeningChrome] = useState(false);
   const [isOpeningExtPage, setIsOpeningExtPage] = useState(false);
+  const [chromeTabInfo, setChromeTabInfo] = useState<{ url?: string; projectId?: string | null } | null>(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    if (typeof window !== 'undefined' && (window as any).vanhsub?.veo?.bridgeStatus) {
+      (window as any).vanhsub.veo
+        .bridgeStatus()
+        .then((res: any) => {
+          if (res?.chromeTab) {
+            setChromeTabInfo(res.chromeTab);
+          } else {
+            setChromeTabInfo(null);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [isOpen, isConnected]);
 
   if (!isOpen) return null;
 
@@ -104,6 +121,15 @@ export default function ChromeBridgeModal({
               <p className="text-slate-300">
                 Mọi lệnh tạo ảnh (Imagen/Nano) và tạo video (Veo) trong AI Studio sẽ tự động chuyển qua tab Chrome của bạn với điểm uy tín tài khoản cao nhất.
               </p>
+              {chromeTabInfo?.projectId ? (
+                <p className="text-[11px] font-mono text-cyan-300 pt-1">
+                  📂 Dự án đang mở trên Chrome: {chromeTabInfo.projectId}
+                </p>
+              ) : chromeTabInfo?.url ? (
+                <p className="text-[11px] font-mono text-slate-400 pt-1 truncate" title={chromeTabInfo.url}>
+                  🔗 Tab hiện tại: {chromeTabInfo.url}
+                </p>
+              ) : null}
             </div>
           </div>
         ) : (
@@ -154,9 +180,9 @@ export default function ChromeBridgeModal({
               2
             </span>
             <div className="flex-1 space-y-1 text-xs">
-              <p className="font-semibold text-white">Nạp Extension vào Google Chrome</p>
+              <p className="font-semibold text-white">Nạp hoặc Tải lại (Reload) Extension vào Google Chrome</p>
               <p className="text-slate-400">
-                Mở trang quản lý tiện ích: Bật <strong>Chế độ cho nhà phát triển (Developer mode)</strong> ở góc trên bên phải → Bấm <strong>Tải tiện ích đã giải nén (Load unpacked)</strong> → Chọn thư mục extension vừa mở ở Bước 1.
+                Mở trang quản lý tiện ích: Bật <strong>Chế độ cho nhà phát triển (Developer mode)</strong> ở góc trên bên phải → Bấm <strong>Tải tiện ích đã giải nén (Load unpacked)</strong> → Chọn thư mục <span className="font-mono text-slate-300">extension</span>. Nếu đã cài trước đó, hãy bấm nút <strong>🔄 Tải lại (Reload)</strong> trên thẻ <em>VanhSub Flow Bridge</em>.
               </p>
               <button
                 type="button"
