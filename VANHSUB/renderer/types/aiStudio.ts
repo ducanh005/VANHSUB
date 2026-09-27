@@ -110,6 +110,8 @@ export interface AiStudioFlowEngineConfig {
   engine?: 'flow' | 'synthetic' | 'rpc' | 'flow_rpc' | 'dom' | string;
   /** Mã dự án trên Google Flow (UUID hoặc target project ID) */
   projectId?: string;
+  /** Tên dự án trên Google Flow */
+  projectName?: string;
   /** Chế độ hiển thị cửa sổ sảnh Flow: 'offscreen' | 'live_window' */
   uiMode?: 'offscreen' | 'live_window';
   /** Tỷ lệ khung hình tạo hình ảnh/clip */
@@ -673,6 +675,7 @@ export interface RegenerateSceneAssetResponse {
   imagePath?: string;
   videoPath?: string;
   error?: string;
+  errorCode?: string;
 }
 export type RegenerateSceneAssetResult = RegenerateSceneAssetResponse;
 
@@ -823,5 +826,14 @@ export interface UpdateScriptLinesPayload {
 export interface UpdateScriptLinesResult {
   success: boolean;
   scriptLines: ScriptBeatLine[];
+}
+
+export interface SelfTestDiagnosticsResult {
+  bridge: { ok: boolean; message: string; port: number; details?: string };
+  session: { ok: boolean; message: string; status: string; detail?: string };
+  disk: { ok: boolean; message: string; path?: string };
+  llm: { ok: boolean; message: string; provider: string };
+  overallReady: boolean;
+  timestamp: number;
 }
 

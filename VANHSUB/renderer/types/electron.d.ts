@@ -9,6 +9,7 @@ import type {
   PipelineSessionState,
   PipelineProgressEvent,
   IdeaBlueprint,
+  SelfTestDiagnosticsResult,
 } from './aiStudio';
 
 export type SettingKey =
@@ -447,7 +448,7 @@ export interface VanhsubAPI {
       flowConfig?: Partial<AiStudioFlowEngineConfig>;
       sessionId?: string;
       mode?: 'image' | 'video' | 'both';
-    }) => Promise<{ assetPath: string; imagePath?: string; videoPath?: string; error?: string }>;
+    }) => Promise<{ assetPath: string; imagePath?: string; videoPath?: string; error?: string; errorCode?: string }>;
     importSceneMedia: (payload: {
       sessionId: string;
       sceneId: string;
@@ -512,6 +513,9 @@ export interface VanhsubAPI {
     openGeminiLogin: () => Promise<boolean>;
     closeGeminiLogin: () => Promise<{ success: boolean }>;
     logoutGeminiLogin: () => Promise<{ success: boolean }>;
+
+    // 1-Click Self-Test Diagnostics
+    selfTestDiagnostics: () => Promise<SelfTestDiagnosticsResult>;
 
     // Push Event Subscription
     onPipelineProgress: (callback: (event: PipelineProgressEvent) => void) => () => void;

@@ -265,6 +265,8 @@ export function getAiStudioConfig(options?: { decrypted?: boolean }): AiStudioCo
     },
     savedProjects: Array.isArray(config.savedProjects) ? config.savedProjects : [],
     activeProjectId: typeof config.activeProjectId === 'string' ? config.activeProjectId : '',
+    ...(typeof config.outputDir === 'string' ? { outputDir: config.outputDir } : {}),
+    ...(typeof config.flowProjectUrl === 'string' ? { flowProjectUrl: config.flowProjectUrl } : {}),
   };
 
   if (options?.decrypted) {
@@ -298,6 +300,20 @@ export function updateAiStudioConfig(
   let store = getAiStudioStore();
   const current = getAiStudioConfig({ decrypted: false });
 
+  const nextOutputDir =
+    typeof partial.outputDir === 'string'
+      ? partial.outputDir
+      : typeof current.outputDir === 'string'
+      ? current.outputDir
+      : undefined;
+
+  const nextFlowProjectUrl =
+    typeof partial.flowProjectUrl === 'string'
+      ? partial.flowProjectUrl
+      : typeof current.flowProjectUrl === 'string'
+      ? current.flowProjectUrl
+      : undefined;
+
   const updated: AiStudioConfig = {
     llm: {
       ...current.llm,
@@ -329,6 +345,8 @@ export function updateAiStudioConfig(
     activeProjectId: typeof partial.activeProjectId === 'string'
       ? partial.activeProjectId
       : (current.activeProjectId || ''),
+    ...(nextOutputDir !== undefined ? { outputDir: nextOutputDir } : {}),
+    ...(nextFlowProjectUrl !== undefined ? { flowProjectUrl: nextFlowProjectUrl } : {}),
   };
 
   // Encrypt llm.apiKey if modified

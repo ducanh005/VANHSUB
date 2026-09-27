@@ -26,6 +26,18 @@ export function cloneDefaultAiStudioConfig(): AiStudioConfig {
 }
 
 /**
+ * Trích xuất Google Flow Project ID từ URL đầy đủ hoặc chuỗi UUID/ID thuần.
+ */
+export function extractFlowProjectId(flowProjectUrl?: string): string {
+  const raw = (flowProjectUrl || '').trim();
+  if (!raw || raw === '__PROJECT_ID_SLOT__') return '';
+  const match = raw.match(/\/project\/([a-zA-Z0-9_-]+)/);
+  if (match && match[1]) return match[1];
+  if (!raw.includes('/') && !raw.includes(' ')) return raw;
+  return '';
+}
+
+/**
  * Trộn một phần cấu hình (DeepPartial) vào cấu hình cơ sở một cách an toàn.
  * Bảo toàn tất cả các thuộc tính lồng nhau trong các phân hệ cấu hình.
  */
@@ -33,6 +45,20 @@ export function mergeAiStudioConfig(
   base: AiStudioConfig,
   patch: DeepPartial<AiStudioConfig>
 ): AiStudioConfig {
+  const nextOutputDir =
+    typeof patch.outputDir === 'string'
+      ? patch.outputDir
+      : typeof base.outputDir === 'string'
+      ? base.outputDir
+      : undefined;
+
+  const nextFlowProjectUrl =
+    typeof patch.flowProjectUrl === 'string'
+      ? patch.flowProjectUrl
+      : typeof base.flowProjectUrl === 'string'
+      ? base.flowProjectUrl
+      : undefined;
+
   return {
     llm: {
       ...base.llm,
@@ -64,6 +90,8 @@ export function mergeAiStudioConfig(
     activeProjectId: typeof patch.activeProjectId === 'string'
       ? patch.activeProjectId
       : (base.activeProjectId || ''),
+    ...(nextOutputDir !== undefined ? { outputDir: nextOutputDir } : {}),
+    ...(nextFlowProjectUrl !== undefined ? { flowProjectUrl: nextFlowProjectUrl } : {}),
   };
 }
 
@@ -364,17 +392,19 @@ export const useAiStudioStore = create<AiStudioStore>((set, get) => ({
       updatedList = [{ ...project, updatedAt: Date.now() }, ...existingList];
     }
 
+    const extractedFlowId = extractFlowProjectId(project.flowProjectUrl);
     const patch: DeepPartial<AiStudioConfig> = {
       savedProjects: updatedList,
       activeProjectId: project.id,
       channelProfile: project.channelProfile,
       outputDir: project.outputDir,
-      flowProjectUrl: project.flowProjectUrl,
+      flowProjectUrl: project.flowProjectUrl || '',
+      flowEngine: {
+        ...(project.flowConfig?.aspectRatio ? { aspectRatio: project.flowConfig.aspectRatio } : {}),
+        projectId: extractedFlowId,
+        projectName: project.name || '',
+      },
     };
-
-    if (project.flowConfig?.aspectRatio) {
-      patch.flowEngine = { aspectRatio: project.flowConfig.aspectRatio };
-    }
 
     if (project.channelProfile.aiProvider && project.channelProfile.aiProvider !== 'default') {
       patch.llm = { provider: project.channelProfile.aiProvider as any };
@@ -395,13 +425,16 @@ export const useAiStudioStore = create<AiStudioStore>((set, get) => ({
     if (currentConfig.activeProjectId === projectId) {
       if (updatedList.length > 0) {
         const nextActive = updatedList[0];
+        const nextFlowId = extractFlowProjectId(nextActive.flowProjectUrl);
         patch.activeProjectId = nextActive.id;
         patch.channelProfile = nextActive.channelProfile;
         patch.outputDir = nextActive.outputDir;
-        patch.flowProjectUrl = nextActive.flowProjectUrl;
-        if (nextActive.flowConfig?.aspectRatio) {
-          patch.flowEngine = { aspectRatio: nextActive.flowConfig.aspectRatio };
-        }
+        patch.flowProjectUrl = nextActive.flowProjectUrl || '';
+        patch.flowEngine = {
+          ...(nextActive.flowConfig?.aspectRatio ? { aspectRatio: nextActive.flowConfig.aspectRatio } : {}),
+          projectId: nextFlowId,
+          projectName: nextActive.name || '',
+        };
         if (nextActive.channelProfile.aiProvider && nextActive.channelProfile.aiProvider !== 'default') {
           patch.llm = { provider: nextActive.channelProfile.aiProvider as any };
         }
@@ -410,6 +443,10 @@ export const useAiStudioStore = create<AiStudioStore>((set, get) => ({
         patch.channelProfile = { ...DEFAULT_CHANNEL_PROFILE_CONFIG };
         patch.outputDir = '';
         patch.flowProjectUrl = '';
+        patch.flowEngine = {
+          projectId: '',
+          projectName: '',
+        };
       }
     }
 
@@ -417,21 +454,34 @@ export const useAiStudioStore = create<AiStudioStore>((set, get) => ({
   },
 
   switchProject: async (projectId: string): Promise<boolean> => {
+    if (!projectId) {
+      return get().updateConfig({
+        activeProjectId: '',
+        outputDir: '',
+        flowProjectUrl: '',
+        flowEngine: {
+          projectId: '',
+          projectName: '',
+        },
+      });
+    }
     const currentConfig = get().config;
     const existingList = currentConfig.savedProjects || [];
     const target = existingList.find((p) => p.id === projectId);
     if (!target) return false;
 
+    const extractedFlowId = extractFlowProjectId(target.flowProjectUrl);
     const patch: DeepPartial<AiStudioConfig> = {
       activeProjectId: target.id,
       channelProfile: target.channelProfile,
       outputDir: target.outputDir,
-      flowProjectUrl: target.flowProjectUrl,
+      flowProjectUrl: target.flowProjectUrl || '',
+      flowEngine: {
+        ...(target.flowConfig?.aspectRatio ? { aspectRatio: target.flowConfig.aspectRatio } : {}),
+        projectId: extractedFlowId,
+        projectName: target.name || '',
+      },
     };
-
-    if (target.flowConfig?.aspectRatio) {
-      patch.flowEngine = { aspectRatio: target.flowConfig.aspectRatio };
-    }
 
     if (target.channelProfile.aiProvider && target.channelProfile.aiProvider !== 'default') {
       patch.llm = { provider: target.channelProfile.aiProvider as any };
@@ -444,9 +494,9 @@ export const useAiStudioStore = create<AiStudioStore>((set, get) => ({
     const currentConfig = get().config;
     const existingList = currentConfig.savedProjects || [];
     if (!currentConfig.activeProjectId) {
-      return existingList[0] || null;
+      return null;
     }
-    return existingList.find((p) => p.id === currentConfig.activeProjectId) || existingList[0] || null;
+    return existingList.find((p) => p.id === currentConfig.activeProjectId) || null;
   },
 
   isProjectSetupComplete: (proj?: SavedProjectProfile | null): { isComplete: boolean; missing: string[] } => {
