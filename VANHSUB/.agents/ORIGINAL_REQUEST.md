@@ -497,3 +497,54 @@ Integrity mode: development
   - Khi bật `mirrorHorizontal: true`, filter `hflip` nằm trước filter `subtitles=...`.
   - Khi đặt `speed: 1.03` (hoặc bất kỳ giá trị nào trong `(1.00, 2.00]`), chuỗi filter video có `setpts` tương ứng, chuỗi filter audio có `atempo=1.03`, và thời gian phụ đề + tiến trình render được đồng bộ chuẩn xác với tốc độ mới.
 
+## 2026-09-27T08:52:43Z
+
+Tự động thực thi quy trình tạo nội dung AI Video Studio mẫu từ A đến Z bằng chính Engine của VanhSub: Tạo cốt truyện ngắn 3 phân cảnh về "Hành trình chú mèo phiêu lưu trong thành phố cyberpunk tương lai", kết nối và kiểm tra Google Flow RPC / Chrome Extension Bridge, sinh hình ảnh phân cảnh (Imagen), sinh video phân cảnh (Veo), áp dụng cơ chế Hard Timeout nghiêm ngặt và lưu trữ các tệp media thực tế ra thư mục đĩa cứng.
+
+Working directory: d:\DEAN\DEAN\VANHSUB
+Integrity mode: development
+
+## Requirements
+
+### R1. Xây dựng cốt truyện & kịch bản phân cảnh (Storyboard Script)
+- Chủ đề: **"Hành trình chú mèo phiêu lưu trong thành phố cyberpunk tương lai"**
+- Gồm 3 phân cảnh điện ảnh liên hoàn:
+  - **Phân cảnh 1 (Hook)**: Chú mèo mướp đeo kính hologram phát sáng đứng trên mái nhà chọc trời ngắm thành phố neon trong đêm mưa.
+  - **Phân cảnh 2 (Action)**: Chú mèo lướt ván trượt phản trọng lực bay luồn lách qua làn xe bay futuristic.
+  - **Phân cảnh 3 (Ending)**: Chú mèo hạ cánh trước một tiệm mì ramen ấm cúng giữa ngõ phố ngầm rực rỡ lồng đèn.
+- Mỗi phân cảnh có đầy đủ: `narrationText` (lời dẫn tiếng Việt), `visualPrompt` (tiếng Anh điện ảnh chuẩn cinematic), `motionType` ('video' / 'image'), `aspectRatio` ('16:9').
+
+### R2. Thực thi qua Engine Google Flow RPC & Chrome Bridge
+- Kiểm tra tính sẵn sàng thông qua Chrome Bridge WebSocket (Port 8765/9222) hoặc Sảnh Electron.
+- Gọi qua module `AiStudioVisualService` / `GoogleFlowRpcClient`:
+  - Kiểm tra phiên (Preflight timeout <= 8 giây).
+  - Gửi lệnh tạo hình ảnh phân cảnh (Hard timeout 45 giây).
+  - Gửi lệnh tạo video phân cảnh (Hard timeout 60 giây).
+- Đảm bảo cơ chế ngắt tức thì nếu gặp sự cố, không để tiến trình xoay vòng tải vô tận.
+
+### R3. Xác minh tệp đầu ra thực tế (Asset Physical Verification)
+- Lưu trữ toàn bộ kết quả vào thư mục đầu ra của dự án (mặc định: `%USERPROFILE%\Videos\VANHSUB_Output\demo_cyberpunk_cat` hoặc thư mục media của session).
+- Xác minh sự tồn tại của các tệp ảnh `.png` và video `.mp4`.
+- Báo cáo chi tiết đường dẫn tuyệt đối của từng file để người dùng mở xem ngay trên máy tính.
+
+## Verification Resources
+
+- Test script thực thi trực tiếp: `scripts/run_sample_flow_pipeline.ts`
+- Engine services: `main/ai-studio/services/AiStudioVisualService.ts`, `main/workflow/flow-engine/rpc/GoogleFlowRpcClient.ts`
+- TypeScript validator: `npx tsc --noEmit`
+
+## Acceptance Criteria
+
+### 1. Kịch bản & Cấu trúc Phân cảnh
+- [ ] Kịch bản 3 phân cảnh được cấu trúc chuẩn hóa theo đúng TypeScript schema của `StoryboardScene`.
+
+### 2. Thực thi Engine & An toàn Timeout
+- [ ] Khởi chạy quy trình tạo media qua Engine của app với đầy đủ log tiến độ theo từng phân cảnh.
+- [ ] Tuân thủ Hard Timeout Policy (Preflight <= 8s, Image <= 45s, Video <= 60s), không bị treo ngầm.
+- [ ] Trường hợp Chrome Bridge chưa kết nối hoặc chưa đăng nhập sảnh, hệ thống thông báo trạng thái rõ ràng hoặc xử lý fallback an toàn theo đúng thiết kế Actionable Banner.
+
+### 3. Tệp Media Kết Quả
+- [ ] Tạo thành công ít nhất 1 ảnh phân cảnh và 1 video phân cảnh hợp lệ trên đĩa cứng.
+- [ ] Cung cấp đường dẫn tuyệt đối của các tệp media đã tạo để người dùng mở xem.
+
+
