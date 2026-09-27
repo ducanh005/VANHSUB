@@ -75,6 +75,8 @@ export interface AiStudioFlowEngineConfig {
   engine?: 'flow' | 'synthetic' | 'rpc' | 'flow_rpc' | string;
   /** Mã dự án trên Google Flow (UUID hoặc target project ID) */
   projectId?: string;
+  /** Tên dự án trên Google Flow */
+  projectName?: string;
   /** Cho phép fallback sang synthetic scene card khi sinh media thất bại (mặc định false) */
   allowSyntheticFallback?: boolean;
   /** Alias cho explicit fallback */
@@ -825,5 +827,14 @@ export interface UpdateScriptLinesPayload {
 export interface UpdateScriptLinesResult {
   success: boolean;
   scriptLines: ScriptBeatLine[];
+}
+
+export interface SelfTestDiagnosticsResult {
+  bridge: { ok: boolean; message: string; port: number; details?: string };
+  session: { ok: boolean; message: string; status: string; detail?: string };
+  disk: { ok: boolean; message: string; path?: string };
+  llm: { ok: boolean; message: string; provider: string };
+  overallReady: boolean;
+  timestamp: number;
 }
 

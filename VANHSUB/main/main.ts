@@ -1288,12 +1288,17 @@ ipcMain.handle('debug:test-gen-image', async (_event, prompt: string, projectId?
 ipcMain.handle('debug:test-fsm-image', async (_event, prompt: string, projectId: string) => {
   try {
     const sessionMgr = GoogleVeoSessionManager.getInstance();
+    const resolvedProjectId =
+      projectId?.trim() ||
+      getAiStudioStore().store?.flowEngine?.projectId?.trim() ||
+      sessionMgr.getCurrentProjectId() ||
+      undefined;
     const result = await sessionMgr.generateImageViaBrowserContext(
       {
         prompt: prompt || 'a futuristic floating city at sunset, highly detailed',
         aspectRatio: '16:9',
         outputCount: 1,
-        projectId: projectId || '5d3caf29-6c9d-49d8-a452-91036ea16a7d',
+        projectId: resolvedProjectId,
         imageEngine: 'nano-banana',
       },
       (pct: number, msg?: string) => console.log(`[FSM Progress ${pct}%] ${msg}`)
@@ -1307,13 +1312,18 @@ ipcMain.handle('debug:test-fsm-image', async (_event, prompt: string, projectId:
 ipcMain.handle('debug:test-fsm-video', async (_event, prompt: string, projectId?: string, sourceImagePath?: string) => {
   try {
     const sessionMgr = GoogleVeoSessionManager.getInstance();
+    const resolvedProjectId =
+      projectId?.trim() ||
+      getAiStudioStore().store?.flowEngine?.projectId?.trim() ||
+      sessionMgr.getCurrentProjectId() ||
+      undefined;
     const result = await sessionMgr.generateVideoViaBrowserContext(
       {
         prompt: prompt || 'a calm ocean at sunset, cinematic camera pan',
         initFrameUrl: sourceImagePath,
         aspectRatio: '16:9',
         durationSeconds: 4,
-        projectId: projectId || '5d3caf29-6c9d-49d8-a452-91036ea16a7d',
+        projectId: resolvedProjectId,
       },
       (pct: number, msg?: string) => console.log(`[FSM Video Progress ${pct}%] ${msg}`)
     );
@@ -1608,14 +1618,14 @@ ipcMain.handle('debug:prewarm-lobby', async (_event, projectId: string) => {
   }
 });
 
-ipcMain.handle('bridge:status', async () => {
+ipcMain.handle('bridge:status', async (_event, options?: { dumpSniffer?: boolean }) => {
   try {
     const { getFlowBridgeServer } = await import('./workflow/flow-engine/rpc/FlowBridgeServer');
     const bridge = getFlowBridgeServer();
     const serverStatus = bridge.getStatus();
     const tabInfo = await bridge.getFlowTabInfo();
 
-    if (tabInfo?.diag?.snifferHistory) {
+    if (options?.dumpSniffer && tabInfo?.diag?.snifferHistory) {
       try {
         fs.writeFileSync(
           path.join(process.cwd(), 'sniffer_dump.json'),

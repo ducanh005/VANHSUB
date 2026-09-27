@@ -6,6 +6,9 @@
  * - Milestone 2: Pipeline execution & granular step operations via Engine Delegate
  */
 
+import fs from 'fs';
+import path from 'path';
+import os from 'os';
 import { ipcMain, type IpcMainInvokeEvent } from 'electron';
 import { AiStudioPipelineEngine } from './AiStudioPipelineEngine';
 import {
@@ -13,6 +16,8 @@ import {
   updateAiStudioConfig,
   resetAiStudioConfig,
 } from '../store/aiStudioStore';
+import { FlowBridgeServer } from '../workflow/flow-engine/rpc/FlowBridgeServer';
+import { GoogleVeoSessionManager } from '../veo/GoogleVeoSessionManager';
 import { ChatGptWebSessionManager } from './chatgpt/ChatGptWebSessionManager';
 import { GeminiWebSessionManager } from './gemini/GeminiWebSessionManager';
 import { aiStudioLlmService } from './services/AiStudioLlmService';
@@ -48,6 +53,7 @@ import type {
   UpdateScriptLinesResult,
   ImportSceneMediaPayload,
   ImportSceneMediaResult,
+  SelfTestDiagnosticsResult,
 } from './types';
 
 // ============================================================================
@@ -195,7 +201,16 @@ export function registerAiStudioIpc(): void {
         if (!updates || typeof updates !== 'object') {
           throw new Error('Invalid config updates payload: expected an object');
         }
-        return updateAiStudioConfig(updates, { decrypted: true });
+        const updatedConfig = updateAiStudioConfig(updates, { decrypted: true });
+        try {
+          if (updates.flowEngine && 'projectId' in updates.flowEngine) {
+            const pid = updates.flowEngine.projectId?.trim() || null;
+            GoogleVeoSessionManager.getInstance().setCurrentProjectId(pid);
+          } else if ('activeProjectId' in updates && !updates.activeProjectId) {
+            GoogleVeoSessionManager.getInstance().resetCurrentProjectId();
+          }
+        } catch {}
+        return updatedConfig;
       } catch (err: any) {
         console.error('[AI-Studio-IPC] Error updating configuration:', err);
         throw new Error(`Failed to update AI Studio config: ${err?.message || err}`);
@@ -613,5 +628,168 @@ export function registerAiStudioIpc(): void {
     return { success: true };
   });
 
-  console.log('[AI Studio] Registered 18 IPC channels successfully (including ChatGPT & Gemini Web).');
+  // --------------------------------------------------------------------------
+  // Milestone 3: 1-Click Self-Test Diagnostics (Bridge, Lobby, Disk, LLM)
+  // --------------------------------------------------------------------------
+  safeHandle('aiStudio:diagnostics:selfTest', async (): Promise<SelfTestDiagnosticsResult> => {
+    const config = getDecryptedAiStudioConfig();
+    const activeProj = config.savedProjects?.find((p) => p.id === config.activeProjectId);
+
+    // 1. Kiểm tra Chrome Bridge WebSocket (Port 9222 / 8765)
+    const checkBridge = async () => {
+      try {
+        const bridge = FlowBridgeServer.getInstance();
+        const connected = bridge.isConnected();
+        const port = bridge.getPort() || 9222;
+        if (connected) {
+          let tabDetail = '';
+          try {
+            const tabInfo = await bridge.getFlowTabInfo(2000);
+            if (tabInfo?.projectId) {
+              tabDetail = ` — Tab Flow đang mở dự án: ${tabInfo.projectId}`;
+            } else if (tabInfo?.url) {
+              tabDetail = ` — Tab Flow: ${tabInfo.url}`;
+            }
+          } catch {}
+          return {
+            ok: true,
+            message: `Chrome Extension Bridge đang kết nối tốt (Port ${port}/8765)${tabDetail}`,
+            port,
+          };
+        }
+        return {
+          ok: false,
+          message: `Chrome Bridge chưa kết nối (lắng nghe trên port ${port} và 8765). Hãy mở Chrome và nạp extension VanhSub Flow Bridge.`,
+          port,
+        };
+      } catch (err: any) {
+        return {
+          ok: false,
+          message: `Lỗi kiểm tra Bridge: ${err?.message || err}`,
+          port: 9222,
+        };
+      }
+    };
+
+    // 2. Kiểm tra Google Flow Session trong Electron Lobby (<= 2500ms timeout)
+    const checkSession = async () => {
+      try {
+        const sessionMgr = GoogleVeoSessionManager.getInstance();
+        let timer: NodeJS.Timeout | null = null;
+        const res = await Promise.race([
+          sessionMgr.validateSession(),
+          new Promise<any>((_, reject) => {
+            timer = setTimeout(() => reject(new Error('Timeout kiểm tra session (>2.5s)')), 2500);
+          }),
+        ]);
+        if (timer) clearTimeout(timer);
+        if (res && res.valid) {
+          return {
+            ok: true,
+            message: res.detail || 'Phiên Google Flow sẵn sàng trong Sảnh Electron',
+            status: res.status,
+            detail: res.detail,
+          };
+        }
+        return {
+          ok: false,
+          message: res?.detail || 'Chưa đăng nhập Google Flow trong Sảnh Electron',
+          status: res?.status || 'unauthenticated',
+          detail: res?.detail,
+        };
+      } catch (err: any) {
+        return {
+          ok: false,
+          message: `Chưa xác thực Sảnh: ${err?.message || err}`,
+          status: 'error',
+          detail: err?.message,
+        };
+      }
+    };
+
+    // 3. Kiểm tra quyền ghi thư mục xuất Disk (<= 500ms)
+    const checkDisk = async () => {
+      const outputDir =
+        activeProj?.outputDir?.trim() ||
+        config.outputDir?.trim() ||
+        path.join(os.homedir(), 'Videos', 'VANHSUB_Output');
+      try {
+        if (!fs.existsSync(outputDir)) {
+          fs.mkdirSync(outputDir, { recursive: true });
+        }
+        const testFile = path.join(outputDir, `.vanhsub_perm_test_${Date.now()}`);
+        fs.writeFileSync(testFile, 'test');
+        fs.unlinkSync(testFile);
+        return {
+          ok: true,
+          message: `Thư mục lưu trữ sẵn sàng và có toàn quyền ghi`,
+          path: outputDir,
+        };
+      } catch (err: any) {
+        return {
+          ok: false,
+          message: `Không có quyền ghi vào thư mục: ${outputDir} (${err?.message || err})`,
+          path: outputDir,
+        };
+      }
+    };
+
+    // 4. Kiểm tra cấu hình AI (LLM / TTS) (<= 200ms)
+    const checkLlm = async () => {
+      const provider =
+        (activeProj?.channelProfile?.aiProvider && activeProj.channelProfile.aiProvider !== 'default'
+          ? activeProj.channelProfile.aiProvider
+          : config.channelProfile?.aiProvider && config.channelProfile.aiProvider !== 'default'
+          ? config.channelProfile.aiProvider
+          : config.llm?.provider) || 'gemini_web';
+
+      let hasKey = false;
+      if (provider === 'openai') {
+        hasKey = Boolean(config.llm?.apiKey || process.env.OPENAI_API_KEY);
+      } else if (provider === 'deepseek') {
+        hasKey = Boolean(config.llm?.apiKey || process.env.DEEPSEEK_API_KEY);
+      } else if (provider === 'chatgpt_web') {
+        const status = await ChatGptWebSessionManager.getInstance().checkLoginStatus();
+        hasKey = status.isLoggedIn;
+      } else if (provider === 'gemini_web') {
+        const status = await GeminiWebSessionManager.getInstance().checkLoginStatus();
+        hasKey = status.isLoggedIn;
+      } else {
+        hasKey = Boolean(config.llm?.apiKey);
+      }
+
+      if (hasKey) {
+        return {
+          ok: true,
+          message: `Mô hình AI [${provider}] đã sẵn sàng hoạt động`,
+          provider,
+        };
+      }
+      return {
+        ok: false,
+        message: `Mô hình [${provider}] chưa cấu hình API Key hoặc phiên web chưa đăng nhập`,
+        provider,
+      };
+    };
+
+    const [bridgeRes, sessionRes, diskRes, llmRes] = await Promise.all([
+      checkBridge(),
+      checkSession(),
+      checkDisk(),
+      checkLlm(),
+    ]);
+
+    const overallReady = (bridgeRes.ok || sessionRes.ok) && diskRes.ok;
+
+    return {
+      bridge: bridgeRes,
+      session: sessionRes,
+      disk: diskRes,
+      llm: llmRes,
+      overallReady,
+      timestamp: Date.now(),
+    };
+  });
+
+  console.log('[AI Studio] Registered 19 IPC channels successfully (including 1-Click Diagnostics).');
 }

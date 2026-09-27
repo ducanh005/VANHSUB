@@ -10,6 +10,8 @@ import {
   FlowElementFinder,
   FlowSmartWait,
   FlowClipboardGuard,
+  FlowBridgeServer,
+  getGoogleFlowRpcClient,
   type FlowStateContext,
 } from '../workflow/flow-engine';
 import type {
@@ -81,6 +83,10 @@ export class GoogleVeoSessionManager {
 
   public setCurrentProjectId(id: string | null): void {
     this.currentProjectId = id;
+  }
+
+  public resetCurrentProjectId(): void {
+    this.currentProjectId = null;
   }
 
   static getInstance(): GoogleVeoSessionManager {
@@ -469,12 +475,27 @@ export class GoogleVeoSessionManager {
     // Đảm bảo nạp đầy đủ cookie xác thực từ SettingsStore vào partition trước khi mở trang Flow
     await this.restoreCookiesToPartition(ses);
 
+    // Bọc loadURL bằng timeout nghiêm ngặt 8.000ms để không bao giờ treo vô hạn khi mở Sảnh ngầm
+    const loadUrlWithTimeout = async (targetUrl: string, timeoutMs = 8000) => {
+      let timer: NodeJS.Timeout | null = null;
+      try {
+        await Promise.race([
+          this.lobbyWindow.loadURL(targetUrl),
+          new Promise((_, reject) => {
+            timer = setTimeout(() => reject(new Error(`Timeout loading URL (${timeoutMs}ms)`)), timeoutMs);
+          }),
+        ]);
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
+    };
+
     try {
-      await this.lobbyWindow.loadURL(GOOGLE_FLOW_LOBBY_URL);
+      await loadUrlWithTimeout(GOOGLE_FLOW_LOBBY_URL, 8000);
     } catch {
       // Fallback nếu không tải được URL chính
       try {
-        await this.lobbyWindow.loadURL(VIDEO_FX_FALLBACK_URL);
+        await loadUrlWithTimeout(VIDEO_FX_FALLBACK_URL, 5000);
       } catch {}
     }
   }
@@ -699,66 +720,113 @@ export class GoogleVeoSessionManager {
    * Trả về kết quả trong < 1.5s để người dùng không mất thời gian vô ích.
    */
   async validateSession(): Promise<VeoSessionValidationResult> {
-    const cookie = await this.getEffectiveCookieString();
-    let token = SettingsStore.get('veoSessionAuthToken')?.trim();
+    const HARD_TIMEOUT_MS = 8000;
+    let timer: NodeJS.Timeout | null = null;
 
-    // Chỉ chấp nhận Bearer token nếu bắt đầu bằng ya29.
-    if (token && !token.startsWith('ya29.')) {
-      SettingsStore.set('veoSessionAuthToken', '');
-      token = '';
-    }
+    const timeoutPromise = new Promise<VeoSessionValidationResult>((resolve) => {
+      timer = setTimeout(() => {
+        resolve({
+          valid: false,
+          status: 'unauthenticated',
+          detail: 'Quá hạn kiểm tra phiên Google Flow (Timeout 8s). Vui lòng mở Sảnh đăng nhập hoặc kết nối Chrome Bridge.',
+          lastChecked: Date.now(),
+        });
+      }, HARD_TIMEOUT_MS);
+    });
 
-    const now = Date.now();
+    const executionPromise = (async (): Promise<VeoSessionValidationResult> => {
+      const cookie = await this.getEffectiveCookieString();
+      let token = SettingsStore.get('veoSessionAuthToken')?.trim();
 
-    // 1. Kiểm tra ban đầu: nếu chưa hề có cookie hay token
-    if (!cookie && !token) {
-      const res: VeoSessionValidationResult = {
-        valid: false,
-        status: 'unauthenticated',
-        detail: 'Chưa có phiên đăng nhập Google Veo. Vui lòng bấm "Mở sảnh Google Veo" để đăng nhập nhận credit miễn phí.',
-        lastChecked: now,
-      };
-      SettingsStore.set('veoSessionStatus', res.status);
-      SettingsStore.set('veoLastChecked', now);
-      return res;
-    }
-
-    // 2. Kiểm tra xem các cookie cốt lõi có hiện diện không
-    const hasCoreCookies = cookie.includes('SID=') || cookie.includes('__Secure-1PSID=') || Boolean(token);
-    if (!hasCoreCookies) {
-      const res: VeoSessionValidationResult = {
-        valid: false,
-        status: 'expired',
-        detail: 'Thiếu cookie nhận diện SID/__Secure-1PSID của Google. Session đã hết hạn hoặc không đủ quyền.',
-        lastChecked: now,
-      };
-      SettingsStore.set('veoSessionStatus', res.status);
-      SettingsStore.set('veoLastChecked', now);
-      return res;
-    }
-
-    // 3. Thực hiện probe request kiểm tra kết nối với Google
-    try {
-      const probeResult = await this.executeHealthProbe(cookie, token);
-      SettingsStore.set('veoSessionStatus', probeResult.status);
-      SettingsStore.set('veoLastChecked', now);
-      if (probeResult.email) {
-        SettingsStore.set('veoAccountEmail', probeResult.email);
+      // Chỉ chấp nhận Bearer token nếu bắt đầu bằng ya29.
+      if (token && !token.startsWith('ya29.')) {
+        SettingsStore.set('veoSessionAuthToken', '');
+        token = '';
       }
-      return probeResult;
-    } catch (err: any) {
-      // Khi offline hoặc lỗi mạng
-      const res: VeoSessionValidationResult = {
-        valid: hasCoreCookies, // nếu có cookie thì tạm coi là ok nhưng cảnh báo mạng
-        status: hasCoreCookies ? 'active' : 'unknown',
-        detail: hasCoreCookies
-          ? 'Đã lưu session (chưa thể kiểm tra với server do mạng yếu hoặc offline).'
-          : `Lỗi kiểm tra session: ${err?.message || err}`,
-        lastChecked: now,
-      };
-      SettingsStore.set('veoSessionStatus', res.status);
-      SettingsStore.set('veoLastChecked', now);
-      return res;
+
+      const now = Date.now();
+      const bridgeConnected = FlowBridgeServer.getInstance().isConnected();
+
+      // 0. Nếu Chrome Extension Bridge đang kết nối trực tiếp, phiên làm việc được uỷ quyền qua Chrome thật
+      if (bridgeConnected && (!cookie && !token)) {
+        const res: VeoSessionValidationResult = {
+          valid: true,
+          status: 'active',
+          detail: 'Đã kết nối trực tiếp qua Chrome Extension Bridge (VanhSub Flow Bridge).',
+          lastChecked: now,
+        };
+        SettingsStore.set('veoSessionStatus', res.status);
+        SettingsStore.set('veoLastChecked', now);
+        return res;
+      }
+
+      // 1. Kiểm tra ban đầu: nếu chưa hề có cookie hay token
+      if (!cookie && !token) {
+        const res: VeoSessionValidationResult = {
+          valid: false,
+          status: 'unauthenticated',
+          detail: 'Chưa có phiên đăng nhập Google Veo. Vui lòng bấm "Mở sảnh Google Veo" hoặc kết nối Chrome Extension Bridge.',
+          lastChecked: now,
+        };
+        SettingsStore.set('veoSessionStatus', res.status);
+        SettingsStore.set('veoLastChecked', now);
+        return res;
+      }
+
+      // 2. Kiểm tra xem các cookie cốt lõi có hiện diện không
+      const hasCoreCookies = cookie.includes('SID=') || cookie.includes('__Secure-1PSID=') || Boolean(token);
+      if (!hasCoreCookies) {
+        if (bridgeConnected) {
+          const res: VeoSessionValidationResult = {
+            valid: true,
+            status: 'active',
+            detail: 'Đã kết nối trực tiếp qua Chrome Extension Bridge (VanhSub Flow Bridge).',
+            lastChecked: now,
+          };
+          SettingsStore.set('veoSessionStatus', res.status);
+          SettingsStore.set('veoLastChecked', now);
+          return res;
+        }
+        const res: VeoSessionValidationResult = {
+          valid: false,
+          status: 'expired',
+          detail: 'Thiếu cookie nhận diện SID/__Secure-1PSID của Google. Session đã hết hạn hoặc không đủ quyền.',
+          lastChecked: now,
+        };
+        SettingsStore.set('veoSessionStatus', res.status);
+        SettingsStore.set('veoLastChecked', now);
+        return res;
+      }
+
+      // 3. Thực hiện probe request kiểm tra kết nối với Google
+      try {
+        const probeResult = await this.executeHealthProbe(cookie, token);
+        SettingsStore.set('veoSessionStatus', probeResult.status);
+        SettingsStore.set('veoLastChecked', now);
+        if (probeResult.email) {
+          SettingsStore.set('veoAccountEmail', probeResult.email);
+        }
+        return probeResult;
+      } catch (err: any) {
+        // Khi offline hoặc lỗi mạng
+        const res: VeoSessionValidationResult = {
+          valid: hasCoreCookies, // nếu có cookie thì tạm coi là ok nhưng cảnh báo mạng
+          status: hasCoreCookies ? 'active' : 'unknown',
+          detail: hasCoreCookies
+            ? 'Đã lưu session (chưa thể kiểm tra với server do mạng yếu hoặc offline).'
+            : `Lỗi kiểm tra session: ${err?.message || err}`,
+          lastChecked: now,
+        };
+        SettingsStore.set('veoSessionStatus', res.status);
+        SettingsStore.set('veoLastChecked', now);
+        return res;
+      }
+    })();
+
+    try {
+      return await Promise.race([executionPromise, timeoutPromise]);
+    } finally {
+      if (timer) clearTimeout(timer);
     }
   }
 
@@ -972,8 +1040,13 @@ export class GoogleVeoSessionManager {
    */
   getStatus(): VeoStatusPayload {
     const mode = (SettingsStore.get('veoMode') || 'free_session') as VeoMode;
-    const sessionStatus = (SettingsStore.get('veoSessionStatus') || 'unauthenticated') as VeoSessionStatus;
-    const hasSession = SettingsStore.hasVeoSession();
+    const bridgeConnected = FlowBridgeServer.getInstance().isConnected();
+    const rawSessionStatus = (SettingsStore.get('veoSessionStatus') || 'unauthenticated') as VeoSessionStatus;
+    const sessionStatus: VeoSessionStatus =
+      bridgeConnected && (rawSessionStatus === 'unauthenticated' || rawSessionStatus === 'expired' || rawSessionStatus === 'unknown')
+        ? 'active'
+        : rawSessionStatus;
+    const hasSession = SettingsStore.hasVeoSession() || bridgeConnected;
     const email = SettingsStore.get('veoAccountEmail') || undefined;
     const lastChecked = Number(SettingsStore.get('veoLastChecked')) || undefined;
     const credits = SettingsStore.get('veoFlowCredits') ?? null;
@@ -2179,6 +2252,49 @@ export class GoogleVeoSessionManager {
 
     onProgress?.(5, 'Đang chuẩn bị Sảnh Google Flow cho Video...');
 
+    const bridge = FlowBridgeServer.getInstance();
+    if (bridge.isConnected() && (!this.lobbyWindow || this.lobbyWindow.isDestroyed())) {
+      try {
+        const rpcClient = getGoogleFlowRpcClient();
+        const targetPid = params.projectId || this.currentProjectId || '';
+        const genRes = await rpcClient.generateVideo({
+          prompt: params.prompt,
+          inputImageAsset: params.initFrameUrl,
+          aspectRatio: params.aspectRatio || '16:9',
+          duration: params.durationSeconds || 8,
+          videoModel: params.modelVariant,
+          projectId: targetPid,
+        });
+        const resolvedPid = genRes.projectId || targetPid;
+        if (resolvedPid && resolvedPid !== '__PROJECT_ID_SLOT__') {
+          this.currentProjectId = resolvedPid;
+        }
+        if (genRes.done && genRes.videoUrl) {
+          return {
+            videoUrl: genRes.videoUrl,
+            projectId: resolvedPid || undefined,
+          };
+        }
+        if (genRes.operationId) {
+          const pollRes = await rpcClient.pollGeneration({
+            operationId: genRes.operationId,
+            projectId: resolvedPid,
+            onProgress: (p: any) => onProgress?.(p.percentage, p.message),
+            isCancelled,
+          });
+          return {
+            videoUrl: pollRes.videoUrl,
+            projectId: resolvedPid || undefined,
+          };
+        }
+      } catch (bridgeErr: any) {
+        return {
+          error: bridgeErr?.code || 'agent_error',
+          errorDetail: bridgeErr?.message || String(bridgeErr),
+        };
+      }
+    }
+
     const ready = await this.ensureLobbyAtFlow();
     if (!ready) {
       console.warn('[Google Flow Browser] Sảnh Google Flow chưa sẵn sàng (chưa đăng nhập hoặc cửa sổ đã đóng).');
@@ -2295,6 +2411,38 @@ export class GoogleVeoSessionManager {
   ): Promise<{ imageUrl?: string; base64Data?: string; projectId?: string; flowAssetUrl?: string; error?: 'out_of_credits' | 'timeout' | 'button_not_found' | 'agent_error' | string; errorDetail?: string; } | null> {
     const taskId = params.taskId || `task_img_${Date.now()}`;
     const generationAttemptId = params.generationAttemptId || `att_${Math.random().toString(36).slice(2, 7)}`;
+
+    const bridge = FlowBridgeServer.getInstance();
+    if (bridge.isConnected() && (!this.lobbyWindow || this.lobbyWindow.isDestroyed())) {
+      try {
+        const rpcClient = getGoogleFlowRpcClient();
+        const targetPid = params.projectId || this.currentProjectId || '';
+        const genRes = await rpcClient.generateImage(null, {
+          prompt: params.prompt,
+          aspectRatio: params.aspectRatio || '16:9',
+          outputCount: params.outputCount || 1,
+          imageModel: params.imageEngine,
+          projectId: targetPid,
+          referenceMediaIds: params.referenceImagePath ? [params.referenceImagePath] : undefined,
+        });
+        const resolvedPid = genRes.projectId || targetPid;
+        if (resolvedPid && resolvedPid !== '__PROJECT_ID_SLOT__') {
+          this.currentProjectId = resolvedPid;
+        }
+        const imgUrl = genRes.firstImageUrl || genRes.images?.[0]?.url;
+        if (imgUrl) {
+          return {
+            imageUrl: imgUrl,
+            projectId: resolvedPid || undefined,
+          };
+        }
+      } catch (bridgeErr: any) {
+        return {
+          error: bridgeErr?.code || 'agent_error',
+          errorDetail: bridgeErr?.message || String(bridgeErr),
+        };
+      }
+    }
 
     // Đảm bảo lobby window sẵn sàng trước khi nạp context
     const ready = await this.ensureLobbyAtFlow();

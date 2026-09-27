@@ -167,7 +167,12 @@ export class AiStudioVisualService {
     if (!this.rpcClient && useGoogleFlow && !isBridgeConnected) {
       try {
         const sessionMgr = GoogleVeoSessionManager.getInstance();
-        const status = await sessionMgr.validateSession();
+        const status = await Promise.race([
+          sessionMgr.validateSession(),
+          new Promise<any>((_, reject) =>
+            setTimeout(() => reject(new Error('Preflight session check timeout')), 8000)
+          ),
+        ]);
         if (!status || !status.valid) {
           const hasExplicitFallback = Boolean(
             flowConfig.allowSyntheticFallback === true ||
@@ -1232,7 +1237,12 @@ export class AiStudioVisualService {
     if (!this.rpcClient && useGoogleFlow && !isBridgeConnected) {
       try {
         const sessionMgr = GoogleVeoSessionManager.getInstance();
-        const status = await sessionMgr.validateSession();
+        const status = await Promise.race([
+          sessionMgr.validateSession(),
+          new Promise<any>((_, reject) =>
+            setTimeout(() => reject(new Error('Preflight session check timeout')), 8000)
+          ),
+        ]);
         if (!status || !status.valid) {
           const hasExplicitFallback = Boolean(
             flowConfig.allowSyntheticFallback === true ||
@@ -1241,7 +1251,7 @@ export class AiStudioVisualService {
           );
           if (!hasExplicitFallback) {
             throw new GoogleFlowRpcError(
-              `Chưa đăng nhập Google Flow hoặc phiên làm việc đã hết hạn (${status?.detail || 'Chưa xác thực'}). Vui lòng mở Sảnh Google Flow trên giao diện để đăng nhập tài khoản.`,
+              `Chưa đăng nhập Google Flow hoặc phiên làm việc đã hết hạn (${status?.detail || 'Chưa xác thực'}). Vui lòng mở Sảnh Google Flow trên giao diện để đăng nhập tài khoản hoặc kết nối Chrome Extension.`,
               { code: 'SESSION_EXPIRED', retryable: false, suggestedAction: 'REAUTH_REQUIRED' }
             );
           } else {
@@ -1261,7 +1271,12 @@ export class AiStudioVisualService {
         const sessionMgr = GoogleVeoSessionManager.getInstance();
         lobbyWin = sessionMgr.getLobbyWindow();
         if (!lobbyWin || lobbyWin.isDestroyed()) {
-          await sessionMgr.openLobbyWindow({ uiMode: 'offscreen' });
+          await Promise.race([
+            sessionMgr.openLobbyWindow({ uiMode: 'offscreen' }),
+            new Promise<void>((_, reject) =>
+              setTimeout(() => reject(new Error('Preflight openLobbyWindow timeout')), 8000)
+            ),
+          ]);
           lobbyWin = sessionMgr.getLobbyWindow();
         }
       } catch {

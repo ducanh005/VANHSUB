@@ -39,6 +39,7 @@ import {
 import { FlowVisualConfirmGuard } from './FlowVisualConfirmGuard';
 import { FlowFileInputInjector, ensureLocalImageFile, shortenForLog } from './FlowFileInputInjector';
 import { GoogleVeoSessionManager } from '../../veo/GoogleVeoSessionManager';
+import { FlowBridgeServer } from './rpc/FlowBridgeServer';
 
 const execFileAsync = promisify(execFile);
 
@@ -97,6 +98,8 @@ export interface GenerateVideoOptions {
   motionNote?: string;
   expectedDurationSec: number;
   tolerancePct?: number;
+  targetProjectId?: string;
+  targetProjectName?: string;
   forceRegenerate?: boolean;
   maxRetries?: number;
   timeoutMs?: number;
@@ -281,13 +284,14 @@ export class FlowMediaAutomationEngine {
     // 2. Allocate next asset version
     const nextVer = storage.getNextMediaVersion(shotId, 'img');
 
-    // 3. Resolve live Electron BrowserWindow
+    // 3. Resolve live Electron BrowserWindow or Chrome Extension Bridge
     let win = options.win;
     const sessionMgr = GoogleVeoSessionManager.getInstance();
+    const bridgeConnected = FlowBridgeServer.getInstance().isConnected();
     if (!win || (typeof win.isDestroyed === 'function' && win.isDestroyed())) {
       win = sessionMgr.getLobbyWindow();
     }
-    if (!win || (typeof win.isDestroyed === 'function' && win.isDestroyed())) {
+    if ((!win || (typeof win.isDestroyed === 'function' && win.isDestroyed())) && !bridgeConnected) {
       try {
         await sessionMgr.ensureLobbyAtFlow();
         win = sessionMgr.getLobbyWindow();
@@ -296,7 +300,7 @@ export class FlowMediaAutomationEngine {
 
     // If running outside Electron (e.g. pure Node.js CLI unit tests), simulate mock generation
     const isElectronRuntime = Boolean(process.versions?.electron);
-    if (!win && !isElectronRuntime) {
+    if (!win && !bridgeConnected && !isElectronRuntime) {
       const pngHeader = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d]);
       fs.writeFileSync(nextVer.absolutePath, pngHeader);
 
@@ -328,7 +332,7 @@ export class FlowMediaAutomationEngine {
       };
     }
 
-    if (!win) {
+    if (!win && !bridgeConnected) {
       throw new Error('Không thể kết nối hoặc khởi tạo cửa sổ Google Flow để tạo ảnh.');
     }
 
@@ -420,20 +424,30 @@ export class FlowMediaAutomationEngine {
           } else if (imgUrl.startsWith('http')) {
             const downloadedBuffer = await FlowVisualConfirmGuard.pollCondition<Buffer>(
               async () => {
-                const base64Data = await win.webContents.executeJavaScript(`
-                  (async function() {
-                    const res = await fetch(${JSON.stringify(imgUrl)});
-                    const blob = await res.blob();
-                    return new Promise((resolve) => {
-                      const reader = new FileReader();
-                      reader.onloadend = () => resolve(reader.result);
-                      reader.readAsDataURL(blob);
-                    });
-                  })()
-                `).catch(() => null);
-                if (base64Data && typeof base64Data === 'string') {
-                  const pure = base64Data.replace(/^data:image\/\w+;base64,/, '');
-                  return Buffer.from(pure, 'base64');
+                if (win && !win.isDestroyed() && win.webContents) {
+                  const base64Data = await win.webContents.executeJavaScript(`
+                    (async function() {
+                      const res = await fetch(${JSON.stringify(imgUrl)});
+                      const blob = await res.blob();
+                      return new Promise((resolve) => {
+                        const reader = new FileReader();
+                        reader.onloadend = () => resolve(reader.result);
+                        reader.readAsDataURL(blob);
+                      });
+                    })()
+                  `).catch(() => null);
+                  if (base64Data && typeof base64Data === 'string') {
+                    const pure = base64Data.replace(/^data:image\/\w+;base64,/, '');
+                    return Buffer.from(pure, 'base64');
+                  }
+                } else {
+                  const res = await fetch(imgUrl).catch(() => null);
+                  if (res && res.ok) {
+                    const ab = await res.arrayBuffer();
+                    if (ab.byteLength > 0) {
+                      return Buffer.from(ab);
+                    }
+                  }
                 }
                 return false;
               },
@@ -610,13 +624,14 @@ export class FlowMediaAutomationEngine {
     // 3. Allocate next video asset version
     const nextVidVer = storage.getNextMediaVersion(shotId, 'vid');
 
-    // 4. Resolve live Electron BrowserWindow
+    // 4. Resolve live Electron BrowserWindow or Chrome Extension Bridge
     let win = options.win;
     const sessionMgr = GoogleVeoSessionManager.getInstance();
+    const bridgeConnected = FlowBridgeServer.getInstance().isConnected();
     if (!win || (typeof win.isDestroyed === 'function' && win.isDestroyed())) {
       win = sessionMgr.getLobbyWindow();
     }
-    if (!win || (typeof win.isDestroyed === 'function' && win.isDestroyed())) {
+    if ((!win || (typeof win.isDestroyed === 'function' && win.isDestroyed())) && !bridgeConnected) {
       try {
         await sessionMgr.ensureLobbyAtFlow();
         win = sessionMgr.getLobbyWindow();
@@ -625,7 +640,7 @@ export class FlowMediaAutomationEngine {
 
     // If running outside Electron (e.g. pure Node.js CLI unit tests), simulate synthetic output
     const isElectronRuntime = Boolean(process.versions?.electron);
-    if (!win && !isElectronRuntime) {
+    if (!win && !bridgeConnected && !isElectronRuntime) {
       const dummyMp4Path = nextVidVer.absolutePath;
       if (!fs.existsSync(dummyMp4Path)) {
         fs.writeFileSync(dummyMp4Path, Buffer.from('synthetic mp4 payload'));
@@ -708,7 +723,7 @@ export class FlowMediaAutomationEngine {
             initFrameUrl: sourcePath,
             aspectRatio: '16:9',
             durationSeconds: Math.round(expectedDurationSec),
-            projectId: undefined,
+            projectId: options.targetProjectId,
             taskId: shotId,
             generationAttemptId: `${sceneId}_${shotId}_${nextVidVer.version}_${retry}`,
             retryIndex: retry,
@@ -737,20 +752,30 @@ export class FlowMediaAutomationEngine {
           if (!downloaded && result?.videoUrl && result.videoUrl.startsWith('http')) {
             const videoBuffer = await FlowVisualConfirmGuard.pollCondition<Buffer>(
               async () => {
-                const base64Data = await win.webContents.executeJavaScript(`
-                  (async function() {
-                    const res = await fetch(${JSON.stringify(result.videoUrl)});
-                    const blob = await res.blob();
-                    return new Promise((resolve) => {
-                      const reader = new FileReader();
-                      reader.onloadend = () => resolve(reader.result);
-                      reader.readAsDataURL(blob);
-                    });
-                  })()
-                `).catch(() => null);
-                if (base64Data && typeof base64Data === 'string') {
-                  const pure = base64Data.replace(/^data:video\/\w+;base64,/, '');
-                  return Buffer.from(pure, 'base64');
+                if (win && !win.isDestroyed() && win.webContents) {
+                  const base64Data = await win.webContents.executeJavaScript(`
+                    (async function() {
+                      const res = await fetch(${JSON.stringify(result.videoUrl)});
+                      const blob = await res.blob();
+                      return new Promise((resolve) => {
+                        const reader = new FileReader();
+                        reader.onloadend = () => resolve(reader.result);
+                        reader.readAsDataURL(blob);
+                      });
+                    })()
+                  `).catch(() => null);
+                  if (base64Data && typeof base64Data === 'string') {
+                    const pure = base64Data.replace(/^data:video\/\w+;base64,/, '');
+                    return Buffer.from(pure, 'base64');
+                  }
+                } else {
+                  const res = await fetch(result.videoUrl!).catch(() => null);
+                  if (res && res.ok) {
+                    const ab = await res.arrayBuffer();
+                    if (ab.byteLength > 0) {
+                      return Buffer.from(ab);
+                    }
+                  }
                 }
                 return false;
               },

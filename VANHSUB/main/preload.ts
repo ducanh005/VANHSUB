@@ -247,6 +247,9 @@ const vanhsub = {
     closeGeminiLogin: () => ipcRenderer.invoke('aiStudio:gemini:closeLogin'),
     logoutGeminiLogin: () => ipcRenderer.invoke('aiStudio:gemini:logout'),
 
+    // 1-Click Self-Test Diagnostics (Milestone 3)
+    selfTestDiagnostics: () => ipcRenderer.invoke('aiStudio:diagnostics:selfTest'),
+
     // Push Event Subscription (Returns unsubscribe function)
     onPipelineProgress: (callback: (event: any) => void) => {
       const subscription = (_event: any, data: any) => callback(data);
