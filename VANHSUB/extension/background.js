@@ -5,7 +5,8 @@
  * Nhận lệnh RPC, mint reCAPTCHA trong tab flow.google.com thật, và thực thi batchexecute.
  */
 
-const WS_URL = 'ws://127.0.0.1:9222';
+const WS_PORTS = [9222, 8765];
+let currentPortIndex = 0;
 const FLOW_URLS = [
   'https://flow.google.com/*',
   'https://labs.google/fx/tools/flow*',
@@ -28,6 +29,14 @@ function error(...args) {
   console.error('[VanhSub:background]', ...args);
 }
 
+function getExtensionVersion() {
+  try {
+    return chrome.runtime?.getManifest?.()?.version || '1.0.5';
+  } catch {
+    return '1.0.5';
+  }
+}
+
 // ── WebSocket Connection ───────────────────────────────────────────────────────
 
 function connectWebSocket() {
@@ -35,21 +44,24 @@ function connectWebSocket() {
     return;
   }
 
-  log('Đang kết nối tới VanhSub Desktop tại', WS_URL);
+  const port = WS_PORTS[currentPortIndex % WS_PORTS.length];
+  const wsUrl = `ws://127.0.0.1:${port}`;
+  log('Đang kết nối tới VanhSub Desktop tại', wsUrl);
 
   try {
-    ws = new WebSocket(WS_URL);
+    ws = new WebSocket(wsUrl);
 
     ws.onopen = () => {
-      log('✅ Đã kết nối thành công tới VanhSub Desktop!');
+      const ver = getExtensionVersion();
+      log(`✅ Đã kết nối thành công tới VanhSub Desktop (${wsUrl}, v${ver})!`);
       if (reconnectTimer) {
         clearInterval(reconnectTimer);
         reconnectTimer = null;
       }
-      // Gửi thông báo handshake
+      // Gửi thông báo handshake chuẩn version từ manifest.json
       send({
         type: 'HANDSHAKE',
-        version: '1.0.4',
+        version: ver,
         timestamp: Date.now(),
       });
     };
@@ -69,11 +81,15 @@ function connectWebSocket() {
     };
 
     ws.onerror = (err) => {
-      warn('WebSocket gặp lỗi:', err.message || 'Connection refused');
-      ws.close();
+      warn(`WebSocket gặp lỗi tại cổng ${port}:`, err?.message || 'Connection refused');
+      currentPortIndex = (currentPortIndex + 1) % WS_PORTS.length;
+      try {
+        ws.close();
+      } catch {}
     };
   } catch (err) {
     warn('Không thể mở WebSocket:', err.message);
+    currentPortIndex = (currentPortIndex + 1) % WS_PORTS.length;
     scheduleReconnect();
   }
 }
@@ -108,6 +124,23 @@ chrome.runtime.onConnect.addListener((port) => {
 
 // ── Tab Management ─────────────────────────────────────────────────────────────
 
+function isValidProjectId(id) {
+  if (!id || typeof id !== 'string') return false;
+  const trimmed = id.trim();
+  if (!trimmed || trimmed === '__PROJECT_ID_SLOT__' || trimmed === '__PROJECT_ID__') return false;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(trimmed) ||
+    (/^[a-zA-Z0-9_-]{8,}$/.test(trimmed) && !trimmed.startsWith('__'));
+}
+
+function extractProjectIdFromUrl(url) {
+  if (!url || typeof url !== 'string') return null;
+  const match = url.match(/\/project\/([0-9a-f-]{36}|[a-zA-Z0-9_-]{8,})/i);
+  if (match && isValidProjectId(match[1])) {
+    return match[1];
+  }
+  return null;
+}
+
 async function reviveTabIfNeeded(tab) {
   if (!tab || !tab.discarded) return tab;
   try {
@@ -119,9 +152,19 @@ async function reviveTabIfNeeded(tab) {
   }
 }
 
-async function getFlowTab() {
+async function getFlowTab(autoCreate = false, preferredProjectId = null) {
   const tabs = await chrome.tabs.query({ url: FLOW_URLS });
-  if (!tabs || tabs.length === 0) return null;
+  if (!tabs || tabs.length === 0) {
+    if (!autoCreate) return null;
+    const validPid = isValidProjectId(preferredProjectId) ? preferredProjectId.trim() : null;
+    const targetUrl = validPid
+      ? `https://labs.google/fx/vi/tools/flow/project/${validPid}`
+      : 'https://labs.google/fx/vi/tools/flow';
+    log(`🌐 Tự động mở tab Google Flow mới: ${targetUrl}`);
+    const created = await chrome.tabs.create({ url: targetUrl, active: true });
+    await waitForTabReady(created.id, 15000);
+    return await chrome.tabs.get(created.id);
+  }
   // Ưu tiên tab đang active hoặc tab không bị discarded
   const activeTab = tabs.find((t) => t.active);
   const readyTab = tabs.find((t) => !t.discarded);
@@ -140,27 +183,35 @@ async function handleMessage(msg) {
   }
 
   if (method === 'get_status') {
-    const tab = await getFlowTab();
+    const tab = await getFlowTab(false);
     let diag = null;
     let projectId = null;
+    const includeFullDiag = Boolean(params?.fullDiag || params?.includeSniffer);
 
     if (tab && tab.url) {
-      const match = tab.url.match(/\/project\/([0-9a-f-]{36})/i);
-      if (match) projectId = match[1];
+      projectId = extractProjectIdFromUrl(tab.url);
 
       try {
         const [exec] = await chrome.scripting.executeScript({
           target: { tabId: tab.id },
           world: 'MAIN',
-          func: () => {
+          args: [includeFullDiag],
+          func: (fullDiag) => {
             const wiz = globalThis.WIZ_global_data || {};
             const hasGrecaptcha = !!(globalThis.grecaptcha && globalThis.grecaptcha.enterprise);
-            return {
+            const base = {
               url: location.href,
               pathname: location.pathname,
               hasAtToken: !!wiz.SNlM0e,
               siteKey: wiz.xZbWve || null,
               hasGrecaptcha,
+              domInfo: {
+                hasProseMirror: !!document.querySelector('.ProseMirror'),
+              },
+            };
+            if (!fullDiag) return base;
+            return {
+              ...base,
               wizKeys: Object.keys(wiz),
               wizValues: Object.fromEntries(
                 Object.entries(wiz).filter(([k, v]) => typeof v === 'string' && v.length < 100)
@@ -637,12 +688,14 @@ async function handleMessage(msg) {
   }
 
   if (method === 'trigger_ui_gen') {
-    const tab = await getFlowTab();
+    let tab = await getFlowTab(true, params?.projectId);
     if (!tab) {
       send({ id, error: 'NO_FLOW_TAB' });
       return;
     }
     try {
+      const ensured = await ensureTabInProject(tab, params?.projectId);
+      tab = ensured.tab;
       const promptText = params.prompt || 'a drone shot over ocean waves';
       const clickTimestamp = Date.now();
 
@@ -817,10 +870,6 @@ async function handleMessage(msg) {
     }
     return;
   }
-      send({ id, error: err.message });
-    }
-    return;
-  }
 
   warn('Không nhận dạng được method:', method);
   send({ id, error: `UNKNOWN_METHOD: ${method}` });
@@ -856,34 +905,89 @@ function waitForTabReady(tabId, timeoutMs = 12000) {
   });
 }
 
+async function ensureTabInProject(tab, preferredProjectId) {
+  let currentTab = tab;
+  let tabProjectId = extractProjectIdFromUrl(currentTab?.url);
+  const validPreferredId = isValidProjectId(preferredProjectId) ? preferredProjectId.trim() : null;
+
+  // Nếu VanhSub chỉ định projectId hợp lệ cụ thể và tab hiện tại chưa ở đúng project đó:
+  if (validPreferredId && validPreferredId !== tabProjectId) {
+    tabProjectId = validPreferredId;
+    const baseOrigin = currentTab.url && currentTab.url.includes('labs.google')
+      ? 'https://labs.google/fx/vi/tools/flow/project/'
+      : 'https://flow.google.com/project/';
+    log(`🎯 Điều hướng tab tới project được chỉ định: "${tabProjectId}"...`);
+    await chrome.tabs.update(currentTab.id, { url: `${baseOrigin}${tabProjectId}` });
+    await waitForTabReady(currentTab.id, 10000);
+    currentTab = await chrome.tabs.get(currentTab.id);
+    tabProjectId = extractProjectIdFromUrl(currentTab?.url) || validPreferredId;
+  }
+
+  // Nếu tab đang ở trang sảnh (chưa vào /project/<uuid>), thử tự động click mở hoặc tạo dự án mới
+  if (!tabProjectId && currentTab?.id) {
+    try {
+      log('🔄 Tab đang ở trang chủ Flow, thử tự động vào dự án hoặc bấm "+ Dự án mới"...');
+      await chrome.scripting.executeScript({
+        target: { tabId: currentTab.id },
+        world: 'MAIN',
+        func: () => {
+          const link = document.querySelector('a[href*="/project/"]');
+          if (link) {
+            link.click();
+            return true;
+          }
+          const btns = Array.from(document.querySelectorAll('button, a, [role="button"]'));
+          const newProjBtn = btns.find((b) => {
+            const t = (b.innerText || b.getAttribute('aria-label') || '').toLowerCase();
+            return (
+              t.includes('new project') ||
+              t.includes('dự án mới') ||
+              t.includes('du an moi') ||
+              t.includes('tạo dự án') ||
+              t.includes('create project')
+            );
+          });
+          if (newProjBtn) {
+            newProjBtn.click();
+            return true;
+          }
+          return false;
+        },
+      });
+      // Chờ tối đa 8s để URL chuyển sang /project/<id>
+      for (let i = 0; i < 16; i++) {
+        await new Promise((r) => setTimeout(r, 500));
+        currentTab = await chrome.tabs.get(currentTab.id);
+        tabProjectId = extractProjectIdFromUrl(currentTab?.url);
+        if (tabProjectId) {
+          await waitForTabReady(currentTab.id, 6000);
+          break;
+        }
+      }
+    } catch (e) {
+      warn('Không thể tự động click vào project từ trang chủ:', e?.message);
+    }
+  }
+
+  return { tab: currentTab, projectId: tabProjectId };
+}
+
 async function runBatchRpc(cmd) {
-  let tab = await getFlowTab();
+  let tab = await getFlowTab(true, cmd?.projectId);
   if (!tab) {
     return {
       error: 'NO_FLOW_TAB: Vui lòng mở 1 tab https://flow.google.com/ trên Google Chrome để thực hiện request.',
     };
   }
 
-  // 1. Kiểm tra xem tab có đang ở trong project cụ thể nào không
-  let tabProjectId = null;
-  if (tab.url) {
-    const m = tab.url.match(/\/project\/([0-9a-f-]{36})/i);
-    if (m) tabProjectId = m[1];
-  }
+  const ensured = await ensureTabInProject(tab, cmd?.projectId);
+  tab = ensured.tab;
+  const tabProjectId = ensured.projectId;
 
-  // Nếu VanhSub chỉ định projectId cụ thể và tab hiện tại chưa ở đúng project đó:
-  if (cmd.projectId && cmd.projectId !== tabProjectId) {
-    tabProjectId = cmd.projectId;
-    log(`🎯 Điều hướng tab tới project được chỉ định: "${tabProjectId}"...`);
-    await chrome.tabs.update(tab.id, { url: `https://flow.google.com/project/${tabProjectId}` });
-    await waitForTabReady(tab.id, 10000);
-    tab = await chrome.tabs.get(tab.id);
-  }
-
-  // Nếu vẫn chưa có project (tab đang ở trang chủ và VanhSub không chỉ định projectId cụ thể):
+  // Nếu vẫn chưa có project (tab đang ở trang chủ hoặc trang đăng nhập):
   if (!tabProjectId) {
     return {
-      error: 'TAB_NOT_IN_PROJECT: Tab Google Chrome hiện đang ở trang chủ (https://flow.google.com/). Vui lòng click mở một Dự án (Project) của bạn trên Google Chrome (hoặc bấm "+ New project") để vào trang làm việc của dự án trước khi tạo ảnh/video!',
+      error: 'TAB_NOT_IN_PROJECT: Tab Google Chrome hiện chưa ở trong trang dự án (https://flow.google.com/). Vui lòng đăng nhập và bấm mở một Dự án (Project) hoặc "+ New project" trên Google Chrome!',
     };
   }
 
@@ -894,8 +998,8 @@ async function runBatchRpc(cmd) {
   freqStr = freqStr.split('__PROJECT_ID_SLOT__').join(effectiveProjectId);
   freqStr = freqStr.split('__PROJECT_ID__').join(effectiveProjectId);
 
-  // 2. Nếu cmd.projectId được cung cấp và khác effectiveProjectId, thay thế nó
-  if (cmd.projectId && cmd.projectId !== effectiveProjectId) {
+  // 2. Nếu cmd.projectId hợp lệ được cung cấp và khác effectiveProjectId, thay thế nó
+  if (isValidProjectId(cmd.projectId) && cmd.projectId !== effectiveProjectId) {
     log(`🎯 Thay thế projectId "${cmd.projectId}" → project thật "${effectiveProjectId}"`);
     freqStr = freqStr.split(cmd.projectId).join(effectiveProjectId);
   }

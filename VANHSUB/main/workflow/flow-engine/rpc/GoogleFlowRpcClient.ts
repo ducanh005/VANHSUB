@@ -38,6 +38,9 @@ import {
   RPC_UPLOAD_IMAGE,
   OPERATION_POLL_INTERVAL_MS,
   OPERATION_POLL_TIMEOUT_MS,
+  IMAGE_GEN_TIMEOUT_MS,
+  VIDEO_GEN_TIMEOUT_MS,
+  PREFLIGHT_CHECK_TIMEOUT_MS,
   RPC_REQUEST_TIMEOUT_MS,
   RPC_TRANSIENT_RETRY_DELAY_MS,
   IMAGE_TRANSIENT_MAX_RETRIES,
@@ -1423,8 +1426,9 @@ export class GoogleFlowRpcClient {
     // Kiểm tra Chrome Extension Bridge nếu đang active
     const bridge = FlowBridgeServer.getInstance();
     if (bridge.isConnected()) {
+      const effectivePid = projectId && projectId !== PROJECT_ID_SLOT ? projectId : undefined;
       const uploadPayload = buildUploadPayload({
-        projectId,
+        projectId: effectivePid || PROJECT_ID_SLOT,
         base64Data,
         mimeType,
         filename,
@@ -1434,7 +1438,7 @@ export class GoogleFlowRpcClient {
         RPC_UPLOAD_IMAGE,
         uploadPayload,
         CAPTCHA_ACTION_IMAGE,
-        projectId
+        effectivePid
       );
       const res = parseBatchResponse(rawText, RPC_UPLOAD_IMAGE);
       if (!res.ok) {
@@ -1667,6 +1671,21 @@ export class GoogleFlowRpcClient {
         });
       }
 
+      const timeoutMs = (params as any).timeoutMs || IMAGE_GEN_TIMEOUT_MS;
+      let timeoutTimer: NodeJS.Timeout | null = null;
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        timeoutTimer = setTimeout(() => {
+          reject(
+            new GoogleFlowRpcError(
+              `Quá thời gian sinh ảnh từ Google Flow (Timeout ${Math.round(timeoutMs / 1000)}s). Vui lòng thử lại hoặc kết nối Chrome Bridge.`,
+              { code: 'TIMEOUT', retryable: true, suggestedAction: 'RETRY_WITH_BACKOFF' }
+            )
+          );
+        }, timeoutMs);
+      });
+
+      const executeGen = async (): Promise<RpcGenerateImageResult> => {
+
       const rawRefs: unknown =
         params.referenceAssets ||
         params.reference_assets ||
@@ -1681,7 +1700,7 @@ export class GoogleFlowRpcClient {
       const bridge = FlowBridgeServer.getInstance();
       if (bridge.isConnected()) {
         let finalProjectId = projectId?.trim() || '';
-        if (!finalProjectId) {
+        if (!finalProjectId || finalProjectId === PROJECT_ID_SLOT) {
           try {
             const tabInfo = await bridge.getFlowTabInfo(3000);
             if (tabInfo && tabInfo.projectId) {
@@ -1689,19 +1708,35 @@ export class GoogleFlowRpcClient {
             }
           } catch {}
         }
-        if (!finalProjectId) {
-          finalProjectId = PROJECT_ID_SLOT;
+        const cleanProjectId = finalProjectId && finalProjectId !== PROJECT_ID_SLOT ? finalProjectId : undefined;
+        const payloadProjectId = cleanProjectId || PROJECT_ID_SLOT;
+
+        // Tự động upload các referenceMediaIds là đường dẫn file cục bộ trên đĩa
+        const resolvedRefIds: string[] = [];
+        for (const refItem of referenceMediaIds) {
+          if (refItem && !this._sessionAdapter && fs.existsSync(refItem)) {
+            try {
+              const upRes = await this.uploadAsset({ filePath: refItem, projectId: cleanProjectId || '', win });
+              if (upRes?.mediaId) {
+                resolvedRefIds.push(upRes.mediaId);
+                continue;
+              }
+            } catch (upErr: any) {
+              console.warn(`[GoogleFlowRpcClient] Không thể upload ảnh tham chiếu "${refItem}":`, upErr?.message || upErr);
+            }
+          }
+          resolvedRefIds.push(refItem);
         }
 
-        console.log(`[GoogleFlowRpcClient] 🌐 [Chrome Extension Bridge] Đang tạo ảnh (project: ${finalProjectId}): "${prompt.slice(0, 40)}"...`);
+        console.log(`[GoogleFlowRpcClient] 🌐 [Chrome Extension Bridge] Đang tạo ảnh (project: ${cleanProjectId || 'auto-tab'}): "${prompt.slice(0, 40)}"...`);
         const innerPayload = buildGenImagePayload({
           prompt,
           aspectRatio,
           outputCount,
-          referenceMediaIds,
+          referenceMediaIds: resolvedRefIds,
           baseImageMediaId: baseImageAsset,
           imageModel,
-          projectId: finalProjectId,
+          projectId: payloadProjectId,
           editAssetId,
           captchaToken: CAPTCHA_SLOT,
           seed,
@@ -1713,7 +1748,7 @@ export class GoogleFlowRpcClient {
             RPC_GEN_IMAGE,
             innerPayload,
             CAPTCHA_ACTION_IMAGE,
-            finalProjectId
+            cleanProjectId
           );
         } catch (bridgeErr: any) {
           throw classifyFlowRpcError(bridgeErr);
@@ -1724,7 +1759,7 @@ export class GoogleFlowRpcClient {
           if (errStr.includes('PUBLIC_ERROR_UNUSUAL_ACTIVITY')) {
             console.warn('[GoogleFlowRpcClient] 🛡️ Pure RPC bị Google chặn (UNUSUAL_ACTIVITY). Tự động kích hoạt cơ chế Native UI DOM Trigger trên Chrome...');
             try {
-              const uiRes = await bridge.triggerUiGen(prompt, 30000);
+              const uiRes = await bridge.triggerUiGen(prompt, 45000, cleanProjectId);
               console.log('[GoogleFlowRpcClient] 🔍 uiRes result:', JSON.stringify(uiRes)?.slice(0, 300));
               if (uiRes && uiRes.ok && uiRes.capturedRpc && uiRes.capturedRpc.response) {
                 const uiParsed = parseBatchResponse(uiRes.capturedRpc.response, RPC_GEN_IMAGE);
@@ -1846,6 +1881,13 @@ export class GoogleFlowRpcClient {
       }
 
       throw lastGenErr ? classifyFlowRpcError(lastGenErr) : new GoogleFlowRpcError('Sinh ảnh thất bại.', { code: 'UNKNOWN' });
+      };
+
+      try {
+        return await Promise.race([executeGen(), timeoutPromise]);
+      } finally {
+        if (timeoutTimer) clearTimeout(timeoutTimer);
+      }
     }, 'google_flow_rpc_generate_image');
   }
 
@@ -1930,35 +1972,66 @@ export class GoogleFlowRpcClient {
         });
       }
 
+      const timeoutMs = (params as any).timeoutMs || VIDEO_GEN_TIMEOUT_MS;
+      let timeoutTimer: NodeJS.Timeout | null = null;
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        timeoutTimer = setTimeout(() => {
+          reject(
+            new GoogleFlowRpcError(
+              `Quá thời gian gửi yêu cầu tạo video từ Google Flow (Timeout ${Math.round(timeoutMs / 1000)}s).`,
+              { code: 'TIMEOUT', retryable: true, suggestedAction: 'RETRY_WITH_BACKOFF' }
+            )
+          );
+        }, timeoutMs);
+      });
+
+      const executeGenVideo = async (): Promise<RpcGenerateVideoResult> => {
+
       const parsedDuration = typeof duration === 'string' ? parseInt(duration, 10) : duration;
       const durationSec = parsedDuration && parsedDuration > 0 ? parsedDuration : 8;
 
       // Kiểm tra Extension Bridge nếu đang active trên Chrome
       const bridge = FlowBridgeServer.getInstance();
       if (bridge.isConnected()) {
-        let finalProjectId = projectId?.trim() || '';
-        if (!finalProjectId) {
+        let resolvedProjectId = (projectId && projectId !== PROJECT_ID_SLOT) ? projectId.trim() : '';
+        if (!resolvedProjectId) {
           try {
             const tabInfo = await bridge.getFlowTabInfo(3000);
-            if (tabInfo && tabInfo.projectId) {
-              finalProjectId = tabInfo.projectId;
+            if (tabInfo && tabInfo.projectId && tabInfo.projectId !== PROJECT_ID_SLOT) {
+              resolvedProjectId = tabInfo.projectId;
             }
           } catch {}
         }
-        if (!finalProjectId) {
-          finalProjectId = PROJECT_ID_SLOT;
+        const payloadProjectId = resolvedProjectId || PROJECT_ID_SLOT;
+        const bridgeProjectId = resolvedProjectId || undefined;
+
+        let resolvedVideoAsset = inputImageAsset;
+        if (
+          resolvedVideoAsset &&
+          (resolvedVideoAsset.includes('/') || resolvedVideoAsset.includes('\\')) &&
+          fs.existsSync(resolvedVideoAsset)
+        ) {
+          try {
+            console.log(`[GoogleFlowRpcClient] 📤 Tự động upload frame đầu cho video từ đường dẫn local: ${resolvedVideoAsset}`);
+            const uploaded = await this.uploadAsset(null, resolvedVideoAsset, bridgeProjectId || '');
+            if (uploaded?.mediaId) {
+              resolvedVideoAsset = uploaded.mediaId;
+            }
+          } catch (upErr: any) {
+            console.warn(`[GoogleFlowRpcClient] ⚠️ Không thể upload frame đầu ${resolvedVideoAsset}: ${upErr?.message || upErr}`);
+          }
         }
 
-        console.log(`[GoogleFlowRpcClient] 🌐 [Chrome Extension Bridge] Đang tạo video (project: ${finalProjectId}): "${prompt.slice(0, 40)}"...`);
-        const rpcName = inputImageAsset ? RPC_GEN_VIDEO_REFERENCES : RPC_GEN_VIDEO_TEXT;
-        const innerPayload = inputImageAsset
+        console.log(`[GoogleFlowRpcClient] 🌐 [Chrome Extension Bridge] Đang tạo video (project: ${bridgeProjectId || 'auto-tab'}): "${prompt.slice(0, 40)}"...`);
+        const rpcName = resolvedVideoAsset ? RPC_GEN_VIDEO_REFERENCES : RPC_GEN_VIDEO_TEXT;
+        const innerPayload = resolvedVideoAsset
           ? buildGenVideoPayload({
-              imageMediaId: inputImageAsset,
+              imageMediaId: resolvedVideoAsset,
               aspectRatio,
               durationSeconds: durationSec,
               videoModel,
               prompt,
-              projectId: finalProjectId,
+              projectId: payloadProjectId,
               captchaToken: CAPTCHA_SLOT,
               audio,
             })
@@ -1967,7 +2040,7 @@ export class GoogleFlowRpcClient {
               aspectRatio,
               durationSeconds: durationSec,
               videoModel,
-              projectId: finalProjectId,
+              projectId: payloadProjectId,
               captchaToken: CAPTCHA_SLOT,
               audio,
             });
@@ -1978,7 +2051,7 @@ export class GoogleFlowRpcClient {
             rpcName,
             innerPayload,
             CAPTCHA_ACTION_VIDEO,
-            finalProjectId
+            bridgeProjectId
           );
         } catch (bridgeErr: any) {
           throw classifyFlowRpcError(bridgeErr);
@@ -1989,7 +2062,7 @@ export class GoogleFlowRpcClient {
           if (errStr.includes('PUBLIC_ERROR_UNUSUAL_ACTIVITY')) {
             console.warn('[GoogleFlowRpcClient] 🛡️ Pure RPC video bị Google chặn (UNUSUAL_ACTIVITY). Tự động kích hoạt cơ chế Native UI DOM Trigger trên Chrome...');
             try {
-              const uiRes = await bridge.triggerUiGen(prompt, 30000);
+              const uiRes = await bridge.triggerUiGen(prompt, 30000, bridgeProjectId);
               console.log('[GoogleFlowRpcClient] 🔍 uiRes video result:', JSON.stringify(uiRes)?.slice(0, 300));
               if (uiRes && uiRes.ok && uiRes.capturedRpc && uiRes.capturedRpc.response) {
                 const capturedRpcId = uiRes.capturedRpc.rpcid || rpcName;
@@ -2018,7 +2091,7 @@ export class GoogleFlowRpcClient {
         }
         return {
           operationId: opStatus.operationId,
-          projectId: opStatus.projectId || finalProjectId,
+          projectId: opStatus.projectId || resolvedProjectId || projectId,
           status: opStatus.status || 'RUNNING',
           done: opStatus.done,
           videoUrl: opStatus.videoUrl,
@@ -2154,6 +2227,13 @@ export class GoogleFlowRpcClient {
       }
 
       throw lastVideoErr ? classifyFlowRpcError(lastVideoErr) : new GoogleFlowRpcError('Sinh video thất bại.', { code: 'UNKNOWN' });
+      };
+
+      try {
+        return await Promise.race([executeGenVideo(), timeoutPromise]);
+      } finally {
+        if (timeoutTimer) clearTimeout(timeoutTimer);
+      }
     }, 'google_flow_rpc_generate_video');
   }
 
@@ -2240,15 +2320,26 @@ export class GoogleFlowRpcClient {
       pollCount++;
 
       try {
-        const innerPayload = buildPollOperationPayload(operationId, projectId);
-        let data: unknown;
         const bridge = FlowBridgeServer.getInstance();
+        let resolvedPollProjectId = (projectId && projectId !== PROJECT_ID_SLOT) ? projectId.trim() : '';
+        if (bridge.isConnected() && !resolvedPollProjectId) {
+          try {
+            const tabInfo = await bridge.getFlowTabInfo(3000);
+            if (tabInfo && tabInfo.projectId && tabInfo.projectId !== PROJECT_ID_SLOT) {
+              resolvedPollProjectId = tabInfo.projectId;
+            }
+          } catch {}
+        }
+        const payloadPollProjectId = resolvedPollProjectId || projectId || PROJECT_ID_SLOT;
+        const bridgePollProjectId = resolvedPollProjectId || undefined;
+        const innerPayload = buildPollOperationPayload(operationId, payloadPollProjectId);
+        let data: unknown;
         if (bridge.isConnected()) {
           const rawText = await bridge.sendBatchRpc(
             RPC_OPERATION,
             innerPayload,
             undefined,
-            projectId
+            bridgePollProjectId
           );
           const res = parseBatchResponse(rawText, RPC_OPERATION);
           if (!res.ok) {

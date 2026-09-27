@@ -216,16 +216,25 @@ export const RESPONSE_SENTINEL = ")]}'\n";
 // ── Retry / Timing ────────────────────────────────────────────────────────────
 
 /** Poll interval khi chờ video generation (ms) */
-export const OPERATION_POLL_INTERVAL_MS = 5000;
+export const OPERATION_POLL_INTERVAL_MS = 4000;
 
-/** Timeout tối đa chờ video generation (ms) — 15 phút */
-export const OPERATION_POLL_TIMEOUT_MS = 15 * 60 * 1000;
+/** Timeout tối đa chờ video generation (ms) — Hard Timeout 60 giây theo chính sách hệ thống */
+export const OPERATION_POLL_TIMEOUT_MS = 60_000;
+
+/** Timeout cho lệnh sinh ảnh Imagen / Nano RPC (ms) — Hard Timeout 45 giây */
+export const IMAGE_GEN_TIMEOUT_MS = 45_000;
+
+/** Timeout cho lệnh gửi sinh video Veo RPC (ms) — Hard Timeout 60 giây */
+export const VIDEO_GEN_TIMEOUT_MS = 60_000;
+
+/** Timeout cho khâu kiểm tra tiền kiểm session/lobby (ms) — Hard Timeout 8 giây */
+export const PREFLIGHT_CHECK_TIMEOUT_MS = 8_000;
 
 /** Timeout cho 1 batchexecute HTTP request (ms) */
-export const RPC_REQUEST_TIMEOUT_MS = 60_000;
+export const RPC_REQUEST_TIMEOUT_MS = 45_000;
 
 /** Delay retry khi gặp lỗi transient (ms) */
-export const RPC_TRANSIENT_RETRY_DELAY_MS = 8_000;
+export const RPC_TRANSIENT_RETRY_DELAY_MS = 6_000;
 
 /** Số lần retry tối đa cho image generation (FlowKit: IMAGE_TRANSIENT_MAX_ATTEMPTS = 2) */
 export const IMAGE_TRANSIENT_MAX_RETRIES = 2;

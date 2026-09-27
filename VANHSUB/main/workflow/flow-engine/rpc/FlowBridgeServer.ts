@@ -56,9 +56,13 @@ interface PendingRequest {
 export class FlowBridgeServer {
   private static _instance: FlowBridgeServer | null = null;
   private wss: WebSocketServer | null = null;
+  private secondaryWss: WebSocketServer | null = null;
   private clients = new Set<WebSocket>();
   private pendingRequests = new Map<string, PendingRequest>();
   private port = BRIDGE_WS_PORT;
+  private lastAutoReloadAt = 0;
+  private cachedTabInfo: { data: any; fetchedAt: number } | null = null;
+  private inflightTabInfoPromise: Promise<any> | null = null;
 
   private constructor() {}
 
@@ -70,8 +74,59 @@ export class FlowBridgeServer {
     return g.__flowBridgeServerInstance;
   }
 
+  public getPort(): number {
+    return this.port;
+  }
+
+  private attachServerHandlers(server: WebSocketServer, listenPort: number, isPrimary: boolean): void {
+    server.on('listening', () => {
+      if (isPrimary) {
+        this.port = listenPort;
+      }
+      console.log(`[FlowBridgeServer] 🌐 WebSocket Server đang lắng nghe tại ws://127.0.0.1:${listenPort}`);
+    });
+
+    server.on('connection', (ws: WebSocket) => {
+      console.log(`[FlowBridgeServer] 🔌 Đã có Chrome Extension kết nối vào VanhSub (port ${listenPort})!`);
+      this.clients.add(ws);
+      this.cachedTabInfo = null;
+
+      ws.on('message', (data: any) => {
+        try {
+          const msg = JSON.parse(data.toString());
+          this.handleIncomingMessage(msg);
+        } catch (e: any) {
+          console.error('[FlowBridgeServer] Lỗi phân tích cú pháp message từ Extension:', e.message);
+        }
+      });
+
+      ws.on('close', () => {
+        console.log('[FlowBridgeServer] 🔌 Chrome Extension đã ngắt kết nối.');
+        this.clients.delete(ws);
+        this.cachedTabInfo = null;
+      });
+
+      ws.on('error', (err: any) => {
+        console.warn('[FlowBridgeServer] WebSocket client error:', err.message);
+        this.clients.delete(ws);
+      });
+    });
+
+    server.on('error', (err: any) => {
+      if (err?.code === 'EADDRINUSE') {
+        console.warn(`[FlowBridgeServer] ⚠️ Cổng ${listenPort} đang bận (EADDRINUSE), sử dụng cổng dự phòng.`);
+        if (isPrimary && listenPort !== 8765) {
+          this.port = 8765;
+        }
+      } else {
+        console.error(`[FlowBridgeServer] ❌ Lỗi WebSocket Server (port ${listenPort}):`, err.message);
+      }
+    });
+  }
+
   /**
    * Khởi động WebSocket Server lắng nghe kết nối từ Chrome Extension.
+   * Lắng nghe đồng thời cổng chính (9222) và cổng dự phòng (8765) để tránh xung đột cổng CDP.
    */
   public start(port = BRIDGE_WS_PORT): void {
     if (this.wss) return;
@@ -79,40 +134,19 @@ export class FlowBridgeServer {
 
     try {
       this.wss = new WebSocketServer({ port: this.port, host: '127.0.0.1' });
-
-      this.wss.on('listening', () => {
-        console.log(`[FlowBridgeServer] 🌐 WebSocket Server đang lắng nghe tại ws://127.0.0.1:${this.port}`);
-      });
-
-      this.wss.on('connection', (ws: WebSocket) => {
-        console.log('[FlowBridgeServer] 🔌 Đã có Chrome Extension kết nối vào VanhSub!');
-        this.clients.add(ws);
-
-        ws.on('message', (data: any) => {
-          try {
-            const msg = JSON.parse(data.toString());
-            this.handleIncomingMessage(msg);
-          } catch (e: any) {
-            console.error('[FlowBridgeServer] Lỗi phân tích cú pháp message từ Extension:', e.message);
-          }
-        });
-
-        ws.on('close', () => {
-          console.log('[FlowBridgeServer] 🔌 Chrome Extension đã ngắt kết nối.');
-          this.clients.delete(ws);
-        });
-
-        ws.on('error', (err: any) => {
-          console.warn('[FlowBridgeServer] WebSocket client error:', err.message);
-          this.clients.delete(ws);
-        });
-      });
-
-      this.wss.on('error', (err: any) => {
-        console.error('[FlowBridgeServer] ❌ Lỗi WebSocket Server:', err.message);
-      });
+      this.attachServerHandlers(this.wss, this.port, true);
     } catch (err: any) {
-      console.error('[FlowBridgeServer] ❌ Không thể khởi động WebSocket Server:', err.message);
+      console.error('[FlowBridgeServer] ❌ Không thể khởi động WebSocket Server chính:', err.message);
+    }
+
+    const backupPort = this.port === 8765 ? 9222 : 8765;
+    if (!this.secondaryWss) {
+      try {
+        this.secondaryWss = new WebSocketServer({ port: backupPort, host: '127.0.0.1' });
+        this.attachServerHandlers(this.secondaryWss, backupPort, false);
+      } catch (err: any) {
+        console.warn(`[FlowBridgeServer] Không thể mở cổng phụ ${backupPort}:`, err.message);
+      }
     }
   }
 
@@ -120,15 +154,22 @@ export class FlowBridgeServer {
    * Dừng WebSocket Server.
    */
   public stop(): void {
-    if (!this.wss) return;
+    if (!this.wss && !this.secondaryWss) return;
     for (const [id, req] of this.pendingRequests.entries()) {
       clearTimeout(req.timer);
       req.reject(new Error('FlowBridgeServer stopped'));
       this.pendingRequests.delete(id);
     }
     this.clients.clear();
-    this.wss.close();
-    this.wss = null;
+    this.cachedTabInfo = null;
+    if (this.wss) {
+      try { this.wss.close(); } catch {}
+      this.wss = null;
+    }
+    if (this.secondaryWss) {
+      try { this.secondaryWss.close(); } catch {}
+      this.secondaryWss = null;
+    }
     console.log('[FlowBridgeServer] Đã tắt WebSocket Server.');
   }
 
@@ -136,7 +177,17 @@ export class FlowBridgeServer {
    * Kiểm tra xem hiện có Extension nào đang kết nối không.
    */
   public isConnected(): boolean {
-    return this.clients.size > 0;
+    for (const ws of this.clients) {
+      if (ws.readyState === WebSocket.OPEN) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Alias tương thích ngược kiểm tra kết nối WebSocket của Chrome Extension.
+   */
+  public isExtensionConnected(): boolean {
+    return this.isConnected();
   }
 
   /**
@@ -144,7 +195,7 @@ export class FlowBridgeServer {
    */
   public getStatus(): { running: boolean; connected: boolean; clientCount: number; port: number } {
     return {
-      running: !!this.wss,
+      running: !!(this.wss || this.secondaryWss),
       connected: this.isConnected(),
       clientCount: this.clients.size,
       port: this.port,
@@ -153,8 +204,9 @@ export class FlowBridgeServer {
 
   /**
    * Lấy thông tin chẩn đoán về tab Flow đang mở trên Chrome (URL, Project ID, grecaptcha...).
+   * Có cache ngắn hạn 2s để tránh nghẽn khi nhiều component UI poll cùng lúc.
    */
-  public async getFlowTabInfo(timeoutMs = 5000): Promise<any> {
+  public async getFlowTabInfo(timeoutMs = 5000, fullDiag = false): Promise<any> {
     if (!this.isConnected()) {
       return { connected: false, error: 'Extension chưa kết nối' };
     }
@@ -163,21 +215,42 @@ export class FlowBridgeServer {
       return { connected: false, error: 'Không tìm thấy client WebSocket hợp lệ' };
     }
 
+    if (!fullDiag && this.cachedTabInfo && Date.now() - this.cachedTabInfo.fetchedAt < 2000) {
+      return this.cachedTabInfo.data;
+    }
+    if (!fullDiag && this.inflightTabInfoPromise) {
+      return this.inflightTabInfoPromise;
+    }
+
     const id = uuidv4();
-    return new Promise((resolve) => {
+    const reqPromise = new Promise((resolve) => {
       const timer = setTimeout(() => {
         this.pendingRequests.delete(id);
         resolve({ connected: true, error: 'Timeout khi lấy thông tin tab từ Chrome' });
       }, timeoutMs);
 
       this.pendingRequests.set(id, {
-        resolve: (res: any) => resolve(res),
+        resolve: (res: any) => {
+          if (!fullDiag && res && !res.error) {
+            this.cachedTabInfo = { data: res, fetchedAt: Date.now() };
+          }
+          resolve(res);
+        },
         reject: (err: any) => resolve({ connected: true, error: err?.message || String(err) }),
         timer,
       });
 
-      client.send(JSON.stringify({ id, method: 'get_status', params: {} }));
+      client.send(JSON.stringify({ id, method: 'get_status', params: { fullDiag } }));
+    }).finally(() => {
+      if (!fullDiag) {
+        this.inflightTabInfoPromise = null;
+      }
     });
+
+    if (!fullDiag) {
+      this.inflightTabInfoPromise = reqPromise;
+    }
+    return reqPromise;
   }
 
   /**
@@ -267,7 +340,7 @@ export class FlowBridgeServer {
    * Kích hoạt tạo ảnh/video trực tiếp qua giao diện Chrome tab (nhập prompt và click nút tạo thật)
    * Giúp reCAPTCHA nhận diện tương tác người dùng thật 100%, không bị đánh dấu bot.
    */
-  public async triggerUiGen(prompt: string, timeoutMs = 20000): Promise<any> {
+  public async triggerUiGen(prompt: string, timeoutMs = 45000, projectId?: string): Promise<any> {
     if (!this.isConnected()) return { error: 'NOT_CONNECTED' };
     const client = this.getFirstActiveClient();
     if (!client) return { error: 'NO_CLIENT' };
@@ -285,7 +358,7 @@ export class FlowBridgeServer {
         timer,
       });
 
-      client.send(JSON.stringify({ id, method: 'trigger_ui_gen', params: { prompt } }));
+      client.send(JSON.stringify({ id, method: 'trigger_ui_gen', params: { prompt, projectId } }));
     });
   }
 
@@ -424,7 +497,8 @@ export class FlowBridgeServer {
     if (type === 'HANDSHAKE') {
       const ver = msg.version || '1.0.0';
       console.log(`[FlowBridgeServer] 🤝 Nhận handshake từ Extension v${ver}`);
-      if (ver !== '1.0.5') {
+      if (ver !== '1.0.5' && Date.now() - this.lastAutoReloadAt > 60_000) {
+        this.lastAutoReloadAt = Date.now();
         console.log(`[FlowBridgeServer] 🔄 Phát hiện Extension v${ver} cũ. Tự động yêu cầu Extension reload lên v1.0.5...`);
         setTimeout(() => {
           this.reloadExtension().catch(() => {});
