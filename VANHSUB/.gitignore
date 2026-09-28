@@ -35,6 +35,7 @@ flow_outputs/
 .agents/orchestrator_*
 .agents/victory_*
 .agents/explorer_*
+.agents/teamwork*
 .agents/teamwork_preview_*
 .agents/implementer_*
 .agents/reviewer_*

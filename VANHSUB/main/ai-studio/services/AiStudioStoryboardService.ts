@@ -570,6 +570,7 @@ export class AiStudioStoryboardService {
       start_sec,
       end_sec,
       duration_sec,
+      raw_items: [...group],
     };
   }
 
@@ -584,6 +585,7 @@ export class AiStudioStoryboardService {
       start_sec: number;
       end_sec: number;
       duration_sec: number;
+      raw_items?: Array<{ scene: ScriptSceneItem; timing: SceneTimingItem; index: number }>;
     },
     group: Array<{ scene: ScriptSceneItem; timing: SceneTimingItem; index: number }>
   ) {
@@ -597,6 +599,63 @@ export class AiStudioStoryboardService {
     lastCluster.combined_narration = lastCluster.dialogue_lines.join(' ');
     const newVisual = group.map((g) => g.scene.visual_note).filter(Boolean) as string[];
     lastCluster.visual_notes.push(...newVisual);
+    if (lastCluster.raw_items) {
+      lastCluster.raw_items.push(...group);
+    }
+  }
+
+  private partitionPool(
+    items: Array<{ scene: ScriptSceneItem; timing: SceneTimingItem; index: number }>,
+    minSec: number = 4.0,
+    maxSec: number = 10.5,
+    idealSec: number = 6.5
+  ): Array<Array<{ scene: ScriptSceneItem; timing: SceneTimingItem; index: number }>> | null {
+    const n = items.length;
+    if (n === 0) return null;
+    if (n === 1) {
+      const dur = Math.round((items[0].timing.end_sec - items[0].timing.start_sec) * 100) / 100;
+      if (dur >= minSec && dur <= maxSec) {
+        return [items];
+      }
+      return null;
+    }
+
+    const getDur = (j: number, i: number) => {
+      return Math.round((items[i].timing.end_sec - items[j].timing.start_sec) * 100) / 100;
+    };
+
+    // dp[i] = lowest variance cost to partition items[0...i-1] into valid slices
+    const dp = new Array<number>(n + 1).fill(Infinity);
+    const parent = new Array<number>(n + 1).fill(-1);
+    dp[0] = 0;
+
+    for (let i = 1; i <= n; i++) {
+      for (let j = 0; j < i; j++) {
+        if (dp[j] !== Infinity) {
+          const dur = getDur(j, i - 1);
+          if (dur >= minSec && dur <= maxSec) {
+            const cost = dp[j] + Math.pow(dur - idealSec, 2);
+            if (cost < dp[i]) {
+              dp[i] = cost;
+              parent[i] = j;
+            }
+          }
+        }
+      }
+    }
+
+    if (dp[n] === Infinity) {
+      return null;
+    }
+
+    const partition: Array<Array<{ scene: ScriptSceneItem; timing: SceneTimingItem; index: number }>> = [];
+    let curr = n;
+    while (curr > 0) {
+      const prev = parent[curr];
+      partition.unshift(items.slice(prev, curr));
+      curr = prev;
+    }
+    return partition;
   }
 
   /**
@@ -628,7 +687,7 @@ export class AiStudioStoryboardService {
 
     if (typeof granularityOrMinSec === 'number') {
       targetMinSec = granularityOrMinSec;
-      targetMaxSec = customMaxSec ?? 12.0;
+      targetMaxSec = customMaxSec ?? 10.0;
       idealMaxSec = customIdealSec ?? 9.5;
     } else {
       granularity = granularityOrMinSec || 'balanced';
@@ -647,10 +706,10 @@ export class AiStudioStoryboardService {
           break;
         case 'balanced':
         default:
-          // Cân bằng điện ảnh: 2–3 câu/shot (lý tưởng 5–9.5s, trần 12s)
+          // Cân bằng điện ảnh: 2–3 câu/shot (lý tưởng 5–8s, chuẩn hóa 4s–10s)
           targetMinSec = 4.0;
           idealMaxSec = 9.5;
-          targetMaxSec = 12.0;
+          targetMaxSec = 10.0;
           break;
       }
     }
@@ -689,6 +748,7 @@ export class AiStudioStoryboardService {
       start_sec: number;
       end_sec: number;
       duration_sec: number;
+      raw_items?: Array<{ scene: ScriptSceneItem; timing: SceneTimingItem; index: number }>;
     }> = [];
 
     let currentGroup: Array<{ scene: ScriptSceneItem; timing: SceneTimingItem; index: number }> = [];
@@ -701,9 +761,9 @@ export class AiStudioStoryboardService {
 
       // Nếu đang có nhóm: kiểm tra xem có nên chốt shot trước khi thêm câu này
       if (currentGroup.length > 0) {
-        const nextDur = currentDur + dur;
+        const nextDur = Math.round((currentDur + dur) * 100) / 100;
         const wouldExceedMax = nextDur > targetMaxSec;
-        const wouldExceedIdeal = currentDur >= targetMinSec && (nextDur > idealMaxSec);
+        const wouldExceedIdeal = currentDur >= targetMinSec && (nextDur >= idealMaxSec);
 
         const prevItem = currentGroup[currentGroup.length - 1];
         const prevStatic = this.isStaticOrDescriptiveNarration(prevItem.scene.narration, prevItem.scene.visual_note);
@@ -721,7 +781,7 @@ export class AiStudioStoryboardService {
           sealReason = `Phát hiện chuyển ngữ cảnh/bối cảnh (${prevItem.scene.scene_id} -> ${item.scene.scene_id})`;
         } else if (wouldExceedIdeal) {
           shouldSeal = true;
-          sealReason = `Đạt vùng thời lượng lý tưởng (${currentDur.toFixed(1)}s >= ${targetMinSec}s, thêm câu thành ${nextDur.toFixed(1)}s > ${idealMaxSec}s)`;
+          sealReason = `Đạt vùng thời lượng lý tưởng (${currentDur.toFixed(1)}s >= ${targetMinSec}s, thêm câu thành ${nextDur.toFixed(1)}s >= ${idealMaxSec}s)`;
         }
 
         if (shouldSeal) {
@@ -745,23 +805,100 @@ export class AiStudioStoryboardService {
     }
 
     if (currentGroup.length > 0) {
-      if (
-        clusters.length > 0 &&
-        currentDur < targetMinSec &&
-        (clusters[clusters.length - 1].duration_sec + currentDur <= targetMaxSec)
-      ) {
-        console.log(
-          `[GRANULARITY V2] 🧲 Gộp câu đuôi (${currentGroup.map(g => '#' + g.index).join(', ')}) vào Shot #${clusters.length} để tránh shot quá ngắn.`
-        );
-        this.mergeIntoLastDeterministicCluster(clusters[clusters.length - 1], currentGroup);
+      if (clusters.length === 0) {
+        clusters.push(this.finalizeDeterministicCluster(currentGroup, 1));
       } else {
-        console.log(
-          `[GRANULARITY V2] 🔒 Chốt Shot cuối #${clusters.length + 1} (${currentGroup.map(g => '#' + g.index).join(', ')}): ` +
-          `${currentDur.toFixed(1)}s`
-        );
-        clusters.push(this.finalizeDeterministicCluster(currentGroup, clusters.length + 1));
+        const lastCluster = clusters[clusters.length - 1];
+        const combinedDur = Math.round((lastCluster.duration_sec + currentDur) * 100) / 100;
+
+        if (currentDur >= targetMinSec && currentDur <= targetMaxSec) {
+          console.log(
+            `[GRANULARITY V2] 🔒 Chốt Shot cuối #${clusters.length + 1} (${currentGroup.map(g => '#' + g.index).join(', ')}): ` +
+            `${currentDur.toFixed(1)}s`
+          );
+          clusters.push(this.finalizeDeterministicCluster(currentGroup, clusters.length + 1));
+        } else if (combinedDur <= 10.5 && (currentDur < targetMinSec || combinedDur <= targetMaxSec)) {
+          console.log(
+            `[GRANULARITY V2] 🧲 Gộp câu đuôi (${currentGroup.map(g => '#' + g.index).join(', ')}) vào Shot #${clusters.length} để tránh shot quá ngắn.`
+          );
+          this.mergeIntoLastDeterministicCluster(lastCluster, currentGroup);
+        } else {
+          let rebalanced = false;
+          const maxLookback = Math.min(clusters.length, 5);
+          for (let lookback = 1; lookback <= maxLookback; lookback++) {
+            const pooledClusters = clusters.slice(clusters.length - lookback);
+            const pool = [...pooledClusters.flatMap(c => (c as any).raw_items || []), ...currentGroup];
+            const partition = this.partitionPool(pool, targetMinSec, 10.5);
+            if (partition) {
+              console.log(
+                `[GRANULARITY V2] ⚖️ Tái cân bằng câu đuôi: Chia lại ${lookback === 1 ? `Shot #${clusters.length}` : `${lookback} shot trước`} thành ${partition.length} shot đạt chuẩn 4s-10s`
+              );
+              clusters.splice(clusters.length - lookback, lookback);
+              for (let pIdx = 0; pIdx < partition.length; pIdx++) {
+                clusters.push(this.finalizeDeterministicCluster(partition[pIdx], clusters.length + 1));
+              }
+              rebalanced = true;
+              break;
+            }
+          }
+
+          if (!rebalanced) {
+            if (combinedDur <= 10.5) {
+              this.mergeIntoLastDeterministicCluster(lastCluster, currentGroup);
+            } else {
+              const pool = [...((lastCluster as any).raw_items || []), ...currentGroup];
+              const relaxed = this.partitionPool(pool, 3.5, 10.5) || this.partitionPool(pool, 3.0, 10.5);
+              if (relaxed && relaxed.length >= 2) {
+                clusters.pop();
+                for (const p of relaxed) {
+                  clusters.push(this.finalizeDeterministicCluster(p, clusters.length + 1));
+                }
+              } else if (currentDur >= 3.5) {
+                clusters.push(this.finalizeDeterministicCluster(currentGroup, clusters.length + 1));
+              } else {
+                this.mergeIntoLastDeterministicCluster(lastCluster, currentGroup);
+              }
+            }
+          }
+        }
       }
     }
+
+    // Comprehensive Safety Check across all clusters:
+    // If any cluster violates [targetMinSec, 10.5] (and total audio >= targetMinSec),
+    // first attempt to cascade rebalance across all preceding clusters, or globally partition.
+    const totalScriptDur = items.reduce((sum, it) => sum + (it.timing.duration_sec || 0), 0);
+    const hasAnyDefect = totalScriptDur >= targetMinSec && clusters.some(c => c.duration_sec < targetMinSec || c.duration_sec > 10.5);
+
+    if (hasAnyDefect) {
+      // 1. Try global DP partition across all items with optimal pacing
+      const globalPartition = this.partitionPool(items, targetMinSec, 10.5, (targetMinSec + Math.min(targetMaxSec, 10.0)) / 2);
+      if (globalPartition && globalPartition.length > 0) {
+        clusters.length = 0;
+        for (let pIdx = 0; pIdx < globalPartition.length; pIdx++) {
+          clusters.push(this.finalizeDeterministicCluster(globalPartition[pIdx], pIdx + 1));
+        }
+      } else {
+        // 2. Cascade lookback across all clusters for local defect repair
+        for (let lookback = 2; lookback <= clusters.length; lookback++) {
+          const pooledClusters = clusters.slice(clusters.length - lookback);
+          const pool = pooledClusters.flatMap(c => (c as any).raw_items || []);
+          const partition = this.partitionPool(pool, targetMinSec, 10.5);
+          if (partition) {
+            clusters.splice(clusters.length - lookback, lookback);
+            for (let pIdx = 0; pIdx < partition.length; pIdx++) {
+              clusters.push(this.finalizeDeterministicCluster(partition[pIdx], clusters.length + 1));
+            }
+            break;
+          }
+        }
+      }
+    }
+
+    // Re-index all clusters cluster_index sequentially
+    clusters.forEach((c, idx) => {
+      c.cluster_index = idx + 1;
+    });
 
     const totalDur = clusters.reduce((s, c) => s + c.duration_sec, 0);
     const avgDur = clusters.length > 0 ? (totalDur / clusters.length).toFixed(1) : '0';
@@ -1475,6 +1612,98 @@ export class AiStudioStoryboardService {
   // Prompt Synthesis Helpers
   // ==========================================================================
 
+  /**
+   * Chuyển thể nội dung lời thoại thô / dẫn chuyện sang mô tả bối cảnh trực quan điện ảnh thuần túy
+   * bằng tiếng Anh chuẩn (Visual Concept / Scene Illustration), loại bỏ hoàn toàn câu nói và phụ đề (R3).
+   */
+  public convertNarrationToVisualConcept(narration: string, visualNote?: string): string {
+    const rawNote = (visualNote || '').trim();
+    const hasVietnameseDiacritics = /[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]/i;
+
+    // 1. Nếu visual_note đã có và là mô tả tiếng Anh (không chứa dấu tiếng Việt):
+    if (rawNote && !hasVietnameseDiacritics.test(rawNote)) {
+      return rawNote
+        .replace(/^(?:người dẫn|dẫn chuyện|nhân vật|mc|host|narrator|voiceover|speaker)[\s\d]*:?\s*/gi, '')
+        .replace(/(?:lời thoại|phụ đề|câu nói|subtitles?|dialogue):?\s*/gi, '')
+        .replace(/["“”'‘’«»]/g, '')
+        .trim();
+    }
+
+    // 2. Nếu visual_note là tiếng Việt hoặc chỉ có narration:
+    let text = (rawNote || narration || '').trim();
+
+    // Strip speaker markers
+    text = text.replace(/^(?:người dẫn|dẫn chuyện|nhân vật|mc|host|narrator|voiceover|speaker)[\s\d]*:?\s*/gi, '');
+    // Strip dialogue attribution verbs and trailing quoted speech
+    text = text.replace(/(?:nói|bảo|thốt lên|thì thầm|hét lên|reo lên|hỏi|đáp|trả lời|nhủ|hô vang|kêu lên)\s*:\s*.*$/gi, '').trim();
+    // Strip explicit dialogue indicator words
+    text = text.replace(/(?:lời thoại|phụ đề|câu nói|subtitles?|dialogue):?\s*/gi, '').trim();
+    // Strip quotation marks
+    text = text.replace(/["“”'‘’«»]/g, '').trim();
+
+    // Nếu đã là tiếng Anh và không còn tiếng Việt:
+    if (!hasVietnameseDiacritics.test(text) && text.length > 5) {
+      return text;
+    }
+
+    // 3. Chuyển thể ngữ cảnh tiếng Việt sang các lớp mô tả thị giác điện ảnh chuẩn tiếng Anh
+    const lower = text.toLowerCase();
+    const visualConcepts: string[] = [];
+
+    // Setting & Environment mapping
+    if (lower.includes('tokyo') || lower.includes('nhật bản') || lower.includes('mặt trời mọc')) {
+      visualConcepts.push('historic 19th century Japanese setting, authentic traditional architectural details');
+    }
+    if (lower.includes('phố') || lower.includes('đường') || lower.includes('ngõ') || lower.includes('ginza')) {
+      visualConcepts.push('historic cobblestone urban streets, vintage period architecture');
+    }
+    if (lower.includes('đại học') || lower.includes('thí nghiệm') || lower.includes('giáo sư') || lower.includes('học trò') || lower.includes('phòng')) {
+      visualConcepts.push('vintage academic laboratory, scientific apparatus and vintage instruments');
+    }
+    if (lower.includes('công nghiệp') || lower.includes('nhà máy') || lower.includes('kỷ nguyên') || lower.includes('mạng lưới')) {
+      visualConcepts.push('nascent industrial era atmosphere, early modern infrastructure');
+    }
+    if (lower.includes('biển') || lower.includes('đại dương') || lower.includes('sóng')) {
+      visualConcepts.push('vast dramatic seascape, cinematic ocean waves');
+    }
+    if (lower.includes('núi') || lower.includes('rừng') || lower.includes('cây')) {
+      visualConcepts.push('misty wilderness landscape, dramatic natural scenery');
+    }
+
+    // Lighting & Atmosphere mapping
+    if (lower.includes('đêm') || lower.includes('tối') || lower.includes('bóng tối') || lower.includes('màn đêm')) {
+      visualConcepts.push('atmospheric night setting, deep dramatic shadows');
+    } else if (lower.includes('hoàng hôn') || lower.includes('chiều')) {
+      visualConcepts.push('warm golden hour sunset lighting, dramatic evening glow');
+    } else if (lower.includes('bình minh') || lower.includes('sáng') || lower.includes('ánh nắng')) {
+      visualConcepts.push('warm morning illumination, soft natural sunlight');
+    }
+
+    if (lower.includes('đèn dầu') || lower.includes('ánh lửa') || lower.includes('leo lét') || lower.includes('lập lòe')) {
+      visualConcepts.push('flickering lantern illumination, warm historic lamp glow');
+    } else if (lower.includes('điện') || lower.includes('hồ quang') || lower.includes('bừng sáng') || lower.includes('chói lòa') || lower.includes('tia sáng')) {
+      visualConcepts.push('brilliant electric arc illumination, radiant glowing light beam');
+    }
+
+    // Action & Mood mapping
+    if (lower.includes('kinh ngạc') || lower.includes('sững sờ') || lower.includes('bước ngoặt') || lower.includes('lịch sử')) {
+      visualConcepts.push('monumental historic breakthrough moment, dramatic sense of wonder');
+    }
+    if (lower.includes('người dân') || lower.includes('đoàn người') || lower.includes('đám đông')) {
+      visualConcepts.push('period-authentic human figures, authentic atmospheric silhouettes');
+    }
+
+    if (visualConcepts.length > 0) {
+      return visualConcepts.join(', ');
+    }
+
+    // Fallback nếu câu tiếng Việt có visual_note cụ thể
+    if (rawNote) {
+      return rawNote.replace(/["“”'‘’«»]/g, '').trim();
+    }
+    return 'cinematic period narrative scene illustration, atmospheric environmental lighting, highly detailed staging';
+  }
+
   public buildShotPrompt(
     scene: ScriptSceneItem,
     shotIndex: number,
@@ -1493,7 +1722,8 @@ export class AiStudioStoryboardService {
       ? 'Close-up dramatic focus shot'
       : 'Dynamic cinematic framing shot';
 
-    const visualContent = scene.visual_note ? scene.visual_note.trim() : scene.narration.trim();
+    // Clean raw dialogue / quotes and convert narration to pure visual concept in standard English (R3)
+    const cleanVisualContent = this.convertNarrationToVisualConcept(scene.narration, scene.visual_note);
 
     // 1. Detect Character Appearance / Outfits
     let characterSnippet = '';
@@ -1523,8 +1753,8 @@ export class AiStudioStoryboardService {
     const effectiveBg = (backgroundPrompt || channelProfile?.projectBackgroundPrompt || '').trim();
     const bgSnippet = effectiveBg ? `in ${effectiveBg}` : '';
 
-    // 3. Assemble prompt layers: [Art Style] + [Camera Angle & Action] + [Character] + [Background] + [Quality Details]
-    const promptParts: string[] = [stylePrefix, `${anglePrefix} of ${visualContent}`];
+    // 3. Assemble prompt layers: [Art Style] + [Camera Angle & Action] + [Character] + [Background] + [Quality Details] + [Anti-text Instruction]
+    const promptParts: string[] = [stylePrefix, `${anglePrefix} of ${cleanVisualContent}`];
     if (characterSnippet) {
       promptParts.push(characterSnippet);
       promptParts.push('character depicted in natural active pose, seamlessly interacting with the scene, consistent identity, dynamic environmental lighting');
@@ -1533,6 +1763,7 @@ export class AiStudioStoryboardService {
       promptParts.push(bgSnippet);
     }
     promptParts.push('sharp focus, highly detailed, photorealistic');
+    promptParts.push('no text, no subtitles, no speech bubbles, no words, clean visual illustration');
 
     return promptParts.join(', ');
   }

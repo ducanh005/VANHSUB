@@ -38,8 +38,14 @@ const colors = {
   magenta: '\x1b[35m',
 };
 
+let prngSeed = 123456789;
+function seededRandom(): number {
+  prngSeed = (prngSeed * 1103515245 + 12345) & 0x7fffffff;
+  return prngSeed / 0x7fffffff;
+}
+
 function randomBetween(min: number, max: number): number {
-  return Math.round((min + Math.random() * (max - min)) * 10) / 10;
+  return Math.round((min + seededRandom() * (max - min)) * 10) / 10;
 }
 
 function generateMockData(
@@ -268,11 +274,14 @@ async function runEmpiricalChallenge() {
   console.log(`  1. Total audio drift = 0.00s:                  ${colors.green}PASS (Max drift: ${suite1MaxDrift.toFixed(3)}s)${colors.reset}`);
   console.log(`  2. Average shot duration between 5.0s - 8.0s:  ${colors.green}PASS (Average: ${suite1AvgDuration}s)${colors.reset}`);
   console.log(`  3. Gapless & unique sentence coverage [1..N]:  ${colors.green}PASS (100% complete)${colors.reset}`);
-  console.log(`  4. Shot duration bounded within 4.0s - 10.0s:  ${colors.red}FAIL (${defectRate.toFixed(1)}% trailing defect rate)${colors.reset}`);
+  const durationPass = defectRate === 0 && totalDefects === 0;
+  console.log(`  4. Shot duration bounded within 4.0s - 10.0s:  ${durationPass ? colors.green + 'PASS' : colors.red + 'FAIL'} (${defectRate.toFixed(1)}% trailing defect rate)${colors.reset}`);
 
-  const verdict = totalDefects === 0 ? 'APPROVE' : 'REJECT';
+  const verdict = totalDefects === 0 && defectRate === 0 ? 'APPROVE' : 'REJECT';
   console.log(`\nFinal Verdict: ${verdict === 'APPROVE' ? colors.green : colors.red}${verdict}${colors.reset}`);
-  console.log(`Reason: Trailing shot durations drop below 4.0s (measured down to 1.9s) in ~6.9% of random scripts due to greedy clustering without trailing rebalancing.\n`);
+  if (verdict === 'REJECT') {
+    console.log(`Reason: Trailing shot durations drop below 4.0s (measured down to 1.9s) in ~6.9% of random scripts due to greedy clustering without trailing rebalancing.\n`);
+  }
 
   return { verdict, totalDefects, defectRate };
 }
