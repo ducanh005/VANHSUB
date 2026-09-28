@@ -1046,24 +1046,27 @@ Dưới đây là toàn bộ danh sách các câu thoại kèm thời lượng �
 ${JSON.stringify(linesWithDuration, null, 2)}
 
 QUY TẮC PHÂN CẢNH VÀ GOM CỤM (BẮT BUỘC TUÂN THỦ):
-1. TUYỆT ĐỐI KHÔNG để 1 câu = 1 shot nếu câu đó ngắn dưới 4.0 giây.
+1. TUYỆT ĐỐI KHÔNG để 1 câu = 1 shot nếu câu đó ngắn dưới 4.0 giây. Số lượng phân cảnh (shots) phải giảm từ 40% đến 65% so với tổng số câu thoại gốc.
 2. BẮT BUỘC gom các câu thoại liên tiếp có cùng không gian, bối cảnh, nhân vật hoặc mạch ý nghĩa thành 1 VISUAL SHOT duy nhất.
 3. Mỗi shot PHẢI có tổng thời lượng từ 4.0 GIÂY đến 10.0 GIÂY (lý tưởng nhất: 5.0s đến 8.0s).
 4. Mọi câu thoại từ 1 đến ${linesWithDuration.length} PHẢI được gán vào đúng 1 shot, theo thứ tự tăng dần liên tục, không được bỏ sót bất kỳ câu nào và không được trùng lặp.
 5. "image_prompt": Viết bằng tiếng Anh cực kỳ chi tiết, đậm chất điện ảnh, bao quát TOÀN BỘ cụm câu thoại được gán, kết hợp bối cảnh nền và tiền tố phong cách.
-6. "motion_note": Ghi chú chuyển động camera (tiếng Anh) phù hợp với cảnh (ví dụ: "Slow tracking dolly shot", "Gentle cinematic push in", "Dynamic pan across scene").
-7. "media_type": Chọn "video" nếu phân cảnh có chuyển động, hành động thực tế, bùng nổ; chọn "image" nếu là phong cảnh tĩnh, chân dung, tư liệu, biểu đồ.
-8. "reason": Giải thích ngắn gọn bằng tiếng Việt lý do chọn media_type và gom cụm.
+6. QUY TẮC LOẠI BỎ CHỮ TRÊN ẢNH (NO TEXT / SUBTITLES ON IMAGES): Tuyệt đối KHÔNG đưa văn bản lời thoại thô, câu nói của nhân vật, chữ viết, watermark hay phụ đề vào "image_prompt" để tránh AI vẽ chữ lên ảnh. Toàn bộ nội dung lời thoại phải được chuyển thể sang mô tả bối cảnh, ánh sáng, góc quay và hành động điện ảnh. Luôn gắn kèm chỉ dẫn phủ định: "no text, no subtitles, no speech bubbles, no words, clean visual illustration" ở cuối "image_prompt".
+7. "motion_note": Ghi chú chuyển động camera (tiếng Anh) phù hợp với cảnh (ví dụ: "Slow tracking dolly shot", "Gentle cinematic push in", "Dynamic pan across scene").
+8. "media_type": Dựa hoàn toàn vào phân tích kịch bản:
+   - Chọn "video" (hoặc img2vid): Cho các phân cảnh hành động kịch tính, biến đổi cảm xúc nhân vật rõ rệt, cao trào, hoặc chuyển động vật thể phức tạp.
+   - Chọn "image": Cho các phân cảnh mô tả tĩnh, phong cảnh bao quát, tài liệu, thông tin hoặc chuyển đoạn nhẹ (kết hợp Ken Burns).
+9. "reason": Giải thích ngắn gọn bằng tiếng Việt lý do chỉ định media_type ("video" hay "image") và lý do gom cụm câu thoại.
 
 Trả về DUY NHẤT một khối JSON hợp lệ theo cấu trúc:
 {
   "shots": [
     {
       "assigned_sentences": [1, 2],
-      "image_prompt": "Cinematic visual prompt in English...",
+      "image_prompt": "Cinematic visual prompt in English, no text, no subtitles, no speech bubbles, no words, clean visual illustration",
       "motion_note": "Slow cinematic push in...",
       "media_type": "image",
-      "reason": "Giải thích lý do..."
+      "reason": "Phân cảnh mô tả bối cảnh tĩnh, dùng ảnh tĩnh kết hợp Ken Burns tối ưu"
     }
   ]
 }`;
@@ -1090,13 +1093,21 @@ Trả về DUY NHẤT một khối JSON hợp lệ theo cấu trúc:
         ? s.assigned_sentences.map((n: any) => Number(n)).filter((n: number) => !isNaN(n) && n >= 1)
         : [idx + 1];
       const mediaType: 'image' | 'video' = s.media_type === 'video' ? 'video' : 'image';
+      let cleanPrompt = String(s.image_prompt || `${effectivePrefix}, ${effectiveBg}`).trim();
+      // Remove any leftover dialogue quotes and speaker/dialogue markers
+      cleanPrompt = cleanPrompt.replace(/^(?:người dẫn|dẫn chuyện|nhân vật|mc|host|narrator|voiceover|speaker)[\s\d]*:?\s*/gi, '');
+      cleanPrompt = cleanPrompt.replace(/(?:lời thoại|phụ đề|câu nói|subtitles?|dialogue):?\s*/gi, '').trim();
+      cleanPrompt = cleanPrompt.replace(/["“”'‘’«»]/g, '').trim();
+      if (!cleanPrompt.toLowerCase().includes('no text')) {
+        cleanPrompt += ', no text, no subtitles, no speech bubbles, no words, clean visual illustration';
+      }
       return {
         scene_index: idx + 1,
         assigned_sentences: assigned,
-        image_prompt: String(s.image_prompt || `${effectivePrefix}, ${effectiveBg}`).trim(),
+        image_prompt: cleanPrompt,
         motion_note: String(s.motion_note || 'Slow cinematic push in').trim(),
         media_type: mediaType,
-        reason: String(s.reason || `Phân cảnh cụm ${assigned.join(', ')}`).trim(),
+        reason: String(s.reason || `Phân cảnh cụm câu [${assigned.join(', ')}]: chỉ định ${mediaType} theo nhịp kịch bản`).trim(),
         confidence: s.confidence || 'high',
       };
     });

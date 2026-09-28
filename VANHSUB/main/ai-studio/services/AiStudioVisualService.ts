@@ -212,7 +212,7 @@ export class AiStudioVisualService {
       }
 
       const scene = scenes[i];
-      const isSceneVideo = (scene.motionType === 'video' && flowConfig.outputMode !== 'image') || flowConfig.outputMode === 'video';
+      const isSceneVideo = scene.motionType === 'video' || flowConfig.outputMode === 'video';
       const ext = isSceneVideo && useGoogleFlow ? 'mp4' : 'png';
       const assetPath = path.join(assetsDir, `scene_${String(i + 1).padStart(2, '0')}.${ext}`);
 
@@ -488,7 +488,7 @@ export class AiStudioVisualService {
       throw new GoogleFlowRpcError('Tác vụ đã bị người dùng huỷ bỏ.', { code: 'CANCELLED', retryable: false });
     }
 
-    const isVideo = flowConfig.outputMode === 'video' || (scene.motionType === 'video' && flowConfig.outputMode !== 'image');
+    const isVideo = scene.motionType === 'video' || flowConfig.outputMode === 'video';
 
     // Normalize output path extension safely without destroying directory names containing dots
     const desiredExt = isVideo ? '.mp4' : '.png';

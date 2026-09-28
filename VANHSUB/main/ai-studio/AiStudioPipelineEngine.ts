@@ -592,7 +592,11 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
   ): Promise<void> {
     const config: AiStudioConfig = getDecryptedAiStudioConfig();
     const activeProject = config.savedProjects?.find((p) => p.id === config.activeProjectId);
-    const effectiveOutputDir = session.outputDir || activeProject?.outputDir || undefined;
+    const sessionDir = this.getSessionDir(session.sessionId);
+    const effectiveOutputDir =
+      session.outputDir ||
+      activeProject?.outputDir ||
+      (fs.existsSync(sessionDir) ? sessionDir : undefined);
 
     if (!effectiveOutputDir || !effectiveOutputDir.trim()) {
       throw new Error(
@@ -960,11 +964,10 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
                   : Math.round((shot.expected_duration_sec || 4.0) * 1000);
                 const endMs = startMs + durationMs;
 
-                // Use AI-decided media_type per shot, not a global outputMode override.
+                // Tôn trọng hoàn toàn quyết định media_type của Storyboard từ AI đạo diễn:
                 // media_type='video' → animate via I2V; 'image' → Ken Burns static.
-                // Only override to 'ken_burns' if global config explicitly forces image-only mode.
-                const forceImageOnly = config.flowEngine.outputMode === 'image';
-                const motionType = (!forceImageOnly && shot.media_type === 'video') ? 'video' : 'ken_burns';
+                // Không để cấu hình outputMode mặc định đè bẹp các phân cảnh video thành ảnh tĩnh.
+                const motionType = shot.media_type === 'video' ? 'video' : 'ken_burns';
 
                 const lineText = shot.dialogue_lines && shot.dialogue_lines.length > 0
                   ? shot.dialogue_lines.join(' ')
@@ -983,7 +986,7 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
                   durationMs,
                   lineText,
                   visualPrompt: shot.image_prompt,
-                  negativePrompt: config.flowEngine.negativePrompt,
+                  negativePrompt: config.flowEngine.negativePrompt || 'blurry, low quality, distorted, watermark, no text, no subtitles, no speech bubbles, no words, clean visual illustration',
                   motionType,
                   status: 'pending',
                 });
@@ -1036,8 +1039,8 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
                   for (let sIdx = 0; sIdx < storyboard.scenes.length; sIdx++) {
                     const sc = storyboard.scenes[sIdx];
                     for (const shot of sc.shots) {
-                      const forceImageOnly = config.flowEngine.outputMode === 'image';
-                      const motionType = (!forceImageOnly && shot.media_type === 'video') ? 'video' : 'ken_burns';
+                      // Tôn trọng hoàn toàn quyết định media_type của Storyboard từ AI đạo diễn:
+                      const motionType = shot.media_type === 'video' ? 'video' : 'ken_burns';
                       scenes.push({
                         id: shot.shot_id,
                         shotId: shot.shot_id,
@@ -1048,7 +1051,7 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
                         durationMs: Math.round(shot.duration_sec * 1000),
                         lineText: shot.dialogue_lines?.join(' ') || sc.narration || '',
                         visualPrompt: shot.image_prompt,
-                        negativePrompt: config.flowEngine.negativePrompt,
+                        negativePrompt: config.flowEngine.negativePrompt || 'blurry, low quality, distorted, watermark, no text, no subtitles, no speech bubbles, no words, clean visual illustration',
                         motionType,
                         status: 'pending',
                       });
@@ -1238,10 +1241,7 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
             }
 
             const totalShots = allShots.length;
-            const forceImageOnlyMode = config.flowEngine.outputMode === 'image';
-            const videoShotCount = forceImageOnlyMode
-              ? 0
-              : allShots.filter(s => s.shot.media_type === 'video').length;
+            const videoShotCount = allShots.filter(s => s.shot.media_type === 'video' || config.flowEngine.outputMode === 'video').length;
             const totalSteps = totalShots + videoShotCount;
             let completedSteps = 0;
 
@@ -1355,9 +1355,9 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
               const isSelected = selectedIds.has(shot.shot_id);
 
               // Nếu chạy chế độ regenerate_selected mà shot này KHÔNG được chọn: bỏ qua, giữ nguyên asset cũ
+              const effectiveMediaType = (shot.media_type === 'video' || config.flowEngine.outputMode === 'video') ? 'video' : 'image';
               if (runMode === 'regenerate_selected' && !isSelected) {
-                const effectiveMediaType = (forceImageOnlyMode ? 'image' : shot.media_type) as 'image' | 'video';
-                completedSteps += (!forceImageOnlyMode && effectiveMediaType === 'video' ? 2 : 1);
+                completedSteps += (effectiveMediaType === 'video' ? 2 : 1);
                 continue;
               }
 
@@ -1368,7 +1368,6 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
               const forceRegenerate = runMode === 'regenerate_all' || (runMode === 'regenerate_selected' && isSelected);
 
               // 2a. Resolve model for this shot (preferred_model > config default > builtin)
-              const effectiveMediaType = (forceImageOnlyMode ? 'image' : shot.media_type) as 'image' | 'video';
               const modelInfo = aiStudioModelConfigService.resolveModelForShot(
                 modelConfig,
                 effectiveMediaType,
@@ -1510,8 +1509,8 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
                 },
               });
 
-              // 2f: Step B — Image-to-Video (only for video shots, not in force-image mode)
-              const shouldGenerateVideo = !forceImageOnlyMode && shot.media_type === 'video';
+              // 2f: Step B — Image-to-Video (for video shots or global video mode)
+              const shouldGenerateVideo = shot.media_type === 'video' || config.flowEngine.outputMode === 'video';
               if (shouldGenerateVideo) {
                 if (signal.aborted || (session.status as string) === 'cancelled') {
                   throw new Error('Quá trình tạo visual media đã bị hủy bởi người dùng.');
@@ -1858,11 +1857,12 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
           }
         }
 
-        const mode = payload.mode || (payload.flowConfig?.outputMode === 'video' ? 'video' : 'both');
+        const session = await this.getState({ sessionId: payload.sessionId });
+        const sc = session?.artifacts.scenes?.find((s) => s.id === shotId || s.shotId === shotId);
+        const defaultMode = sc?.motionType === 'video' ? 'video' : (payload.flowConfig?.outputMode === 'video' ? 'video' : 'both');
+        const mode = payload.mode || defaultMode;
 
         if (mode === 'video') {
-          const session = await this.getState({ sessionId: payload.sessionId });
-          const sc = session?.artifacts.scenes?.find((s) => s.id === shotId || s.shotId === shotId);
           const expectedDurationSec = sc ? sc.durationMs / 1000 : 4.0;
 
           const vidResult = await mutex.runExclusive(async () => {

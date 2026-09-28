@@ -350,7 +350,7 @@ export const DEFAULT_FLOW_ENGINE_CONFIG: Readonly<AiStudioFlowEngineConfig> = Ob
   shotMode: 'single',
   granularity: 'balanced',
   stylePromptPrefix: 'Cinematic lighting, high resolution, detailed photorealistic, 4k',
-  negativePrompt: 'watermark, text, blurry, distortion, lowres',
+  negativePrompt: 'watermark, text, blurry, distortion, lowres, no text, no subtitles, no speech bubbles, no words, clean visual illustration',
   outputsPerScene: 1,
   downloadDir: '',
   concurrency: 1,
