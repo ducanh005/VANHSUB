@@ -177,12 +177,11 @@ export interface VanhsubAPI {
     delete: (id: string) => Promise<boolean>;
     start: (id: string) => Promise<boolean>;
     cancel: (id: string) => Promise<boolean>;
+    startHybrid: (id: string, options?: any) => Promise<boolean>;
+    cancelHybrid: (id: string) => Promise<boolean>;
     readSrt: (srtPath: string) => Promise<string>;
     writeSrt: (srtPath: string, content: string) => Promise<boolean>;
     importSrt: (id: string, sourceSrtPath: string) => Promise<Task | undefined>;
-    addFromUrl: (
-      url: string
-    ) => Promise<{ task?: Task; error?: string }>;
     runPipeline: (id: string, opts?: { replaceAudio?: boolean }) => Promise<boolean>;
     runPipelineBatch: (ids: string[]) => Promise<number>;
 
@@ -362,10 +361,11 @@ export interface VanhsubAPI {
       /** URL MP4 không watermark — Douyin/TikTok only */
       noWatermarkUrl?: string;
     }>;
-    download: (options: { url: string; quality?: string; noWatermarkUrl?: string; outputDir?: string; customFileName?: string }) => Promise<{
+    download: (options: { url: string; quality?: string; noWatermarkUrl?: string; outputDir?: string; customFileName?: string; downloadId?: string }) => Promise<{
       task: Task;
       result: any;
     }>;
+    cancel: (downloadId?: string) => Promise<boolean>;
     getDefaultDir?: () => Promise<string>;
     onProgress: (callback: (progress: {
       percent: number;

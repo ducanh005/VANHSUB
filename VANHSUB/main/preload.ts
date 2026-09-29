@@ -13,7 +13,6 @@ const vanhsub = {
     cancelHybrid: (id: string) => ipcRenderer.invoke('tasks:cancelHybrid', id),
     readSrt: (srtPath: string) => ipcRenderer.invoke('tasks:readSrt', srtPath),
     writeSrt: (srtPath: string, content: string) => ipcRenderer.invoke('tasks:writeSrt', srtPath, content),
-    addFromUrl: (url: string) => ipcRenderer.invoke('tasks:addFromUrl', url),
     runPipeline: (id: string, opts?: { replaceAudio?: boolean }) =>
       ipcRenderer.invoke('tasks:runPipeline', id, opts ?? null),
     runPipelineBatch: (ids: string[]) => ipcRenderer.invoke('tasks:runPipelineBatch', ids),
@@ -133,8 +132,9 @@ const vanhsub = {
   },
   downloader: {
     inspect: (url: string) => ipcRenderer.invoke('downloader:inspect', url),
-    download: (options: { url: string; quality?: string; noWatermarkUrl?: string; outputDir?: string; customFileName?: string }) =>
+    download: (options: { url: string; quality?: string; noWatermarkUrl?: string; outputDir?: string; customFileName?: string; downloadId?: string }) =>
       ipcRenderer.invoke('downloader:download', options),
+    cancel: (downloadId?: string) => ipcRenderer.invoke('downloader:cancel', downloadId),
     getDefaultDir: () => ipcRenderer.invoke('downloader:getDefaultDir'),
     onProgress: (callback: (progress: any) => void) => {
       const handler = (_event: unknown, progress: any) => callback(progress);

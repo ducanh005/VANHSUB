@@ -73,9 +73,18 @@ export default function TerminalPanel() {
     return unsubscribe;
   }, [expanded]);
 
-  // Auto-scroll xuống dòng mới nhất khi mở panel hoặc có log mới
+  const userScrolledUpRef = useRef<boolean>(false);
+
+  const handleScroll = () => {
+    if (!scrollRef.current) return;
+    const { scrollTop, scrollHeight, clientHeight } = scrollRef.current;
+    const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
+    userScrolledUpRef.current = distanceFromBottom > 50;
+  };
+
+  // Auto-scroll xuống dòng mới nhất khi mở panel hoặc có log mới (chỉ khi không chủ động cuộn lên)
   useEffect(() => {
-    if (expanded && scrollRef.current) {
+    if (expanded && scrollRef.current && !userScrolledUpRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [logs, expanded]);
@@ -196,6 +205,7 @@ export default function TerminalPanel() {
       {expanded && (
         <div
           ref={scrollRef}
+          onScroll={handleScroll}
           style={{ height: `${height}px` }}
           className="overflow-y-auto bg-black/75 px-4 py-2 font-mono text-[11px] leading-relaxed custom-scrollbar"
         >

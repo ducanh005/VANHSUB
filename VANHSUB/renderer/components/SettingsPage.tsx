@@ -15,6 +15,7 @@ import {
   ScanText,
   Sparkles,
   Trash2,
+  Volume2,
   Zap,
 } from 'lucide-react';
 import ASRModelSelector from './ASRModelSelector';
@@ -164,6 +165,7 @@ export default function SettingsPage() {
 
   const [autoSavedFlash, setAutoSavedFlash] = useState(false);
   const autoSaveTimerRef = useRef<number | null>(null);
+  const customModelDebounceRef = useRef<NodeJS.Timeout | null>(null);
 
   // Quản lý Bộ nhớ tạm & Dọn dẹp Ổ đĩa (Workflow Storage GC)
   const [tempStats, setTempStats] = useState<{ totalSizeMb: number; folderCount: number; fileCount: number; tempDir: string } | null>(null);
@@ -622,7 +624,10 @@ export default function SettingsPage() {
                       onChange={(e) => {
                         const v = e.target.value;
                         setGeminiModel(v);
-                        void autoSaveSetting('geminiModel', v);
+                        if (customModelDebounceRef.current) clearTimeout(customModelDebounceRef.current);
+                        customModelDebounceRef.current = setTimeout(() => {
+                          void autoSaveSetting('geminiModel', v);
+                        }, 500);
                       }}
                       placeholder="gemini-2.5-flash"
                       spellCheck={false}
@@ -1102,6 +1107,76 @@ export default function SettingsPage() {
               <span className="text-[10px] text-slate-500">
                 Tích hợp vào pipeline lồng tiếng sẽ làm sau khi session của bạn chạy ổn.
               </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Khối Cấu hình Lồng tiếng mặc định (TTS) */}
+        <div className="flex flex-col gap-4 rounded-3xl border border-slate-800 bg-slate-900/60 p-5">
+          <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+            <div className="flex items-center gap-2 text-sm font-bold text-white">
+              <Volume2 className="h-4 w-4 text-brand-cyan" />
+              <span>Cấu hình Lồng tiếng mặc định (TTS)</span>
+            </div>
+            {autoSavedFlash && (
+              <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-400">
+                <CheckCircle2 className="h-3 w-3" />
+                Đã lưu tự động
+              </span>
+            )}
+          </div>
+
+          <div className="space-y-4 text-xs">
+            <p className="text-[11px] text-slate-400">
+              Cài đặt giọng đọc và tốc độ mặc định khi tạo mới hoặc chạy lồng tiếng tự động trong quy trình.
+              Tự động lưu khi thay đổi.
+            </p>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="mb-1 block font-medium text-slate-200">Giọng đọc mặc định</label>
+                <select
+                  value={ttsVoice}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setTtsVoice(v);
+                    void autoSaveSetting('ttsVoice', v);
+                  }}
+                  className="w-full rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-white focus:outline-none"
+                >
+                  <optgroup label="⚡ Edge TTS (Miễn phí 100%, Giọng chuẩn Azure)">
+                    <option value="vi-VN-HoaiMyNeural">Hoài My (Nữ - Truyền cảm, Tự nhiên)</option>
+                    <option value="vi-VN-NamMinhNeural">Nam Minh (Nam - Trầm ấm, Phóng sự)</option>
+                  </optgroup>
+                  <optgroup label="🎵 TikTok TTS">
+                    <option value="BV074_streaming">BV074 — Nữ Triển vọng (Tiếng Việt)</option>
+                    <option value="BV075_streaming">BV075 — Nam Trầm ấm (Tiếng Việt)</option>
+                  </optgroup>
+                </select>
+              </div>
+
+              <div>
+                <label className="mb-1 block font-medium text-slate-200">Tốc độ đọc mặc định</label>
+                <select
+                  value={ttsSpeed}
+                  onChange={(e) => {
+                    const v = Number(e.target.value);
+                    setTtsSpeed(v);
+                    void autoSaveSetting('ttsSpeed', v);
+                  }}
+                  className="w-full rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-white focus:outline-none"
+                >
+                  <option value={0.75}>0.75x — Chậm rãi</option>
+                  <option value={0.9}>0.9x — Hơi chậm</option>
+                  <option value={1.0}>1.0x — Tiêu chuẩn (Khuyên dùng)</option>
+                  <option value={1.1}>1.1x — Hơi nhanh</option>
+                  <option value={1.25}>1.25x — Nhanh</option>
+                  <option value={1.5}>1.5x — Rất nhanh</option>
+                </select>
+                <span className="text-[10px] text-slate-500">
+                  Áp dụng hiệu quả với Edge TTS; TikTok TTS hiện tại giữ tốc độ gốc
+                </span>
+              </div>
             </div>
           </div>
         </div>
