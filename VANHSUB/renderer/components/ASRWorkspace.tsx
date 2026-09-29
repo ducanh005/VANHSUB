@@ -44,8 +44,19 @@ function isAudioFile(filePath: string): boolean {
   return AUDIO_EXTENSIONS.includes(ext);
 }
 
-export default function ASRWorkspace({ tasks }: { tasks: Task[] }) {
-  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+type ASRWorkspaceProps = {
+  tasks: Task[];
+  selectedTaskId?: string | null;
+  onSelectTaskId?: (id: string | null) => void;
+};
+
+export default function ASRWorkspace({ tasks, selectedTaskId: propSelectedTaskId, onSelectTaskId }: ASRWorkspaceProps) {
+  const [internalTaskId, setInternalTaskId] = useState<string | null>(null);
+  const selectedTaskId = propSelectedTaskId !== undefined ? propSelectedTaskId : internalTaskId;
+  const setSelectedTaskId = (id: string | null) => {
+    if (onSelectTaskId) onSelectTaskId(id);
+    else setInternalTaskId(id);
+  };
   const [model, setModel] = useState('base');
   const [srtContent, setSrtContent] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
@@ -63,9 +74,16 @@ export default function ASRWorkspace({ tasks }: { tasks: Task[] }) {
   const isAudio = selectedTask ? isAudioFile(selectedTask.filePath) : false;
   const hasSrt = !!selectedTask?.srtPath;
 
-  // Mặc định chọn task đầu tiên
+  // Mặc định chọn task đầu tiên hoặc fallback nếu task hiện tại bị xoá
   useEffect(() => {
-    if (!selectedTaskId && tasks.length > 0) setSelectedTaskId(tasks[0].id);
+    if (tasks.length === 0) {
+      if (selectedTaskId !== null) setSelectedTaskId(null);
+      return;
+    }
+    const exists = tasks.some((t) => t.id === selectedTaskId);
+    if (!exists) {
+      setSelectedTaskId(tasks[0].id);
+    }
   }, [tasks, selectedTaskId]);
 
   // Đồng bộ model khi đổi tác vụ
@@ -191,11 +209,10 @@ export default function ASRWorkspace({ tasks }: { tasks: Task[] }) {
     setIsError(false);
     setMessage('Đang khởi chạy Kết hợp Whisper + OCR (Độ chính xác tuyệt đối)...');
     try {
-      const api = (window as any).vanhsub;
-      if (!api?.tasks?.startHybrid) {
+      if (!window.vanhsub?.tasks?.startHybrid) {
         throw new Error('Chức năng startHybrid chưa sẵn sàng trên hệ thống.');
       }
-      await api.tasks.startHybrid(selectedTask.id, {
+      await window.vanhsub.tasks.startHybrid(selectedTask.id, {
         asrModel: model,
       });
       setMessage('Đang chạy Kết hợp Whisper + OCR: Neo thời gian theo OCR và sửa lỗi câu chữ bằng Whisper.');
@@ -210,9 +227,8 @@ export default function ASRWorkspace({ tasks }: { tasks: Task[] }) {
   const handleCancelHybrid = async () => {
     if (!selectedTask || !isHybridRunning) return;
     try {
-      const api = (window as any).vanhsub;
-      if (api?.tasks?.cancelHybrid) {
-        await api.tasks.cancelHybrid(selectedTask.id);
+      if (window.vanhsub?.tasks?.cancelHybrid) {
+        await window.vanhsub.tasks.cancelHybrid(selectedTask.id);
       }
       setMessage('Đã gửi yêu cầu huỷ tác vụ kết hợp Whisper + OCR.');
     } catch (err: any) {

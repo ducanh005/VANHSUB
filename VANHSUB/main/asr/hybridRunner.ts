@@ -71,11 +71,23 @@ export class HybridRunner {
       // -----------------------------------------------------------------------
       let whisperSegments: SrtLine[] = [];
 
+      if (task.ttsAudioDir && fs.existsSync(task.ttsAudioDir)) {
+        try {
+          fs.rmSync(task.ttsAudioDir, { recursive: true, force: true });
+        } catch {}
+      }
+
       TaskStore.update(taskId, {
         status: 'transcribing',
         progress: 5,
         projectDir,
         stageDescription: '[Hybrid 1/3] Đang trích xuất audio 16kHz cho Whisper...',
+        srtPath: undefined,
+        translatedSrtPath: undefined,
+        ttsAudioDir: undefined,
+        ttsMergedAudioPath: undefined,
+        outputPath: undefined,
+        ttsOverruns: undefined,
       });
       onUpdate?.();
 
@@ -140,6 +152,7 @@ export class HybridRunner {
           language: options?.ocrLanguage,
           customRegion: options?.ocrCustomRegion,
           dualEngine: options?.dualEngine,
+          isSubTask: true,
         },
         onUpdate
       );

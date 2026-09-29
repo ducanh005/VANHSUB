@@ -31,6 +31,8 @@ import { ExportFormatPanel } from './export/ExportFormatPanel';
 
 type Props = {
   tasks: Task[];
+  selectedTaskId?: string | null;
+  onSelectTaskId?: (id: string | null) => void;
 };
 
 type ExportMode = 'hardsub' | 'softsub' | 'dub' | 'stems';
@@ -135,8 +137,13 @@ const DEFAULT_MASK: SubMaskRegion = {
   mode: 'blur',
 };
 
-export default function ExportPage({ tasks }: Props) {
-  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, onSelectTaskId }: Props) {
+  const [internalTaskId, setInternalTaskId] = useState<string | null>(null);
+  const selectedTaskId = propSelectedTaskId !== undefined ? propSelectedTaskId : internalTaskId;
+  const setSelectedTaskId = (id: string | null) => {
+    if (onSelectTaskId) onSelectTaskId(id);
+    else setInternalTaskId(id);
+  };
   const [mode, setMode] = useState<ExportMode>('hardsub');
   const [maskEnabled, setMaskEnabled] = useState(false);
   const [mask, setMask] = useState<SubMaskRegion>(DEFAULT_MASK);

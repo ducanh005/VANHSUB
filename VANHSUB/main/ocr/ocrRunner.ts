@@ -44,6 +44,7 @@ export interface OcrRunOptions {
   language?: string;
   fps?: number;
   dualEngine?: boolean;
+  isSubTask?: boolean;
 }
 
 /**
@@ -59,18 +60,55 @@ export interface OcrRunOptions {
  *        → Ghép khung trùng nội dung thành dòng phụ đề (Temporal Merging) → .srt
  */
 export class OcrRunner {
+  private static MAX_PARALLEL_OCR = 1;
   private static runningTasks = new Set<string>();
   private static cancelRequested = new Set<string>();
+  private static queue: Array<{
+    taskId: string;
+    options?: OcrRunOptions;
+    onUpdate?: () => void;
+    resolve: (t: Task | undefined) => void;
+    reject: (err: any) => void;
+  }> = [];
 
   static isRunning(taskId: string): boolean {
     return this.runningTasks.has(taskId);
   }
 
-  /** Yêu cầu huỷ — có hiệu lực trước khung OCR kế tiếp (hợp tác). */
+  static isQueued(taskId: string): boolean {
+    return this.queue.some((item) => item.taskId === taskId);
+  }
+
+  /** Yêu cầu huỷ — huỷ ngay khỏi hàng đợi hoặc huỷ trước khung OCR kế tiếp (hợp tác). */
   static cancel(taskId: string): boolean {
+    // 1. Kiểm tra trong hàng đợi
+    const qIndex = this.queue.findIndex((item) => item.taskId === taskId);
+    if (qIndex !== -1) {
+      const [queuedItem] = this.queue.splice(qIndex, 1);
+      TaskStore.update(taskId, {
+        status: 'cancelled',
+        stageDescription: 'Đã huỷ khỏi hàng đợi OCR',
+      });
+      queuedItem.onUpdate?.();
+      queuedItem.resolve(TaskStore.getById(taskId));
+      this.drainQueue();
+      return true;
+    }
+
+    // 2. Đang thực thi
     if (!this.runningTasks.has(taskId)) return false;
     this.cancelRequested.add(taskId);
     return true;
+  }
+
+  private static drainQueue() {
+    if (this.runningTasks.size >= this.MAX_PARALLEL_OCR) return;
+    const nextItem = this.queue.shift();
+    if (!nextItem) return;
+
+    this.executeOcr(nextItem.taskId, nextItem.options, nextItem.onUpdate)
+      .then(nextItem.resolve)
+      .catch(nextItem.reject);
   }
 
   static async runOcr(
@@ -84,6 +122,32 @@ export class OcrRunner {
     if (this.runningTasks.has(taskId)) {
       return task;
     }
+
+    if (this.isQueued(taskId)) {
+      return task;
+    }
+
+    if (this.runningTasks.size >= this.MAX_PARALLEL_OCR) {
+      return new Promise<Task | undefined>((resolve, reject) => {
+        this.queue.push({ taskId, options, onUpdate, resolve, reject });
+        TaskStore.update(taskId, {
+          status: 'ocr',
+          stageDescription: 'Đang xếp hàng chờ tài nguyên OCR...',
+        });
+        onUpdate?.();
+      });
+    }
+
+    return this.executeOcr(taskId, options, onUpdate);
+  }
+
+  private static async executeOcr(
+    taskId: string,
+    options?: OcrRunOptions,
+    onUpdate?: () => void,
+  ): Promise<Task | undefined> {
+    const task = TaskStore.getById(taskId);
+    if (!task) throw new Error(`Không tìm thấy tác vụ ID: ${taskId}`);
 
     const ext = path.extname(task.filePath).toLowerCase();
     if (AUDIO_EXTENSIONS.has(ext)) {
@@ -104,12 +168,24 @@ export class OcrRunner {
       const dualEngine = options?.dualEngine ?? (SettingsStore.get('ocrDualEngine') !== false);
       const shouldStop = () => this.cancelRequested.has(taskId);
 
+      if (task.ttsAudioDir && fs.existsSync(task.ttsAudioDir)) {
+        try {
+          fs.rmSync(task.ttsAudioDir, { recursive: true, force: true });
+        } catch {}
+      }
+
       // Giai đoạn 1: trích khung hình
       TaskStore.update(taskId, {
         status: 'ocr',
         progress: 2,
         errorMessage: undefined,
         stageDescription: `Đang trích khung hình (chế độ ${mode.toUpperCase()})...`,
+        srtPath: undefined,
+        translatedSrtPath: undefined,
+        ttsAudioDir: undefined,
+        ttsMergedAudioPath: undefined,
+        outputPath: undefined,
+        ttsOverruns: undefined,
       });
       onUpdate?.();
 
@@ -318,29 +394,46 @@ export class OcrRunner {
         frameIntervalMs,
       );
 
-      const updated = TaskStore.update(taskId, {
-        status: 'done',
-        progress: 100,
-        srtPath: targetPath,
-        stageDescription: `Đã quét OCR được ${segments.length} dòng phụ đề`,
-        ocrStats: {
-          framesScanned: stats.framesScanned,
-          detections: stats.textDetections,
-          trackedGroups: stats.trackedGroups,
-          duplicatesRemoved: stats.duplicatesMerged,
-          finalEvents: stats.finalEvents,
-          highConfidence: stats.highConfidence,
-          needsReview: stats.needsReview,
-        },
-      });
-      onUpdate?.();
+      if (!options?.isSubTask) {
+        const updated = TaskStore.update(taskId, {
+          status: 'done',
+          progress: 100,
+          srtPath: targetPath,
+          stageDescription: `Đã quét OCR được ${segments.length} dòng phụ đề`,
+          ocrStats: {
+            framesScanned: stats.framesScanned,
+            detections: stats.textDetections,
+            trackedGroups: stats.trackedGroups,
+            duplicatesRemoved: stats.duplicatesMerged,
+            finalEvents: stats.finalEvents,
+            highConfidence: stats.highConfidence,
+            needsReview: stats.needsReview,
+          },
+        });
+        onUpdate?.();
 
-      // Nhất quán với phiên âm: tự động dịch nếu người dùng bật tùy chọn này
-      if (SettingsStore.get('autoTranslateAfterAsr') && SettingsStore.hasGeminiKey()) {
-        await TranslateRunner.runTranslate(taskId, undefined, onUpdate);
+        // Nhất quán với phiên âm: tự động dịch nếu người dùng bật tùy chọn này
+        if (SettingsStore.get('autoTranslateAfterAsr') && SettingsStore.hasGeminiKey()) {
+          await TranslateRunner.runTranslate(taskId, undefined, onUpdate);
+        }
+
+        return updated ?? TaskStore.getById(taskId);
+      } else {
+        const updated = TaskStore.update(taskId, {
+          srtPath: targetPath,
+          ocrStats: {
+            framesScanned: stats.framesScanned,
+            detections: stats.textDetections,
+            trackedGroups: stats.trackedGroups,
+            duplicatesRemoved: stats.duplicatesMerged,
+            finalEvents: stats.finalEvents,
+            highConfidence: stats.highConfidence,
+            needsReview: stats.needsReview,
+          },
+        });
+        onUpdate?.();
+        return updated ?? TaskStore.getById(taskId);
       }
-
-      return updated ?? TaskStore.getById(taskId);
     } catch (err: any) {
       const cancelled = isCancelledError(err);
       console.error(`[OCR] Lỗi khi quét task ${taskId}:`, err);
@@ -355,6 +448,7 @@ export class OcrRunner {
       if (framesDir) cleanupFrames(framesDir);
       this.runningTasks.delete(taskId);
       this.cancelRequested.delete(taskId);
+      this.drainQueue();
     }
   }
 }

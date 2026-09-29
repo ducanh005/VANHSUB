@@ -8,15 +8,41 @@ import { CancelledError, isCancelledError } from '../lib/cancel';
 import { getProjectArtifactPaths } from '../utils/projectFolder';
 
 export class TaskRunner {
+  private static readonly MAX_PARALLEL_ASR = 2;
   private static runningTasks = new Set<string>();
   private static cancelledTasks = new Set<string>();
+  private static queue: Array<{
+    taskId: string;
+    onUpdate?: () => void;
+    resolve: (t?: Task) => void;
+    reject: (err: any) => void;
+  }> = [];
 
   static isRunning(taskId: string): boolean {
     return this.runningTasks.has(taskId);
   }
 
-  /** Yêu cầu huỷ phiên âm — có hiệu lực giữa các chunk audio (hợp tác) */
+  static isQueued(taskId: string): boolean {
+    return this.queue.some((item) => item.taskId === taskId);
+  }
+
+  /** Yêu cầu huỷ phiên âm — huỷ ngay nếu đang trong hàng đợi hoặc dừng chunk đang chạy */
   static cancel(taskId: string): boolean {
+    // 1. Kiểm tra hàng đợi
+    const qIndex = this.queue.findIndex((item) => item.taskId === taskId);
+    if (qIndex !== -1) {
+      const [queuedItem] = this.queue.splice(qIndex, 1);
+      TaskStore.update(taskId, {
+        status: 'cancelled',
+        stageDescription: 'Đã huỷ khỏi hàng đợi phiên âm',
+      });
+      queuedItem.onUpdate?.();
+      queuedItem.resolve(TaskStore.getById(taskId));
+      this.drainQueue();
+      return true;
+    }
+
+    // 2. Đang chạy
     if (!this.runningTasks.has(taskId)) return false;
     this.cancelledTasks.add(taskId);
     return true;
@@ -30,11 +56,56 @@ export class TaskRunner {
       return task;
     }
 
+    if (this.isQueued(taskId)) {
+      return task;
+    }
+
+    if (this.runningTasks.size >= this.MAX_PARALLEL_ASR) {
+      return new Promise<Task | undefined>((resolve, reject) => {
+        this.queue.push({ taskId, onUpdate, resolve, reject });
+        TaskStore.update(taskId, {
+          status: 'queued',
+          stageDescription: `Đang chờ trong hàng đợi phiên âm (#${this.queue.length})...`,
+        });
+        onUpdate?.();
+      });
+    }
+
+    return this.executeTask(taskId, onUpdate);
+  }
+
+  private static drainQueue(): void {
+    while (this.runningTasks.size < this.MAX_PARALLEL_ASR && this.queue.length > 0) {
+      const next = this.queue.shift();
+      if (!next) break;
+      this.queue.forEach((item, idx) => {
+        TaskStore.update(item.taskId, {
+          stageDescription: `Đang chờ trong hàng đợi phiên âm (#${idx + 1})...`,
+        });
+        item.onUpdate?.();
+      });
+      this.executeTask(next.taskId, next.onUpdate)
+        .then(next.resolve)
+        .catch(next.reject);
+    }
+  }
+
+  private static async executeTask(taskId: string, onUpdate?: () => void): Promise<Task | undefined> {
+    const task = TaskStore.getById(taskId);
+    if (!task) return undefined;
+
     this.runningTasks.add(taskId);
     this.cancelledTasks.delete(taskId);
 
     try {
       const { projectDir, audioWavPath, rawSrtPath } = getProjectArtifactPaths(task);
+
+      // Phase 2 State Invalidation: Xóa các artifact downstream cũ khi bắt đầu nhận diện lại
+      if (task.ttsAudioDir && fs.existsSync(task.ttsAudioDir)) {
+        try {
+          fs.rmSync(task.ttsAudioDir, { recursive: true, force: true });
+        } catch {}
+      }
 
       // Giai đoạn 1: Chuẩn bị & trích xuất audio 16kHz vào thư mục dự án
       TaskStore.update(taskId, {
@@ -42,6 +113,12 @@ export class TaskRunner {
         progress: 10,
         projectDir,
         stageDescription: 'Đang trích xuất audio vào thư mục dự án...',
+        srtPath: undefined,
+        translatedSrtPath: undefined,
+        ttsAudioDir: undefined,
+        ttsMergedAudioPath: undefined,
+        outputPath: undefined,
+        ttsOverruns: undefined,
       });
       onUpdate?.();
 
@@ -131,6 +208,7 @@ export class TaskRunner {
     } finally {
       this.runningTasks.delete(taskId);
       this.cancelledTasks.delete(taskId);
+      this.drainQueue();
     }
   }
 }

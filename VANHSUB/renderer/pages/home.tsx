@@ -30,6 +30,7 @@ import {
   PanelLeftOpen,
   AlertCircle,
   Maximize2,
+  Square,
   X,
 } from 'lucide-react';
 import dynamic from 'next/dynamic';
@@ -100,9 +101,6 @@ export default function HomePage() {
   const [isDragging, setIsDragging] = useState(false);
   const [linkUrl, setLinkUrl] = useState('');
   const [downloadModalOpen, setDownloadModalOpen] = useState(false);
-  const [downloadingLink, setDownloadingLink] = useState(false);
-  const [linkMessage, setLinkMessage] = useState('');
-  const [linkError, setLinkError] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [asrModel, setAsrModel] = useState('base');
@@ -395,31 +393,14 @@ export default function HomePage() {
     }
   };
 
-  // Nhập file .srt có sẵn cho task (video đã có phụ đề nước ngoài — bỏ qua phiên âm)
-  // Tải audio từ link video công khai (TikTok/YouTube) và tạo tác vụ mới
-  const handleAddFromUrl = async () => {
-    const url = linkUrl.trim();
-    if (!url || downloadingLink) return;
-    if (typeof window === 'undefined' || !window.vanhsub?.tasks?.addFromUrl) return;
-
-    setDownloadingLink(true);
-    setLinkMessage('');
-    setLinkError(false);
+  // Huỷ tác vụ đang chạy hoặc đang chờ
+  const handleCancelTask = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (typeof window === 'undefined' || !window.vanhsub?.tasks?.cancel) return;
     try {
-      const res = await window.vanhsub.tasks.addFromUrl(url);
-      if (res?.error) {
-        setLinkError(true);
-        setLinkMessage(res.error);
-        return;
-      }
-      setLinkUrl('');
-      setLinkMessage('Đã tải xong và tạo tác vụ — bấm "Bắt đầu phiên âm" trên thẻ tác vụ.');
-      await loadTasks();
-    } catch (err: any) {
-      setLinkError(true);
-      setLinkMessage(err?.message || 'Không thể tải audio từ link.');
-    } finally {
-      setDownloadingLink(false);
+      await window.vanhsub.tasks.cancel(id);
+    } catch (err) {
+      console.error('Lỗi khi huỷ tác vụ:', err);
     }
   };
 
@@ -801,10 +782,18 @@ export default function HomePage() {
             />
           </div>
           <div className={activeTab === 'dubbing' ? 'flex min-h-0 flex-1 flex-col overflow-hidden' : 'hidden'}>
-            <TTSPage tasks={tasks} />
+            <TTSPage
+              tasks={tasks}
+              selectedTaskId={selectedTaskId}
+              onSelectTaskId={setSelectedTaskId}
+            />
           </div>
           <div className={activeTab === 'export' ? 'flex min-h-0 flex-1 flex-col overflow-hidden' : 'hidden'}>
-            <ExportPage tasks={tasks} />
+            <ExportPage
+              tasks={tasks}
+              selectedTaskId={selectedTaskId}
+              onSelectTaskId={setSelectedTaskId}
+            />
           </div>
           <div className={activeTab === 'settings' ? 'flex min-h-0 flex-1 flex-col overflow-hidden' : 'hidden'}>
             <SettingsPage />
@@ -816,7 +805,11 @@ export default function HomePage() {
                 : 'hidden'
             }
           >
-            <ASRWorkspace tasks={tasks} />
+            <ASRWorkspace
+              tasks={tasks}
+              selectedTaskId={selectedTaskId}
+              onSelectTaskId={setSelectedTaskId}
+            />
           </div>
 
           <div
@@ -1032,7 +1025,7 @@ export default function HomePage() {
                               Chạy lại
                             </button>
                           )}
-                          {(t.status === 'queued' || t.status === 'done' || t.status === 'error' || t.status === 'cancelled') && (
+                          {(t.status === 'queued' || (t.status === 'done' && !t.outputPath) || t.status === 'error' || t.status === 'cancelled') && (
                             <button
                               type="button"
                               onClick={(e) => handleRunPipeline(t.id, e)}
@@ -1055,6 +1048,15 @@ export default function HomePage() {
                                 <RefreshCw className="h-3 w-3 animate-spin" />
                                 {t.progress}%
                               </span>
+                              <button
+                                type="button"
+                                onClick={(e) => handleCancelTask(t.id, e)}
+                                className="inline-flex items-center gap-1 rounded-full border border-rose-500/40 bg-rose-500/10 px-2 py-0.5 text-[11px] font-medium text-rose-400 hover:bg-rose-500/20 transition cursor-pointer"
+                                title="Dừng tác vụ đang xử lý"
+                              >
+                                <Square className="h-2.5 w-2.5 fill-rose-400" />
+                                Dừng
+                              </button>
                             </div>
                           )}
 
