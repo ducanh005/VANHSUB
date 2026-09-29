@@ -23,7 +23,8 @@ import { checkVietTtsConnection, getAvailableVoices, previewTts, getEdgeVoices }
 import { VoiceSampleStore } from './store/voiceSampleStore'
 import { getAiStudioStore } from './store/aiStudioStore'
 import { extractAudioFromUrl } from './helpers/voiceFromUrl'
-import { inspectMediaUrl, downloadVideoFromUrl, resolveBaseFolder } from './helpers/videoDownloader'
+import { inspectMediaUrl, downloadVideoFromUrl, resolveBaseFolder, cancelDownload } from './helpers/videoDownloader'
+import { isCancelledError } from './lib/cancel'
 import { installRendererLogger } from './helpers/logger'
 import { getSharedTikTokProvider } from './tts-providers/tiktok/sessionStores'
 import { TikTokTTSError } from './tts-providers/tiktok/types'
@@ -337,7 +338,7 @@ ipcMain.handle('downloader:getDefaultDir', async () => {
 });
 
 // Tải video MP4 từ liên kết và tự động tạo Task trong thư mục dự án
-ipcMain.handle('downloader:download', async (_event, options: { url: string; quality?: any; noWatermarkUrl?: string; outputDir?: string; customFileName?: string }) => {
+ipcMain.handle('downloader:download', async (_event, options: { url: string; quality?: any; noWatermarkUrl?: string; outputDir?: string; customFileName?: string; downloadId?: string }) => {
   try {
     const result = await downloadVideoFromUrl({
       url: options.url,
@@ -345,6 +346,7 @@ ipcMain.handle('downloader:download', async (_event, options: { url: string; qua
       noWatermarkUrl: options.noWatermarkUrl,
       outputDir: options.outputDir,
       customFileName: options.customFileName,
+      downloadId: options.downloadId,
       onProgress: (progress) => {
         mainWindow?.webContents.send('downloader:progress', progress);
       },
@@ -364,7 +366,20 @@ ipcMain.handle('downloader:download', async (_event, options: { url: string; qua
     broadcastTasksUpdate();
     return { task, result };
   } catch (err: any) {
+    if (isCancelledError(err)) {
+      throw new Error('Đã huỷ tải video');
+    }
     throw new Error(err.message || 'Lỗi khi tải video từ liên kết');
+  }
+});
+
+// Huỷ tiến trình tải video
+ipcMain.handle('downloader:cancel', async (_event, downloadId?: string) => {
+  try {
+    return cancelDownload(downloadId);
+  } catch (err: any) {
+    console.error('[downloader:cancel] Lỗi huỷ download:', err);
+    return false;
   }
 });
 
@@ -475,7 +490,37 @@ ipcMain.handle('tasks:update', async (_event, id: string, updates: Partial<Task>
   return task
 })
 
+function cancelTaskExecution(id: string): boolean {
+  // 1. Gỡ khỏi hàng đợi pipeline nếu đang chờ
+  const qIdx = pipelineQueued.indexOf(id)
+  if (qIdx !== -1) {
+    pipelineQueued.splice(qIdx, 1)
+  }
+  pipelineActive.delete(id)
+
+  // 2. Huỷ bỏ các runner có thể đang chạy
+  const asrCancelled = TaskRunner.cancel(id)
+  const ocrCancelled = OcrRunner.cancel(id)
+  const hybridCancelled = HybridRunner.cancel(id)
+  const translateCancelled = TranslateRunner.cancel(id)
+  const ttsCancelled = TTSRunner.cancel(id)
+  const exportCancelled = ExportRunner.cancel(id)
+  const dubbingCancelled = DubbingRunner.cancel(id)
+
+  // 3. Cập nhật trạng thái Store nếu task đang trong quá trình chạy
+  const currentTask = TaskStore.getById(id)
+  if (currentTask && ['queued', 'transcribing', 'ocr', 'translating', 'dubbing', 'exporting'].includes(currentTask.status)) {
+    TaskStore.update(id, {
+      status: 'cancelled',
+      stageDescription: 'Đã huỷ tác vụ',
+    })
+  }
+
+  return asrCancelled || ocrCancelled || hybridCancelled || translateCancelled || ttsCancelled || exportCancelled || dubbingCancelled
+}
+
 ipcMain.handle('tasks:delete', async (_event, id: string) => {
+  cancelTaskExecution(id)
   const result = TaskStore.delete(id)
   broadcastTasksUpdate()
   return result
@@ -488,9 +533,11 @@ ipcMain.handle('tasks:start', async (_event, id: string) => {
   return true
 })
 
-// Huỷ phiên âm đang chạy (dừng giữa các chunk audio)
+// Huỷ tác vụ đang chạy hoặc đang chờ trong hàng đợi
 ipcMain.handle('tasks:cancel', async (_event, id: string) => {
-  return TaskRunner.cancel(id)
+  const cancelled = cancelTaskExecution(id)
+  broadcastTasksUpdate()
+  return cancelled
 })
 
 // Chạy kết hợp kép Whisper ASR + Quét OCR (R2 - Độ chính xác tuyệt đối)
@@ -689,7 +736,7 @@ ipcMain.handle(
     voice?: string,
     speed?: number,
     voiceOverrides?: Record<string, string>,
-    engine?: 'viettts' | 'tiktok'
+    engine?: 'viettts' | 'tiktok' | 'edge'
   ) => {
     TTSRunner.runTTS(id, voice, speed, () => {
       broadcastTasksUpdate()

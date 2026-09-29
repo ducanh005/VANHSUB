@@ -409,6 +409,7 @@ export async function muxAudioToVideo(
     mixOriginalAudio?: boolean;
     syncMode?: SyncMode;
     stretchFactor?: number;
+    onCommandCreated?: (command: ffmpeg.FfmpegCommand) => void;
   },
   onProgress?: (percent: number) => void
 ): Promise<string> {
@@ -431,6 +432,7 @@ export async function muxAudioToVideo(
 
     await new Promise<void>((resolve, reject) => {
       const command = ffmpeg(videoPath).input(audioPath);
+      options?.onCommandCreated?.(command);
 
       const outputOptions: string[] = ['-map', '0:v:0'];
       let videoFilters: string | null = null;
@@ -520,6 +522,8 @@ export async function dubVideo(
     mixOriginalAudio?: boolean;
     /** Tách lời thoại gốc khỏi nhạc nền bằng AI (demucs) — nền giữ nguyên, giọng người gốc bị loại */
     vocalSeparation?: boolean;
+    onCommandCreated?: (command: ffmpeg.FfmpegCommand) => void;
+    shouldStop?: () => boolean;
   },
   onProgress?: (percent: number) => void
 ): Promise<{ outputPath: string; mergedAudioPath: string; overruns: TtsOverrun[]; stretchFactor: number }> {
@@ -535,6 +539,10 @@ export async function dubVideo(
   let mixedAudioPath: string | null = null;
 
   try {
+    if (options?.shouldStop?.()) {
+      throw new Error('Đã huỷ bởi người dùng');
+    }
+
     console.log(`[Dubbing] Starting full dubbing pipeline (mode ${syncMode})...`);
 
     let mergeSrtPath = srtPath;
@@ -564,8 +572,12 @@ export async function dubVideo(
       console.log('[Dubbing] Trích audio gốc (44.1kHz stereo) cho AI tách lời...');
       await extractFullQualityAudio(videoPath, origWav);
       onProgress?.(3);
-      backgroundAudioPath = (await separateVocals(origWav, separationDir)).noVocals;
+      backgroundAudioPath = (await separateVocals(origWav, separationDir, options?.shouldStop)).noVocals;
       onProgress?.(14);
+    }
+
+    if (options?.shouldStop?.()) {
+      throw new Error('Đã huỷ bởi người dùng');
     }
 
     // Bước 1: Ghép audio
@@ -579,6 +591,10 @@ export async function dubVideo(
       },
       { mode: syncMode === 'flexible' ? 'flexible' : 'strict' }
     );
+
+    if (options?.shouldStop?.()) {
+      throw new Error('Đã huỷ bởi người dùng');
+    }
 
     // Trộn nhạc nền không lời (từ AI tách) với audio TTS — lời thoại thay giọng
     // người gốc, nhạc/SFX giữ nguyên bản gốc
@@ -598,6 +614,10 @@ export async function dubVideo(
       muxAudioInput = mixedAudioPath;
     }
 
+    if (options?.shouldStop?.()) {
+      throw new Error('Đã huỷ bởi người dùng');
+    }
+
     // Bước 2: Mux vào video
     onProgress?.(50);
     const finalPath = await muxAudioToVideo(
@@ -609,6 +629,7 @@ export async function dubVideo(
         mixOriginalAudio: options?.mixOriginalAudio && !options.vocalSeparation,
         syncMode,
         stretchFactor,
+        onCommandCreated: options?.onCommandCreated,
       },
       (p) => {
         onProgress?.(50 + Math.round(p * 0.5)); // 50-100%

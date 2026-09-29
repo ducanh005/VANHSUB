@@ -26,9 +26,9 @@ export class TTSRunner {
    */
   private static resolveEngine(task: Task, engine?: TTSEngine): TTSEngine {
     if (engine) return engine;
-    if (getSharedTikTokProvider().hasSession()) return 'tiktok';
     if (task.ttsEngine) return task.ttsEngine;
-    return 'tiktok';
+    if (getSharedTikTokProvider().hasSession()) return 'tiktok';
+    return 'edge';
   }
 
   /** Yêu cầu huỷ: hiệu lực sau khi câu hiện tại tạo audio xong */

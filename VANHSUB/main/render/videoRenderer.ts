@@ -185,6 +185,8 @@ export interface RenderOptions {
   /** Style phụ đề tùy chỉnh (force_style ASS) — bỏ qua nếu không truyền */
   style?: SubtitleStyle | null;
   onProgress?: (percent: number) => void;
+  /** Callback nhận instance command FFmpeg ngay khi khởi tạo để hỗ trợ huỷ/kill */
+  onCommandCreated?: (command: ffmpeg.FfmpegCommand) => void;
 }
 
 /** Chuẩn hoá chiều cao dải che về khoảng hợp lệ */
@@ -634,6 +636,7 @@ export async function burnHardsub(options: RenderOptions): Promise<void> {
     };
 
     const command = ffmpeg(videoPath);
+    options.onCommandCreated?.(command);
 
     // Nếu watermark là ảnh hợp lệ thì add input 1
     if (watermark && watermark.content && watermark.type === 'image' && fs.existsSync(watermark.content)) {
@@ -730,7 +733,10 @@ export async function muxSoftsub(options: Omit<RenderOptions, 'onProgress'>): Pr
   }
 
   return new Promise<void>((resolve, reject) => {
-    ffmpeg(videoPath)
+    const command = ffmpeg(videoPath);
+    options.onCommandCreated?.(command);
+
+    command
       .input(srtPath)
       .outputOptions([
         '-c:v copy',

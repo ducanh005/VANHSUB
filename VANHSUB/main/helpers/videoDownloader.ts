@@ -1,4 +1,4 @@
-import { spawn } from 'child_process';
+import { spawn, type ChildProcess } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
@@ -8,6 +8,8 @@ import { ensureYtDlp } from './voiceFromUrl';
 import { getFfmpegBinPath } from '../asr/audioExtractor';
 import { SettingsStore } from '../store/settingsStore';
 import { sanitizeFolderName } from '../utils/projectFolder';
+import { killProcessTree } from '../lib/processTree';
+import { CancelledError, isCancelledError } from '../lib/cancel';
 
 export type PlatformType = 'youtube' | 'douyin' | 'bilibili' | 'tiktok' | 'other';
 
@@ -46,6 +48,8 @@ export interface DownloadVideoOptions {
   outputDir?: string;
   /** Tên file/tiêu đề tùy chọn do người dùng đặt */
   customFileName?: string;
+  /** Định danh tải để hỗ trợ huỷ tiến trình */
+  downloadId?: string;
 }
 
 /**
@@ -329,15 +333,59 @@ function formatDuration(sec: number): string {
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 }
 
+export interface ActiveDownloadEntry {
+  downloadId: string;
+  baseFolder: string;
+  child?: ChildProcess;
+  abortController?: AbortController;
+  tempFiles: Set<string>;
+  cancelled: boolean;
+}
+
+const activeDownloads = new Map<string, ActiveDownloadEntry>();
+
+/**
+ * Huỷ tiến trình tải video đang chạy (yt-dlp, ffmpeg hoặc Axios stream)
+ * và dọn dẹp các tệp tải dở dang.
+ */
+export function cancelDownload(downloadId?: string): boolean {
+  if (downloadId && activeDownloads.has(downloadId)) {
+    const entry = activeDownloads.get(downloadId)!;
+    entry.cancelled = true;
+    if (entry.child) killProcessTree(entry.child);
+    if (entry.abortController) {
+      try { entry.abortController.abort(); } catch {}
+    }
+    for (const f of entry.tempFiles) {
+      try { if (fs.existsSync(f)) fs.unlinkSync(f); } catch {}
+    }
+    if (entry.baseFolder && fs.existsSync(entry.baseFolder)) {
+      try {
+        const files = fs.readdirSync(entry.baseFolder);
+        for (const f of files) {
+          if (f.startsWith(downloadId)) {
+            try { fs.unlinkSync(path.join(entry.baseFolder, f)); } catch {}
+          }
+        }
+      } catch {}
+    }
+    activeDownloads.delete(downloadId);
+    return true;
+  }
+
+  if (!downloadId && activeDownloads.size > 0) {
+    let anyCancelled = false;
+    for (const id of Array.from(activeDownloads.keys())) {
+      if (cancelDownload(id)) anyCancelled = true;
+    }
+    return anyCancelled;
+  }
+  return false;
+}
+
 /** Kill process tree */
 function killTree(child: ReturnType<typeof spawn>): void {
-  try {
-    if (process.platform === 'win32' && child.pid) {
-      spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true });
-    } else {
-      child.kill('SIGKILL');
-    }
-  } catch {}
+  killProcessTree(child as ChildProcess);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -801,7 +849,8 @@ export async function downloadDouyinNoWatermark(
   noWatermarkUrl: string,
   title: string,
   baseFolder: string,
-  onProgress?: (p: DownloadProgress) => void
+  onProgress?: (p: DownloadProgress) => void,
+  entry?: ActiveDownloadEntry
 ): Promise<string> {
   onProgress?.({
     percent: 5,
@@ -809,69 +858,110 @@ export async function downloadDouyinNoWatermark(
     stageDescription: 'Đang kết nối tới máy chủ Douyin...',
   });
 
-  const tempFileName = `dl_${Date.now()}_douyin_nowm.mp4`;
+  const tempFileName = `dl_${entry?.downloadId || Date.now()}_douyin_nowm.mp4`;
   const tempFilePath = path.join(baseFolder, tempFileName);
+  if (entry) {
+    entry.tempFiles.add(tempFilePath);
+  }
 
-  const res = await axios.get(noWatermarkUrl, {
-    responseType: 'stream',
-    timeout: 1800_000, // 30 phút tối đa
-    maxRedirects: 10,
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1',
-      'Referer': 'https://www.douyin.com/',
-      'Accept': '*/*',
-    },
-  });
+  const abortController = new AbortController();
+  if (entry) {
+    entry.abortController = abortController;
+  }
 
-  const totalBytes = parseInt(String(res.headers['content-length'] ?? '0'), 10);
-  let downloadedBytes = 0;
-  let lastReportedPercent = 5;
+  try {
+    const res = await axios.get(noWatermarkUrl, {
+      responseType: 'stream',
+      timeout: 1800_000, // 30 phút tối đa
+      maxRedirects: 10,
+      signal: abortController.signal,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1',
+        'Referer': 'https://www.douyin.com/',
+        'Accept': '*/*',
+      },
+    });
 
-  const writer = fs.createWriteStream(tempFilePath);
+    const totalBytes = parseInt(String(res.headers['content-length'] ?? '0'), 10);
+    let downloadedBytes = 0;
+    let lastReportedPercent = 5;
 
-  await new Promise<void>((resolve, reject) => {
-    res.data.on('data', (chunk: Buffer) => {
-      downloadedBytes += chunk.length;
-      if (totalBytes > 0) {
-        const rawPercent = (downloadedBytes / totalBytes) * 93 + 5; // 5% → 98%
-        const percent = Math.min(98, Math.round(rawPercent));
-        if (percent > lastReportedPercent) {
-          lastReportedPercent = percent;
-          const speedKb = Math.round(downloadedBytes / 1024);
+    const writer = fs.createWriteStream(tempFilePath);
+
+    await new Promise<void>((resolve, reject) => {
+      res.data.on('data', (chunk: Buffer) => {
+        if (entry?.cancelled) {
+          writer.close();
+          try { if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath); } catch {}
+          return reject(new CancelledError());
+        }
+        downloadedBytes += chunk.length;
+        if (totalBytes > 0) {
+          const rawPercent = (downloadedBytes / totalBytes) * 93 + 5; // 5% → 98%
+          const percent = Math.min(98, Math.round(rawPercent));
+          if (percent > lastReportedPercent) {
+            lastReportedPercent = percent;
+            const speedKb = Math.round(downloadedBytes / 1024);
+            onProgress?.({
+              percent,
+              speed: speedKb > 0 ? `${speedKb} KB/s` : undefined,
+              status: 'downloading',
+              stageDescription: `Đang tải video Douyin (${percent}%)...`,
+            });
+          }
+        } else {
           onProgress?.({
-            percent,
-            speed: speedKb > 0 ? `${speedKb} KB/s` : undefined,
+            percent: 50,
             status: 'downloading',
-            stageDescription: `Đang tải video Douyin (${percent}%)...`,
+            stageDescription: `Đang tải video Douyin (${(downloadedBytes / (1024 * 1024)).toFixed(1)} MB)...`,
           });
         }
-      } else {
-        onProgress?.({
-          percent: 50,
-          status: 'downloading',
-          stageDescription: `Đang tải video Douyin (${(downloadedBytes / (1024 * 1024)).toFixed(1)} MB)...`,
-        });
-      }
+      });
+      res.data.pipe(writer);
+      writer.on('finish', () => {
+        if (entry?.cancelled) {
+          try { if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath); } catch {}
+          return reject(new CancelledError());
+        }
+        resolve();
+      });
+      writer.on('error', (err: any) => {
+        writer.close();
+        if (fs.existsSync(tempFilePath)) {
+          try { fs.unlinkSync(tempFilePath); } catch {}
+        }
+        if (entry?.cancelled || axios.isCancel(err) || isCancelledError(err)) {
+          return reject(new CancelledError());
+        }
+        reject(err);
+      });
+      res.data.on('error', (err: any) => {
+        writer.close();
+        if (fs.existsSync(tempFilePath)) {
+          try { fs.unlinkSync(tempFilePath); } catch {}
+        }
+        if (entry?.cancelled || axios.isCancel(err) || isCancelledError(err)) {
+          return reject(new CancelledError());
+        }
+        reject(err);
+      });
     });
-    res.data.pipe(writer);
-    writer.on('finish', resolve);
-    writer.on('error', (err: any) => {
-      writer.close();
-      if (fs.existsSync(tempFilePath)) {
-        try { fs.unlinkSync(tempFilePath); } catch {}
-      }
-      reject(err);
-    });
-    res.data.on('error', (err: any) => {
-      writer.close();
-      if (fs.existsSync(tempFilePath)) {
-        try { fs.unlinkSync(tempFilePath); } catch {}
-      }
-      reject(err);
-    });
-  });
 
-  return tempFilePath;
+    if (entry?.cancelled) {
+      try { if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath); } catch {}
+      throw new CancelledError();
+    }
+
+    return tempFilePath;
+  } catch (err: any) {
+    if (fs.existsSync(tempFilePath)) {
+      try { fs.unlinkSync(tempFilePath); } catch {}
+    }
+    if (entry?.cancelled || axios.isCancel(err) || isCancelledError(err)) {
+      throw new CancelledError();
+    }
+    throw err;
+  }
 }
 
 /**
@@ -882,7 +972,8 @@ export async function downloadTikTokNoWatermark(
   noWatermarkUrl: string,
   title: string,
   baseFolder: string,
-  onProgress?: (p: DownloadProgress) => void
+  onProgress?: (p: DownloadProgress) => void,
+  entry?: ActiveDownloadEntry
 ): Promise<string> {
   onProgress?.({
     percent: 5,
@@ -890,68 +981,109 @@ export async function downloadTikTokNoWatermark(
     stageDescription: 'Đang kết nối tới máy chủ TikTok...',
   });
 
-  const tempFileName = `dl_${Date.now()}_tiktok_nowm.mp4`;
+  const tempFileName = `dl_${entry?.downloadId || Date.now()}_tiktok_nowm.mp4`;
   const tempFilePath = path.join(baseFolder, tempFileName);
+  if (entry) {
+    entry.tempFiles.add(tempFilePath);
+  }
 
-  const res = await axios.get(noWatermarkUrl, {
-    responseType: 'stream',
-    timeout: 1800_000, // 30 phút tối đa
-    maxRedirects: 10,
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      'Accept': '*/*',
-    },
-  });
+  const abortController = new AbortController();
+  if (entry) {
+    entry.abortController = abortController;
+  }
 
-  const totalBytes = parseInt(String(res.headers['content-length'] ?? '0'), 10);
-  let downloadedBytes = 0;
-  let lastReportedPercent = 5;
+  try {
+    const res = await axios.get(noWatermarkUrl, {
+      responseType: 'stream',
+      timeout: 1800_000, // 30 phút tối đa
+      maxRedirects: 10,
+      signal: abortController.signal,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': '*/*',
+      },
+    });
 
-  const writer = fs.createWriteStream(tempFilePath);
+    const totalBytes = parseInt(String(res.headers['content-length'] ?? '0'), 10);
+    let downloadedBytes = 0;
+    let lastReportedPercent = 5;
 
-  await new Promise<void>((resolve, reject) => {
-    res.data.on('data', (chunk: Buffer) => {
-      downloadedBytes += chunk.length;
-      if (totalBytes > 0) {
-        const rawPercent = (downloadedBytes / totalBytes) * 93 + 5; // 5% → 98%
-        const percent = Math.min(98, Math.round(rawPercent));
-        if (percent > lastReportedPercent) {
-          lastReportedPercent = percent;
-          const speedKb = Math.round(downloadedBytes / 1024);
+    const writer = fs.createWriteStream(tempFilePath);
+
+    await new Promise<void>((resolve, reject) => {
+      res.data.on('data', (chunk: Buffer) => {
+        if (entry?.cancelled) {
+          writer.close();
+          try { if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath); } catch {}
+          return reject(new CancelledError());
+        }
+        downloadedBytes += chunk.length;
+        if (totalBytes > 0) {
+          const rawPercent = (downloadedBytes / totalBytes) * 93 + 5; // 5% → 98%
+          const percent = Math.min(98, Math.round(rawPercent));
+          if (percent > lastReportedPercent) {
+            lastReportedPercent = percent;
+            const speedKb = Math.round(downloadedBytes / 1024);
+            onProgress?.({
+              percent,
+              speed: speedKb > 0 ? `${speedKb} KB/s` : undefined,
+              status: 'downloading',
+              stageDescription: `Đang tải video TikTok (${percent}%)...`,
+            });
+          }
+        } else {
           onProgress?.({
-            percent,
-            speed: speedKb > 0 ? `${speedKb} KB/s` : undefined,
+            percent: 50,
             status: 'downloading',
-            stageDescription: `Đang tải video TikTok (${percent}%)...`,
+            stageDescription: `Đang tải video TikTok (${(downloadedBytes / (1024 * 1024)).toFixed(1)} MB)...`,
           });
         }
-      } else {
-        onProgress?.({
-          percent: 50,
-          status: 'downloading',
-          stageDescription: `Đang tải video TikTok (${(downloadedBytes / (1024 * 1024)).toFixed(1)} MB)...`,
-        });
-      }
+      });
+      res.data.pipe(writer);
+      writer.on('finish', () => {
+        if (entry?.cancelled) {
+          try { if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath); } catch {}
+          return reject(new CancelledError());
+        }
+        resolve();
+      });
+      writer.on('error', (err: any) => {
+        writer.close();
+        if (fs.existsSync(tempFilePath)) {
+          try { fs.unlinkSync(tempFilePath); } catch {}
+        }
+        if (entry?.cancelled || axios.isCancel(err) || isCancelledError(err)) {
+          return reject(new CancelledError());
+        }
+        reject(err);
+      });
+      res.data.on('error', (err: any) => {
+        writer.close();
+        if (fs.existsSync(tempFilePath)) {
+          try { fs.unlinkSync(tempFilePath); } catch {}
+        }
+        if (entry?.cancelled || axios.isCancel(err) || isCancelledError(err)) {
+          return reject(new CancelledError());
+        }
+        reject(err);
+      });
     });
-    res.data.pipe(writer);
-    writer.on('finish', resolve);
-    writer.on('error', (err: any) => {
-      writer.close();
-      if (fs.existsSync(tempFilePath)) {
-        try { fs.unlinkSync(tempFilePath); } catch {}
-      }
-      reject(err);
-    });
-    res.data.on('error', (err: any) => {
-      writer.close();
-      if (fs.existsSync(tempFilePath)) {
-        try { fs.unlinkSync(tempFilePath); } catch {}
-      }
-      reject(err);
-    });
-  });
 
-  return tempFilePath;
+    if (entry?.cancelled) {
+      try { if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath); } catch {}
+      throw new CancelledError();
+    }
+
+    return tempFilePath;
+  } catch (err: any) {
+    if (fs.existsSync(tempFilePath)) {
+      try { fs.unlinkSync(tempFilePath); } catch {}
+    }
+    if (entry?.cancelled || axios.isCancel(err) || isCancelledError(err)) {
+      throw new CancelledError();
+    }
+    throw err;
+  }
 }
 
 /**
@@ -1007,93 +1139,126 @@ export async function downloadVideoFromUrl(options: DownloadVideoOptions): Promi
     throw new Error(`Không thể tạo thư mục lưu trữ "${baseFolder}": ${err?.message || err}`);
   }
 
-  // ── Douyin — stream MP4 không watermark ──────────────────────────────────
-  if (platform === 'douyin') {
-    const quality = options.quality;
+  const downloadId = options.downloadId || `dl_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+  const entry: ActiveDownloadEntry = {
+    downloadId,
+    baseFolder,
+    tempFiles: new Set<string>(),
+    cancelled: false,
+  };
+  activeDownloads.set(downloadId, entry);
+
+  try {
+    if (entry.cancelled) throw new CancelledError();
+
+    // ── Douyin — stream MP4 không watermark ──────────────────────────────────
+    if (platform === 'douyin') {
+      const quality = options.quality;
+      const userTitle = cleanCustomFileName(options.customFileName);
+      const targetTitle = userTitle || extractDouyinTitle(cleanUrl);
+
+      // ─ Lấy URL không watermark (từ inspect nếu đã có, hoặc gọi lại API)
+      let noWmUrl = options.noWatermarkUrl;
+      if (!noWmUrl) {
+        const normalizedUrl = await normalizeDouyinUrl(cleanUrl);
+        const awemeId = extractDouyinVideoId(normalizedUrl);
+        if (!awemeId) {
+          throw new Error('Không thể trích xuất ID video Douyin từ liên kết này.');
+        }
+        const info = await extractDouyinMediaData(normalizedUrl, awemeId);
+        noWmUrl = info.noWatermarkUrl;
+      }
+
+      if (entry.cancelled) throw new CancelledError();
+
+      const tempFilePath = await downloadDouyinNoWatermark(
+        noWmUrl,
+        targetTitle,
+        baseFolder,
+        options.onProgress,
+        entry
+      );
+
+      if (entry.cancelled) throw new CancelledError();
+
+      // ─ Audio only: Chuyển đổi MP4 đã tải thành MP3 bằng ffmpeg
+      if (quality === 'audio_only') {
+        options.onProgress?.({
+          percent: 98,
+          status: 'downloading',
+          stageDescription: 'Đang trích xuất âm thanh MP3...',
+        });
+        const tempMp3Path = tempFilePath.replace(/\.mp4$/i, '.mp3');
+        await convertVideoToMp3(tempFilePath, tempMp3Path);
+        try {
+          if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
+        } catch {}
+        return finalizeDownload(tempMp3Path, targetTitle, baseFolder, options.onProgress);
+      }
+
+      return finalizeDownload(tempFilePath, targetTitle, baseFolder, options.onProgress);
+    }
+
+    // ── TikTok Quốc Tế — Multi-tier (Tier 1: TikWM, Tier 2: yt-dlp) ───────────
+    if (platform === 'tiktok') {
+      const quality = options.quality;
+      const userTitle = cleanCustomFileName(options.customFileName);
+      const targetTitle = userTitle || extractTikTokTitle(cleanUrl);
+
+      // ─ Audio only: dùng yt-dlp để trích xuất mp3
+      if (quality === 'audio_only') {
+        return downloadViaYtDlp({ ...options, url: cleanUrl }, baseFolder, targetTitle, entry);
+      }
+
+      // Tier 1: Thử tải direct MP4 không watermark từ TikWM API
+      let noWmUrl = options.noWatermarkUrl;
+      if (!noWmUrl) {
+        try {
+          const { cleanUrl: normalizedUrl } = await normalizeTikTokUrl(cleanUrl);
+          const tikwmData = await fetchTikwmVideoData(normalizedUrl);
+          noWmUrl = tikwmData.noWatermarkUrl;
+        } catch (err: any) {
+          console.warn('[downloadVideoFromUrl] Không lấy được noWatermarkUrl từ TikWM, chuyển fallback yt-dlp:', err?.message || err);
+        }
+      }
+
+      if (entry.cancelled) throw new CancelledError();
+
+      if (noWmUrl) {
+        try {
+          const tempFilePath = await downloadTikTokNoWatermark(
+            noWmUrl,
+            targetTitle,
+            baseFolder,
+            options.onProgress,
+            entry
+          );
+          return finalizeDownload(tempFilePath, targetTitle, baseFolder, options.onProgress);
+        } catch (streamErr: any) {
+          if (entry.cancelled || isCancelledError(streamErr) || axios.isCancel(streamErr)) {
+            throw new CancelledError();
+          }
+          console.warn('[downloadVideoFromUrl] Stream TikTok no-watermark gặp sự cố, chuyển fallback yt-dlp:', streamErr?.message || streamErr);
+        }
+      }
+
+      if (entry.cancelled) throw new CancelledError();
+
+      // Tier 2: Resilient fallback sang yt-dlp đảm bảo tỷ lệ thành công 100%
+      return downloadViaYtDlp({ ...options, url: cleanUrl }, baseFolder, targetTitle, entry);
+    }
+
+    // ── Các nền tảng khác — yt-dlp ────────────────────────────────────────────
     const userTitle = cleanCustomFileName(options.customFileName);
-    const targetTitle = userTitle || extractDouyinTitle(cleanUrl);
-
-    // ─ Lấy URL không watermark (từ inspect nếu đã có, hoặc gọi lại API)
-    let noWmUrl = options.noWatermarkUrl;
-    if (!noWmUrl) {
-      const normalizedUrl = await normalizeDouyinUrl(cleanUrl);
-      const awemeId = extractDouyinVideoId(normalizedUrl);
-      if (!awemeId) {
-        throw new Error('Không thể trích xuất ID video Douyin từ liên kết này.');
-      }
-      const info = await extractDouyinMediaData(normalizedUrl, awemeId);
-      noWmUrl = info.noWatermarkUrl;
+    return downloadViaYtDlp({ ...options, url: cleanUrl }, baseFolder, userTitle, entry);
+  } catch (err: any) {
+    if (entry.cancelled || isCancelledError(err) || axios.isCancel(err)) {
+      throw new CancelledError();
     }
-
-    const tempFilePath = await downloadDouyinNoWatermark(
-      noWmUrl,
-      targetTitle,
-      baseFolder,
-      options.onProgress
-    );
-
-    // ─ Audio only: Chuyển đổi MP4 đã tải thành MP3 bằng ffmpeg
-    if (quality === 'audio_only') {
-      options.onProgress?.({
-        percent: 98,
-        status: 'downloading',
-        stageDescription: 'Đang trích xuất âm thanh MP3...',
-      });
-      const tempMp3Path = tempFilePath.replace(/\.mp4$/i, '.mp3');
-      await convertVideoToMp3(tempFilePath, tempMp3Path);
-      try {
-        if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
-      } catch {}
-      return finalizeDownload(tempMp3Path, targetTitle, baseFolder, options.onProgress);
-    }
-
-    return finalizeDownload(tempFilePath, targetTitle, baseFolder, options.onProgress);
+    throw err;
+  } finally {
+    activeDownloads.delete(downloadId);
   }
-
-  // ── TikTok Quốc Tế — Multi-tier (Tier 1: TikWM, Tier 2: yt-dlp) ───────────
-  if (platform === 'tiktok') {
-    const quality = options.quality;
-    const userTitle = cleanCustomFileName(options.customFileName);
-    const targetTitle = userTitle || extractTikTokTitle(cleanUrl);
-
-    // ─ Audio only: dùng yt-dlp để trích xuất mp3
-    if (quality === 'audio_only') {
-      return downloadViaYtDlp({ ...options, url: cleanUrl }, baseFolder, targetTitle);
-    }
-
-    // Tier 1: Thử tải direct MP4 không watermark từ TikWM API
-    let noWmUrl = options.noWatermarkUrl;
-    if (!noWmUrl) {
-      try {
-        const { cleanUrl: normalizedUrl } = await normalizeTikTokUrl(cleanUrl);
-        const tikwmData = await fetchTikwmVideoData(normalizedUrl);
-        noWmUrl = tikwmData.noWatermarkUrl;
-      } catch (err: any) {
-        console.warn('[downloadVideoFromUrl] Không lấy được noWatermarkUrl từ TikWM, chuyển fallback yt-dlp:', err?.message || err);
-      }
-    }
-
-    if (noWmUrl) {
-      try {
-        const tempFilePath = await downloadTikTokNoWatermark(
-          noWmUrl,
-          targetTitle,
-          baseFolder,
-          options.onProgress
-        );
-        return finalizeDownload(tempFilePath, targetTitle, baseFolder, options.onProgress);
-      } catch (streamErr: any) {
-        console.warn('[downloadVideoFromUrl] Stream TikTok no-watermark gặp sự cố, chuyển fallback yt-dlp:', streamErr?.message || streamErr);
-      }
-    }
-
-    // Tier 2: Resilient fallback sang yt-dlp đảm bảo tỷ lệ thành công 100%
-    return downloadViaYtDlp({ ...options, url: cleanUrl }, baseFolder, targetTitle);
-  }
-
-  // ── Các nền tảng khác — yt-dlp ────────────────────────────────────────────
-  const userTitle = cleanCustomFileName(options.customFileName);
-  return downloadViaYtDlp({ ...options, url: cleanUrl }, baseFolder, userTitle);
 }
 
 /**
@@ -1111,13 +1276,14 @@ export function extractDouyinTitle(url: string): string {
 async function downloadViaYtDlp(
   options: DownloadVideoOptions & { url: string },
   baseFolder: string,
-  customTitle?: string
+  customTitle?: string,
+  entry?: ActiveDownloadEntry
 ): Promise<DownloadResult> {
   const quality = options.quality || '1080p';
   const ytDlp = await ensureYtDlp();
   const ffmpegBin = getFfmpegBinPath();
 
-  const tempDownloadId = `dl_${Date.now()}`;
+  const tempDownloadId = entry?.downloadId || `dl_${Date.now()}`;
   const outTemplate = path.join(baseFolder, `${tempDownloadId}_%(title).90B.%(ext)s`);
 
   const args: string[] = [
@@ -1154,7 +1320,13 @@ async function downloadViaYtDlp(
   });
 
   await new Promise<void>((resolve, reject) => {
+    if (entry?.cancelled) return reject(new CancelledError());
+
     const child = spawn(ytDlp, args, { windowsHide: true });
+    if (entry) {
+      entry.child = child;
+    }
+
     const timer = setTimeout(() => {
       killTree(child);
       reject(new Error('Thời gian tải quá lâu (timeout). Vui lòng thử lại.'));
@@ -1163,6 +1335,7 @@ async function downloadViaYtDlp(
     let lastPercent = 5;
 
     const parseLine = (line: string) => {
+      if (entry?.cancelled) return;
       const matchPercent = line.match(/\[download\]\s+(\d+(?:\.\d+)?)%/);
       if (matchPercent) {
         const percent = Math.min(98, Math.max(lastPercent, parseFloat(matchPercent[1])));
@@ -1188,6 +1361,7 @@ async function downloadViaYtDlp(
     };
 
     child.stdout.on('data', (d) => {
+      if (entry?.cancelled) return;
       const lines = d.toString().split(/[\r\n]+/);
       for (const line of lines) {
         if (line.trim()) parseLine(line.trim());
@@ -1195,21 +1369,30 @@ async function downloadViaYtDlp(
     });
 
     child.stderr.on('data', (d) => {
+      if (entry?.cancelled) return;
       const line = d.toString().trim();
       if (line) parseLine(line);
     });
 
     child.on('error', (err) => {
       clearTimeout(timer);
+      if (entry) entry.child = undefined;
+      if (entry?.cancelled) return reject(new CancelledError());
       reject(err);
     });
 
     child.on('close', (code) => {
       clearTimeout(timer);
+      if (entry) entry.child = undefined;
+      if (entry?.cancelled) return reject(new CancelledError());
       if (code === 0) resolve();
       else reject(new Error(`Tải video không thành công (mã thoát: ${code})`));
     });
   });
+
+  if (entry?.cancelled) {
+    throw new CancelledError();
+  }
 
   // Tìm file đã tải về theo tiền tố tempDownloadId
   const files = fs.readdirSync(baseFolder);

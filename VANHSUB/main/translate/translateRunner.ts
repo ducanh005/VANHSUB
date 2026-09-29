@@ -42,11 +42,33 @@ export class TranslateRunner {
     const targetLang = targetLanguage || task.targetLanguage || SettingsStore.get('targetLanguage') || 'vi';
 
     try {
+      // F-STATE-02: Dọn dẹp tệp âm thanh TTS cũ và file tổng hợp trên đĩa khi dịch lại
+      if (task.ttsAudioDir && fs.existsSync(task.ttsAudioDir)) {
+        try {
+          fs.rmSync(task.ttsAudioDir, { recursive: true, force: true });
+        } catch (err: any) {
+          console.warn(`[TranslateRunner] Không thể xoá thư mục TTS cũ (${task.ttsAudioDir}):`, err?.message || err);
+        }
+      }
+
+      if (task.ttsMergedAudioPath && fs.existsSync(task.ttsMergedAudioPath)) {
+        try {
+          fs.unlinkSync(task.ttsMergedAudioPath);
+        } catch (err: any) {
+          console.warn(`[TranslateRunner] Không thể xoá file MP3 tổng hợp cũ (${task.ttsMergedAudioPath}):`, err?.message || err);
+        }
+      }
+
       TaskStore.update(taskId, {
         status: 'translating',
         progress: 0,
         targetLanguage: targetLang,
         stageDescription: 'Đang khởi tạo dịch thuật AI...',
+        translatedSrtPath: undefined,
+        ttsAudioDir: undefined,
+        ttsMergedAudioPath: undefined,
+        ttsOverruns: undefined,
+        outputPath: undefined,
       });
       onUpdate?.();
 

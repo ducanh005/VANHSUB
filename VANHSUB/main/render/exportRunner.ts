@@ -1,12 +1,15 @@
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
+import type ffmpeg from 'fluent-ffmpeg';
 import { parseSrt } from '../lib/srt';
 import { TaskStore, type Task } from '../store/taskStore';
 import { SettingsStore } from '../store/settingsStore';
 import { nextAvailablePath } from '../lib/paths';
 import { getOrCreateProjectDir } from '../utils/projectFolder';
 import { compileToAss, type SubtitleEntryStyle, type GlobalAssStyle } from './assCompiler';
+import { killProcessTreeByPid } from '../lib/processTree';
+import { isCancelledError } from '../lib/cancel';
 import {
   burnHardsub,
   muxSoftsub,
@@ -33,10 +36,94 @@ export interface AdvancedExportOptions {
 }
 
 export class ExportRunner {
+  private static MAX_PARALLEL_EXPORT = 1;
   private static runningExports = new Set<string>();
+  private static runningCommands = new Map<string, ffmpeg.FfmpegCommand>();
+  private static cancelledTasks = new Set<string>();
+  private static queue: Array<{
+    taskId: string;
+    mode: 'hardsub' | 'softsub';
+    mask?: MaskRegion | null;
+    onUpdate?: () => void;
+    style?: SubtitleStyle | null;
+    advancedOptions?: AdvancedExportOptions | null;
+    resolve: (t: Task | undefined) => void;
+    reject: (err: any) => void;
+  }> = [];
 
   static isRunning(taskId: string): boolean {
     return this.runningExports.has(taskId);
+  }
+
+  static isQueued(taskId: string): boolean {
+    return this.queue.some((item) => item.taskId === taskId);
+  }
+
+  /**
+   * Huỷ tác vụ xuất video (ngay trong hàng đợi hoặc dừng tiến trình FFmpeg đang chạy).
+   */
+  static cancel(taskId: string): boolean {
+    // 1. Kiểm tra trong hàng đợi
+    const qIndex = this.queue.findIndex((item) => item.taskId === taskId);
+    if (qIndex !== -1) {
+      const [queuedItem] = this.queue.splice(qIndex, 1);
+      TaskStore.update(taskId, {
+        status: 'cancelled',
+        stageDescription: 'Đã huỷ khỏi hàng đợi xuất video',
+      });
+      queuedItem.onUpdate?.();
+      queuedItem.resolve(TaskStore.getById(taskId));
+      this.drainQueue();
+      return true;
+    }
+
+    // 2. Đang thực thi
+    if (!this.runningExports.has(taskId)) {
+      return false;
+    }
+    this.cancelledTasks.add(taskId);
+
+    TaskStore.update(taskId, {
+      status: 'cancelled',
+      stageDescription: 'Tác vụ đã bị huỷ bởi người dùng',
+    });
+
+    const cmd = this.runningCommands.get(taskId);
+    if (cmd) {
+      try {
+        const proc = (cmd as any).ffmpegProc;
+        if (proc && proc.pid) {
+          killProcessTreeByPid(proc.pid);
+        }
+      } catch (err) {
+        console.warn(`[ExportRunner] Lỗi khi taskkill FFmpeg cho task ${taskId}:`, err);
+      }
+
+      try {
+        (cmd as any).kill?.('SIGKILL');
+      } catch (err) {
+        console.warn(`[ExportRunner] Lỗi khi kill command cho task ${taskId}:`, err);
+      }
+      this.runningCommands.delete(taskId);
+    }
+    return true;
+  }
+
+  private static drainQueue() {
+    if (this.runningExports.size >= this.MAX_PARALLEL_EXPORT) return;
+    const nextItem = this.queue.shift();
+    if (!nextItem) return;
+
+    this.executeExport(
+      nextItem.taskId,
+      nextItem.mode,
+      nextItem.mask,
+      nextItem.onUpdate,
+      nextItem.style,
+      nextItem.advancedOptions,
+    )
+      .then(nextItem.resolve)
+      .catch(nextItem.reject);
   }
 
   static async runExport(
@@ -59,7 +146,51 @@ export class ExportRunner {
       return task;
     }
 
+    if (this.isQueued(taskId)) {
+      return task;
+    }
+
+    if (this.runningExports.size >= this.MAX_PARALLEL_EXPORT) {
+      return new Promise<Task | undefined>((resolve, reject) => {
+        this.queue.push({
+          taskId,
+          mode,
+          mask,
+          onUpdate,
+          style,
+          advancedOptions,
+          resolve,
+          reject,
+        });
+        TaskStore.update(taskId, {
+          status: 'exporting',
+          stageDescription: 'Đang xếp hàng chờ tài nguyên xuất video...',
+        });
+        onUpdate?.();
+      });
+    }
+
+    return this.executeExport(taskId, mode, mask, onUpdate, style, advancedOptions);
+  }
+
+  private static async executeExport(
+    taskId: string,
+    mode: 'hardsub' | 'softsub',
+    mask?: MaskRegion | null,
+    onUpdate?: () => void,
+    style?: SubtitleStyle | null,
+    advancedOptions?: AdvancedExportOptions | null
+  ): Promise<Task | undefined> {
+    const task = TaskStore.getById(taskId);
+    if (!task) throw new Error(`Không tìm thấy tác vụ ID: ${taskId}`);
+
+    const rawSrtPath = task.translatedSrtPath || task.srtPath;
+    if (!rawSrtPath) {
+      throw new Error('Tác vụ chưa có file phụ đề để xuất video.');
+    }
+
     this.runningExports.add(taskId);
+    this.cancelledTasks.delete(taskId);
 
     // Xác định đường dẫn xuất
     const videoPath = task.filePath;
@@ -81,6 +212,17 @@ export class ExportRunner {
     let tempAssFile: string | null = null;
 
     try {
+      if (this.cancelledTasks.has(taskId) || TaskStore.getById(taskId)?.status === 'cancelled') {
+        if (TaskStore.getById(taskId)?.status !== 'cancelled') {
+          TaskStore.update(taskId, {
+            status: 'cancelled',
+            stageDescription: 'Tác vụ đã bị huỷ bởi người dùng',
+          });
+          onUpdate?.();
+        }
+        return TaskStore.getById(taskId);
+      }
+
       TaskStore.update(taskId, {
         status: 'exporting',
         progress: 0,
@@ -191,6 +333,17 @@ export class ExportRunner {
           finalSubPath = tempAssFile;
         }
 
+        if (this.cancelledTasks.has(taskId) || TaskStore.getById(taskId)?.status === 'cancelled') {
+          if (TaskStore.getById(taskId)?.status !== 'cancelled') {
+            TaskStore.update(taskId, {
+              status: 'cancelled',
+              stageDescription: 'Tác vụ đã bị huỷ bởi người dùng',
+            });
+            onUpdate?.();
+          }
+          return TaskStore.getById(taskId);
+        }
+
         await burnHardsub({
           videoPath,
           srtPath: finalSubPath,
@@ -201,7 +354,13 @@ export class ExportRunner {
           watermark: advancedOptions?.watermark || null,
           formatOptions: advancedOptions?.formatOptions || null,
           style: style || null,
+          onCommandCreated: (command) => {
+            this.runningCommands.set(taskId, command);
+          },
           onProgress: (percent) => {
+            if (this.cancelledTasks.has(taskId) || TaskStore.getById(taskId)?.status === 'cancelled') {
+              return;
+            }
             TaskStore.update(taskId, {
               progress: percent,
               stageDescription: `Đang xuất video Hardsub (${percent}%)...`,
@@ -217,17 +376,70 @@ export class ExportRunner {
         });
         onUpdate?.();
 
+        if (this.cancelledTasks.has(taskId) || TaskStore.getById(taskId)?.status === 'cancelled') {
+          if (TaskStore.getById(taskId)?.status !== 'cancelled') {
+            TaskStore.update(taskId, {
+              status: 'cancelled',
+              stageDescription: 'Tác vụ đã bị huỷ bởi người dùng',
+            });
+            onUpdate?.();
+          }
+          return TaskStore.getById(taskId);
+        }
+
         await muxSoftsub({
           videoPath,
           srtPath: rawSrtPath,
           outputPath,
+          onCommandCreated: (command) => {
+            this.runningCommands.set(taskId, command);
+          },
         });
+
+        if (this.cancelledTasks.has(taskId) || TaskStore.getById(taskId)?.status === 'cancelled') {
+          if (outputPath && fs.existsSync(outputPath)) {
+            try {
+              fs.unlinkSync(outputPath);
+            } catch (e) {
+              console.warn(`[ExportRunner] Không thể xoá file output dở dang: ${outputPath}`, e);
+            }
+          }
+          if (TaskStore.getById(taskId)?.status !== 'cancelled') {
+            TaskStore.update(taskId, {
+              status: 'cancelled',
+              stageDescription: 'Tác vụ đã bị huỷ bởi người dùng',
+            });
+            onUpdate?.();
+          }
+          return TaskStore.getById(taskId);
+        }
 
         TaskStore.update(taskId, {
           progress: 100,
           stageDescription: 'Ghép phụ đề mềm thành công!',
         });
         onUpdate?.();
+      }
+
+      // F-EXP-02 Guard: Ngăn chặn lỗi hồi sinh tác vụ khi task đã bị huỷ
+      const currentTask = TaskStore.getById(taskId);
+      if (this.cancelledTasks.has(taskId) || currentTask?.status === 'cancelled') {
+        console.log(`[ExportRunner] Tác vụ ${taskId} đã bị huỷ trước đó. Bỏ qua cập nhật 'done' và dọn dẹp file dở dang.`);
+        if (outputPath && fs.existsSync(outputPath)) {
+          try {
+            fs.unlinkSync(outputPath);
+          } catch (e) {
+            console.warn(`[ExportRunner] Không thể xoá file output dở dang: ${outputPath}`, e);
+          }
+        }
+        if (TaskStore.getById(taskId)?.status !== 'cancelled') {
+          TaskStore.update(taskId, {
+            status: 'cancelled',
+            stageDescription: 'Tác vụ đã bị huỷ bởi người dùng',
+          });
+          onUpdate?.();
+        }
+        return TaskStore.getById(taskId);
       }
 
       const updated = TaskStore.update(taskId, {
@@ -241,6 +453,28 @@ export class ExportRunner {
 
       return updated;
     } catch (err: any) {
+      const currentTask = TaskStore.getById(taskId);
+      const wasCancelled = this.cancelledTasks.has(taskId) || currentTask?.status === 'cancelled' || isCancelledError(err);
+
+      // Dọn dẹp file output dang dở trên đĩa
+      if (outputPath && fs.existsSync(outputPath)) {
+        try {
+          fs.unlinkSync(outputPath);
+        } catch (e) {
+          console.warn(`[ExportRunner] Không thể xoá file output dở dang: ${outputPath}`, e);
+        }
+      }
+
+      if (wasCancelled) {
+        console.log(`[ExportRunner] Tác vụ ${taskId} đã bị huỷ bởi người dùng.`);
+        const updated = TaskStore.update(taskId, {
+          status: 'cancelled',
+          stageDescription: 'Đã huỷ xuất video',
+        });
+        onUpdate?.();
+        return updated;
+      }
+
       console.error(`Lỗi khi xuất video cho task ${taskId}:`, err);
       const updated = TaskStore.update(taskId, {
         status: 'error',
@@ -255,7 +489,10 @@ export class ExportRunner {
           fs.unlinkSync(tempAssFile);
         } catch {}
       }
+      this.runningCommands.delete(taskId);
       this.runningExports.delete(taskId);
+      this.cancelledTasks.delete(taskId);
+      this.drainQueue();
     }
   }
 }

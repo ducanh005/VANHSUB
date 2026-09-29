@@ -1,8 +1,12 @@
+import fs from 'fs';
 import path from 'path';
+import type ffmpeg from 'fluent-ffmpeg';
 import { TaskStore, type Task } from '../store/taskStore';
 import { nextAvailablePath } from '../lib/paths';
 import { getOrCreateProjectDir } from '../utils/projectFolder';
 import { dubVideo, type SyncMode } from './dubbingEngine';
+import { killProcessTreeByPid } from '../lib/processTree';
+import { isCancelledError } from '../lib/cancel';
 
 export interface DubbingOptions {
   replaceAudio?: boolean;
@@ -16,9 +20,46 @@ export interface DubbingOptions {
 
 export class DubbingRunner {
   private static runningTasks = new Set<string>();
+  private static runningCommands = new Map<string, ffmpeg.FfmpegCommand>();
+  private static cancelledTasks = new Set<string>();
 
   static isRunning(taskId: string): boolean {
     return this.runningTasks.has(taskId);
+  }
+
+  /**
+   * Huỷ tác vụ dubbing đang chạy và tiêu diệt sạch tiến trình FFmpeg trên OS.
+   */
+  static cancel(taskId: string): boolean {
+    if (!this.runningTasks.has(taskId)) {
+      return false;
+    }
+    this.cancelledTasks.add(taskId);
+
+    TaskStore.update(taskId, {
+      status: 'cancelled',
+      stageDescription: 'Tác vụ đã bị huỷ bởi người dùng',
+    });
+
+    const cmd = this.runningCommands.get(taskId);
+    if (cmd) {
+      try {
+        const proc = (cmd as any).ffmpegProc;
+        if (proc && proc.pid) {
+          killProcessTreeByPid(proc.pid);
+        }
+      } catch (err) {
+        console.warn(`[DubbingRunner] Lỗi khi taskkill FFmpeg cho task ${taskId}:`, err);
+      }
+
+      try {
+        (cmd as any).kill?.('SIGKILL');
+      } catch (err) {
+        console.warn(`[DubbingRunner] Lỗi khi kill command cho task ${taskId}:`, err);
+      }
+      this.runningCommands.delete(taskId);
+    }
+    return true;
   }
 
   static async runDubbing(
@@ -44,21 +85,33 @@ export class DubbingRunner {
     }
 
     this.runningTasks.add(taskId);
+    this.cancelledTasks.delete(taskId);
+
+    // Xác định đường dẫn output trong thư mục dự án — thêm _1, _2… nếu đã có bản dubbed trước đó
+    const projectDir = getOrCreateProjectDir(task);
+    const videoName = path.parse(task.fileName).name;
+    const outputPath = nextAvailablePath(
+      path.join(projectDir, `${videoName}_dubbed_${replaceAudio ? 'mono' : 'bilingual'}.mp4`)
+    );
 
     try {
+      if (this.cancelledTasks.has(taskId) || TaskStore.getById(taskId)?.status === 'cancelled') {
+        if (TaskStore.getById(taskId)?.status !== 'cancelled') {
+          TaskStore.update(taskId, {
+            status: 'cancelled',
+            stageDescription: 'Tác vụ đã bị huỷ bởi người dùng',
+          });
+          onUpdate?.();
+        }
+        return TaskStore.getById(taskId);
+      }
+
       TaskStore.update(taskId, {
         status: 'exporting', // Reuse exporting status cho dubbing
         progress: 0,
         stageDescription: 'Đang ghép audio lồng tiếng vào video...',
       });
       onUpdate?.();
-
-      // Xác định đường dẫn output trong thư mục dự án — thêm _1, _2… nếu đã có bản dubbed trước đó
-      const projectDir = getOrCreateProjectDir(task);
-      const videoName = path.parse(task.fileName).name;
-      const outputPath = nextAvailablePath(
-        path.join(projectDir, `${videoName}_dubbed_${replaceAudio ? 'mono' : 'bilingual'}.mp4`)
-      );
 
       // Chạy full dubbing pipeline
       const { outputPath: finalPath, overruns, stretchFactor } = await dubVideo(
@@ -71,8 +124,15 @@ export class DubbingRunner {
           syncMode: options?.syncMode,
           mixOriginalAudio: options?.mixOriginalAudio,
           vocalSeparation: options?.vocalSeparation,
+          onCommandCreated: (command) => {
+            this.runningCommands.set(taskId, command);
+          },
+          shouldStop: () => this.cancelledTasks.has(taskId) || TaskStore.getById(taskId)?.status === 'cancelled',
         },
         (percent) => {
+          if (this.cancelledTasks.has(taskId) || TaskStore.getById(taskId)?.status === 'cancelled') {
+            return;
+          }
           TaskStore.update(taskId, {
             progress: percent,
             stageDescription: `Đang xử lý dubbing (${percent}%)...`,
@@ -80,6 +140,27 @@ export class DubbingRunner {
           onUpdate?.();
         }
       );
+
+      // F-EXP-02 Guard: Ngăn chặn lỗi hồi sinh tác vụ khi task đã bị huỷ
+      const currentTask = TaskStore.getById(taskId);
+      if (this.cancelledTasks.has(taskId) || currentTask?.status === 'cancelled') {
+        console.log(`[DubbingRunner] Tác vụ ${taskId} đã bị huỷ trước đó. Bỏ qua cập nhật 'done' và dọn dẹp file dở dang.`);
+        if (outputPath && fs.existsSync(outputPath)) {
+          try {
+            fs.unlinkSync(outputPath);
+          } catch (e) {
+            console.warn(`[DubbingRunner] Không thể xoá file output dở dang: ${outputPath}`, e);
+          }
+        }
+        if (TaskStore.getById(taskId)?.status !== 'cancelled') {
+          TaskStore.update(taskId, {
+            status: 'cancelled',
+            stageDescription: 'Tác vụ đã bị huỷ bởi người dùng',
+          });
+          onUpdate?.();
+        }
+        return TaskStore.getById(taskId);
+      }
 
       const truncatedCount = overruns.filter((o) => o.truncated).length;
       const updated = TaskStore.update(taskId, {
@@ -100,6 +181,27 @@ export class DubbingRunner {
 
       return updated;
     } catch (err: any) {
+      const currentTask = TaskStore.getById(taskId);
+      const wasCancelled = this.cancelledTasks.has(taskId) || currentTask?.status === 'cancelled' || isCancelledError(err);
+
+      if (outputPath && fs.existsSync(outputPath)) {
+        try {
+          fs.unlinkSync(outputPath);
+        } catch (e) {
+          console.warn(`[DubbingRunner] Không thể xoá file output dở dang: ${outputPath}`, e);
+        }
+      }
+
+      if (wasCancelled) {
+        console.log(`[DubbingRunner] Tác vụ ${taskId} đã bị huỷ bởi người dùng.`);
+        const updated = TaskStore.update(taskId, {
+          status: 'cancelled',
+          stageDescription: 'Đã huỷ ghép audio vào video',
+        });
+        onUpdate?.();
+        return updated;
+      }
+
       console.error(`Lỗi khi dubbing task ${taskId}:`, err);
       const updated = TaskStore.update(taskId, {
         status: 'error',
@@ -109,7 +211,9 @@ export class DubbingRunner {
       onUpdate?.();
       return updated;
     } finally {
+      this.runningCommands.delete(taskId);
       this.runningTasks.delete(taskId);
+      this.cancelledTasks.delete(taskId);
     }
   }
 }

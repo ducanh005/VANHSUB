@@ -17,6 +17,7 @@ import {
   RotateCcw,
   Edit3,
   Minimize2,
+  XCircle,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { backgroundDownloadManager } from '../../lib/downloadManager';
@@ -74,6 +75,7 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
   const [saveDir, setSaveDir] = useState<string>('');
   const [defaultDir, setDefaultDir] = useState<string>('');
   const [customTitle, setCustomTitle] = useState<string>('');
+  const [isCancelling, setIsCancelling] = useState(false);
 
   const isDownloading = Boolean(activeDownload?.isDownloading);
   const progress = activeDownload?.progress || null;
@@ -255,6 +257,21 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
     }
   };
 
+  // Huỷ tiến trình tải video
+  const handleCancelDownload = async () => {
+    setIsCancelling(true);
+    try {
+      if (window.vanhsub?.downloader?.cancel) {
+        await window.vanhsub.downloader.cancel();
+      }
+      backgroundDownloadManager.dismiss();
+      toast.info('Đã dừng tải video');
+    } catch (err: any) {
+      toast.error('Lỗi khi huỷ tải: ' + (err?.message || err));
+    } finally {
+      setIsCancelling(false);
+    }
+  };
 
   // Huy hiệu nền tảng
   const renderPlatformBadge = (platform?: string) => {
@@ -618,6 +635,27 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
           </div>
 
           <div className="flex items-center gap-2">
+            {isDownloading && (
+              <button
+                type="button"
+                onClick={handleCancelDownload}
+                disabled={isCancelling}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold text-rose-400 bg-rose-500/10 border border-rose-500/30 hover:bg-rose-500/20 hover:border-rose-500/50 transition cursor-pointer disabled:opacity-50"
+              >
+                {isCancelling ? (
+                  <>
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    <span>Đang huỷ...</span>
+                  </>
+                ) : (
+                  <>
+                    <XCircle className="h-3.5 w-3.5" />
+                    <span>Huỷ tải video</span>
+                  </>
+                )}
+              </button>
+            )}
+
             <button
               type="button"
               onClick={() => onOpenChange(false)}
