@@ -11,6 +11,9 @@ import { spawn } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import { getFfmpegBinPath } from '../asr/audioExtractor';
+import { killProcessTree } from '../lib/processTree';
+import { CancelledError } from '../lib/cancel';
+import { resolvePythonExecutable } from '../ocr/paddleEngine';
 
 export interface DemucsCheck {
   ok: boolean;
@@ -19,11 +22,12 @@ export interface DemucsCheck {
 
 function runPython(args: string[], timeoutMs: number): Promise<{ code: number; stderr: string }> {
   return new Promise((resolve, reject) => {
-    const child = spawn('python', args, { windowsHide: true });
+    const pythonBin = resolvePythonExecutable();
+    const child = spawn(pythonBin, args, { windowsHide: true });
     let stderr = '';
     const timer = setTimeout(() => {
       try {
-        child.kill();
+        killProcessTree(child);
       } catch {
         // bỏ qua
       }
@@ -153,19 +157,18 @@ export async function separateVocals(
       '-o', outDir,
       inputAudioPath,
     ];
-    const child = spawn('python', args, { windowsHide: true });
+    const pythonBin = resolvePythonExecutable();
+    const child = spawn(pythonBin, args, { windowsHide: true });
     let stderrTail = '';
+    let killed = false;
 
     const stopTimer = shouldStop
       ? setInterval(() => {
-          if (shouldStop()) {
-            try {
-              child.kill();
-            } catch {
-              // bỏ qua
-            }
+          if (shouldStop() && !killed) {
+            killed = true;
+            killProcessTree(child);
           }
-        }, 1000)
+        }, 300)
       : null;
 
     child.stdout?.on('data', (d) => {
@@ -179,6 +182,10 @@ export async function separateVocals(
 
     child.on('error', async (err) => {
       if (stopTimer) clearInterval(stopTimer);
+      if (killed || shouldStop?.()) {
+        reject(new CancelledError());
+        return;
+      }
       console.warn(`[Demucs] Không chạy được python/demucs (${err.message}). Fallback về FFmpeg DSP.`);
       try {
         const fallback = await separateVocalsFastFfmpeg(inputAudioPath, outDir);
@@ -190,6 +197,10 @@ export async function separateVocals(
 
     child.on('exit', async (code) => {
       if (stopTimer) clearInterval(stopTimer);
+      if (killed || shouldStop?.()) {
+        reject(new CancelledError());
+        return;
+      }
       if (code !== 0) {
         const tail = stderrTail.trim().split('\n').slice(-3).join(' | ');
         console.warn(`[Demucs] Thoát với mã ${code} (${tail}). Fallback về FFmpeg DSP.`);

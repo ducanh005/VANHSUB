@@ -12,11 +12,15 @@ import {
   Loader2,
   MessageSquareText,
   Plus,
+  Redo2,
   RefreshCw,
+  Scissors,
   Sparkles,
   Trash2,
+  Undo2,
   Wand2,
   XCircle,
+  GitMerge,
 } from 'lucide-react';
 import type { Task } from '../types/task';
 import { formatMs, parseSrt, parseTimecode, serializeSrt, type SrtLine } from '../lib/srt';
@@ -185,6 +189,7 @@ export default function SubtitleEditor({
   // Nguồn SRT đang hiệu đính
   const [srtSource, setSrtSource] = useState<'original' | 'translated'>('original');
   const prevTaskIdRef = useRef<string | null>(null);
+  const prevTranslatedSrtPathRef = useRef<string | undefined>(undefined);
 
   const selectedTask = tasks.find((t) => t.id === selectedTaskId) || null;
   const isTranslating = selectedTask?.status === 'translating';
@@ -224,15 +229,27 @@ export default function SubtitleEditor({
     }
   }, [isActive]);
 
-  // Chỉ khởi tạo srtSource mặc định khi ĐỔI sang một task khác (tránh ghi đè lựa chọn của người dùng)
+  // Chỉ khởi tạo srtSource mặc định khi ĐỔI sang một task khác hoặc khi vừa dịch xong
   useEffect(() => {
     if (selectedTaskId !== prevTaskIdRef.current) {
       prevTaskIdRef.current = selectedTaskId;
+      prevTranslatedSrtPathRef.current = selectedTask?.translatedSrtPath;
       if (selectedTask?.translatedSrtPath) {
         setSrtSource('translated');
       } else {
         setSrtSource('original');
       }
+      return;
+    }
+
+    // Nếu cùng task nhưng bản dịch vừa hoàn thành (trước đó chưa có, giờ đã có)
+    if (!prevTranslatedSrtPathRef.current && selectedTask?.translatedSrtPath) {
+      prevTranslatedSrtPathRef.current = selectedTask.translatedSrtPath;
+      setSrtSource('translated');
+      setReloadKey((k) => k + 1);
+      setStatusMessage('Bản dịch AI đã hoàn tất! Đã tự động chuyển sang xem bản dịch.');
+    } else {
+      prevTranslatedSrtPathRef.current = selectedTask?.translatedSrtPath;
     }
   }, [selectedTaskId, selectedTask?.translatedSrtPath]);
 
@@ -313,6 +330,10 @@ export default function SubtitleEditor({
         if (cancelled) return;
         const parsed = parseSrt(content);
         setLines(parsed);
+        undoStackRef.current = [];
+        redoStackRef.current = [];
+        setCanUndo(false);
+        setCanRedo(false);
         setDirty(false);
         setLoading(false);
         setStatusMessage(`Đã nạp ${parsed.length} dòng phụ đề (${srtSource === 'translated' ? 'Bản dịch' : 'Bản gốc'})`);
@@ -336,17 +357,89 @@ export default function SubtitleEditor({
     }
   }, [activeIndex, isPlaying]);
 
+  // Ngăn xếp Undo / Redo cho thao tác biên tập phụ đề
+  const undoStackRef = useRef<SrtLine[][]>([]);
+  const redoStackRef = useRef<SrtLine[][]>([]);
+  const [canUndo, setCanUndo] = useState(false);
+  const [canRedo, setCanRedo] = useState(false);
+  const lastUndoPushTimeRef = useRef<number>(0);
+
+  const pushUndo = (currentLines: SrtLine[], force = false) => {
+    const now = Date.now();
+    if (!force && now - lastUndoPushTimeRef.current < 800) {
+      return;
+    }
+    lastUndoPushTimeRef.current = now;
+    undoStackRef.current = [...undoStackRef.current.slice(-50), currentLines];
+    redoStackRef.current = [];
+    setCanUndo(true);
+    setCanRedo(false);
+  };
+
+  const handleUndo = () => {
+    if (undoStackRef.current.length === 0) return;
+    const previous = undoStackRef.current.pop()!;
+    redoStackRef.current.push(lines);
+    setLines(previous);
+    setDirty(true);
+    setCanUndo(undoStackRef.current.length > 0);
+    setCanRedo(true);
+    setStatusMessage('Đã hoàn tác (Undo).');
+  };
+
+  const handleRedo = () => {
+    if (redoStackRef.current.length === 0) return;
+    const next = redoStackRef.current.pop()!;
+    undoStackRef.current.push(lines);
+    setLines(next);
+    setDirty(true);
+    setCanUndo(true);
+    setCanRedo(redoStackRef.current.length > 0);
+    setStatusMessage('Đã làm lại (Redo).');
+  };
+
+  // Phím tắt Undo (Ctrl+Z) và Redo (Ctrl+Y / Ctrl+Shift+Z)
+  useEffect(() => {
+    if (!isActive) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const activeEl = document.activeElement;
+      const isTyping = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA');
+
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+        if (!e.shiftKey) {
+          if (!isTyping) {
+            e.preventDefault();
+            handleUndo();
+          }
+        } else {
+          e.preventDefault();
+          handleRedo();
+        }
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
+        if (!isTyping) {
+          e.preventDefault();
+          handleRedo();
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isActive, lines]);
+
   const updateLine = (index: number, patch: Partial<SrtLine>) => {
+    pushUndo(lines, false);
     setLines((prev) => prev.map((line, i) => (i === index ? { ...line, ...patch } : line)));
     setDirty(true);
   };
 
   const deleteLine = (index: number) => {
+    pushUndo(lines, true);
     setLines((prev) => prev.filter((_, i) => i !== index));
     setDirty(true);
   };
 
   const addLine = () => {
+    pushUndo(lines, true);
     const newId = makeLineId();
     const last = lines[lines.length - 1];
     const startMs = last ? last.endMs : 0;
@@ -364,6 +457,7 @@ export default function SubtitleEditor({
   };
 
   const insertLineAfter = (index: number) => {
+    pushUndo(lines, true);
     const newId = makeLineId();
     const current = lines[index];
     const next = lines[index + 1];
@@ -382,6 +476,83 @@ export default function SubtitleEditor({
       const el = document.getElementById(`srt-line-${newId}`);
       el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }, 50);
+  };
+
+  const splitLine = (index: number) => {
+    const item = lines[index];
+    if (!item) return;
+
+    pushUndo(lines, true);
+
+    const currentVideoMs = currentTimeMsRef.current;
+    let splitMs: number;
+    if (currentVideoMs > item.startMs + 200 && currentVideoMs < item.endMs - 200) {
+      splitMs = Math.round(currentVideoMs);
+    } else {
+      splitMs = Math.round(item.startMs + (item.endMs - item.startMs) / 2);
+    }
+
+    const fullText = (item.text || '').trim();
+    let text1 = fullText;
+    let text2 = '';
+    if (fullText.length > 0) {
+      const mid = Math.floor(fullText.length / 2);
+      let bestSpace = -1;
+      let minDiff = Infinity;
+      for (let i = 0; i < fullText.length; i++) {
+        if (fullText[i] === ' ' || fullText[i] === '\n') {
+          const diff = Math.abs(i - mid);
+          if (diff < minDiff) {
+            minDiff = diff;
+            bestSpace = i;
+          }
+        }
+      }
+      if (bestSpace !== -1 && bestSpace > 0 && bestSpace < fullText.length - 1) {
+        text1 = fullText.slice(0, bestSpace).trim();
+        text2 = fullText.slice(bestSpace + 1).trim();
+      } else {
+        text1 = fullText.slice(0, mid).trim();
+        text2 = fullText.slice(mid).trim();
+      }
+    }
+
+    const newId = makeLineId();
+    const line1: SrtLine = { ...item, endMs: splitMs, text: text1 };
+    const line2: SrtLine = { id: newId, startMs: splitMs, endMs: item.endMs, text: text2 };
+
+    setLines((prev) => {
+      const copy = [...prev];
+      copy.splice(index, 1, line1, line2);
+      return copy;
+    });
+    setNewlyAddedId(newId);
+    setDirty(true);
+    setStatusMessage(`Đã cắt đôi câu #${index + 1} tại ${formatMs(splitMs)}.`);
+  };
+
+  const mergeLineWithNext = (index: number) => {
+    if (index < 0 || index >= lines.length - 1) return;
+    const curr = lines[index];
+    const next = lines[index + 1];
+    if (!curr || !next) return;
+
+    pushUndo(lines, true);
+
+    const mergedText = [curr.text.trim(), next.text.trim()].filter(Boolean).join(' ');
+    const mergedLine: SrtLine = {
+      ...curr,
+      endMs: Math.max(curr.endMs, next.endMs),
+      text: mergedText,
+    };
+
+    setLines((prev) => {
+      const copy = [...prev];
+      copy.splice(index, 2, mergedLine);
+      return copy;
+    });
+    setDirty(true);
+    setStatusMessage(`Đã gộp câu #${index + 1} và #${index + 2}.`);
   };
 
   const handleDragStart = (e: React.DragEvent, index: number) => {
@@ -465,7 +636,13 @@ export default function SubtitleEditor({
   const setLineTimeFromVideo = (index: number, field: 'startMs' | 'endMs') => {
     const video = videoRef.current;
     if (!video) return;
-    updateLine(index, { [field]: Math.round(video.currentTime * 1000) });
+    const timeMs = Math.round(video.currentTime * 1000);
+    const line = lines[index];
+    if (field === 'startMs') {
+      updateLine(index, { startMs: timeMs, endMs: Math.max(line.endMs, timeMs + 200) });
+    } else {
+      updateLine(index, { endMs: Math.max(line.startMs + 200, timeMs) });
+    }
   };
 
   const seekTo = (ms: number) => {
@@ -503,6 +680,21 @@ export default function SubtitleEditor({
       setStatusMessage('Lỗi khi lưu SRT: ' + (err?.message || err));
     }
   };
+
+  // Phím tắt Ctrl + S / Cmd + S để lưu nhanh phụ đề
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!isActive) return;
+      if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.code === 'KeyS')) {
+        e.preventDefault();
+        if (activeSrtPath) {
+          void handleSave();
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isActive, activeSrtPath, lines, srtSource]);
 
   // Hiệu đính 1 câu (sửa lỗi chính tả, ngữ pháp, mượt văn)
   const handlePolishLine = async (index: number) => {
@@ -869,7 +1061,32 @@ export default function SubtitleEditor({
           )}
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
+          {selectedTaskId && (
+            <div className="flex items-center gap-1 rounded-xl border border-slate-700 bg-slate-800 p-1">
+              <button
+                type="button"
+                onClick={handleUndo}
+                disabled={!canUndo}
+                title="Hoàn tác (Ctrl+Z)"
+                className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs text-slate-300 hover:bg-slate-700 hover:text-white cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed transition"
+              >
+                <Undo2 className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">Undo</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleRedo}
+                disabled={!canRedo}
+                title="Làm lại (Ctrl+Y / Ctrl+Shift+Z)"
+                className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs text-slate-300 hover:bg-slate-700 hover:text-white cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed transition"
+              >
+                <Redo2 className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">Redo</span>
+              </button>
+            </div>
+          )}
+
           {selectedTaskId && (
             <button
               type="button"
@@ -1047,6 +1264,30 @@ export default function SubtitleEditor({
                             type="button"
                             onClick={(e) => {
                               e.stopPropagation();
+                              splitLine(index);
+                            }}
+                            className="opacity-0 transition group-hover:opacity-100 text-slate-400 hover:text-amber-400 cursor-pointer p-1 rounded hover:bg-slate-800"
+                            title="Cắt đôi câu phụ đề này (Split) tại vị trí video hoặc giữa câu"
+                          >
+                            <Scissors className="h-3.5 w-3.5" />
+                          </button>
+                          {index < lines.length - 1 && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                mergeLineWithNext(index);
+                              }}
+                              className="opacity-0 transition group-hover:opacity-100 text-slate-400 hover:text-indigo-400 cursor-pointer p-1 rounded hover:bg-slate-800"
+                              title="Gộp câu này với câu kế tiếp (Merge)"
+                            >
+                              <GitMerge className="h-3.5 w-3.5" />
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
                               insertLineAfter(index);
                             }}
                             className="opacity-0 transition group-hover:opacity-100 text-slate-400 hover:text-brand-cyan cursor-pointer p-1 rounded hover:bg-slate-800"
@@ -1072,13 +1313,13 @@ export default function SubtitleEditor({
                         <TimeRow
                           label="Start"
                           valueMs={item.startMs}
-                          onChangeMs={(ms) => updateLine(index, { startMs: ms })}
+                          onChangeMs={(ms) => updateLine(index, { startMs: Math.max(0, ms), endMs: Math.max(item.endMs, ms + 200) })}
                           onSyncVideo={() => setLineTimeFromVideo(index, 'startMs')}
                         />
                         <TimeRow
                           label="End"
                           valueMs={item.endMs}
-                          onChangeMs={(ms) => updateLine(index, { endMs: Math.max(item.startMs, ms) })}
+                          onChangeMs={(ms) => updateLine(index, { endMs: Math.max(item.startMs + 200, ms) })}
                           onSyncVideo={() => setLineTimeFromVideo(index, 'endMs')}
                         />
                       </div>

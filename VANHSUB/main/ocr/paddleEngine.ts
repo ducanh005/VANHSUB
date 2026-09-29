@@ -4,6 +4,50 @@ import { spawn } from 'child_process';
 import { app } from 'electron';
 
 import { CancelledError } from '../lib/cancel';
+import { killProcessTree } from '../lib/processTree';
+import { SettingsStore } from '../store/settingsStore';
+
+/**
+ * Tìm đường dẫn trình thực thi Python:
+ * 1. Từ cài đặt người dùng (SettingsStore: pythonPath)
+ * 2. Từ biến môi trường PYTHON_PATH hoặc VIRTUAL_ENV
+ * 3. Từ thư mục .venv cục bộ
+ * 4. Fallback về lệnh 'python' trong PATH
+ */
+export function resolvePythonExecutable(): string {
+  try {
+    const configured = SettingsStore.get('pythonPath');
+    if (configured && typeof configured === 'string' && configured.trim().length > 0) {
+      const trimmed = configured.trim();
+      if (fs.existsSync(trimmed)) {
+        return trimmed;
+      }
+    }
+  } catch {}
+
+  if (process.env.PYTHON_PATH && fs.existsSync(process.env.PYTHON_PATH)) {
+    return process.env.PYTHON_PATH;
+  }
+  if (process.env.VIRTUAL_ENV) {
+    const venvBin =
+      process.platform === 'win32'
+        ? path.join(process.env.VIRTUAL_ENV, 'Scripts', 'python.exe')
+        : path.join(process.env.VIRTUAL_ENV, 'bin', 'python');
+    if (fs.existsSync(venvBin)) {
+      return venvBin;
+    }
+  }
+
+  const localVenv =
+    process.platform === 'win32'
+      ? path.join(process.cwd(), '.venv', 'Scripts', 'python.exe')
+      : path.join(process.cwd(), '.venv', 'bin', 'python');
+  if (fs.existsSync(localVenv)) {
+    return localVenv;
+  }
+
+  return 'python';
+}
 
 /**
  * Gọi sidecar Python chạy PaddleOCR PP-OCRv5 (qua rapidocr + ONNX Runtime).
@@ -81,7 +125,8 @@ export function checkRapidOcr(timeoutMs = 60_000): Promise<RapidOcrCheck> {
       resolve({ ok, detail });
     };
 
-    const child = spawn('python', ['-c', 'import rapidocr, cv2'], { windowsHide: true });
+    const pythonBin = resolvePythonExecutable();
+    const child = spawn(pythonBin, ['-c', 'import rapidocr, cv2'], { windowsHide: true });
     const timer = setTimeout(() => {
       child.kill();
       done(false, 'Quá thời gian kiểm tra python.');
@@ -89,7 +134,7 @@ export function checkRapidOcr(timeoutMs = 60_000): Promise<RapidOcrCheck> {
 
     child.on('error', () => {
       clearTimeout(timer);
-      done(false, `Không chạy được python. ${RAPIDOCR_INSTALL_HINT}`);
+      done(false, `Không chạy được python (${pythonBin}). ${RAPIDOCR_INSTALL_HINT}`);
     });
     child.on('close', (code) => {
       clearTimeout(timer);
@@ -143,7 +188,8 @@ export function runPaddleOcr(
     const jobPath = job.outPath.replace(/\.jsonl$/i, '') + '.job.json';
     fs.writeFileSync(jobPath, JSON.stringify(job), 'utf-8');
 
-    const child = spawn('python', [resolvePaddleScriptPath(), '--job', jobPath], {
+    const pythonBin = resolvePythonExecutable();
+    const child = spawn(pythonBin, [resolvePaddleScriptPath(), '--job', jobPath], {
       windowsHide: true,
     });
 
@@ -153,9 +199,16 @@ export function runPaddleOcr(
     const maybeKill = () => {
       if (opts?.shouldStop?.() && !killed && child.exitCode === null) {
         killed = true;
-        child.kill();
+        killProcessTree(child);
       }
     };
+
+    // Polling định kỳ phòng trường hợp Python nghẽn không nhả stdout
+    const stopPollTimer = opts?.shouldStop
+      ? setInterval(() => {
+          maybeKill();
+        }, 300)
+      : null;
 
     let buffer = '';
     child.stdout.on('data', (chunk: Buffer) => {
@@ -179,7 +232,8 @@ export function runPaddleOcr(
         else if (msg.type === 'warning') console.warn(`[PaddleOCR] ${msg.msg}`);
         else if (msg.type === 'error') {
           killed = true;
-          child.kill();
+          killProcessTree(child);
+          if (stopPollTimer) clearInterval(stopPollTimer);
           reject(new Error(`PaddleOCR lỗi: ${msg.msg}`));
           return;
         }
@@ -191,10 +245,12 @@ export function runPaddleOcr(
     });
 
     child.on('error', (err) => {
+      if (stopPollTimer) clearInterval(stopPollTimer);
       reject(new Error(`Không chạy được python: ${err.message}. ${RAPIDOCR_INSTALL_HINT}`));
     });
 
     child.on('close', (code) => {
+      if (stopPollTimer) clearInterval(stopPollTimer);
       if (killed || opts?.shouldStop?.()) return reject(new CancelledError());
       if (code === 2) return reject(new Error(RAPIDOCR_INSTALL_HINT));
       if (code !== 0) {

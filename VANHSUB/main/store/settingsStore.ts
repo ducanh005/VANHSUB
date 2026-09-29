@@ -77,6 +77,8 @@ export interface AppSettings {
   veoLastChecked: number;
   /** Thời gian hồi chiêu chống spam (giây, mặc định 45) */
   veoCooldownSeconds: number;
+  /** Đường dẫn tuỳ chỉnh tới trình thực thi Python (nếu rỗng, tự động dò trong PATH / venv) */
+  pythonPath?: string;
   /** Số credit Google Flow gần nhất đọc được (hoặc null nếu chưa xác định) */
   veoFlowCredits: number | null;
   /** Thời điểm kiểm tra credit Google Flow lần cuối (timestamp ms) */
@@ -127,6 +129,7 @@ function getStore(): Store<AppSettings> {
         glossary: '',
         translationStyleGuide: '',
         onboardingCompleted: false,
+        pythonPath: '',
         veoMode: 'free_session',
         veoSessionCookie: '',
         veoSessionAuthToken: '',
