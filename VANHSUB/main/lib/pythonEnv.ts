@@ -104,53 +104,31 @@ export async function probePythonEnv(): Promise<PythonEnvInfo> {
   };
 
   const probeScript = `
-import sys, json
+import sys, json, importlib.util
+
+def check_pkg(name):
+    try:
+        return importlib.util.find_spec(name) is not None
+    except Exception:
+        return False
+
 info = {
     "version": sys.version.split()[0],
-    "hasTorch": False,
+    "hasTorch": check_pkg("torch"),
     "hasCuda": False,
-    "hasFasterWhisper": False,
-    "hasCtranslate2": False,
-    "hasPyannote": False,
-    "hasDemucs": False,
-    "hasRapidOcr": False,
+    "hasFasterWhisper": check_pkg("faster_whisper"),
+    "hasCtranslate2": check_pkg("ctranslate2"),
+    "hasPyannote": check_pkg("pyannote.audio") or check_pkg("pyannote"),
+    "hasDemucs": check_pkg("demucs"),
+    "hasRapidOcr": check_pkg("rapidocr"),
 }
-try:
-    import torch
-    info["hasTorch"] = True
-    info["hasCuda"] = bool(torch.cuda.is_available())
-except Exception:
-    pass
 
-try:
-    import ctranslate2
-    info["hasCtranslate2"] = True
-except Exception:
-    pass
-
-try:
-    import faster_whisper
-    info["hasFasterWhisper"] = True
-except Exception:
-    pass
-
-try:
-    import pyannote.audio
-    info["hasPyannote"] = True
-except Exception:
-    pass
-
-try:
-    import demucs
-    info["hasDemucs"] = True
-except Exception:
-    pass
-
-try:
-    import rapidocr
-    info["hasRapidOcr"] = True
-except Exception:
-    pass
+if info["hasTorch"]:
+    try:
+        import torch
+        info["hasCuda"] = bool(torch.cuda.is_available())
+    except Exception:
+        pass
 
 print(json.dumps(info))
 `;
@@ -164,7 +142,7 @@ print(json.dumps(info))
           child.kill();
         } catch {}
         resolve(defaultInfo);
-      }, 6000);
+      }, 20000);
 
       child.stdout.on('data', (d) => {
         stdoutData += d.toString();
