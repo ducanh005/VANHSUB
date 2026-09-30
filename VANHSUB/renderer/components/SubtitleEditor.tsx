@@ -21,10 +21,12 @@ import {
   Wand2,
   XCircle,
   GitMerge,
+  Filter,
 } from 'lucide-react';
 import type { Task } from '../types/task';
 import { formatMs, parseSrt, parseTimecode, serializeSrt, type SrtLine } from '../lib/srt';
 import { calculateCps, segmentSubtitlesNetflix, splitLineSmart } from '../lib/nlpSegmenter';
+import { sanitizeSubtitles, isOcrGarbageLine } from '../lib/subtitleSanitizer';
 
 type Props = {
   tasks: Task[];
@@ -206,6 +208,11 @@ export default function SubtitleEditor({
     () => lines.findIndex((l) => currentTimeMs >= l.startMs && currentTimeMs < l.endMs),
     [lines, currentTimeMs]
   );
+
+  const detectedGarbageCount = useMemo(() => {
+    if (lines.length === 0) return 0;
+    return lines.filter((l) => isOcrGarbageLine(l)).length;
+  }, [lines]);
 
   // File SRT đang mở: bản dịch nếu đang chọn và đã có, ngược lại bản gốc
   const activeSrtPath = useMemo(() => {
@@ -490,6 +497,22 @@ export default function SubtitleEditor({
     setStatusMessage(
       `Đã chuẩn hoá Netflix (≤37 ký tự/dòng, 15-21 CPS) cho ${normalized.length} dòng (từ ${beforeCount} dòng gốc). Nhớ bấm "Lưu thay đổi"!`
     );
+  };
+
+  // Lọc bỏ rác OCR, ký tự đơn lẻ, dấu câu trôi nổi và khối siêu ngắn (<150ms)
+  const handleSanitizeGarbage = () => {
+    if (lines.length === 0 || loading) return;
+    pushUndo(lines, true);
+    const { cleaned, removedCount } = sanitizeSubtitles(lines);
+    if (removedCount > 0) {
+      setLines(cleaned);
+      setDirty(true);
+      setStatusError(false);
+      setStatusMessage(`Đã dọn sạch ${removedCount} dòng phụ đề rác OCR. Nhớ bấm "Lưu thay đổi"!`);
+    } else {
+      setStatusError(false);
+      setStatusMessage('Phụ đề đã sạch! Không tìm thấy dòng rác OCR nào.');
+    }
   };
 
   const splitLine = (index: number) => {
@@ -995,6 +1018,25 @@ export default function SubtitleEditor({
             >
               <Sparkles className="h-3.5 w-3.5 text-brand-cyan" />
               <span>Chuẩn hoá Netflix (NLP)</span>
+            </button>
+          )}
+
+          {/* Nút Lọc rác & Làm sạch */}
+          {lines.length > 0 && (
+            <button
+              type="button"
+              onClick={handleSanitizeGarbage}
+              disabled={loading || isCleaningSubtitles || isTranslating}
+              title="Tự động phát hiện và loại bỏ các dòng rác OCR (1 ký tự, dấu câu trôi nổi, nhiễu khung hình <150ms)"
+              className="inline-flex items-center gap-1.5 rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-xs font-semibold text-amber-300 hover:bg-amber-500/25 cursor-pointer disabled:opacity-50 transition"
+            >
+              <Filter className="h-3.5 w-3.5 text-amber-400" />
+              <span>Lọc rác & Làm sạch</span>
+              {detectedGarbageCount > 0 && (
+                <span className="rounded-full bg-rose-500/90 px-1.5 py-0.2 text-[10px] font-bold text-white leading-none shadow-sm">
+                  {detectedGarbageCount}
+                </span>
+              )}
             </button>
           )}
 
