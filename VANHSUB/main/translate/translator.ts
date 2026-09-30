@@ -5,6 +5,7 @@ import { createGeminiClient, friendlyGeminiError } from '../ai/geminiClient';
 import { SettingsStore } from '../store/settingsStore';
 import { parseSrt, serializeSrt, SrtLine } from '../lib/srt';
 import { CancelledError } from '../lib/cancel';
+import { segmentSubtitlesNetflix } from '../lib/nlpSegmenter';
 
 interface BatchItem {
   i: string;
@@ -320,11 +321,15 @@ export async function translateSrtFile(
     (r): r is SrtLine[] => Array.isArray(r),
   ).flat();
 
+  // Tự động chuẩn hoá phân đoạn Netflix (NLP) cho bản dịch Tiếng Việt
+  const isVietnamese = targetLanguage === 'vi' || targetLanguage.toLowerCase().startsWith('vi');
+  const finalLines = isVietnamese ? segmentSubtitlesNetflix(translatedLines) : translatedLines;
+
   const srtDir = path.dirname(srtPath);
   const srtBasename = path.basename(srtPath, '.srt');
   const translatedSrtPath = path.join(srtDir, `${srtBasename}.translated.srt`);
 
-  fs.writeFileSync(translatedSrtPath, serializeSrt(translatedLines), 'utf-8');
+  fs.writeFileSync(translatedSrtPath, serializeSrt(finalLines), 'utf-8');
 
   // Dịch hoàn tất — xoá checkpoint (bản dịch đã nằm trong .translated.srt)
   const checkpointFile = getCheckpointPath(srtPath);

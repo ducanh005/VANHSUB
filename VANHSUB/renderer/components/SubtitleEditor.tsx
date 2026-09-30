@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import type { Task } from '../types/task';
 import { formatMs, parseSrt, parseTimecode, serializeSrt, type SrtLine } from '../lib/srt';
+import { calculateCps, segmentSubtitlesNetflix, splitLineSmart } from '../lib/nlpSegmenter';
 
 type Props = {
   tasks: Task[];
@@ -478,6 +479,19 @@ export default function SubtitleEditor({
     }, 50);
   };
 
+  // Chuẩn hoá toàn bộ danh sách phụ đề theo chuẩn Netflix (≤37 ký tự/dòng, 15-21 CPS)
+  const handleNetflixNormalize = () => {
+    if (lines.length === 0 || loading) return;
+    pushUndo(lines, true);
+    const beforeCount = lines.length;
+    const normalized = segmentSubtitlesNetflix(lines);
+    setLines(normalized);
+    setDirty(true);
+    setStatusMessage(
+      `Đã chuẩn hoá Netflix (≤37 ký tự/dòng, 15-21 CPS) cho ${normalized.length} dòng (từ ${beforeCount} dòng gốc). Nhớ bấm "Lưu thay đổi"!`
+    );
+  };
+
   const splitLine = (index: number) => {
     const item = lines[index];
     if (!item) return;
@@ -485,50 +499,16 @@ export default function SubtitleEditor({
     pushUndo(lines, true);
 
     const currentVideoMs = currentTimeMsRef.current;
-    let splitMs: number;
-    if (currentVideoMs > item.startMs + 200 && currentVideoMs < item.endMs - 200) {
-      splitMs = Math.round(currentVideoMs);
-    } else {
-      splitMs = Math.round(item.startMs + (item.endMs - item.startMs) / 2);
-    }
-
-    const fullText = (item.text || '').trim();
-    let text1 = fullText;
-    let text2 = '';
-    if (fullText.length > 0) {
-      const mid = Math.floor(fullText.length / 2);
-      let bestSpace = -1;
-      let minDiff = Infinity;
-      for (let i = 0; i < fullText.length; i++) {
-        if (fullText[i] === ' ' || fullText[i] === '\n') {
-          const diff = Math.abs(i - mid);
-          if (diff < minDiff) {
-            minDiff = diff;
-            bestSpace = i;
-          }
-        }
-      }
-      if (bestSpace !== -1 && bestSpace > 0 && bestSpace < fullText.length - 1) {
-        text1 = fullText.slice(0, bestSpace).trim();
-        text2 = fullText.slice(bestSpace + 1).trim();
-      } else {
-        text1 = fullText.slice(0, mid).trim();
-        text2 = fullText.slice(mid).trim();
-      }
-    }
-
-    const newId = makeLineId();
-    const line1: SrtLine = { ...item, endMs: splitMs, text: text1 };
-    const line2: SrtLine = { id: newId, startMs: splitMs, endMs: item.endMs, text: text2 };
+    const { line1, line2 } = splitLineSmart(item, currentVideoMs);
 
     setLines((prev) => {
       const copy = [...prev];
       copy.splice(index, 1, line1, line2);
       return copy;
     });
-    setNewlyAddedId(newId);
+    setNewlyAddedId(line2.id);
     setDirty(true);
-    setStatusMessage(`Đã cắt đôi câu #${index + 1} tại ${formatMs(splitMs)}.`);
+    setStatusMessage(`Đã cắt thông minh câu #${index + 1} tại ${formatMs(line1.endMs)} (chuẩn Netflix).`);
   };
 
   const mergeLineWithNext = (index: number) => {
@@ -681,7 +661,7 @@ export default function SubtitleEditor({
     }
   };
 
-  // Phím tắt Ctrl + S / Cmd + S để lưu nhanh phụ đề
+  // Phím tắt Ctrl + S để lưu nhanh, Ctrl + Shift + N để chuẩn hoá Netflix
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!isActive) return;
@@ -690,6 +670,10 @@ export default function SubtitleEditor({
         if (activeSrtPath) {
           void handleSave();
         }
+      }
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'N' || e.key === 'n' || e.code === 'KeyN')) {
+        e.preventDefault();
+        handleNetflixNormalize();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -1000,6 +984,20 @@ export default function SubtitleEditor({
             </span>
           )}
 
+          {/* Nút Chuẩn hoá Netflix (NLP) */}
+          {lines.length > 0 && (
+            <button
+              type="button"
+              onClick={handleNetflixNormalize}
+              disabled={loading || isCleaningSubtitles || isTranslating}
+              title="Tự động ngắt dòng và cân chỉnh thời gian chuẩn Netflix (≤37 ký tự/dòng, 15-21 CPS, không ngắt từ ghép) [Ctrl+Shift+N]"
+              className="inline-flex items-center gap-1.5 rounded-xl border border-brand-cyan/40 bg-brand-cyan/10 px-3 py-1.5 text-xs font-semibold text-brand-cyan hover:bg-brand-cyan/25 cursor-pointer disabled:opacity-50 transition"
+            >
+              <Sparkles className="h-3.5 w-3.5 text-brand-cyan" />
+              <span>Chuẩn hoá Netflix (NLP)</span>
+            </button>
+          )}
+
           {/* Nút AI Dọn Dẹp & Lọc Trùng Phụ Đề */}
           {lines.length > 0 && (
             <button
@@ -1258,6 +1256,52 @@ export default function SubtitleEditor({
                               Cần duyệt
                             </span>
                           )}
+
+                          {/* Length & CPS Badges (Chuẩn Netflix) */}
+                          <div className="flex items-center gap-1.5">
+                            {item.text.split(/\r?\n/).map((subLine, lIdx) => {
+                              const len = subLine.trim().length;
+                              const isOver = len > 37;
+                              return (
+                                <span
+                                  key={lIdx}
+                                  title={
+                                    isOver
+                                      ? `Dòng ${lIdx + 1} vượt quá chuẩn Netflix 37 ký tự (${len}/37)`
+                                      : `Độ dài dòng ${lIdx + 1}: ${len}/37 ký tự`
+                                  }
+                                  className={`font-mono px-1.5 py-0.5 rounded text-[9px] font-semibold border ${
+                                    isOver
+                                      ? 'bg-rose-500/20 text-rose-300 border-rose-500/40 animate-pulse'
+                                      : len > 32
+                                      ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                                      : 'bg-slate-800 text-slate-400 border-slate-700'
+                                  }`}
+                                >
+                                  {item.text.split(/\r?\n/).length > 1 ? `D${lIdx + 1}: ` : ''}[{len}/37]
+                                </span>
+                              );
+                            })}
+                            {(() => {
+                              const cps = calculateCps(item);
+                              const isOptimal = cps >= 15 && cps <= 21;
+                              const isHigh = cps > 21;
+                              return (
+                                <span
+                                  title={`Tốc độ đọc: ${cps} CPS (Chuẩn Netflix: 15-21 CPS)`}
+                                  className={`font-mono px-1.5 py-0.5 rounded text-[9px] font-semibold border ${
+                                    isHigh
+                                      ? 'bg-rose-500/20 text-rose-300 border-rose-500/40'
+                                      : isOptimal
+                                      ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                                      : 'bg-slate-800 text-slate-400 border-slate-700'
+                                  }`}
+                                >
+                                  {cps} CPS
+                                </span>
+                              );
+                            })()}
+                          </div>
                         </div>
                         <div className="flex items-center gap-1">
                           <button
