@@ -15,6 +15,10 @@ export interface Task {
   sourceLanguage?: string;
   targetLanguage?: string;
   asrModel?: string;
+  asrEngine?: 'faster-whisper' | 'whisper-cpp';
+  enableDiarization?: boolean;
+  speakerCount?: number;
+  speakers?: string[];
   srtPath?: string;
   translatedSrtPath?: string;
   audioPath?: string;

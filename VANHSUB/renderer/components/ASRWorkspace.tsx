@@ -10,6 +10,9 @@ import {
   ScanText,
   Sparkles,
   Square,
+  Cpu,
+  Users,
+  Zap,
 } from 'lucide-react';
 import type { Task, TaskStatus } from '../types/task';
 import type { OcrStartOptions } from '../types/electron';
@@ -58,6 +61,10 @@ export default function ASRWorkspace({ tasks, selectedTaskId: propSelectedTaskId
     else setInternalTaskId(id);
   };
   const [model, setModel] = useState('base');
+  const [asrEngine, setAsrEngine] = useState<'faster-whisper' | 'whisper-cpp'>('faster-whisper');
+  const [enableDiarization, setEnableDiarization] = useState(false);
+  const [speakerCount, setSpeakerCount] = useState<number>(2);
+  const [fwStatus, setFwStatus] = useState<{ available: boolean; useCuda: boolean; reason?: string } | null>(null);
   const [srtContent, setSrtContent] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
   const [message, setMessage] = useState('');
@@ -74,6 +81,13 @@ export default function ASRWorkspace({ tasks, selectedTaskId: propSelectedTaskId
   const isAudio = selectedTask ? isAudioFile(selectedTask.filePath) : false;
   const hasSrt = !!selectedTask?.srtPath;
 
+  // Thăm dò khả dụng Faster-Whisper & CUDA khi nạp component
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.vanhsub?.asr?.checkFasterWhisper) {
+      window.vanhsub.asr.checkFasterWhisper().then(setFwStatus).catch(() => {});
+    }
+  }, []);
+
   // Mặc định chọn task đầu tiên hoặc fallback nếu task hiện tại bị xoá
   useEffect(() => {
     if (tasks.length === 0) {
@@ -86,9 +100,14 @@ export default function ASRWorkspace({ tasks, selectedTaskId: propSelectedTaskId
     }
   }, [tasks, selectedTaskId]);
 
-  // Đồng bộ model khi đổi tác vụ
+  // Đồng bộ model, engine và diarization khi đổi tác vụ
   useEffect(() => {
-    if (selectedTask) setModel(selectedTask.asrModel || 'base');
+    if (selectedTask) {
+      setModel(selectedTask.asrModel || 'base');
+      setAsrEngine(selectedTask.asrEngine || 'faster-whisper');
+      setEnableDiarization(Boolean(selectedTask.enableDiarization));
+      if (selectedTask.speakerCount) setSpeakerCount(selectedTask.speakerCount);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedTask?.id]);
 
@@ -123,6 +142,27 @@ export default function ASRWorkspace({ tasks, selectedTaskId: propSelectedTaskId
     }
   };
 
+  const handleEngineChange = (engine: 'faster-whisper' | 'whisper-cpp') => {
+    setAsrEngine(engine);
+    if (selectedTask && typeof window !== 'undefined' && window.vanhsub?.tasks?.update) {
+      window.vanhsub.tasks.update(selectedTask.id, { asrEngine: engine }).catch(() => {});
+    }
+  };
+
+  const handleDiarizationToggle = (enabled: boolean) => {
+    setEnableDiarization(enabled);
+    if (selectedTask && typeof window !== 'undefined' && window.vanhsub?.tasks?.update) {
+      window.vanhsub.tasks.update(selectedTask.id, { enableDiarization: enabled }).catch(() => {});
+    }
+  };
+
+  const handleSpeakerCountChange = (count: number) => {
+    setSpeakerCount(count);
+    if (selectedTask && typeof window !== 'undefined' && window.vanhsub?.tasks?.update) {
+      window.vanhsub.tasks.update(selectedTask.id, { speakerCount: count }).catch(() => {});
+    }
+  };
+
   const handleStart = async (force: boolean) => {
     if (!selectedTask || isBusy) return;
     if (
@@ -135,7 +175,12 @@ export default function ASRWorkspace({ tasks, selectedTaskId: propSelectedTaskId
     setMessage('');
     setIsError(false);
     try {
-      await window.vanhsub.tasks.update(selectedTask.id, { asrModel: model });
+      await window.vanhsub.tasks.update(selectedTask.id, {
+        asrModel: model,
+        asrEngine,
+        enableDiarization,
+        speakerCount: enableDiarization ? speakerCount : undefined,
+      });
       await window.vanhsub.tasks.start(selectedTask.id);
       setMessage('Đã bắt đầu phiên âm — theo dõi tiến trình bên dưới và ở Trang chủ.');
     } catch (err: any) {
@@ -502,6 +547,104 @@ export default function ASRWorkspace({ tasks, selectedTaskId: propSelectedTaskId
                 </div>
               )}
 
+              {/* Cấu hình Động cơ ASR & Phân tách người nói */}
+              <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Zap className="h-4 w-4 text-brand-cyan" />
+                    <span className="text-xs font-semibold text-slate-200">Động cơ nhận diện giọng nói (ASR Engine)</span>
+                  </div>
+                  {fwStatus && asrEngine === 'faster-whisper' && (
+                    <span
+                      className={`text-[10px] px-2 py-0.5 rounded-full border ${
+                        fwStatus.available
+                          ? fwStatus.useCuda
+                            ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400'
+                            : 'border-blue-500/30 bg-blue-500/10 text-blue-400'
+                          : 'border-amber-500/30 bg-amber-500/10 text-amber-400'
+                      }`}
+                      title={fwStatus.reason || ''}
+                    >
+                      {fwStatus.available
+                        ? fwStatus.useCuda
+                          ? 'CUDA GPU'
+                          : 'CPU int8'
+                        : 'Sẽ tự động fallback về whisper.cpp'}
+                    </span>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleEngineChange('faster-whisper')}
+                    className={`flex flex-col text-left p-2.5 rounded-xl border transition cursor-pointer ${
+                      asrEngine === 'faster-whisper'
+                        ? 'border-brand-cyan/60 bg-brand-cyan/10 text-white'
+                        : 'border-slate-800 bg-slate-950/40 text-slate-400 hover:border-slate-700'
+                    }`}
+                  >
+                    <div className="flex items-center gap-1.5 font-medium text-xs">
+                      <Zap className="h-3.5 w-3.5 text-brand-cyan" />
+                      <span>Faster-Whisper</span>
+                      <span className="text-[10px] px-1.5 py-0.2 rounded bg-brand-cyan/20 text-brand-cyan font-mono">Nhanh 3-4x</span>
+                    </div>
+                    <p className="mt-1 text-[11px] text-slate-400">
+                      CTranslate2, timestamps theo từ, hỗ trợ phân tách người nói. Tự fallback nếu thiếu module.
+                    </p>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleEngineChange('whisper-cpp')}
+                    className={`flex flex-col text-left p-2.5 rounded-xl border transition cursor-pointer ${
+                      asrEngine === 'whisper-cpp'
+                        ? 'border-brand-indigo/60 bg-brand-indigo/10 text-white'
+                        : 'border-slate-800 bg-slate-950/40 text-slate-400 hover:border-slate-700'
+                    }`}
+                  >
+                    <div className="flex items-center gap-1.5 font-medium text-xs">
+                      <Cpu className="h-3.5 w-3.5 text-brand-indigo" />
+                      <span>Whisper.cpp</span>
+                      <span className="text-[10px] px-1.5 py-0.2 rounded bg-slate-800 text-slate-400 font-mono">Native C++</span>
+                    </div>
+                    <p className="mt-1 text-[11px] text-slate-400">
+                      Chạy trực tiếp binary C++, không phụ thuộc môi trường Python. Ổn định và độc lập.
+                    </p>
+                  </button>
+                </div>
+
+                {/* Speaker Diarization Controls */}
+                <div className="pt-2 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-3">
+                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={enableDiarization}
+                      onChange={(e) => handleDiarizationToggle(e.target.checked)}
+                      className="h-4 w-4 rounded border-slate-700 bg-slate-800 text-brand-cyan focus:ring-brand-cyan/20"
+                    />
+                    <div className="flex items-center gap-1.5 text-xs text-slate-200">
+                      <Users className="h-3.5 w-3.5 text-purple-400" />
+                      <span>Phân tách người nói (Speaker Diarization)</span>
+                    </div>
+                  </label>
+
+                  {enableDiarization && (
+                    <div className="flex items-center gap-2 text-xs text-slate-300">
+                      <span className="text-[11px] text-slate-400">Số người nói dự kiến:</span>
+                      <input
+                        type="number"
+                        min={1}
+                        max={10}
+                        value={speakerCount}
+                        onChange={(e) => handleSpeakerCountChange(Math.max(1, parseInt(e.target.value) || 2))}
+                        className="w-14 rounded-lg border border-slate-700 bg-slate-950 px-2 py-1 text-center font-mono text-xs text-white focus:border-brand-cyan focus:outline-none"
+                      />
+                    </div>
+                  )}
+                </div>
+              </div>
+
               {/* Chọn model */}
               <ASRModelSelector currentModel={model} onModelChange={handleModelChange} />
 
@@ -512,6 +655,12 @@ export default function ASRWorkspace({ tasks, selectedTaskId: propSelectedTaskId
                     Phụ đề{' '}
                     {hasSrt && <span className="font-mono text-[11px] text-slate-500">({lineCount} dòng)</span>}
                   </span>
+                  {selectedTask?.speakers && selectedTask.speakers.length > 0 && (
+                    <div className="flex items-center gap-1.5 text-[11px] font-normal text-purple-300">
+                      <Users className="h-3.5 w-3.5" />
+                      <span>{selectedTask.speakers.length} người nói ({selectedTask.speakers.join(', ')})</span>
+                    </div>
+                  )}
                 </div>
                 {selectedTask?.ocrStats && (
                   <div className="flex flex-wrap items-center gap-2 border-b border-slate-800/80 bg-slate-950/60 px-4 py-1.5 text-[11px] text-slate-300">

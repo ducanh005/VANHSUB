@@ -2,10 +2,12 @@ import fs from 'fs';
 import { TaskStore, type Task } from '../store/taskStore';
 import { SettingsStore } from '../store/settingsStore';
 import { extract16kHzWav } from './audioExtractor';
-import { transcribe } from './whisperEngine';
+import { transcribeUnified } from './asrRouter';
 import { TranslateRunner } from '../translate/translateRunner';
 import { CancelledError, isCancelledError } from '../lib/cancel';
 import { getProjectArtifactPaths } from '../utils/projectFolder';
+import { parseSrt, serializeSrt } from '../lib/srt';
+import { segmentSubtitlesNetflix } from '../lib/nlpSegmenter';
 
 export class TaskRunner {
   private static readonly MAX_PARALLEL_ASR = 2;
@@ -139,20 +141,34 @@ export class TaskRunner {
       onUpdate?.();
 
       let lastAsrLog = -1;
-      const result = await transcribe(wavPath, {
-        modelName: task.asrModel || SettingsStore.get('asrModel') || 'base',
-        onProgress: (percent) => {
+      let lastProgress = 0;
+      const asrEngine = task.asrEngine || (SettingsStore.get('asrEngine') as 'faster-whisper' | 'whisper-cpp') || 'faster-whisper';
+      const enableDiarization = task.enableDiarization ?? (SettingsStore.get('enableDiarization') as boolean);
+      const hfToken = SettingsStore.get('hfToken') as string;
+
+      const result = await transcribeUnified(wavPath, {
+        model: task.asrModel || SettingsStore.get('asrModel') || 'base',
+        asrEngine,
+        enableDiarization,
+        speakerCount: task.speakerCount,
+        hfToken,
+        onProgress: (percent, stage) => {
+          const newProgress = 35 + Math.round(percent * 0.55); // 35% -> 90%
+          const monotonicProgress = Math.max(lastProgress, newProgress);
+          lastProgress = monotonicProgress;
+
           TaskStore.update(taskId, {
-            progress: 35 + Math.round(percent * 0.55), // 35% -> 90%
+            progress: monotonicProgress,
             stageDescription:
-              percent < 100
+              stage ||
+              (percent < 100
                 ? `Đang phiên âm (${percent}%)...`
-                : 'Đang hoàn tất file phụ đề...',
+                : 'Đang hoàn tất file phụ đề...'),
           });
           onUpdate?.();
 
           if (percent >= lastAsrLog + 15 || percent === 100) {
-            console.log(`[ASR] [Tiến trình] Phiên âm Whisper: ${percent}%...`);
+            console.log(`[ASR] [Tiến trình] Phiên âm: ${percent}%...`);
             lastAsrLog = percent;
           }
         },
@@ -170,6 +186,22 @@ export class TaskRunner {
           // nếu lỗi thì dùng result.srtPath
         }
       }
+
+      // Tự động phân đoạn chuẩn hoá Netflix (NLP) cho file phụ đề đầu ra
+      try {
+        if (fs.existsSync(finalSrt)) {
+          const rawContent = fs.readFileSync(finalSrt, 'utf-8');
+          const parsedLines = parseSrt(rawContent);
+          if (parsedLines.length > 0) {
+            const segmented = segmentSubtitlesNetflix(parsedLines);
+            fs.writeFileSync(finalSrt, serializeSrt(segmented), 'utf-8');
+            console.log(`[ASR] [NLP] Đã chuẩn hoá phụ đề theo tiêu chuẩn Netflix (${segmented.length} dòng).`);
+          }
+        }
+      } catch (nlpErr) {
+        console.warn(`[ASR] [NLP] Bỏ qua chuẩn hoá Netflix do lỗi:`, nlpErr);
+      }
+
       console.log(`[ASR] Phiên âm hoàn tất! Đã lưu file phụ đề: ${finalSrt}`);
 
       // Giai đoạn 3: Hoàn thành tạo phụ đề .srt
@@ -177,7 +209,9 @@ export class TaskRunner {
         status: 'done',
         progress: 100,
         srtPath: finalSrt,
-        stageDescription: 'Đã tạo xong phụ đề .srt trong thư mục dự án',
+        asrEngine: result.engineUsed,
+        speakers: result.speakers,
+        stageDescription: `Đã tạo xong phụ đề .srt (${result.engineUsed}${result.fallbackTriggered ? ' - fallback' : ''}${result.speakers?.length ? `, ${result.speakers.length} người nói` : ''})`,
       });
       onUpdate?.();
 

@@ -3,11 +3,12 @@ import path from 'path';
 import { TaskStore, type Task } from '../store/taskStore';
 import { SettingsStore } from '../store/settingsStore';
 import { extract16kHzWav } from './audioExtractor';
-import { transcribe } from './whisperEngine';
+import { transcribeUnified } from './asrRouter';
 import { OcrRunner } from '../ocr/ocrRunner';
 import { TaskRunner } from './taskRunner';
 import { nextAvailablePath } from '../lib/paths';
 import { parseSrt, serializeSrt, type SrtLine } from '../lib/srt';
+import { segmentSubtitlesNetflix } from '../lib/nlpSegmenter';
 import { fuseOcrAndWhisper } from './hybridFusionEngine';
 import { TranslateRunner } from '../translate/translateRunner';
 import { CancelledError, isCancelledError } from '../lib/cancel';
@@ -110,8 +111,12 @@ export class HybridRunner {
       onUpdate?.();
 
       console.log(`[HybridRunner] Bắt đầu phiên âm Whisper (${asrModel})...`);
-      const whisperResult = await transcribe(wavPath, {
-        modelName: asrModel,
+      const whisperResult = await transcribeUnified(wavPath, {
+        model: asrModel,
+        asrEngine: task.asrEngine || (SettingsStore.get('asrEngine') as 'faster-whisper' | 'whisper-cpp') || 'faster-whisper',
+        enableDiarization: task.enableDiarization ?? (SettingsStore.get('enableDiarization') as boolean),
+        speakerCount: task.speakerCount,
+        hfToken: SettingsStore.get('hfToken') as string,
         onProgress: (percent) => {
           TaskStore.update(taskId, {
             progress: 15 + Math.round(percent * 0.2), // 15% -> 35%
@@ -195,7 +200,18 @@ export class HybridRunner {
       const videoDir = path.dirname(task.filePath);
       const base = path.basename(task.filePath, path.extname(task.filePath));
       const hybridTargetPath = nextAvailablePath(path.join(videoDir, `${base}_hybrid.srt`));
-      const hybridSrtContent = serializeSrt(fusionResult.segments);
+      
+      let finalSegments = fusionResult.segments;
+      try {
+        if (finalSegments.length > 0) {
+          finalSegments = segmentSubtitlesNetflix(finalSegments);
+          console.log(`[HybridRunner] [NLP] Đã chuẩn hoá phụ đề kết hợp theo tiêu chuẩn Netflix (${finalSegments.length} dòng).`);
+        }
+      } catch (nlpErr) {
+        console.warn(`[HybridRunner] [NLP] Bỏ qua chuẩn hoá Netflix do lỗi:`, nlpErr);
+      }
+
+      const hybridSrtContent = serializeSrt(finalSegments);
       fs.writeFileSync(hybridTargetPath, hybridSrtContent, 'utf-8');
 
       // Cập nhật TaskStore hoàn thành

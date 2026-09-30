@@ -17,6 +17,11 @@ export type SettingKey =
   | 'geminiModel'
   | 'targetLanguage'
   | 'asrModel'
+  | 'asrEngine'
+  | 'asrDevice'
+  | 'enableDiarization'
+  | 'hfToken'
+  | 'pythonPath'
   | 'exportDir'
   | 'translateBatchSize'
   | 'translateConcurrency'
@@ -159,6 +164,18 @@ export interface DualSubtitleOption {
   secondaryStyle?: Partial<SubStyle>;
 }
 
+export type KineticPreset = 'none' | 'hormozi' | 'mrbeast' | 'minimalist_glow';
+
+export interface KineticConfig {
+  preset: KineticPreset;
+  activeColor?: string;       // Hex color for highlight/karaoke, e.g. "#FFE500"
+  enableEmoji?: boolean;      // For MrBeast preset
+  emojiFrequency?: 'high' | 'medium' | 'low';
+  enableProgressBar?: boolean;// For Minimalist Glow
+  glowBlur?: number;          // \blur amount
+  fontScale?: number;
+}
+
 export interface AdvancedExportOptions {
   perLineStyles?: Record<number, PerLineSubtitleStyle>;
   customMask?: CustomMaskRegion | null;
@@ -166,6 +183,7 @@ export interface AdvancedExportOptions {
   watermark?: WatermarkOptions | null;
   formatOptions?: ExportFormatOptions | null;
   dualSubtitles?: DualSubtitleOption | null;
+  kineticConfig?: KineticConfig | null;
 }
 
 export interface VanhsubAPI {
@@ -317,6 +335,9 @@ export interface VanhsubAPI {
       advancedOptions?: AdvancedExportOptions | null
     ) => Promise<boolean>;
     separateStems: (id: string) => Promise<boolean>;
+  };
+  asr: {
+    checkFasterWhisper: () => Promise<{ available: boolean; useCuda: boolean; reason?: string }>;
   };
   ocr: {
     start: (id: string, options?: OcrStartOptions) => Promise<boolean>;

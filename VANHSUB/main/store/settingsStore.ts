@@ -28,6 +28,14 @@ export interface AppSettings {
   targetLanguage: string;
   /** Model ASR mặc định cho task mới (fallback của task.asrModel) */
   asrModel: string;
+  /** Engine ASR mặc định: 'faster-whisper' | 'whisper-cpp' */
+  asrEngine?: 'faster-whisper' | 'whisper-cpp';
+  /** Thiết bị chạy ASR: 'auto' | 'cuda' | 'cpu' */
+  asrDevice?: 'auto' | 'cuda' | 'cpu';
+  /** Bật tự động nhận diện người nói (Speaker Diarization) */
+  enableDiarization?: boolean;
+  /** HuggingFace User Access Token (tuỳ chọn cho mô hình pyannote diarization) */
+  hfToken?: string;
   /** Thư mục xuất video mặc định; rỗng = lưu cạnh file gốc */
   exportDir: string;
   /** Số dòng phụ đề mỗi request dịch */
@@ -114,6 +122,10 @@ function getStore(): Store<AppSettings> {
         geminiModel: 'gemini-flash-latest',
         targetLanguage: 'vi',
         asrModel: 'base',
+        asrEngine: 'faster-whisper',
+        asrDevice: 'auto',
+        enableDiarization: false,
+        hfToken: '',
         exportDir: '',
         translateBatchSize: 15,
         translateConcurrency: 1,
@@ -151,7 +163,7 @@ function getStore(): Store<AppSettings> {
 // =========================================================================
 
 const ENC_PREFIX = 'enc:v1:';
-const ENCRYPTED_KEYS = new Set(['geminiApiKey', 'veoSessionCookie', 'veoSessionAuthToken']);
+const ENCRYPTED_KEYS = new Set(['geminiApiKey', 'veoSessionCookie', 'veoSessionAuthToken', 'hfToken']);
 
 function encryptSecret(plain: string): string {
   if (!plain) return '';

@@ -33,6 +33,7 @@ import { registerAiStudioIpc, setAiStudioPipelineEngine } from './ai-studio/ipc'
 import { AiStudioPipelineEngine } from './ai-studio/pipelineEngine'
 import { GoogleVeoSessionManager } from './veo/GoogleVeoSessionManager'
 import { GoogleVeoAntiSpamGuard } from './veo/GoogleVeoAntiSpamGuard'
+import { checkFasterWhisperAvailable, probePythonEnv } from './lib/pythonEnv'
 
 const isProd = process.env.NODE_ENV === 'production'
 
@@ -1100,6 +1101,14 @@ ipcMain.handle('models:delete', async (_event, modelName: string) => {
     }
   }
   return false;
+})
+
+ipcMain.handle('asr:checkFasterWhisper', async () => {
+  return checkFasterWhisperAvailable();
+})
+
+ipcMain.handle('system:probePythonEnv', async () => {
+  return probePythonEnv();
 })
 
 

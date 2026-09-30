@@ -1,10 +1,19 @@
 // Shared SRT Parser/Serializer — dùng chung cho main process và renderer
 
+export interface SrtWord {
+  word: string;
+  startMs: number;
+  endMs: number;
+  speaker?: string;
+}
+
 export interface SrtLine {
   id: string;
   startMs: number;
   endMs: number;
   text: string;
+  speaker?: string;          // e.g. "SPEAKER_00"
+  words?: SrtWord[];         // word-level timestamps
   confidence?: number;
   frames?: number;
   stable?: boolean;
@@ -15,8 +24,27 @@ const SRT_TIME_RE = /^(\d{1,3}):(\d{1,2}):(\d{1,2})[,.](\d{1,3})$/;
 const SRT_TIME_RE_SHORT = /^(\d{1,3}):(\d{1,2})[,.](\d{1,3})$/;
 const SRT_TIME_RE_SECONDS = /^(\d+)(?:[.,](\d{1,3}))?$/;
 
-function padMs(value: number): number {
-  return value < 10 ? value * 100 : value < 100 ? value * 10 : value;
+export function parseMsString(raw: string | number): number {
+  if (typeof raw === 'number') {
+    return Number.isFinite(raw) ? raw : 0;
+  }
+  const s = (raw || '').trim();
+  if (!s) return 0;
+  if (s.length === 1) {
+    const n = Number(s);
+    return Number.isFinite(n) ? n * 100 : 0;
+  }
+  if (s.length === 2) {
+    const n = Number(s);
+    return Number.isFinite(n) ? n * 10 : 0;
+  }
+  const n = Number(s.slice(0, 3));
+  return Number.isFinite(n) ? n : 0;
+}
+
+/** @deprecated Dùng parseMsString thay thế để tránh mất số 0 ở đầu (leading zeros). */
+export function padMs(value: number | string): number {
+  return parseMsString(value);
 }
 
 /** Chuyển chuỗi thời gian ('00:01:05,500' | '01:05.5' | '65.5') sang mili-giây. Trả về null nếu không hợp lệ. */
@@ -27,18 +55,18 @@ export function parseTimecode(raw: string): number | null {
   const full = s.match(SRT_TIME_RE);
   if (full) {
     const [, h, m, sec, ms] = full;
-    return (Number(h) * 3600 + Number(m) * 60 + Number(sec)) * 1000 + padMs(Number(ms));
+    return (Number(h) * 3600 + Number(m) * 60 + Number(sec)) * 1000 + parseMsString(ms);
   }
 
   const short = s.match(SRT_TIME_RE_SHORT);
   if (short) {
     const [, m, sec, ms] = short;
-    return (Number(m) * 60 + Number(sec)) * 1000 + padMs(Number(ms));
+    return (Number(m) * 60 + Number(sec)) * 1000 + parseMsString(ms);
   }
 
   const seconds = s.match(SRT_TIME_RE_SECONDS);
   if (seconds) {
-    return Number(seconds[1]) * 1000 + (seconds[2] ? padMs(Number(seconds[2])) : 0);
+    return Number(seconds[1]) * 1000 + (seconds[2] ? parseMsString(seconds[2]) : 0);
   }
 
   return null;
@@ -56,7 +84,7 @@ export function formatMs(ms: number): string {
 
 const BLOCK_TIME_RE = /(\d{1,3}):(\d{1,2}):(\d{1,2})[,.](\d{1,3})\s*-->\s*(\d{1,3}):(\d{1,2}):(\d{1,2})[,.](\d{1,3})/;
 
-/** Parse nội dung file .srt thành danh sách dòng phụ đề (ms). */
+/** Parse nội dung file .srt thành danh sách dòng phụ đề (ms), tự động phát hiện [SPEAKER_XX]:. */
 export function parseSrt(srtText: string): SrtLine[] {
   const cleaned = srtText.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n');
   const blocks = cleaned.trim().split(/\n\s*\n/);
@@ -72,28 +100,44 @@ export function parseSrt(srtText: string): SrtLine[] {
 
     const startMs =
       (Number(timeMatch[1]) * 3600 + Number(timeMatch[2]) * 60 + Number(timeMatch[3])) * 1000 +
-      padMs(Number(timeMatch[4]));
+      parseMsString(timeMatch[4]);
     const endMs =
       (Number(timeMatch[5]) * 3600 + Number(timeMatch[6]) * 60 + Number(timeMatch[7])) * 1000 +
-      padMs(Number(timeMatch[8]));
+      parseMsString(timeMatch[8]);
 
-    const text = rows.slice(timeRowIndex + 1).join('\n').trim();
+    const rawText = rows.slice(timeRowIndex + 1).join('\n').trim();
+    let speaker: string | undefined;
+    let text = rawText;
+
+    const speakerMatch = rawText.match(/^\[([A-Za-z0-9_ -]+)\]:\s*([\s\S]*)$/);
+    if (speakerMatch) {
+      speaker = speakerMatch[1].trim();
+      text = speakerMatch[2].trim();
+    }
+
     result.push({
       id: `line-${result.length}`,
       startMs,
       endMs,
       text,
+      ...(speaker ? { speaker } : {}),
     });
   }
 
   return result;
 }
 
-/** Ghép danh sách dòng phụ đề thành nội dung file .srt chuẩn. */
+/** Ghép danh sách dòng phụ đề thành nội dung file .srt chuẩn, bao gồm nhãn speaker nếu có. */
 export function serializeSrt(lines: SrtLine[]): string {
   return (
     lines
-      .map((line, index) => `${index + 1}\n${formatMs(line.startMs)} --> ${formatMs(line.endMs)}\n${line.text.trim()}`)
+      .map((line, index) => {
+        let text = line.text.trim();
+        if (line.speaker && !text.startsWith(`[${line.speaker}]:`)) {
+          text = `[${line.speaker}]: ${text}`;
+        }
+        return `${index + 1}\n${formatMs(line.startMs)} --> ${formatMs(line.endMs)}\n${text}`;
+      })
       .join('\n\n') + '\n'
   );
 }

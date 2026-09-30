@@ -28,6 +28,14 @@ export interface Task {
   sourceLanguage?: string;
   targetLanguage?: string;
   asrModel?: string;
+  /** Engine phiên âm: 'faster-whisper' (mặc định) hoặc 'whisper-cpp' */
+  asrEngine?: 'faster-whisper' | 'whisper-cpp';
+  /** Bật phân tách người nói (Speaker Diarization) */
+  enableDiarization?: boolean;
+  /** Số lượng người nói dự kiến (tuỳ chọn) */
+  speakerCount?: number;
+  /** Danh sách nhãn người nói tìm được (SPEAKER_00, SPEAKER_01...) */
+  speakers?: string[];
   srtPath?: string;
   translatedSrtPath?: string;
   audioPath?: string;

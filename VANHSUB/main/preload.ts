@@ -50,6 +50,9 @@ const vanhsub = {
     // Tách nhạc nền / giọng ra 2 file mp3 bằng Demucs AI
     separateStems: (id: string) => ipcRenderer.invoke('export:separateStems', id),
   },
+  asr: {
+    checkFasterWhisper: () => ipcRenderer.invoke('asr:checkFasterWhisper'),
+  },
   ocr: {
     // Quét phụ đề cứng trong video bằng OCR → tạo file .srt cho tác vụ
     start: (id: string, options?: any) => ipcRenderer.invoke('ocr:start', id, options),
@@ -120,6 +123,7 @@ const vanhsub = {
     // Thư mục lưu model Whisper trên đĩa — hiển thị vị trí ở trang Cài đặt
     directory: () => ipcRenderer.invoke('models:directory'),
     getSystemInfo: () => ipcRenderer.invoke('system:info'),
+    probePythonEnv: () => ipcRenderer.invoke('system:probePythonEnv'),
   },
   dialog: {
     openMediaFile: () => ipcRenderer.invoke('dialog:openMediaFile'),
