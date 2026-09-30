@@ -14,6 +14,23 @@ import os
 import sys
 import wave
 
+# Compatibility fix: PyAV >= 14.0.0 / 19.0.0 removed the `metadata_errors` keyword argument
+# from `av.open()`, but faster-whisper (v1.x) still passes `metadata_errors="ignore"` in `decode_audio()`.
+try:
+    import av
+    _orig_av_open = av.open
+    def _patched_av_open(*args, **kwargs):
+        kwargs.pop("metadata_errors", None)
+        return _orig_av_open(*args, **kwargs)
+    av.open = _patched_av_open
+    try:
+        import faster_whisper.audio
+        faster_whisper.audio.av.open = _patched_av_open
+    except Exception:
+        pass
+except Exception:
+    pass
+
 def emit(msg_type, **kwargs):
     payload = {"type": msg_type, **kwargs}
     sys.stdout.write(json.dumps(payload, ensure_ascii=False) + "\n")
