@@ -23,6 +23,7 @@ __pycache__/
 
 # scratch tests
 scratch/
+temp/
 
 # Flow outputs & generated media runs
 flow_outputs/

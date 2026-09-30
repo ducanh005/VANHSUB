@@ -13,7 +13,7 @@ import path from 'path';
 import { getFfmpegBinPath } from '../asr/audioExtractor';
 import { killProcessTree } from '../lib/processTree';
 import { CancelledError } from '../lib/cancel';
-import { resolvePythonExecutable } from '../ocr/paddleEngine';
+import { resolvePythonExecutable } from '../lib/pythonEnv';
 
 export interface DemucsCheck {
   ok: boolean;

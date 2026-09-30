@@ -25,4 +25,8 @@ extraResources:
       to: paddle
       filter:
           - paddle_server.py
+    - from: main/asr/python
+      to: asr
+      filter:
+          - faster_whisper_server.py
 publish: null

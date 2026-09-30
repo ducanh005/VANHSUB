@@ -7,47 +7,8 @@ import { CancelledError } from '../lib/cancel';
 import { killProcessTree } from '../lib/processTree';
 import { SettingsStore } from '../store/settingsStore';
 
-/**
- * Tìm đường dẫn trình thực thi Python:
- * 1. Từ cài đặt người dùng (SettingsStore: pythonPath)
- * 2. Từ biến môi trường PYTHON_PATH hoặc VIRTUAL_ENV
- * 3. Từ thư mục .venv cục bộ
- * 4. Fallback về lệnh 'python' trong PATH
- */
-export function resolvePythonExecutable(): string {
-  try {
-    const configured = SettingsStore.get('pythonPath');
-    if (configured && typeof configured === 'string' && configured.trim().length > 0) {
-      const trimmed = configured.trim();
-      if (fs.existsSync(trimmed)) {
-        return trimmed;
-      }
-    }
-  } catch {}
-
-  if (process.env.PYTHON_PATH && fs.existsSync(process.env.PYTHON_PATH)) {
-    return process.env.PYTHON_PATH;
-  }
-  if (process.env.VIRTUAL_ENV) {
-    const venvBin =
-      process.platform === 'win32'
-        ? path.join(process.env.VIRTUAL_ENV, 'Scripts', 'python.exe')
-        : path.join(process.env.VIRTUAL_ENV, 'bin', 'python');
-    if (fs.existsSync(venvBin)) {
-      return venvBin;
-    }
-  }
-
-  const localVenv =
-    process.platform === 'win32'
-      ? path.join(process.cwd(), '.venv', 'Scripts', 'python.exe')
-      : path.join(process.cwd(), '.venv', 'bin', 'python');
-  if (fs.existsSync(localVenv)) {
-    return localVenv;
-  }
-
-  return 'python';
-}
+import { resolvePythonExecutable } from '../lib/pythonEnv';
+export { resolvePythonExecutable };
 
 /**
  * Gọi sidecar Python chạy PaddleOCR PP-OCRv5 (qua rapidocr + ONNX Runtime).

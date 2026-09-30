@@ -15,6 +15,7 @@ import {
   XCircle,
   Users,
   X,
+  Sparkles,
 } from 'lucide-react';
 import type { Task } from '../types/task';
 import { SPEED_OPTIONS, speedLabel } from '../lib/ttsOptions';
@@ -92,6 +93,21 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
   // Video đối chiếu trong bảng gán giọng: bấm dòng → video nhảy tới câu đó
   const panelVideoRef = useRef<HTMLVideoElement | null>(null);
   const [panelActiveLine, setPanelActiveLine] = useState<number | null>(null);
+
+  // Tiện ích gán giọng nhanh theo nhân vật (Speaker Diarization)
+  const [showSpeakerMappingModal, setShowSpeakerMappingModal] = useState(false);
+  const [speakerVoiceMap, setSpeakerVoiceMap] = useState<Record<string, string>>({});
+
+  // Danh sách các nhân vật phát hiện được trong file SRT kèm số câu
+  const detectedSpeakers = React.useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const l of srtLines) {
+      if (l.speaker) {
+        counts[l.speaker] = (counts[l.speaker] || 0) + 1;
+      }
+    }
+    return Object.entries(counts).map(([name, count]) => ({ name, count }));
+  }, [srtLines]);
 
   // Nghe thử toàn bộ phụ đề 1 mạch — playback sống trong fullPreviewPlayer
   // (singleton ngoài React) nên chuyển tab rồi quay lại vẫn thấy tiến trình chạy.
@@ -537,6 +553,44 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
   }
   const currentVoiceLabel = (v: string) => activeVoiceList.find((t) => t.id === v)?.label || v;
 
+  // Xử lý mở modal phân vai & tự động gợi ý giọng
+  const handleOpenSpeakerModal = () => {
+    const initialMap: Record<string, string> = { ...speakerVoiceMap };
+    detectedSpeakers.forEach((sp, idx) => {
+      if (!initialMap[sp.name]) {
+        if (idx === 0) {
+          initialMap[sp.name] = voice || voiceChoices[0]?.value || '';
+        } else {
+          const altVoice =
+            voiceChoices.find((vc) => vc.value !== voice)?.value ||
+            voiceChoices[idx % voiceChoices.length]?.value ||
+            '';
+          initialMap[sp.name] = altVoice;
+        }
+      }
+    });
+    setSpeakerVoiceMap(initialMap);
+    setShowSpeakerMappingModal(true);
+  };
+
+  // Áp dụng gán giọng theo nhân vật cho toàn bộ các dòng phụ đề tương ứng
+  const handleApplySpeakerMapping = () => {
+    setVoiceOverrides((prev) => {
+      const next = { ...prev };
+      let appliedCount = 0;
+      srtLines.forEach((l, i) => {
+        const lineNum = String(i + 1);
+        if (l.speaker && speakerVoiceMap[l.speaker]) {
+          next[lineNum] = speakerVoiceMap[l.speaker];
+          appliedCount++;
+        }
+      });
+      setMessage(`Đã tự động gán giọng cho ${appliedCount} câu thoại thuộc ${detectedSpeakers.length} nhân vật.`);
+      return next;
+    });
+    setShowSpeakerMappingModal(false);
+  };
+
   const activeProgress = isTtsRunning || isDubbingRunning ? selectedTask : null;
   const stageText =
     selectedTask?.stageDescription ||
@@ -748,6 +802,17 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
                   <span>Nghe toàn bộ (1 mạch)</span>
                 </button>
               )}
+              {detectedSpeakers.length > 0 && (
+                <button
+                  type="button"
+                  onClick={handleOpenSpeakerModal}
+                  title="Gán giọng hàng loạt cho tất cả câu của từng nhân vật"
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-brand-indigo/50 bg-brand-indigo/20 px-2.5 py-1 text-[11px] font-semibold text-brand-cyan hover:bg-brand-indigo/35 cursor-pointer shadow-sm shadow-brand-indigo/20 transition-all"
+                >
+                  <Users className="h-3 w-3 text-brand-cyan" />
+                  <span>Phân vai nhân vật ({detectedSpeakers.length})</span>
+                </button>
+              )}
               {customVoiceCount > 0 && (
                 <button
                   type="button"
@@ -825,6 +890,14 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
                     <span className="w-8 shrink-0 rounded-md bg-slate-800 px-1.5 py-0.5 text-center font-mono text-[10px] font-bold text-brand-cyan">
                       {lineNumber}
                     </span>
+                    {line.speaker && (
+                      <span
+                        className="shrink-0 rounded-md border border-brand-indigo/40 bg-brand-indigo/20 px-1.5 py-0.5 font-mono text-[9px] font-bold text-brand-cyan"
+                        title={`Nhân vật: ${line.speaker}`}
+                      >
+                        {line.speaker}
+                      </span>
+                    )}
                     <p
                       className={[
                         'min-w-0 flex-1 truncate text-slate-300',
@@ -1250,6 +1323,110 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
               </p>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Modal gán giọng nhanh theo nhân vật (Speaker Diarization) */}
+      {showSpeakerMappingModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="flex w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-slate-700 bg-slate-900 shadow-2xl shadow-black/80">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between border-b border-slate-800 px-5 py-4 bg-slate-900/90">
+              <div className="flex items-center gap-2.5">
+                <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-brand-indigo/20 text-brand-cyan border border-brand-indigo/40">
+                  <Users className="h-4 w-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                    Gán giọng theo nhân vật
+                    <span className="rounded-full bg-brand-indigo/20 px-2 py-0.5 text-[10px] text-brand-cyan font-semibold">
+                      Diarization
+                    </span>
+                  </h3>
+                  <p className="text-[11px] text-slate-400">
+                    Tự động gán giọng cho toàn bộ câu thoại của từng nhân vật trong phụ đề
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowSpeakerMappingModal(false)}
+                className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-800 hover:text-white transition-colors cursor-pointer"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="max-h-[60vh] overflow-y-auto p-5 space-y-3.5">
+              <div className="rounded-xl border border-brand-cyan/20 bg-brand-cyan/5 p-3 text-[11px] text-slate-300 flex items-start gap-2">
+                <Sparkles className="h-4 w-4 text-brand-cyan shrink-0 mt-0.5" />
+                <span>
+                  Phát hiện <b className="text-brand-cyan">{detectedSpeakers.length} nhân vật</b> trong video. Bạn chỉ cần chọn giọng đọc tương ứng dưới đây, hệ thống sẽ áp dụng đồng loạt cho tất cả các câu thoại tương ứng.
+                </span>
+              </div>
+
+              <div className="space-y-2.5">
+                {detectedSpeakers.map((sp) => {
+                  const currentSelected = speakerVoiceMap[sp.name] || '';
+                  return (
+                    <div
+                      key={sp.name}
+                      className="flex items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-950/60 p-3 hover:border-slate-700 transition-colors"
+                    >
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono text-xs font-bold text-brand-cyan px-2 py-0.5 rounded bg-brand-indigo/20 border border-brand-indigo/40">
+                            {sp.name}
+                          </span>
+                          <span className="text-[11px] text-slate-400">
+                            ({sp.count} câu · {Math.round((sp.count / Math.max(1, srtLines.length)) * 100)}%)
+                          </span>
+                        </div>
+                      </div>
+
+                      <select
+                        value={currentSelected}
+                        onChange={(e) =>
+                          setSpeakerVoiceMap((prev) => ({
+                            ...prev,
+                            [sp.name]: e.target.value,
+                          }))
+                        }
+                        className="w-56 shrink-0 rounded-lg border border-slate-700 bg-slate-800 px-2.5 py-1.5 text-xs text-slate-200 focus:border-brand-cyan focus:outline-none"
+                      >
+                        <option value="">Giọng mặc định ({currentVoiceLabel(voice)})</option>
+                        {voiceChoices.map((v) => (
+                          <option key={v.value} value={v.value}>
+                            {v.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="flex items-center justify-end gap-2.5 border-t border-slate-800 bg-slate-950/40 px-5 py-3.5">
+              <button
+                type="button"
+                onClick={() => setShowSpeakerMappingModal(false)}
+                className="rounded-xl border border-slate-700 bg-slate-800 px-3.5 py-1.5 text-xs font-medium text-slate-300 hover:bg-slate-700 hover:text-white transition-colors cursor-pointer"
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                onClick={handleApplySpeakerMapping}
+                className="btn-vanh-gradient inline-flex items-center gap-2 rounded-xl px-4 py-1.5 text-xs font-semibold text-white shadow-md shadow-brand-indigo/25 cursor-pointer"
+              >
+                <CheckCircle2 className="h-4 w-4" />
+                <span>Áp dụng cho tất cả câu thoại</span>
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
