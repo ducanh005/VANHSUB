@@ -10,10 +10,10 @@ import { CancelledError } from '../lib/cancel';
 /** Engine tạo audio cho lồng tiếng */
 export type TTSEngine = 'viettts' | 'tiktok' | 'edge';
 
-interface TTSOptions {
+export interface TTSOptions {
   voice?: string;
   speed?: number;
-  /** Engine dùng cho lần chạy này (mặc định 'viettss' — lỗi chính tả sẽ thành 'viettts') */
+  /** Engine dùng cho lần chạy này (mặc định 'viettts') */
   engine?: TTSEngine;
   /** Giọng riêng cho từng dòng phụ đề: key = số dòng SRT (chuỗi), đè lên giọng chung */
   voiceOverrides?: Record<string, string>;
@@ -21,7 +21,7 @@ interface TTSOptions {
   shouldStop?: () => boolean;
 }
 
-interface SubtitleLine {
+export interface SubtitleLine {
   index: number;
   startTime: string;
   endTime: string;
@@ -29,6 +29,99 @@ interface SubtitleLine {
   startMs: number;
   endMs: number;
   durationMs: number;
+  speaker?: string;
+}
+
+export interface SentenceGroup {
+  id: string;
+  startIndex: number;
+  endIndex: number;
+  startMs: number;
+  endMs: number;
+  text: string;
+  voice: string;
+  speed: number;
+  engine: TTSEngine;
+  subtitles: SubtitleLine[];
+}
+
+/**
+ * Quét danh sách phụ đề và gom các block liên tiếp thuộc cùng một câu thoại chưa dứt
+ * (không kết thúc bằng dấu chấm, hỏi, than, lửng; khoảng cách <= 1200ms; cùng giọng)
+ * thành một SentenceGroup thống nhất để sinh audio liền mạch.
+ */
+export function groupSubtitlesForTts(
+  subtitles: SubtitleLine[],
+  options?: TTSOptions
+): SentenceGroup[] {
+  if (!subtitles || subtitles.length === 0) return [];
+
+  const defaultVoice = options?.voice || SettingsStore.get('ttsVoice') || 'BV074_streaming';
+  const speed = options?.speed ?? SettingsStore.get('ttsSpeed') ?? 1.0;
+  const engine: TTSEngine = options?.engine || 'tiktok';
+
+  const getVoiceForLine = (sub: SubtitleLine, idx: number): string => {
+    return (
+      options?.voiceOverrides?.[String(sub.index)] ||
+      options?.voiceOverrides?.[String(idx + 1)] ||
+      defaultVoice
+    );
+  };
+
+  const groups: SentenceGroup[] = [];
+  let currentGroup: SubtitleLine[] = [];
+  let currentVoice = '';
+
+  for (let idx = 0; idx < subtitles.length; idx++) {
+    const sub = subtitles[idx];
+    const lineVoice = getVoiceForLine(sub, idx);
+
+    if (currentGroup.length === 0) {
+      currentGroup.push(sub);
+      currentVoice = lineVoice;
+    } else {
+      currentGroup.push(sub);
+    }
+
+    const trimmed = (sub.text || '').trim();
+    const isTerminal = /[.?!…][”"'\)\]}]*$/u.test(trimmed);
+    const isLast = idx === subtitles.length - 1;
+    const nextSub = !isLast ? subtitles[idx + 1] : null;
+    const nextVoice = nextSub ? getVoiceForLine(nextSub, idx + 1) : '';
+    const gapToNext = nextSub ? nextSub.startMs - sub.endMs : Infinity;
+    const voiceDiffers = nextSub ? nextVoice !== currentVoice : false;
+    const speakerDiffers = Boolean(
+      nextSub && sub.speaker && nextSub.speaker && sub.speaker !== nextSub.speaker
+    );
+
+    // Terminal condition: clause ends with terminal punctuation OR long silence gap (>1200ms) OR different voice/speaker OR last item
+    if (isTerminal || gapToNext > 1200 || voiceDiffers || speakerDiffers || isLast) {
+      const first = currentGroup[0];
+      const last = currentGroup[currentGroup.length - 1];
+      const mergedText = currentGroup
+        .map((s) => (s.text || '').trim())
+        .filter(Boolean)
+        .join(' ')
+        .replace(/\s+/g, ' ');
+
+      groups.push({
+        id: `grp-${first.index}-${last.index}`,
+        startIndex: first.index,
+        endIndex: last.index,
+        startMs: first.startMs,
+        endMs: last.endMs,
+        text: mergedText,
+        voice: currentVoice,
+        speed,
+        engine,
+        subtitles: [...currentGroup],
+      });
+      currentGroup = [];
+      currentVoice = '';
+    }
+  }
+
+  return groups;
 }
 
 /**
@@ -229,12 +322,16 @@ async function withRetry<T>(
 // toàn bộ — điều kiện cần để chạy batch video dài qua đêm.
 // =========================================================================
 
-interface TtsManifestEntry {
+export interface TtsManifestEntry {
   voice: string;
   speed: number;
   text: string;
   /** Engine tạo ra file — đổi engine phải regenerate, không tái sử dụng chéo */
   engine: string;
+  isGroupLeader?: boolean;
+  isGroupMember?: boolean;
+  leaderIndex?: number;
+  groupIndices?: number[];
 }
 
 const MANIFEST_FILE = 'manifest.json';
@@ -325,11 +422,14 @@ export async function generateTtsFromSrt(
   let cacheHits = 0;
   let cacheSkipped = 0;
 
-  console.log(`[TTS] Bắt đầu tạo audio từ ${subtitles.length} dòng phụ đề (engine: ${engine}, giọng: ${voice})`);
+  const groups = groupSubtitlesForTts(subtitles, options);
+  console.log(
+    `[TTS] Bắt đầu tạo audio từ ${subtitles.length} dòng phụ đề (${groups.length} nhóm câu, engine: ${engine}, giọng: ${voice})`
+  );
 
-  for (let i = 0; i < subtitles.length; i++) {
-    const sub = subtitles[i];
-    onProgress?.(i + 1, subtitles.length);
+  for (let gIdx = 0; gIdx < groups.length; gIdx++) {
+    const group = groups[gIdx];
+    onProgress?.(group.endIndex, subtitles.length);
 
     if (options?.shouldStop?.()) {
       saveManifest(outputDir, manifest);
@@ -337,61 +437,77 @@ export async function generateTtsFromSrt(
     }
 
     try {
-      // Dòng được gán giọng riêng trong voiceOverrides sẽ đè lên giọng chung.
-      // Tra theo 2 khoá: số thứ tự GHI TRONG file SRT (sub.index) và vị trí
-      // dòng trong mảng (i+1) — file SRT chỉnh tay có thể đánh số lệch/gap
-      // khiến 1 trong 2 khoá lệch dòng.
-      const lineVoice =
-        options?.voiceOverrides?.[String(sub.index)] ||
-        options?.voiceOverrides?.[String(i + 1)] ||
-        voice;
-      if (lineVoice !== voice) {
-        console.log(`[TTS] Dòng ${sub.index} dùng giọng riêng: ${lineVoice}`);
-      }
-      const audioFileName = `subtitle_${String(sub.index).padStart(4, '0')}.mp3`;
-      const audioPath = path.join(outputDir, audioFileName);
+      const masterFileName = `subtitle_${String(group.startIndex).padStart(4, '0')}.mp3`;
+      const masterPath = path.join(outputDir, masterFileName);
 
-      // Cache hit: file đã tồn tại và tạo bằng cùng engine/giọng/tốc độ/text → bỏ qua
-      const manifestEntry = manifest[String(sub.index)];
-      if (
+      // Cache hit: master file đã tồn tại và khớp cấu hình + text
+      const manifestEntry = manifest[String(group.startIndex)];
+      const isCacheHit =
         manifestEntry &&
-        (manifestEntry.engine || 'viettts') === engine &&
-        manifestEntry.voice === lineVoice &&
-        Number(manifestEntry.speed) === Number(speed) &&
-        manifestEntry.text === sub.text &&
-        fs.existsSync(audioPath) &&
-        fs.statSync(audioPath).size > 0
-      ) {
-        audioFiles.set(sub.index, audioPath);
-        totalDuration += sub.durationMs;
+        (manifestEntry.engine || 'viettts') === group.engine &&
+        manifestEntry.voice === group.voice &&
+        Number(manifestEntry.speed) === Number(group.speed) &&
+        manifestEntry.text === group.text &&
+        fs.existsSync(masterPath) &&
+        fs.statSync(masterPath).size > 0;
+
+      if (!isCacheHit) {
+        console.log(
+          `[TTS] Đang xử lý nhóm câu ${gIdx + 1}/${groups.length} (dòng ${group.startIndex}-${group.endIndex}, ${group.voice}): "${group.text.slice(0, 50)}..."`
+        );
+
+        // Generate audio từ trọn vẹn group.text trong 1 API call
+        const audioBuffer = await withRetry(() =>
+          generateAudio(group.text, group.voice, group.speed, group.engine)
+        );
+
+        fs.writeFileSync(masterPath, audioBuffer);
+        console.log(`[TTS] ✓ Đã tạo ${masterFileName} (${audioBuffer.length} bytes)`);
+      } else {
         cacheHits++;
-        continue;
       }
 
-      console.log(
-        `[TTS] Đang xử lý dòng ${i + 1}/${subtitles.length} (${lineVoice}): "${sub.text.slice(0, 50)}..."`
-      );
-
-      // Generate audio từ text subtitle (có retry — server TTS đôi lúc hỏng 1 câu)
-      const audioBuffer = await withRetry(() =>
-        generateAudio(sub.text, lineVoice, speed, engine)
-      );
-
-      fs.writeFileSync(audioPath, audioBuffer);
-      manifest[String(sub.index)] = {
-        voice: lineVoice,
-        speed: speed,
-        text: sub.text,
-        engine,
+      // Cập nhật manifest cho leader
+      manifest[String(group.startIndex)] = {
+        voice: group.voice,
+        speed: group.speed,
+        text: group.text,
+        engine: group.engine,
+        isGroupLeader: group.subtitles.length > 1,
+        groupIndices: group.subtitles.map((s) => s.index),
       };
+
+      // Cho từng member trong group: ghi nhận manifest và copy audio file
+      for (const sub of group.subtitles) {
+        const memberFileName = `subtitle_${String(sub.index).padStart(4, '0')}.mp3`;
+        const memberPath = path.join(outputDir, memberFileName);
+
+        if (sub.index !== group.startIndex) {
+          manifest[String(sub.index)] = {
+            voice: group.voice,
+            speed: group.speed,
+            text: sub.text,
+            engine: group.engine,
+            isGroupMember: true,
+            leaderIndex: group.startIndex,
+          };
+
+          if (!fs.existsSync(memberPath) || fs.statSync(memberPath).size === 0) {
+            fs.copyFileSync(masterPath, memberPath);
+          }
+        }
+
+        audioFiles.set(sub.index, memberPath);
+        totalDuration += sub.durationMs;
+      }
+
       // Ghi manifest sau mỗi câu — app đóng giữa chừng vẫn giữ cache phần đã tạo
       if (++cacheSkipped % 10 === 0) saveManifest(outputDir, manifest);
-      audioFiles.set(sub.index, audioPath);
-      totalDuration += sub.durationMs;
-
-      console.log(`[TTS] ✓ Đã tạo ${audioFileName} (${audioBuffer.length} bytes)`);
     } catch (err) {
-      console.error(`[TTS] ✗ Lỗi tạo audio cho dòng ${i + 1}:`, err);
+      console.error(
+        `[TTS] ✗ Lỗi tạo audio cho nhóm câu ${gIdx + 1} (dòng ${group.startIndex}-${group.endIndex}):`,
+        err
+      );
       throw err;
     }
   }
@@ -399,7 +515,7 @@ export async function generateTtsFromSrt(
   saveManifest(outputDir, manifest);
   if (cacheHits > 0) {
     console.log(
-      `[TTS] Tái sử dụng ${cacheHits}/${subtitles.length} file audio từ cache (không gọi lại server)`
+      `[TTS] Tái sử dụng ${cacheHits}/${groups.length} nhóm câu từ cache (không gọi lại server)`
     );
   }
   console.log(`[TTS] Hoàn tất! Tạo ${audioFiles.size} file audio`);

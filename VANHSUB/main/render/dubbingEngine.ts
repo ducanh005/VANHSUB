@@ -7,18 +7,9 @@ import ffmpeg from 'fluent-ffmpeg';
 import { parseSrt, serializeSrt, type SrtLine } from '../lib/srt';
 import { getFfmpegBinPath, getMediaDurationSec, extractFullQualityAudio } from '../asr/audioExtractor';
 import { separateVocals } from '../audio/vocalSeparation';
+import { groupSubtitlesForTts, type SubtitleLine } from './ttsEngine';
 
 const execFileAsync = promisify(execFile);
-
-interface SubtitleLine {
-  index: number;
-  startTime: string;
-  endTime: string;
-  text: string;
-  startMs: number;
-  endMs: number;
-  durationMs: number;
-}
 
 /**
  * Chuyển đổi định dạng timecode SRT (HH:MM:SS,mmm) sang milliseconds
@@ -232,6 +223,79 @@ export interface TtsOverrun {
  * tự động dịch lùi theo cursor), tổng trượt tối đa MAX_DRIFT_MS; vượt ngưỡng
  * mới nén atempo. Audio đầu ra có thể dài hơn video tối đa ~3s.
  */
+interface SentenceAudioGroup {
+  startIndex: number;
+  endIndex: number;
+  startMs: number;
+  endMs: number;
+  audioFile: string;
+  subtitles: SubtitleLine[];
+}
+
+function buildAudioGroups(
+  subtitles: SubtitleLine[],
+  ttsAudioDir: string,
+  manifest: Record<string, any>
+): SentenceAudioGroup[] {
+  const hasManifestGroups = Object.values(manifest).some(
+    (m: any) => m && (m.isGroupLeader || m.isGroupMember)
+  );
+
+  if (hasManifestGroups) {
+    const groups: SentenceAudioGroup[] = [];
+    const handledIndices = new Set<number>();
+
+    for (let i = 0; i < subtitles.length; i++) {
+      const sub = subtitles[i];
+      if (handledIndices.has(sub.index)) continue;
+
+      const mEntry = manifest[String(sub.index)];
+      if (mEntry?.isGroupMember && mEntry.leaderIndex) {
+        continue;
+      }
+
+      if (mEntry?.isGroupLeader && Array.isArray(mEntry.groupIndices)) {
+        const memberSubs = subtitles.filter((s) => mEntry.groupIndices.includes(s.index));
+        const first = memberSubs[0] || sub;
+        const last = memberSubs[memberSubs.length - 1] || sub;
+        for (const s of memberSubs) {
+          handledIndices.add(s.index);
+        }
+        groups.push({
+          startIndex: first.index,
+          endIndex: last.index,
+          startMs: first.startMs,
+          endMs: last.endMs,
+          audioFile: path.join(ttsAudioDir, `subtitle_${String(first.index).padStart(4, '0')}.mp3`),
+          subtitles: memberSubs,
+        });
+      } else {
+        handledIndices.add(sub.index);
+        groups.push({
+          startIndex: sub.index,
+          endIndex: sub.index,
+          startMs: sub.startMs,
+          endMs: sub.endMs,
+          audioFile: path.join(ttsAudioDir, `subtitle_${String(sub.index).padStart(4, '0')}.mp3`),
+          subtitles: [sub],
+        });
+      }
+    }
+    return groups;
+  }
+
+  // Fallback: group using groupSubtitlesForTts
+  const ttsGroups = groupSubtitlesForTts(subtitles);
+  return ttsGroups.map((g) => ({
+    startIndex: g.startIndex,
+    endIndex: g.endIndex,
+    startMs: g.startMs,
+    endMs: g.endMs,
+    audioFile: path.join(ttsAudioDir, `subtitle_${String(g.startIndex).padStart(4, '0')}.mp3`),
+    subtitles: g.subtitles,
+  }));
+}
+
 export async function mergeAudioFiles(
   srtPath: string,
   ttsAudioDir: string,
@@ -245,6 +309,19 @@ export async function mergeAudioFiles(
     throw new Error('File SRT không có dòng phụ đề hợp lệ để ghép audio.');
   }
 
+  // Đọc manifest.json nếu có để nhận diện SentenceGroup
+  let manifest: Record<string, any> = {};
+  try {
+    const manifestPath = path.join(ttsAudioDir, 'manifest.json');
+    if (fs.existsSync(manifestPath)) {
+      manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+    }
+  } catch {
+    // Không có manifest hoặc hỏng — fallback sang groupSubtitlesForTts
+  }
+
+  const groups = buildAudioGroups(subtitles, ttsAudioDir, manifest);
+
   const workDir = path.join(
     path.dirname(outputAudioPath),
     `.vanhsub_dub_${Date.now()}`
@@ -254,19 +331,21 @@ export async function mergeAudioFiles(
 
   try {
     fs.mkdirSync(workDir, { recursive: true });
-    console.log(`[Dubbing] Ghép audio ${subtitles.length} dòng (mode ${mode})...`);
+    console.log(
+      `[Dubbing] Ghép audio ${subtitles.length} dòng (${groups.length} nhóm câu, mode ${mode})...`
+    );
 
     const segPaths: string[] = [];
     const overruns: TtsOverrun[] = [];
     let cursorMs = 0; // thời điểm kết thúc segment trước (mode flexible)
     let driftMs = 0; // tổng độ trượt đã dùng
 
-    for (let i = 0; i < subtitles.length; i++) {
-      const sub = subtitles[i];
-      const next = subtitles[i + 1];
-      const slotEndMs = next ? Math.max(next.startMs, sub.startMs + 200) : sub.endMs + 500;
+    for (let i = 0; i < groups.length; i++) {
+      const group = groups[i];
+      const next = groups[i + 1];
+      const slotEndMs = next ? Math.max(next.startMs, group.startMs + 200) : group.endMs + 500;
 
-      const audioFile = path.join(ttsAudioDir, `subtitle_${String(sub.index).padStart(4, '0')}.mp3`);
+      const audioFile = group.audioFile;
       const hasAudio = fs.existsSync(audioFile);
       const audioDurMs = hasAudio
         ? (await probeAudioDurationSec(audioFile, durationCache)) * 1000
@@ -279,7 +358,7 @@ export async function mergeAudioFiles(
       if (mode === 'flexible') {
         // Audio bắt đầu tại max(start SRT, điểm trượt tới) — câu trước tràn
         // sang thì câu này bắt đầu ngay sau đó (dịch lùi tự nhiên)
-        const audioStartMs = Math.max(sub.startMs, cursorMs);
+        const audioStartMs = Math.max(group.startMs, cursorMs);
         const naturalEndMs = audioStartMs + audioDurMs + TAIL_MS;
 
         if (naturalEndMs <= slotEndMs) {
@@ -318,7 +397,7 @@ export async function mergeAudioFiles(
             cursorMs = allowedEndMs;
           }
           if (tempo > TEMPO_THRESHOLD) {
-            overruns.push({ index: sub.index, tempo, truncated });
+            overruns.push({ index: group.startIndex, tempo, truncated });
           }
         }
       } else {
@@ -326,29 +405,29 @@ export async function mergeAudioFiles(
         // Câu ĐẦU TIÊN phải phủ cả khoảng lặng [0, start) trước câu 1 (audio
         // được adelay tới đúng start) — nếu không, toàn bộ timeline bị dí sớm
         // lên đầu video đúng bằng start của câu 1, voice lệch sớm so với phụ đề.
-        const segStartMs = i === 0 ? 0 : sub.startMs;
+        const segStartMs = i === 0 ? 0 : group.startMs;
         const segDurationSec = Math.max((slotEndMs - segStartMs) / 1000, 0.05);
         // Khung thời gian cho audio vẫn tính từ start của câu (im lặng đầu không
         // tính vào khung — tempo không bị nén oan vì khoảng lặng)
-        const audioWindowSec = Math.max((slotEndMs - sub.startMs) / 1000, 0.05);
+        const audioWindowSec = Math.max((slotEndMs - group.startMs) / 1000, 0.05);
         const audioDurSec = audioDurMs / 1000;
         if (hasAudio && audioDurSec > audioWindowSec * TEMPO_THRESHOLD) {
           const rawTempo = audioDurSec / audioWindowSec;
           tempo = Math.min(Math.max(rawTempo, 1), MAX_TEMPO);
           truncated = rawTempo > MAX_TEMPO;
-          overruns.push({ index: sub.index, tempo, truncated });
+          overruns.push({ index: group.startIndex, tempo, truncated });
         }
         await buildSegment(hasAudio ? audioFile : null, segDurationSec, segPath, {
           tempo,
-          delayMs: sub.startMs - segStartMs,
+          delayMs: group.startMs - segStartMs,
         });
-        cursorMs = sub.startMs + audioWindowSec * 1000;
+        cursorMs = group.startMs + audioWindowSec * 1000;
       }
 
       segPaths.push(segPath);
 
-      if (i % 10 === 0 || i === subtitles.length - 1) {
-        onProgress?.(Math.round(((i + 1) / subtitles.length) * 95));
+      if (i % 10 === 0 || i === groups.length - 1) {
+        onProgress?.(Math.round(((i + 1) / groups.length) * 95));
       }
     }
 

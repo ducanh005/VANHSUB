@@ -9,6 +9,13 @@ export interface NlpSegmentOptions {
   autoPadDuration?: boolean;   // default: true
 }
 
+export interface ConsolidateOptions {
+  maxCharsPerLine?: number;    // default: 37
+  maxLinesPerBlock?: number;   // default: 2
+  maxGapMs?: number;           // default: 1000
+  minGapMs?: number;           // default: 80
+}
+
 export interface SegmentationAnalysis {
   cps: number;
   lineCount: number;
@@ -671,6 +678,110 @@ export function splitLineSmart(
 }
 
 /**
+ * Tự động gộp các block phụ đề ngắn là các vế của cùng một câu thoại chưa dứt
+ * (không kết thúc bằng dấu chấm, hỏi, than, lửng) nếu tổng chiều dài chứa vừa trong 2 dòng.
+ * Bảo toàn từ ghép, tên riêng, và số liệu đơn vị.
+ */
+export function consolidateSubtitleClauses(
+  lines: SrtLine[],
+  options: ConsolidateOptions = {}
+): SrtLine[] {
+  if (!lines || lines.length === 0) return [];
+
+  const maxCharsPerLine = options.maxCharsPerLine ?? 37;
+  const maxLinesPerBlock = options.maxLinesPerBlock ?? 2;
+  const maxGapMs = options.maxGapMs ?? 1000;
+  const minGapMs = options.minGapMs ?? 80;
+
+  const result: SrtLine[] = [];
+  let i = 0;
+
+  while (i < lines.length) {
+    const current = { ...lines[i] };
+    const currentText = (current.text || '').trim();
+
+    // Check if subsequent clauses should be merged into current block (same unfinished sentence)
+    let mergedCount = 1;
+    let accumulatedText = currentText;
+    let accumulatedEndMs = current.endMs;
+
+    while (i + mergedCount < lines.length) {
+      const next = lines[i + mergedCount];
+      const nextText = (next.text || '').trim();
+      if (!nextText) break;
+
+      const gap = next.startMs - accumulatedEndMs;
+      const isTerminal = /[.?!…][”"'\)\]}]*$/u.test(accumulatedText);
+      const sameSpeaker = !current.speaker || !next.speaker || current.speaker === next.speaker;
+
+      if (isTerminal || !sameSpeaker || gap < 0 || gap > maxGapMs) break;
+
+      const combinedCandidate = `${accumulatedText} ${nextText}`.replace(/\s+/g, ' ');
+      if (combinedCandidate.length > maxCharsPerLine * maxLinesPerBlock) break;
+
+      const wrapped = breakVietnameseLines(combinedCandidate, maxCharsPerLine);
+      const subLines = wrapped.split('\n').map((l) => l.trim()).filter(Boolean);
+
+      if (subLines.length <= maxLinesPerBlock) {
+        accumulatedText = combinedCandidate;
+        accumulatedEndMs = next.endMs;
+        mergedCount++;
+      } else {
+        break;
+      }
+    }
+
+    if (mergedCount > 1) {
+      const wrapped = breakVietnameseLines(accumulatedText, maxCharsPerLine);
+      result.push({
+        ...current,
+        endMs: accumulatedEndMs,
+        text: wrapped,
+      });
+      i += mergedCount;
+      continue;
+    }
+
+    // Single line wrapping or multi-chunk decomposition if text is too long
+    const broken = breakVietnameseLines(currentText, maxCharsPerLine);
+    const subLines = broken.split('\n').map((l) => l.trim()).filter(Boolean);
+
+    if (subLines.length <= maxLinesPerBlock) {
+      current.text = subLines.join('\n');
+      result.push(current);
+    } else {
+      // Break into chunks of maxLinesPerBlock lines, allocating timecode proportionally
+      const chunkCount = Math.ceil(subLines.length / maxLinesPerBlock);
+      const totalDur = current.endMs - current.startMs;
+      const totalGaps = (chunkCount - 1) * minGapMs;
+      const availableDur = Math.max(chunkCount * 10, totalDur - totalGaps);
+      const chunkDur = Math.max(10, Math.floor(availableDur / chunkCount));
+
+      let curStart = current.startMs;
+      for (let c = 0; c < chunkCount; c++) {
+        const chunkSubLines = subLines.slice(c * maxLinesPerBlock, (c + 1) * maxLinesPerBlock);
+        const isLast = c === chunkCount - 1;
+        const dur = isLast ? Math.max(10, current.endMs - curStart) : chunkDur;
+        const curEnd = isLast ? Math.max(current.endMs, curStart + dur) : curStart + dur;
+
+        result.push({
+          ...current,
+          id: c === 0 ? current.id : `${current.id || 'line'}-chunk-${c}`,
+          startMs: curStart,
+          endMs: curEnd,
+          text: chunkSubLines.join('\n'),
+        });
+        curStart = curEnd + minGapMs;
+      }
+    }
+
+    i++;
+  }
+
+  return result;
+}
+
+/**
  * Chuẩn hoá toàn bộ danh sách phụ đề theo tiêu chuẩn Netflix:
  * 1. Giới hạn tối đa 37 ký tự/dòng.
  * 2. Tối đa 2 dòng/khung phụ đề.
@@ -693,11 +804,19 @@ export function segmentSubtitlesNetflix(
     autoPadDuration = true,
   } = options;
 
+  // Bước 0: Pre-consolidation - Gom các vế câu ngắn chưa dứt trước khi phân tách
+  const consolidated = consolidateSubtitleClauses(lines, {
+    maxCharsPerLine,
+    maxLinesPerBlock,
+    maxGapMs: 1000,
+    minGapMs,
+  });
+
   // Bước 1: Phân tách các khối quá dài thành các khối tuân thủ <= 2 dòng & <= 37 ký tự/dòng
   const expanded: SrtLine[] = [];
 
-  for (let idx = 0; idx < lines.length; idx++) {
-    const originalLine = lines[idx];
+  for (let idx = 0; idx < consolidated.length; idx++) {
+    const originalLine = consolidated[idx];
     const rawText = (originalLine.text || '').trim();
     if (!rawText) continue;
 
@@ -717,9 +836,9 @@ export function segmentSubtitlesNetflix(
 
     // Xác định cận trên thời gian khả dụng để không đè lên câu kế tiếp
     let maxEnd = originalLine.endMs;
-    for (let nextIdx = idx + 1; nextIdx < lines.length; nextIdx++) {
-      if ((lines[nextIdx].text || '').trim()) {
-        maxEnd = Math.min(originalLine.endMs, lines[nextIdx].startMs - minGapMs);
+    for (let nextIdx = idx + 1; nextIdx < consolidated.length; nextIdx++) {
+      if ((consolidated[nextIdx].text || '').trim()) {
+        maxEnd = Math.min(originalLine.endMs, consolidated[nextIdx].startMs - minGapMs);
         break;
       }
     }
