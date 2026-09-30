@@ -1,8 +1,11 @@
-/**
- * ASS Subtitle Compiler cho VANHSUB
- * Chuyển đổi phụ đề kèm cấu hình style (global + per-entry override)
- * sang định dạng Advanced SubStation Alpha (.ass) chuẩn libass.
- */
+import {
+  type KineticConfig,
+  type KineticPreset,
+  compileKineticDialogue,
+} from './kineticEngine';
+import type { SrtLine, SrtWord } from '../lib/srt';
+
+export type { KineticConfig, KineticPreset };
 
 export interface SubtitleEntryStyle {
   textColorHex?: string;      // Ví dụ: "#FFE500"
@@ -24,9 +27,12 @@ export interface SubtitleEntryStyle {
 }
 
 export interface CompileSubtitleItem {
+  id?: string;
   startMs: number;
   endMs: number;
   text: string;
+  speaker?: string;
+  words?: SrtWord[];
   style?: SubtitleEntryStyle | null;
 }
 
@@ -210,6 +216,8 @@ export interface CompileToAssOptions {
   /** Track phụ đề thứ 2 (Ví dụ: Lời bài hát gốc hoặc song ngữ) */
   secondaryItems?: CompileSubtitleItem[];
   secondaryStyle?: Partial<GlobalAssStyle>;
+  /** Kinetic subtitle engine configuration */
+  kineticConfig?: KineticConfig;
 }
 
 /**
@@ -219,8 +227,9 @@ export function compileToAss(
   items: CompileSubtitleItem[],
   options?: CompileToAssOptions
 ): string {
-  const width = options?.videoWidth || 384;
-  const height = options?.videoHeight || 288;
+  const isKinetic = !!(options?.kineticConfig && options.kineticConfig.preset !== 'none');
+  const width = options?.videoWidth || (isKinetic ? 1920 : 384);
+  const height = options?.videoHeight || (isKinetic ? 1080 : 288);
   const g = { ...DEFAULT_GLOBAL_STYLE, ...options?.globalStyle };
   const safeMarginV = Math.min(120, Math.max(0, g.marginV ?? 25));
   const safeMarginH = Math.min(150, Math.max(0, g.marginH ?? 20));
@@ -279,40 +288,70 @@ export function compileToAss(
       `Style: Secondary,${secGlobal.fontName},${secGlobal.fontSize},${sPrimaryCol},&H000000FF&,${sOutlineCol},${sBackCol},${secGlobal.bold ? 1 : 0},0,0,0,100,100,0,0,${secGlobal.borderStyle},${sOutline},${sShadow},${secGlobal.alignment},${sMarginH},${sMarginH},${sMarginV},1`
     );
   }
-  styles.push('');
 
-  interface OutputLine {
-    startMs: number;
-    endMs: number;
-    styleName: string;
-    text: string;
-    overrides: string;
-  }
+  const dialogueLines: string[] = [];
 
-  const allLines: OutputLine[] = [];
+  if (isKinetic && options?.kineticConfig) {
+    const kineticStyles = new Set<string>();
 
-  // Track 1 (Chính: Thường là bản dịch)
-  items.forEach((item) => {
-    const isVert = item.style?.isVertical !== undefined ? item.style.isVertical : !!g.isVertical;
-    let textStr = escapeAssText(item.text);
-    if (isVert) {
-      textStr = formatVerticalText(textStr);
-    }
-    const overrides = buildEntryOverrideTags(item.style, width, height);
-    allLines.push({
-      startMs: item.startMs,
-      endMs: item.endMs,
-      styleName: 'Default',
-      text: textStr,
-      overrides,
+    items.forEach((item, idx) => {
+      const srtLine: SrtLine = {
+        id: item.id || `line-${idx}`,
+        startMs: item.startMs,
+        endMs: item.endMs,
+        text: item.text,
+        speaker: item.speaker,
+        words: item.words,
+      };
+
+      const compiled = compileKineticDialogue(srtLine, options.kineticConfig!, idx, {
+        videoWidth: width,
+        videoHeight: height,
+        defaultStyleName: 'Default',
+        baseFontSize: g.fontSize,
+      });
+
+      compiled.styles.forEach((st) => kineticStyles.add(st));
+      dialogueLines.push(...compiled.dialogueEvents);
     });
-  });
 
-  // Track 2 (Phụ: Thường là lời bài hát gốc)
-  if (hasSecondary && secGlobal && options?.secondaryItems) {
-    const secStyleRef = secGlobal;
-    options.secondaryItems.forEach((item) => {
-      const isVert = item.style?.isVertical !== undefined ? item.style.isVertical : !!secStyleRef.isVertical;
+    kineticStyles.forEach((st) => {
+      if (!styles.includes(st)) {
+        styles.push(st);
+      }
+    });
+
+    // Secondary subtitles if present
+    if (hasSecondary && secGlobal && options?.secondaryItems) {
+      const secStyleRef = secGlobal;
+      options.secondaryItems.forEach((item) => {
+        const isVert = item.style?.isVertical !== undefined ? item.style.isVertical : !!secStyleRef.isVertical;
+        let textStr = escapeAssText(item.text);
+        if (isVert) {
+          textStr = formatVerticalText(textStr);
+        }
+        const overrides = buildEntryOverrideTags(item.style, width, height);
+        const startStr = formatAssTime(item.startMs);
+        const endStr = formatAssTime(item.endMs);
+        dialogueLines.push(
+          `Dialogue: 0,${startStr},${endStr},Secondary,,0,0,0,,${overrides}${textStr}`
+        );
+      });
+    }
+  } else {
+    interface OutputLine {
+      startMs: number;
+      endMs: number;
+      styleName: string;
+      text: string;
+      overrides: string;
+    }
+
+    const allLines: OutputLine[] = [];
+
+    // Track 1 (Chính: Thường là bản dịch)
+    items.forEach((item) => {
+      const isVert = item.style?.isVertical !== undefined ? item.style.isVertical : !!g.isVertical;
       let textStr = escapeAssText(item.text);
       if (isVert) {
         textStr = formatVerticalText(textStr);
@@ -321,23 +360,51 @@ export function compileToAss(
       allLines.push({
         startMs: item.startMs,
         endMs: item.endMs,
-        styleName: 'Secondary',
+        styleName: 'Default',
         text: textStr,
         overrides,
       });
     });
+
+    // Track 2 (Phụ: Thường là lời bài hát gốc)
+    if (hasSecondary && secGlobal && options?.secondaryItems) {
+      const secStyleRef = secGlobal;
+      options.secondaryItems.forEach((item) => {
+        const isVert = item.style?.isVertical !== undefined ? item.style.isVertical : !!secStyleRef.isVertical;
+        let textStr = escapeAssText(item.text);
+        if (isVert) {
+          textStr = formatVerticalText(textStr);
+        }
+        const overrides = buildEntryOverrideTags(item.style, width, height);
+        allLines.push({
+          startMs: item.startMs,
+          endMs: item.endMs,
+          styleName: 'Secondary',
+          text: textStr,
+          overrides,
+        });
+      });
+    }
+
+    // Sắp xếp các dòng theo thời gian bắt đầu
+    allLines.sort((a, b) => a.startMs - b.startMs);
+
+    dialogueLines.push(
+      ...allLines.map((line) => {
+        const startStr = formatAssTime(line.startMs);
+        const endStr = formatAssTime(line.endMs);
+        return `Dialogue: 0,${startStr},${endStr},${line.styleName},,0,0,0,,${line.overrides}${line.text}`;
+      })
+    );
   }
 
-  // Sắp xếp các dòng theo thời gian bắt đầu
-  allLines.sort((a, b) => a.startMs - b.startMs);
+  styles.push('');
 
-  const dialogueLines = allLines.map((line) => {
-    const startStr = formatAssTime(line.startMs);
-    const endStr = formatAssTime(line.endMs);
-    return `Dialogue: 0,${startStr},${endStr},${line.styleName},,0,0,0,,${line.overrides}${line.text}`;
-  });
-
-  const events = ['[Events]', 'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text', ...dialogueLines].join('\n');
+  const events = [
+    '[Events]',
+    'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text',
+    ...dialogueLines,
+  ].join('\n');
 
   return `${scriptInfo}\n${styles.join('\n')}\n${events}\n`;
 }

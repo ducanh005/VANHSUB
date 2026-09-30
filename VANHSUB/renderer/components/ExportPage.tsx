@@ -22,6 +22,8 @@ import type {
   WatermarkOptions,
   ExportFormatOptions,
   AdvancedExportOptions,
+  KineticPreset,
+  KineticConfig,
 } from '../types/electron';
 import { parseSrt, type SrtLine } from '../lib/srt';
 import { SubtitlesStyleEditor } from './export/SubtitlesStyleEditor';
@@ -268,6 +270,17 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
   const [dualLayoutPreset, setDualLayoutPreset] = useState<'douyin_music_left' | 'top_bottom_bilingual' | 'custom'>('douyin_music_left');
   const [secondarySrtLines, setSecondarySrtLines] = useState<SrtLine[]>([]);
 
+  // Milestone 3: Hiệu ứng Phụ đề Động (Kinetic Typography Presets)
+  const [kineticConfig, setKineticConfig] = useState<KineticConfig>({
+    preset: 'none',
+    activeColor: '#FFE500',
+    enableEmoji: true,
+    emojiFrequency: 'medium',
+    enableProgressBar: true,
+    glowBlur: 4,
+    fontScale: 1.0,
+  });
+
   // Tab điều hướng trong Hardsub
   const [hardsubTab, setHardsubTab] = useState<'global' | 'lines' | 'layers' | 'format'>('global');
 
@@ -411,6 +424,7 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
                     layoutPreset: dualLayoutPreset,
                   }
                 : null,
+              kineticConfig: kineticConfig.preset !== 'none' ? kineticConfig : null,
             }
           : null;
 
@@ -571,6 +585,7 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
                   secondarySrtLines={secondarySrtLines}
                   dualSubtitlesEnabled={dualSubtitlesEnabled && hasBothSrt}
                   onUpdateSubtitlePosition={handleUpdateSubtitlePosition}
+                  kineticConfig={kineticConfig}
                 />
               )}
 
@@ -646,6 +661,227 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
               {/* 1. Style phụ đề chung & Bố cục vị trí */}
               {hardsubTab === 'global' && (
                 <div className="flex flex-col gap-4 rounded-2xl border border-slate-800 bg-slate-900/70 p-4">
+                  {/* Milestone 3: Viral Kinetic Typography Presets */}
+                  <div className="flex flex-col gap-3 rounded-xl border border-cyan-500/30 bg-gradient-to-br from-cyan-950/20 via-slate-950/40 to-slate-900/60 p-3.5 shadow-sm">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Sparkles className="h-4 w-4 text-cyan-400" />
+                        <span className="text-xs font-bold text-white tracking-wide">
+                          Bộ Tạo Phụ Đề Động Kinetic & Shorts (Kinetic Presets):
+                        </span>
+                      </div>
+                      <span className="rounded-full bg-cyan-500/10 px-2 py-0.5 text-[10px] font-semibold text-cyan-300 border border-cyan-500/30">
+                        TikTok / Reels / Shorts Viral
+                      </span>
+                    </div>
+
+                    <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
+                      {/* Preset 0: None / Classic */}
+                      <button
+                        type="button"
+                        onClick={() => setKineticConfig((c) => ({ ...c, preset: 'none' }))}
+                        className={`flex flex-col gap-1 rounded-xl border p-3 text-left transition cursor-pointer ${
+                          kineticConfig.preset === 'none'
+                            ? 'border-brand-cyan/80 bg-brand-cyan/15 ring-1 ring-brand-cyan/50 text-white'
+                            : 'border-slate-800 bg-slate-900/80 text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                        }`}
+                      >
+                        <div className="flex items-center gap-1.5 font-semibold text-xs text-slate-200">
+                          <span>📄</span>
+                          <span>Cổ điển (Tĩnh)</span>
+                        </div>
+                        <span className="text-[10px] text-slate-400 leading-tight">
+                          Phụ đề tiêu chuẩn không hiệu ứng động, hiển thị đồng nhất.
+                        </span>
+                      </button>
+
+                      {/* Preset 1: Hormozi */}
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setKineticConfig((c) => ({
+                            ...c,
+                            preset: 'hormozi',
+                            activeColor: c.activeColor || '#FFE500',
+                          }))
+                        }
+                        className={`flex flex-col gap-1 rounded-xl border p-3 text-left transition cursor-pointer ${
+                          kineticConfig.preset === 'hormozi'
+                            ? 'border-amber-400/80 bg-amber-500/15 ring-1 ring-amber-400/50 text-white'
+                            : 'border-slate-800 bg-slate-900/80 text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                        }`}
+                      >
+                        <div className="flex items-center gap-1.5 font-semibold text-xs text-amber-300">
+                          <span>⚡</span>
+                          <span>Hormozi Highlight</span>
+                        </div>
+                        <span className="text-[10px] text-slate-400 leading-tight">
+                          Highlight từ khóa đổi màu vàng/xanh neon phát sáng theo nhịp nói (\k & \t).
+                        </span>
+                      </button>
+
+                      {/* Preset 2: MrBeast */}
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setKineticConfig((c) => ({
+                            ...c,
+                            preset: 'mrbeast',
+                            activeColor: c.activeColor || '#00FF66',
+                          }))
+                        }
+                        className={`flex flex-col gap-1 rounded-xl border p-3 text-left transition cursor-pointer ${
+                          kineticConfig.preset === 'mrbeast'
+                            ? 'border-emerald-400/80 bg-emerald-500/15 ring-1 ring-emerald-400/50 text-white'
+                            : 'border-slate-800 bg-slate-900/80 text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                        }`}
+                      >
+                        <div className="flex items-center gap-1.5 font-semibold text-xs text-emerald-300">
+                          <span>💥</span>
+                          <span>MrBeast Pop-in</span>
+                        </div>
+                        <span className="text-[10px] text-slate-400 leading-tight">
+                          Chữ nảy tung bùng nổ (\fscx bounce), tự nhận diện từ khóa chèn emoji (💰🔥😱).
+                        </span>
+                      </button>
+
+                      {/* Preset 3: Minimalist Glow */}
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setKineticConfig((c) => ({
+                            ...c,
+                            preset: 'minimalist_glow',
+                            activeColor: c.activeColor || '#00F5FF',
+                          }))
+                        }
+                        className={`flex flex-col gap-1 rounded-xl border p-3 text-left transition cursor-pointer ${
+                          kineticConfig.preset === 'minimalist_glow'
+                            ? 'border-cyan-400/80 bg-cyan-500/15 ring-1 ring-cyan-400/50 text-white'
+                            : 'border-slate-800 bg-slate-900/80 text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                        }`}
+                      >
+                        <div className="flex items-center gap-1.5 font-semibold text-xs text-cyan-300">
+                          <span>✨</span>
+                          <span>Minimalist Glow</span>
+                        </div>
+                        <span className="text-[10px] text-slate-400 leading-tight">
+                          Viền hào quang tán xạ dịu (\blur4), thanh tiến trình đọc chạy dưới chân (\p1).
+                        </span>
+                      </button>
+                    </div>
+
+                    {/* Tùy chỉnh chi tiết cho từng Preset Kinetic */}
+                    {kineticConfig.preset !== 'none' && (
+                      <div className="flex flex-wrap items-center gap-4 pt-2.5 border-t border-slate-800/80 text-xs">
+                        {kineticConfig.preset === 'hormozi' && (
+                          <div className="flex flex-wrap items-center gap-3">
+                            <span className="text-slate-300 font-medium">Màu Highlight Karaoke:</span>
+                            <div className="flex items-center gap-2">
+                              {['#FFE500', '#00FF66', '#00E5FF', '#FF3366', '#FF9900'].map((color) => (
+                                <button
+                                  key={color}
+                                  type="button"
+                                  onClick={() => setKineticConfig((c) => ({ ...c, activeColor: color }))}
+                                  className={`h-6 w-6 rounded-full border-2 transition ${
+                                    kineticConfig.activeColor === color ? 'border-white scale-110 shadow-md' : 'border-transparent opacity-80 hover:opacity-100'
+                                  }`}
+                                  style={{ backgroundColor: color }}
+                                  title={color}
+                                />
+                              ))}
+                              <input
+                                type="color"
+                                value={kineticConfig.activeColor || '#FFE500'}
+                                onChange={(e) => setKineticConfig((c) => ({ ...c, activeColor: e.target.value }))}
+                                className="h-6 w-8 cursor-pointer rounded border border-slate-700 bg-slate-800"
+                                title="Màu tùy chọn"
+                              />
+                            </div>
+                            <span className="text-[11px] text-slate-400">
+                              (Chữ to, in hoa toàn bộ, viền đen dày, từ khóa phát sáng theo âm thanh)
+                            </span>
+                          </div>
+                        )}
+
+                        {kineticConfig.preset === 'mrbeast' && (
+                          <div className="flex flex-wrap items-center gap-4">
+                            <label className="flex items-center gap-2 text-slate-300 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={kineticConfig.enableEmoji !== false}
+                                onChange={(e) => setKineticConfig((c) => ({ ...c, enableEmoji: e.target.checked }))}
+                                className="h-4 w-4 rounded border-slate-700 bg-slate-800 text-cyan-400 focus:ring-0 cursor-pointer"
+                              />
+                              <span>Tự động nhận diện cảm xúc & chèn Emoji (💰, 🔥, 😱, ⚠️...)</span>
+                            </label>
+
+                            {kineticConfig.enableEmoji !== false && (
+                              <div className="flex items-center gap-2">
+                                <span className="text-slate-400">Mật độ:</span>
+                                <select
+                                  value={kineticConfig.emojiFrequency || 'medium'}
+                                  onChange={(e) => setKineticConfig((c) => ({ ...c, emojiFrequency: e.target.value as any }))}
+                                  className="rounded-lg border border-slate-700 bg-slate-800 px-2 py-1 text-slate-200 text-xs focus:outline-none"
+                                >
+                                  <option value="high">Dày đặc (Mọi câu khớp từ khóa)</option>
+                                  <option value="medium">Vừa phải (Cách 2 câu / 4s)</option>
+                                  <option value="low">Thưa thớt (Cách 3 câu)</option>
+                                </select>
+                              </div>
+                            )}
+
+                            <div className="flex items-center gap-2">
+                              <span className="text-slate-400">Màu từ khóa:</span>
+                              <input
+                                type="color"
+                                value={kineticConfig.activeColor || '#00FF66'}
+                                onChange={(e) => setKineticConfig((c) => ({ ...c, activeColor: e.target.value }))}
+                                className="h-6 w-8 cursor-pointer rounded border border-slate-700 bg-slate-800"
+                              />
+                            </div>
+                          </div>
+                        )}
+
+                        {kineticConfig.preset === 'minimalist_glow' && (
+                          <div className="flex flex-wrap items-center gap-4">
+                            <label className="flex items-center gap-2 text-slate-300 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={kineticConfig.enableProgressBar !== false}
+                                onChange={(e) => setKineticConfig((c) => ({ ...c, enableProgressBar: e.target.checked }))}
+                                className="h-4 w-4 rounded border-slate-700 bg-slate-800 text-cyan-400 focus:ring-0 cursor-pointer"
+                              />
+                              <span>Thanh tiến trình đọc dưới chân chữ (Vector Progress Bar \p1)</span>
+                            </label>
+
+                            <div className="flex items-center gap-2">
+                              <span className="text-slate-400">Độ mờ hào quang:</span>
+                              <input
+                                type="range"
+                                min={1}
+                                max={8}
+                                value={kineticConfig.glowBlur || 4}
+                                onChange={(e) => setKineticConfig((c) => ({ ...c, glowBlur: Number(e.target.value) }))}
+                                className="w-24 accent-cyan-400 cursor-pointer"
+                              />
+                              <span className="font-mono text-cyan-300 text-xs">{kineticConfig.glowBlur || 4}px</span>
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                              <span className="text-slate-400">Màu phát sáng:</span>
+                              <input
+                                type="color"
+                                value={kineticConfig.activeColor || '#00F5FF'}
+                                onChange={(e) => setKineticConfig((c) => ({ ...c, activeColor: e.target.value }))}
+                                className="h-6 w-8 cursor-pointer rounded border border-slate-700 bg-slate-800"
+                              />
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
                   {/* Preset Vị trí & Bố cục */}
                   <div className="flex flex-col gap-2 rounded-xl border border-slate-800/90 bg-slate-950/60 p-3">
                     <div className="flex flex-wrap items-center justify-between gap-2">

@@ -8,7 +8,9 @@ import type {
   PerLineSubtitleStyle,
   CustomMaskRegion,
   WatermarkOptions,
+  KineticConfig,
 } from '../../types/electron';
+import { calculateWordTimings, detectEmoji } from '../../lib/kineticEngine';
 
 interface VideoPreviewCanvasProps {
   videoPath?: string;
@@ -36,6 +38,8 @@ interface VideoPreviewCanvasProps {
   mirrorHorizontal?: boolean;
   /** R4 CapCut Mini: Tua nhanh tốc độ phát 1.00x đến 2.00x */
   speed?: number;
+  /** R3 Kinetic subtitle presets */
+  kineticConfig?: KineticConfig;
 }
 
 export const VideoPreviewCanvas: React.FC<VideoPreviewCanvasProps> = ({
@@ -62,6 +66,7 @@ export const VideoPreviewCanvas: React.FC<VideoPreviewCanvasProps> = ({
   secondaryStyle,
   dualSubtitlesEnabled = false,
   onUpdateSubtitlePosition,
+  kineticConfig,
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -807,34 +812,147 @@ export const VideoPreviewCanvas: React.FC<VideoPreviewCanvasProps> = ({
               }`}
               title={onUpdateSubtitlePosition ? "Nhấp và giữ chuột để kéo phụ đề đến vị trí mong muốn" : undefined}
             >
-              <span
-                style={{
-                  fontFamily: `"${fontName}", Arial, sans-serif`,
-                  fontSize: `${fontSize * 0.9}px`,
-                  lineHeight: 1.25,
-                  color: textColor,
-                  fontWeight: isBold ? 800 : 500,
-                  fontStyle: isItalic ? 'italic' : 'normal',
-                  writingMode: isVert ? 'vertical-rl' : 'horizontal-tb',
-                  textOrientation: isVert ? 'upright' : 'mixed',
-                  letterSpacing: isVert ? '3px' : 'normal',
-                  ...(globalStyle.borderStyle === 3
-                    ? {
-                        backgroundColor: outlineColor || '#000000',
-                        padding: isVert ? '10px 4px' : '3px 10px',
-                        borderRadius: '3px',
-                        boxShadow: '0 2px 8px rgba(0,0,0,0.5)',
-                      }
-                    : {
-                        textShadow: outlineShadow,
-                      }),
-                }}
-                className={`text-center break-words max-w-full ${
-                  subDragState ? 'ring-2 ring-brand-cyan/80 rounded px-1 shadow-lg' : ''
-                }`}
-              >
-                {activeLine.text}
-              </span>
+              {/* Mini CapCut Subtitle Preview: Kinetic Presets or Standard Subtitle */}
+              {(() => {
+                if (kineticConfig && kineticConfig.preset === 'hormozi') {
+                  const wordTimings = calculateWordTimings(activeLine);
+                  const relMs = Math.max(0, currentTimeMs - activeLine.startMs);
+                  const activeColor = kineticConfig.activeColor || '#FFE500';
+                  return (
+                    <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-center max-w-full">
+                      {wordTimings.map((w, idx) => {
+                        const isActive = relMs >= w.startMs && relMs <= w.endMs;
+                        return (
+                          <span
+                            key={idx}
+                            style={{
+                              fontFamily: '"Arial Black", Impact, Montserrat, Arial, sans-serif',
+                              fontSize: `${fontSize * 1.05}px`,
+                              lineHeight: 1.25,
+                              fontWeight: 900,
+                              color: isActive ? activeColor : '#FFFFFF',
+                              transform: isActive ? 'scale(1.14)' : 'scale(1.0)',
+                              textShadow: isActive
+                                ? `0 0 14px ${activeColor}, 3px 3px 0 #000, -3px -3px 0 #000, 3px -3px 0 #000, -3px 3px 0 #000`
+                                : '2.5px 2.5px 0 #000, -2.5px -2.5px 0 #000, 2.5px -2.5px 0 #000, -2.5px 2.5px 0 #000',
+                              transition: 'transform 80ms ease-out, color 80ms ease-out',
+                              display: 'inline-block',
+                            }}
+                          >
+                            {w.word.toUpperCase()}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  );
+                }
+
+                if (kineticConfig && kineticConfig.preset === 'mrbeast') {
+                  const match = kineticConfig.enableEmoji !== false
+                    ? detectEmoji(activeLine.text, kineticConfig.emojiFrequency ?? 'medium', activeLineIndex)
+                    : null;
+                  const upperText = activeLine.text.toUpperCase();
+                  return (
+                    <>
+                      <style>{`
+                        @keyframes vanhsubMrBeastBounce {
+                          0% { transform: scale(1.3); }
+                          60% { transform: scale(0.95); }
+                          100% { transform: scale(1.0); }
+                        }
+                      `}</style>
+                      <div
+                        key={`mrbeast-${activeLineIndex}`}
+                        style={{
+                          fontFamily: 'Impact, "Arial Black", sans-serif',
+                          fontSize: `${fontSize * 1.15}px`,
+                          lineHeight: 1.25,
+                          fontWeight: 900,
+                          color: '#FFFFFF',
+                          textShadow: '3.5px 3.5px 0 #000, -3.5px -3.5px 0 #000, 3.5px -3.5px 0 #000, -3.5px 3.5px 0 #000',
+                          animation: 'vanhsubMrBeastBounce 0.22s cubic-bezier(0.175, 0.885, 0.32, 1.275) both',
+                        }}
+                        className="text-center break-words max-w-full"
+                      >
+                        {upperText}
+                        {match && (
+                          <span className="ml-2 inline-block text-2xl align-middle" style={{ textShadow: 'none' }}>
+                            {match.emoji}
+                          </span>
+                        )}
+                      </div>
+                    </>
+                  );
+                }
+
+                if (kineticConfig && kineticConfig.preset === 'minimalist_glow') {
+                  const glowCol = kineticConfig.activeColor || '#00F5FF';
+                  const blurPx = (kineticConfig.glowBlur || 4) * 2;
+                  const dur = Math.max(1, activeLine.endMs - activeLine.startMs);
+                  const elapsed = Math.max(0, Math.min(dur, currentTimeMs - activeLine.startMs));
+                  const progressPct = (elapsed / dur) * 100;
+                  return (
+                    <div className="flex flex-col items-center justify-center max-w-full">
+                      <span
+                        style={{
+                          fontFamily: '"Segoe UI", Montserrat, Arial, sans-serif',
+                          fontSize: `${fontSize * 0.95}px`,
+                          lineHeight: 1.25,
+                          color: '#FFFFFF',
+                          fontWeight: 600,
+                          textShadow: `0 0 ${blurPx}px ${glowCol}, 0 0 4px #FFFFFF, 1px 1px 2px rgba(0,0,0,0.8)`,
+                        }}
+                        className="text-center break-words max-w-full"
+                      >
+                        {activeLine.text}
+                      </span>
+                      {kineticConfig.enableProgressBar !== false && (
+                        <div className="w-full max-w-[260px] sm:max-w-[340px] h-1 bg-white/20 rounded-full mt-2 mx-auto overflow-hidden">
+                          <div
+                            className="h-full rounded-full transition-all duration-75"
+                            style={{
+                              width: `${progressPct}%`,
+                              backgroundColor: glowCol,
+                              boxShadow: `0 0 8px ${glowCol}`,
+                            }}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  );
+                }
+
+                return (
+                  <span
+                    style={{
+                      fontFamily: `"${fontName}", Arial, sans-serif`,
+                      fontSize: `${fontSize * 0.9}px`,
+                      lineHeight: 1.25,
+                      color: textColor,
+                      fontWeight: isBold ? 800 : 500,
+                      fontStyle: isItalic ? 'italic' : 'normal',
+                      writingMode: isVert ? 'vertical-rl' : 'horizontal-tb',
+                      textOrientation: isVert ? 'upright' : 'mixed',
+                      letterSpacing: isVert ? '3px' : 'normal',
+                      ...(globalStyle.borderStyle === 3
+                        ? {
+                            backgroundColor: outlineColor || '#000000',
+                            padding: isVert ? '10px 4px' : '3px 10px',
+                            borderRadius: '3px',
+                            boxShadow: '0 2px 8px rgba(0,0,0,0.5)',
+                          }
+                        : {
+                            textShadow: outlineShadow,
+                          }),
+                    }}
+                    className={`text-center break-words max-w-full ${
+                      subDragState ? 'ring-2 ring-brand-cyan/80 rounded px-1 shadow-lg' : ''
+                    }`}
+                  >
+                    {activeLine.text}
+                  </span>
+                );
+              })()}
             </div>
           )}
 

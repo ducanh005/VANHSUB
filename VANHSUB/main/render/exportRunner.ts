@@ -7,12 +7,13 @@ import { TaskStore, type Task } from '../store/taskStore';
 import { SettingsStore } from '../store/settingsStore';
 import { nextAvailablePath } from '../lib/paths';
 import { getOrCreateProjectDir } from '../utils/projectFolder';
-import { compileToAss, type SubtitleEntryStyle, type GlobalAssStyle } from './assCompiler';
+import { compileToAss, type SubtitleEntryStyle, type GlobalAssStyle, type KineticConfig } from './assCompiler';
 import { killProcessTreeByPid } from '../lib/processTree';
 import { isCancelledError } from '../lib/cancel';
 import {
   burnHardsub,
   muxSoftsub,
+  getVideoMetadata,
   type MaskRegion,
   type CustomMaskRegion,
   type WatermarkOptions,
@@ -33,6 +34,7 @@ export interface AdvancedExportOptions {
   formatOptions?: ExportFormatOptions | null;
   perLineStyles?: Record<number, SubtitleEntryStyle>;
   dualSubtitles?: DualSubtitleOption | null;
+  kineticConfig?: KineticConfig | null;
 }
 
 export class ExportRunner {
@@ -235,16 +237,43 @@ export class ExportRunner {
         const hasDual = !!(advancedOptions?.dualSubtitles?.enabled && task.translatedSrtPath && task.srtPath);
         const hasVertical = !!style?.isVertical;
         const hasCustomPos = !!(style?.posPercent || (style?.marginH !== undefined && style.marginH !== 20));
-        const needsAssCompilation = hasPerLine || hasDual || hasVertical || hasCustomPos;
+        const hasKinetic = !!(advancedOptions?.kineticConfig && advancedOptions.kineticConfig.preset !== 'none');
+        const needsAssCompilation = hasPerLine || hasDual || hasVertical || hasCustomPos || hasKinetic;
 
-        // Nếu có perLineStyles, song ngữ hoặc style vị trí/chữ dọc: biên dịch ra file .ass trước khi burn
+        // Nếu có perLineStyles, song ngữ, kinetic preset hoặc style vị trí/chữ dọc: biên dịch ra file .ass trước khi burn
         if (needsAssCompilation) {
+          let targetWidth = 1920;
+          let targetHeight = 1080;
+          try {
+            const meta = await getVideoMetadata(videoPath);
+            if (meta.width && meta.height) {
+              targetWidth = meta.width;
+              targetHeight = meta.height;
+            }
+          } catch (metaErr) {
+            console.warn(`[ExportRunner] Không thể đọc kích thước video, fallback 1920x1080:`, metaErr);
+          }
+
+          if (advancedOptions?.formatOptions?.aspectRatio === '9:16') {
+            targetWidth = 1080;
+            targetHeight = 1920;
+          } else if (advancedOptions?.formatOptions?.aspectRatio === '16:9') {
+            targetWidth = 1920;
+            targetHeight = 1080;
+          } else if (advancedOptions?.formatOptions?.aspectRatio === '1:1') {
+            targetWidth = 1080;
+            targetHeight = 1080;
+          }
+
           const srtContent = fs.readFileSync(rawSrtPath, 'utf-8');
           const parsedLines = parseSrt(srtContent);
           const items = parsedLines.map((line, idx) => ({
+            id: line.id,
             startMs: line.startMs,
             endMs: line.endMs,
             text: line.text,
+            speaker: line.speaker,
+            words: line.words,
             style: advancedOptions?.perLineStyles?.[idx] || null,
           }));
 
@@ -277,9 +306,12 @@ export class ExportRunner {
               const secContent = fs.readFileSync(secSrtPath, 'utf-8');
               const secParsed = parseSrt(secContent);
               secondaryItems = secParsed.map((line) => ({
+                id: line.id,
                 startMs: line.startMs,
                 endMs: line.endMs,
                 text: line.text,
+                speaker: line.speaker,
+                words: line.words,
               }));
 
               const preset = advancedOptions?.dualSubtitles?.layoutPreset || 'douyin_music_left';
@@ -326,6 +358,9 @@ export class ExportRunner {
             title: videoBase,
             secondaryItems,
             secondaryStyle,
+            videoWidth: targetWidth,
+            videoHeight: targetHeight,
+            kineticConfig: advancedOptions?.kineticConfig || undefined,
           });
 
           tempAssFile = path.join(os.tmpdir(), `vanhsub_ass_${Date.now()}_compiled.ass`);

@@ -318,6 +318,8 @@ function buildAspectRatioFilter(aspectRatio: string | undefined, inLabel: string
 export interface VideoMetadata {
   duration: number;
   hasAudio: boolean;
+  width?: number;
+  height?: number;
 }
 
 /**
@@ -332,7 +334,10 @@ export function getVideoMetadata(videoPath: string): Promise<VideoMetadata> {
       }
       const duration = Number(metadata.format?.duration) || 0;
       const hasAudio = Array.isArray(metadata.streams) && metadata.streams.some((s) => s.codec_type === 'audio');
-      resolve({ duration, hasAudio });
+      const vStream = Array.isArray(metadata.streams) ? metadata.streams.find((s) => s.codec_type === 'video') : undefined;
+      const width = vStream?.width;
+      const height = vStream?.height;
+      resolve({ duration, hasAudio, width, height });
     });
   });
 }
