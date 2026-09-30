@@ -8,6 +8,8 @@ import { OcrRunner } from '../ocr/ocrRunner';
 import { TaskRunner } from './taskRunner';
 import { nextAvailablePath } from '../lib/paths';
 import { parseSrt, serializeSrt, type SrtLine } from '../lib/srt';
+import { sanitizeSubtitles } from '../lib/subtitleSanitizer';
+import { deduplicateSubtitlesPipeline, deduplicateProgressiveKaraoke } from '../lib/subtitleDeduplication';
 import { segmentSubtitlesNetflix } from '../lib/nlpSegmenter';
 import { fuseOcrAndWhisper } from './hybridFusionEngine';
 import { TranslateRunner } from '../translate/translateRunner';
@@ -190,6 +192,8 @@ export class HybridRunner {
         toleranceMs: 800,
         minSimilarityThreshold: 0.35,
         useGeminiAi: options?.useGeminiAi,
+        preserveSpeechOnlyWhisper: true,
+        deduplicateKaraoke: true,
       });
 
       console.log(
@@ -202,6 +206,24 @@ export class HybridRunner {
       const hybridTargetPath = nextAvailablePath(path.join(videoDir, `${base}_hybrid.srt`));
       
       let finalSegments = fusionResult.segments;
+
+      try {
+        finalSegments = deduplicateSubtitlesPipeline(finalSegments);
+        console.log(`[HybridRunner] [Dedup] Đã khử trùng lặp phụ đề kết hợp (${finalSegments.length} dòng).`);
+      } catch (dedupErr) {
+        console.warn(`[HybridRunner] [Dedup] Bỏ qua khử trùng lặp do lỗi:`, dedupErr);
+      }
+
+      try {
+        const sanitizeResult = sanitizeSubtitles(finalSegments, { whisperSegments });
+        if (sanitizeResult.removedCount > 0) {
+          console.log(`[HybridRunner] [Sanitizer] Đã lọc bỏ ${sanitizeResult.removedCount} dòng rác OCR sau hợp nhất.`);
+          finalSegments = sanitizeResult.cleaned;
+        }
+      } catch (sanErr) {
+        console.warn(`[HybridRunner] [Sanitizer] Bỏ qua lọc rác do lỗi:`, sanErr);
+      }
+
       try {
         if (finalSegments.length > 0) {
           finalSegments = segmentSubtitlesNetflix(finalSegments);

@@ -1,4 +1,6 @@
 import type { SrtLine } from '../lib/srt';
+import { isOcrGarbageLine } from '../lib/subtitleSanitizer';
+import { deduplicateProgressiveKaraoke, deduplicateExact } from '../lib/subtitleDeduplication';
 
 export interface HybridFusionOptions {
   /**
@@ -18,6 +20,18 @@ export interface HybridFusionOptions {
    */
   useGeminiAi?: boolean;
   geminiApiKey?: string;
+
+  /**
+   * Bảo toàn các phân đoạn hội thoại Whisper độc lập (không có chữ phụ đề trên video).
+   * Mặc định: false.
+   */
+  preserveSpeechOnlyWhisper?: boolean;
+
+  /**
+   * Tiền xử lý khử trùng lặp progressive karaoke trên luồng OCR trước khi dung hợp.
+   * Mặc định: false.
+   */
+  deduplicateKaraoke?: boolean;
 }
 
 export interface HybridFusionStats {
@@ -25,9 +39,11 @@ export interface HybridFusionStats {
   totalWhisperSegments: number;
   matchedSegments: number;
   bannersPreserved: number;
+  garbageFiltered: number;
   typosRepaired: number;
   diacriticsRestored: number;
   wordsRestored: number;
+  speechOnlyPreserved?: number;
   aiAssisted?: boolean;
 }
 
@@ -329,37 +345,57 @@ export function fuseOcrAndWhisper(
   const toleranceMs = Math.max(0, options?.toleranceMs ?? 800);
   const minSimilarityThreshold = options?.minSimilarityThreshold ?? 0.35;
 
+  const ocrToProcess = options?.deduplicateKaraoke
+    ? deduplicateProgressiveKaraoke(deduplicateExact(ocrSegments))
+    : ocrSegments;
+
   const stats: HybridFusionStats = {
-    totalOcrSegments: ocrSegments.length,
-    totalWhisperSegments: whisperSegments.length,
+    totalOcrSegments: ocrToProcess.length,
+    totalWhisperSegments: whisperSegments ? whisperSegments.length : 0,
     matchedSegments: 0,
     bannersPreserved: 0,
+    garbageFiltered: 0,
     typosRepaired: 0,
     diacriticsRestored: 0,
     wordsRestored: 0,
+    speechOnlyPreserved: 0,
   };
 
-  if (!ocrSegments || ocrSegments.length === 0) {
+  if (!ocrToProcess || ocrToProcess.length === 0) {
+    if (options?.preserveSpeechOnlyWhisper && whisperSegments && whisperSegments.length > 0) {
+      const cleanWhisper = deduplicateExact(whisperSegments);
+      stats.speechOnlyPreserved = cleanWhisper.length;
+      return { segments: cleanWhisper, stats };
+    }
     return { segments: [], stats };
   }
 
-  // Trường hợp Whisper rỗng: bảo toàn 100% các dòng OCR như banner hình ảnh
+  // Trường hợp Whisper rỗng: bảo toàn các dòng OCR hợp lệ như banner hình ảnh, lọc bỏ rác OCR
   if (!whisperSegments || whisperSegments.length === 0) {
-    stats.bannersPreserved = ocrSegments.length;
-    const cloned = ocrSegments.map((line, idx) => ({
-      id: line.id || `line-${idx}`,
-      startMs: line.startMs,
-      endMs: line.endMs,
-      text: line.text,
-      confidence: line.confidence,
-    }));
+    const cloned: SrtLine[] = [];
+    for (let idx = 0; idx < ocrToProcess.length; idx++) {
+      const line = ocrToProcess[idx];
+      if (isOcrGarbageLine(line)) {
+        stats.garbageFiltered++;
+        continue;
+      }
+      stats.bannersPreserved++;
+      cloned.push({
+        id: line.id || `line-${idx}`,
+        startMs: line.startMs,
+        endMs: line.endMs,
+        text: line.text,
+        confidence: line.confidence,
+      });
+    }
     return { segments: cloned, stats };
   }
 
   const resultSegments: SrtLine[] = [];
+  const consumedWhisper = new Set<SrtLine>();
 
-  for (let idx = 0; idx < ocrSegments.length; idx++) {
-    const ocr = ocrSegments[idx];
+  for (let idx = 0; idx < ocrToProcess.length; idx++) {
+    const ocr = ocrToProcess[idx];
 
     // QUY TẮC BẤT DI BẤT DỊCH: Neo thời gian 100% khớp mốc OCR
     const anchoredStartMs = ocr.startMs;
@@ -373,8 +409,12 @@ export function fuseOcrAndWhisper(
       (w) => w.endMs >= windowStart && w.startMs <= windowEnd
     );
 
-    // Không có ứng viên Whisper nào trong khung thời gian -> Banner video tĩnh
+    // Không có ứng viên Whisper nào trong khung thời gian -> Banner video tĩnh HOẶC rác OCR
     if (candidates.length === 0) {
+      if (isOcrGarbageLine(ocr, { whisperSegments })) {
+        stats.garbageFiltered++;
+        continue;
+      }
       stats.bannersPreserved++;
       resultSegments.push({
         id: ocr.id || `line-${idx}`,
@@ -389,6 +429,10 @@ export function fuseOcrAndWhisper(
     // Tách từ từ OCR
     const ocrWords = ocr.text.trim().split(/\s+/).filter(Boolean);
     if (ocrWords.length === 0) {
+      if (isOcrGarbageLine(ocr, { whisperSegments })) {
+        stats.garbageFiltered++;
+        continue;
+      }
       resultSegments.push({
         id: ocr.id || `line-${idx}`,
         startMs: anchoredStartMs,
@@ -408,8 +452,12 @@ export function fuseOcrAndWhisper(
     // So khớp chuỗi token
     const { steps, averageScore } = alignTokens(ocrWords, candidateWhisperTokens);
 
-    // Nếu độ tương đồng quá thấp (< minSimilarityThreshold), xác định là banner hình ảnh không khớp tiếng
+    // Nếu độ tương đồng quá thấp (< minSimilarityThreshold), xác định là banner hình ảnh không khớp tiếng HOẶC rác OCR
     if (averageScore < minSimilarityThreshold) {
+      if (isOcrGarbageLine(ocr, { whisperSegments })) {
+        stats.garbageFiltered++;
+        continue;
+      }
       stats.bannersPreserved++;
       resultSegments.push({
         id: ocr.id || `line-${idx}`,
@@ -419,6 +467,11 @@ export function fuseOcrAndWhisper(
         confidence: ocr.confidence,
       });
       continue;
+    }
+
+    // Đánh dấu các candidates Whisper đã được tiêu thụ
+    for (const c of candidates) {
+      consumedWhisper.add(c);
     }
 
     // Có sự tương đồng tốt -> Hợp nhất nội dung & sửa lỗi văn bản
@@ -478,6 +531,17 @@ export function fuseOcrAndWhisper(
       text: repairedText,
       confidence: Math.max(ocr.confidence || 0, 0.95), // Được ASR củng cố độ tin cậy
     });
+  }
+
+  // Bảo toàn các phân đoạn Whisper độc lập (speech-only) chưa bị tiêu thụ bởi bất kỳ dòng OCR nào
+  if (options?.preserveSpeechOnlyWhisper && whisperSegments && whisperSegments.length > 0) {
+    for (const w of whisperSegments) {
+      if (!consumedWhisper.has(w)) {
+        resultSegments.push({ ...w });
+        stats.speechOnlyPreserved = (stats.speechOnlyPreserved || 0) + 1;
+      }
+    }
+    resultSegments.sort((a, b) => a.startMs - b.startMs);
   }
 
   return {

@@ -112,12 +112,27 @@ function selectStableText(detections: TextDetection[]): { text: string; confiden
     };
   }
 
+  // Khắc phục lỗi voting thiên vị câu ngắn trong chuỗi karaoke:
+  // Nếu nhóm B là bản mở rộng (progressive extension) của nhóm A (A là tiền tố của B, keyB.startsWith(keyA)),
+  // thì sự xuất hiện của A củng cố cho B thay vì phạt B vì B xuất hiện ở ít frame cuối hơn.
+  const effectiveCounts = new Map<string, number>();
+  for (const [key, g] of groups.entries()) {
+    let effCount = g.count;
+    for (const [otherKey, otherG] of groups.entries()) {
+      if (key !== otherKey && otherKey.length >= 3 && key.startsWith(otherKey) && key.length > otherKey.length) {
+        effCount += otherG.count;
+      }
+    }
+    effectiveCounts.set(key, effCount);
+  }
+
   let bestGroupKey = '';
   let bestScore = -1;
   for (const [key, g] of groups.entries()) {
     const avgConf = g.totalConf / g.count;
-    const score = g.count * 2.0 + avgConf / 100.0;
-    if (score > bestScore) {
+    const effCount = effectiveCounts.get(key) || g.count;
+    const score = effCount * 2.0 + avgConf / 100.0;
+    if (score > bestScore || (Math.abs(score - bestScore) < 0.001 && key.length > bestGroupKey.length)) {
       bestScore = score;
       bestGroupKey = key;
     }
@@ -138,9 +153,7 @@ function selectStableText(detections: TextDetection[]): { text: string; confiden
     }
   }
 
-  const avgConfidence = Math.round(
-    detections.reduce((sum, d) => sum + d.confidence, 0) / detections.length,
-  );
+  const avgConfidence = Math.round(bestGroup.totalConf / bestGroup.count);
   return { text: bestSample, confidence: avgConfidence };
 }
 
