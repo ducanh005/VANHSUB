@@ -4,6 +4,8 @@ import { spawn } from 'child_process';
 import { CancelledError } from '../lib/cancel';
 import { killProcessTree } from '../lib/processTree';
 import { resolvePythonExecutable } from '../lib/pythonEnv';
+import { segmentWordsToSubtitles } from './wordSegmenter';
+import { serializeSrt } from '../lib/srt';
 
 export interface FasterWhisperOptions {
   modelName?: string;
@@ -166,10 +168,22 @@ export async function runFasterWhisper(
       }
 
       if (code === 0 && fs.existsSync(outputSrtPath)) {
+        const words = donePayload?.words || [];
+        if (words.length > 0) {
+          try {
+            const naturalLines = segmentWordsToSubtitles(words);
+            if (naturalLines.length > 0) {
+              fs.writeFileSync(outputSrtPath, serializeSrt(naturalLines), 'utf-8');
+            }
+          } catch (segErr) {
+            console.warn('[Faster-Whisper] Lỗi hậu xử lý phân đoạn từ tự nhiên:', segErr);
+          }
+        }
+
         return resolve({
           srtPath: outputSrtPath,
           speakers: donePayload?.speakers || [],
-          words: donePayload?.words || [],
+          words,
         });
       }
 

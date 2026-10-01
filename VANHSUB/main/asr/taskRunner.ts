@@ -6,8 +6,6 @@ import { transcribeUnified } from './asrRouter';
 import { TranslateRunner } from '../translate/translateRunner';
 import { CancelledError, isCancelledError } from '../lib/cancel';
 import { getProjectArtifactPaths } from '../utils/projectFolder';
-import { parseSrt, serializeSrt } from '../lib/srt';
-import { segmentSubtitlesNetflix } from '../lib/nlpSegmenter';
 
 export class TaskRunner {
   private static readonly MAX_PARALLEL_ASR = 2;
@@ -185,21 +183,6 @@ export class TaskRunner {
         } catch {
           // nếu lỗi thì dùng result.srtPath
         }
-      }
-
-      // Tự động phân đoạn chuẩn hoá Netflix (NLP) cho file phụ đề đầu ra
-      try {
-        if (fs.existsSync(finalSrt)) {
-          const rawContent = fs.readFileSync(finalSrt, 'utf-8');
-          const parsedLines = parseSrt(rawContent);
-          if (parsedLines.length > 0) {
-            const segmented = segmentSubtitlesNetflix(parsedLines);
-            fs.writeFileSync(finalSrt, serializeSrt(segmented), 'utf-8');
-            console.log(`[ASR] [NLP] Đã chuẩn hoá phụ đề theo tiêu chuẩn Netflix (${segmented.length} dòng).`);
-          }
-        }
-      } catch (nlpErr) {
-        console.warn(`[ASR] [NLP] Bỏ qua chuẩn hoá Netflix do lỗi:`, nlpErr);
       }
 
       console.log(`[ASR] Phiên âm hoàn tất! Đã lưu file phụ đề: ${finalSrt}`);

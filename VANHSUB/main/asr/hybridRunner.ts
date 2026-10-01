@@ -10,7 +10,6 @@ import { nextAvailablePath } from '../lib/paths';
 import { parseSrt, serializeSrt, type SrtLine } from '../lib/srt';
 import { sanitizeSubtitles } from '../lib/subtitleSanitizer';
 import { deduplicateSubtitlesPipeline, deduplicateProgressiveKaraoke } from '../lib/subtitleDeduplication';
-import { segmentSubtitlesNetflix } from '../lib/nlpSegmenter';
 import { fuseOcrAndWhisper } from './hybridFusionEngine';
 import { TranslateRunner } from '../translate/translateRunner';
 import { CancelledError, isCancelledError } from '../lib/cancel';
@@ -222,15 +221,6 @@ export class HybridRunner {
         }
       } catch (sanErr) {
         console.warn(`[HybridRunner] [Sanitizer] Bỏ qua lọc rác do lỗi:`, sanErr);
-      }
-
-      try {
-        if (finalSegments.length > 0) {
-          finalSegments = segmentSubtitlesNetflix(finalSegments);
-          console.log(`[HybridRunner] [NLP] Đã chuẩn hoá phụ đề kết hợp theo tiêu chuẩn Netflix (${finalSegments.length} dòng).`);
-        }
-      } catch (nlpErr) {
-        console.warn(`[HybridRunner] [NLP] Bỏ qua chuẩn hoá Netflix do lỗi:`, nlpErr);
       }
 
       const hybridSrtContent = serializeSrt(finalSegments);

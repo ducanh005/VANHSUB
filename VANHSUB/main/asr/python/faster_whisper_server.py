@@ -11,6 +11,7 @@ import argparse
 import json
 import math
 import os
+import re
 import sys
 import wave
 
@@ -44,6 +45,243 @@ def format_timestamp(seconds: float) -> str:
     s = (total_ms % 60000) // 1000
     ms = total_ms % 1000
     return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
+
+CJK_PATTERN = re.compile(r'[\u3000-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uff00-\uffef]')
+TERMINAL_PUNCT_PATTERN = re.compile(r'[.?!。？！…]+$')
+CLAUSE_PUNCT_PATTERN = re.compile(r'[,;:，；：、]+$')
+PUNCT_TOKEN_PATTERN = re.compile(r'^[,.!?:;，。？！；：、…)]+$')
+
+def is_cjk_char(ch: str) -> bool:
+    return bool(CJK_PATTERN.match(ch))
+
+def is_cjk_text(text: str) -> bool:
+    return bool(CJK_PATTERN.search(text))
+
+def has_terminal_punct(word: str) -> bool:
+    if not word:
+        return False
+    w = word.strip()
+    return bool(TERMINAL_PUNCT_PATTERN.search(w)) or w.endswith("...")
+
+def has_clause_punct(word: str) -> bool:
+    if not word:
+        return False
+    w = word.strip()
+    return bool(CLAUSE_PUNCT_PATTERN.search(w))
+
+def count_units(words: list) -> int:
+    count = 0
+    for w_obj in words:
+        w = (w_obj.get("word") or "").strip()
+        cjk_count = sum(1 for ch in w if is_cjk_char(ch))
+        count += cjk_count if cjk_count > 0 else 1
+    return count
+
+def format_words_text(words: list) -> str:
+    if not words:
+        return ""
+    result = ""
+    for w_obj in words:
+        w = (w_obj.get("word") or "").strip()
+        if not w:
+            continue
+        if not result:
+            result = w
+            continue
+        prev_char = result[-1]
+        next_char = w[0]
+        if PUNCT_TOKEN_PATTERN.match(w):
+            result += w
+        elif is_cjk_char(prev_char) and is_cjk_char(next_char):
+            result += w
+        else:
+            result += " " + w
+    return result
+
+def wrap_visual_lines(text: str, max_chars_per_line: int = 37) -> str:
+    clean = (text or "").strip()
+    if not clean or len(clean) <= max_chars_per_line:
+        return clean
+    if "\n" in clean:
+        return "\n".join(wrap_visual_lines(l, max_chars_per_line) for l in clean.split("\n"))
+
+    # Only apply spaceless character-level wrapping if text has NO whitespace (pure CJK)
+    has_whitespace = bool(re.search(r'\s', clean))
+
+    if has_whitespace:
+        mid = len(clean) // 2
+        best_space = -1
+        min_dist = float("inf")
+        for i, ch in enumerate(clean):
+            if ch == ' ':
+                l1 = clean[:i].strip()
+                l2 = clean[i+1:].strip()
+                if len(l1) <= max_chars_per_line and len(l2) <= max_chars_per_line:
+                    dist = abs(i - mid)
+                    if dist < min_dist:
+                        min_dist = dist
+                        best_space = i
+        if best_space != -1:
+            return f"{clean[:best_space].strip()}\n{clean[best_space+1:].strip()}"
+
+        space_idx = clean.rfind(' ', 0, max_chars_per_line + 1)
+        if space_idx > 0:
+            return f"{clean[:space_idx].strip()}\n{clean[space_idx+1:].strip()}"
+
+        next_space = clean.find(' ', max_chars_per_line)
+        if next_space > 0:
+            return f"{clean[:next_space].strip()}\n{clean[next_space+1:].strip()}"
+
+    if is_cjk_text(clean):
+        cjk_punct = ["，", "；", "：", "、", "。", "？", "！"]
+        best_split = -1
+        mid = len(clean) // 2
+        for i, ch in enumerate(clean):
+            if ch in cjk_punct:
+                idx = i + 1
+                if idx <= max_chars_per_line and (len(clean) - idx) <= max_chars_per_line:
+                    if best_split == -1 or abs(idx - mid) < abs(best_split - mid):
+                        best_split = idx
+        if best_split != -1:
+            return f"{clean[:best_split].strip()}\n{clean[best_split:].strip()}"
+        split_point = mid if len(clean) <= max_chars_per_line * 2 else max_chars_per_line
+        return f"{clean[:split_point].strip()}\n{clean[split_point:].strip()}"
+
+    return clean
+
+def segment_words_naturally(words: list, max_chars_per_line: int = 37) -> list:
+    """
+    Phân đoạn phụ đề tự nhiên theo mốc từng từ (Word-Level Natural Segmentation).
+    Tạo các câu ngắn tự nhiên 2.0s - 5.0s (trần cứng 6.0s), tách khi khoảng lặng >= 350ms,
+    dấu câu kết thúc / ngắt vế, và đổi người nói.
+    """
+    if not words:
+        return []
+
+    raw_words = []
+    for w in words:
+        if not w or not isinstance(w.get("word"), str):
+            continue
+        text = w["word"].strip()
+        if not text:
+            continue
+        start_ms = max(0, int(round(w.get("startMs", 0))))
+        raw_end = int(round(w["endMs"])) if "endMs" in w and w["endMs"] is not None else start_ms
+        end_ms = max(start_ms, raw_end)
+        raw_words.append({
+            **w,
+            "word": text,
+            "startMs": start_ms,
+            "endMs": end_ms
+        })
+
+    if not raw_words:
+        return []
+
+    raw_words.sort(key=lambda x: (x["startMs"], x["endMs"]))
+
+    sanitized = []
+    for i in range(len(raw_words)):
+        cur = dict(raw_words[i])
+        next_w = raw_words[i + 1] if i + 1 < len(raw_words) else None
+        if cur["endMs"] < cur["startMs"] + 30:
+            padded_end = cur["startMs"] + 30
+            if next_w and next_w["startMs"] > cur["startMs"] and padded_end > next_w["startMs"]:
+                padded_end = next_w["startMs"]
+            cur["endMs"] = max(cur["endMs"], padded_end)
+        sanitized.append(cur)
+
+    segments = []
+    current_chunk = []
+
+    def flush_chunk():
+        nonlocal current_chunk
+        if not current_chunk:
+            return
+        start_ms = current_chunk[0]["startMs"]
+        max_word_end_ms = max(w["endMs"] for w in current_chunk)
+        end_ms = max(max_word_end_ms, current_chunk[-1]["endMs"])
+        current_chunk[-1]["endMs"] = end_ms
+
+        raw_text = format_words_text(current_chunk)
+        display_text = wrap_visual_lines(raw_text, max_chars_per_line)
+        speaker = current_chunk[0].get("speaker")
+
+        segments.append({
+            "start": start_ms / 1000.0,
+            "end": end_ms / 1000.0,
+            "startMs": start_ms,
+            "endMs": end_ms,
+            "text": display_text,
+            "speaker": speaker,
+            "words": list(current_chunk)
+        })
+        current_chunk = []
+
+    for i in range(len(sanitized)):
+        cur_word = sanitized[i]
+        current_chunk.append(cur_word)
+
+        if i == len(sanitized) - 1:
+            flush_chunk()
+            break
+
+        next_word = sanitized[i + 1]
+        chunk_start_ms = current_chunk[0]["startMs"]
+        cur_dur = cur_word["endMs"] - chunk_start_ms
+        proj_dur = next_word["endMs"] - chunk_start_ms
+        pause = max(0, next_word["startMs"] - cur_word["endMs"])
+        unit_count = count_units(current_chunk)
+        is_cjk = is_cjk_text(format_words_text(current_chunk))
+
+        # 1. Đổi người nói
+        if cur_word.get("speaker") and next_word.get("speaker") and cur_word["speaker"] != next_word["speaker"]:
+            flush_chunk()
+            continue
+
+        # 2. Khoảng lặng >= 350ms (vô điều kiện khi >= 700ms)
+        if pause >= 350:
+            flush_chunk()
+            continue
+
+        # 3. Trần cứng thời lượng 6.0s
+        if proj_dur > 6000:
+            flush_chunk()
+            continue
+
+        # 4. Dấu câu kết thúc (. ? ! 。 ？ ！ …)
+        if has_terminal_punct(cur_word["word"]):
+            if cur_dur >= 1500 or unit_count >= 4 or proj_dur > 5000 or pause >= 200:
+                flush_chunk()
+                continue
+
+        # 5. Dấu ngắt vế (, ; : ， ； ： 、)
+        if has_clause_punct(cur_word["word"]):
+            required_units = 12 if is_cjk else 6
+            if cur_dur >= 2000 or unit_count >= required_units or proj_dur > 5000 or (pause >= 200 and cur_dur >= 1500):
+                flush_chunk()
+                continue
+
+        # 6. Thời lượng lý tưởng tối đa 5.0s
+        if cur_dur >= 5000:
+            flush_chunk()
+            continue
+
+        # 7. Thời lượng >= 3.5s với số từ lớn và nghỉ nhẹ >= 150ms
+        threshold_units = 16 if is_cjk else 8
+        if cur_dur >= 3500 and unit_count >= threshold_units and pause >= 150:
+            flush_chunk()
+            continue
+
+    # Đảm bảo bất biến segments[i].endMs <= segments[i+1].startMs luôn đúng
+    for i in range(len(segments) - 1):
+        if segments[i]["endMs"] > segments[i + 1]["startMs"]:
+            segments[i]["endMs"] = segments[i + 1]["startMs"]
+            segments[i]["end"] = segments[i]["endMs"] / 1000.0
+            if segments[i]["words"]:
+                segments[i]["words"][-1]["endMs"] = segments[i]["endMs"]
+
+    return segments
 
 def get_audio_duration_sec(audio_path: str) -> float:
     try:
@@ -317,12 +555,17 @@ def main():
         # Default single speaker if not diarizing
         distinct_speakers.add("SPEAKER_00")
 
-    # 5. Write SRT File
-    emit("progress", percent=95, stage="Đang xuất file phụ đề SRT...")
+    # 5. Natural Word-Level Segmentation & Write SRT File
+    emit("progress", percent=95, stage="Đang xuất file phụ đề SRT tự nhiên...")
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
+    if all_words:
+        final_segments = segment_words_naturally(all_words, max_chars_per_line=37)
+    else:
+        final_segments = collected_segments
+
     with open(output_path, "w", encoding="utf-8") as srt_file:
-        for idx, seg in enumerate(collected_segments):
+        for idx, seg in enumerate(final_segments):
             start_str = format_timestamp(seg["start"])
             end_str = format_timestamp(seg["end"])
             text = seg["text"]
@@ -338,7 +581,7 @@ def main():
         "done",
         srtPath=output_path,
         speakers=sorted(list(distinct_speakers)),
-        segmentCount=len(collected_segments),
+        segmentCount=len(final_segments),
         words=all_words
     )
     sys.exit(0)
