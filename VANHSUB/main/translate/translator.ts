@@ -5,7 +5,7 @@ import { createGeminiClient, friendlyGeminiError } from '../ai/geminiClient';
 import { SettingsStore } from '../store/settingsStore';
 import { parseSrt, serializeSrt, SrtLine } from '../lib/srt';
 import { CancelledError } from '../lib/cancel';
-import { segmentSubtitlesNetflix } from '../lib/nlpSegmenter';
+import { breakVietnameseLines } from '../lib/nlpSegmenter';
 
 interface BatchItem {
   i: string;
@@ -103,6 +103,28 @@ Quy tắc BẮT BUỘC:
 5. Dịch tự nhiên, phù hợp với ngữ cảnh video.
 6. Dịch nhất quán: cùng 1 từ/tên riêng/thuật ngữ thì dùng cùng 1 cách dịch ở mọi dòng.`;
   return base + buildGlossaryPrompt() + buildStyleGuidePrompt();
+}
+
+/**
+ * Định dạng ngắt dòng hiển thị (\n) thuần tuý cho các dòng phụ đề tiếng Việt vượt quá 37 ký tự.
+ * Bảo toàn 100% số lượng dòng, id, startMs, endMs, speaker từ file phụ đề gốc.
+ * Tuyệt đối không xé vụn thành nhiều dòng, không tính lại timestamp, không chèn khoảng hở nhân tạo.
+ */
+export function applyVisualLineWrapping(lines: SrtLine[], isVietnamese = true): SrtLine[] {
+  if (!isVietnamese) return lines;
+  return lines.map((line) => {
+    if (!line.text) return line;
+    const hasOverflow = line.text.includes('\n')
+      ? line.text.split(/\r?\n/).some((sub) => sub.trim().length > 37)
+      : line.text.length > 37;
+    if (hasOverflow) {
+      return {
+        ...line,
+        text: breakVietnameseLines(line.text.replace(/\r?\n/g, ' '), 37),
+      };
+    }
+    return line;
+  });
 }
 
 export async function translateSrtFile(
@@ -321,9 +343,12 @@ export async function translateSrtFile(
     (r): r is SrtLine[] => Array.isArray(r),
   ).flat();
 
-  // Tự động chuẩn hoá phân đoạn Netflix (NLP) cho bản dịch Tiếng Việt
-  const isVietnamese = targetLanguage === 'vi' || targetLanguage.toLowerCase().startsWith('vi');
-  const finalLines = isVietnamese ? segmentSubtitlesNetflix(translatedLines) : translatedLines;
+  // Bảo toàn 100% số lượng dòng, startMs, endMs, speaker từ file phụ đề gốc (1-1 translation mapping).
+  // Đối với các câu dài vượt quá 37 ký tự: dùng breakVietnameseLines để định dạng ngắt dòng
+  // hiển thị (\n) thuần tuý trong cùng một SrtLine, tuyệt đối KHÔNG xé nhỏ thành nhiều dòng,
+  // KHÔNG tính toán lại timestamp và KHÔNG chèn khoảng hở nhân tạo!
+  const isVietnamese = !targetLanguage || targetLanguage === 'vi' || targetLanguage.toLowerCase().startsWith('vi');
+  const finalLines = applyVisualLineWrapping(translatedLines, isVietnamese);
 
   const srtDir = path.dirname(srtPath);
   const srtBasename = path.basename(srtPath, '.srt');

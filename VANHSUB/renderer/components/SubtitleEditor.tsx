@@ -25,7 +25,7 @@ import {
 } from 'lucide-react';
 import type { Task } from '../types/task';
 import { formatMs, parseSrt, parseTimecode, serializeSrt, type SrtLine } from '../lib/srt';
-import { calculateCps, segmentSubtitlesNetflix, splitLineSmart } from '../lib/nlpSegmenter';
+import { calculateCps, breakVietnameseLines, splitLineSmart } from '../lib/nlpSegmenter';
 import { sanitizeSubtitles, isOcrGarbageLine } from '../lib/subtitleSanitizer';
 
 type Props = {
@@ -486,16 +486,26 @@ export default function SubtitleEditor({
     }, 50);
   };
 
-  // Chuẩn hoá toàn bộ danh sách phụ đề theo chuẩn Netflix (≤37 ký tự/dòng, 15-21 CPS)
-  const handleNetflixNormalize = () => {
+  // Tự động ngắt dòng hiển thị (\n, tối đa 37 ký tự/dòng) bảo toàn 100% id, startMs, endMs
+  const handleVisualWrapLines = () => {
     if (lines.length === 0 || loading) return;
     pushUndo(lines, true);
-    const beforeCount = lines.length;
-    const normalized = segmentSubtitlesNetflix(lines);
-    setLines(normalized);
+    let wrappedCount = 0;
+    const updated = lines.map((line) => {
+      const hasOverflow = line.text.includes('\n')
+        ? line.text.split(/\r?\n/).some((sub) => sub.trim().length > 37)
+        : line.text.length > 37;
+      if (hasOverflow) {
+        const wrapped = breakVietnameseLines(line.text.replace(/\r?\n/g, ' '), 37);
+        if (wrapped !== line.text) wrappedCount++;
+        return { ...line, text: wrapped };
+      }
+      return line;
+    });
+    setLines(updated);
     setDirty(true);
     setStatusMessage(
-      `Đã chuẩn hoá Netflix (≤37 ký tự/dòng, 15-21 CPS) cho ${normalized.length} dòng (từ ${beforeCount} dòng gốc). Nhớ bấm "Lưu thay đổi"!`
+      `Đã ngắt dòng hiển thị (\\n) cho ${wrappedCount} câu dài. Bảo toàn 100% mốc thời gian và số lượng dòng!`
     );
   };
 
@@ -531,7 +541,7 @@ export default function SubtitleEditor({
     });
     setNewlyAddedId(line2.id);
     setDirty(true);
-    setStatusMessage(`Đã cắt thông minh câu #${index + 1} tại ${formatMs(line1.endMs)} (chuẩn Netflix).`);
+    setStatusMessage(`Đã cắt thông minh câu #${index + 1} tại ${formatMs(line1.endMs)}.`);
   };
 
   const mergeLineWithNext = (index: number) => {
@@ -684,7 +694,7 @@ export default function SubtitleEditor({
     }
   };
 
-  // Phím tắt Ctrl + S để lưu nhanh, Ctrl + Shift + N để chuẩn hoá Netflix
+  // Phím tắt Ctrl + S để lưu nhanh, Ctrl + Shift + W để ngắt dòng hiển thị (\n)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!isActive) return;
@@ -694,9 +704,9 @@ export default function SubtitleEditor({
           void handleSave();
         }
       }
-      if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'N' || e.key === 'n' || e.code === 'KeyN')) {
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'W' || e.key === 'w' || e.code === 'KeyW')) {
         e.preventDefault();
-        handleNetflixNormalize();
+        handleVisualWrapLines();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -1007,17 +1017,17 @@ export default function SubtitleEditor({
             </span>
           )}
 
-          {/* Nút Chuẩn hoá Netflix (NLP) */}
+          {/* Nút Ngắt dòng hiển thị (\n) */}
           {lines.length > 0 && (
             <button
               type="button"
-              onClick={handleNetflixNormalize}
+              onClick={handleVisualWrapLines}
               disabled={loading || isCleaningSubtitles || isTranslating}
-              title="Tự động ngắt dòng và cân chỉnh thời gian chuẩn Netflix (≤37 ký tự/dòng, 15-21 CPS, không ngắt từ ghép) [Ctrl+Shift+N]"
+              title="Tự động ngắt dòng hiển thị (\n) cho các câu dài vượt quá 37 ký tự, bảo toàn 100% mốc thời gian và số dòng [Ctrl+Shift+W]"
               className="inline-flex items-center gap-1.5 rounded-xl border border-brand-cyan/40 bg-brand-cyan/10 px-3 py-1.5 text-xs font-semibold text-brand-cyan hover:bg-brand-cyan/25 cursor-pointer disabled:opacity-50 transition"
             >
               <Sparkles className="h-3.5 w-3.5 text-brand-cyan" />
-              <span>Chuẩn hoá Netflix (NLP)</span>
+              <span>Ngắt dòng hiển thị (\n)</span>
             </button>
           )}
 
@@ -1299,7 +1309,7 @@ export default function SubtitleEditor({
                             </span>
                           )}
 
-                          {/* Length & CPS Badges (Chuẩn Netflix) */}
+                          {/* Length & CPS Badges */}
                           <div className="flex items-center gap-1.5">
                             {item.text.split(/\r?\n/).map((subLine, lIdx) => {
                               const len = subLine.trim().length;
@@ -1309,7 +1319,7 @@ export default function SubtitleEditor({
                                   key={lIdx}
                                   title={
                                     isOver
-                                      ? `Dòng ${lIdx + 1} vượt quá chuẩn Netflix 37 ký tự (${len}/37)`
+                                      ? `Dòng ${lIdx + 1} vượt quá 37 ký tự (${len}/37)`
                                       : `Độ dài dòng ${lIdx + 1}: ${len}/37 ký tự`
                                   }
                                   className={`font-mono px-1.5 py-0.5 rounded text-[9px] font-semibold border ${
@@ -1330,7 +1340,7 @@ export default function SubtitleEditor({
                               const isHigh = cps > 21;
                               return (
                                 <span
-                                  title={`Tốc độ đọc: ${cps} CPS (Chuẩn Netflix: 15-21 CPS)`}
+                                  title={`Tốc độ đọc: ${cps} CPS (Khuyến nghị: 15-21 CPS)`}
                                   className={`font-mono px-1.5 py-0.5 rounded text-[9px] font-semibold border ${
                                     isHigh
                                       ? 'bg-rose-500/20 text-rose-300 border-rose-500/40'

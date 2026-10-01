@@ -782,6 +782,12 @@ export function consolidateSubtitleClauses(
 }
 
 /**
+ * @deprecated KHÔNG DÙNG TRONG PRODUCTION!
+ * Hàm này gây xé nhỏ câu phụ đề, chèn khoảng lặng nhân tạo 80ms và làm trôi dạt timestamp.
+ * Đối với ASR: sử dụng natural word-level segmenter (wordSegmenter.ts).
+ * Đối với dịch & hiển thị: sử dụng breakVietnameseLines để ngắt dòng hiển thị (\n) thuần tuý.
+ * Hàm này chỉ được giữ lại cho các bài test hồi quy legacy.
+ *
  * Chuẩn hoá toàn bộ danh sách phụ đề theo tiêu chuẩn Netflix:
  * 1. Giới hạn tối đa 37 ký tự/dòng.
  * 2. Tối đa 2 dòng/khung phụ đề.
