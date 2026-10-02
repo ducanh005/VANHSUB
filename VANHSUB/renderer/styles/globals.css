@@ -2,152 +2,495 @@
 @plugin "tailwindcss-animate";
 
 @layer base {
-  :root {
-    /* --- Light Mode --- */
-    --background: 210 40% 98%;
-    --foreground: 222 47% 11%;
-
-    --card: 0 0% 100%;
-    --card-foreground: 222 47% 11%;
-
-    --panel: 214 32% 95%;
-    --panel-foreground: 215 25% 27%;
-
-    --muted: 210 40% 96%;
-    --muted-foreground: 215 16% 47%;
-
-    --border: 214 32% 91%;
-    --border-strong: 214 20% 82%;
-    --input: 214 32% 91%;
-    --ring: 239 84% 67%;
-
-    --brand-cyan: #0EA5E9;
-    --brand-indigo: #6366F1;
-    --brand-rose: #F43F5E;
-    --brand-gradient: linear-gradient(135deg, #0EA5E9 0%, #6366F1 50%, #F43F5E 100%);
-    --brand-gradient-hover: linear-gradient(135deg, #38BDF8 0%, #818CF8 50%, #FB7185 100%);
-    --brand-glow: 0 10px 25px -5px rgba(99, 102, 241, 0.25);
-
-    --success: 152 76% 40%;
-    --warning: 38 92% 50%;
-    --destructive: 350 89% 60%;
-
-    --radius: 1rem;
-  }
-
+  :root,
   .dark {
-    /* --- Dark Mode (Obsidian AI Space) --- */
-    --background: 224 45% 6%;
-    --foreground: 210 40% 98%;
+    /* =========================================================================
+       Neutral Dark Design Tokens (Zed, Linear, VS Code Style)
+       ========================================================================= */
+    /* Background & Surfaces */
+    --bg: #0e0e10;
+    --surface: #151517;
+    --surface-2: #1c1c1f;
+    --surface-3: #242428;
 
-    --card: 223 39% 10%;
-    --card-foreground: 210 40% 98%;
+    /* Borders & Dividers */
+    --border: #26262b;
+    --border-strong: #34343a;
 
-    --panel: 224 40% 8%;
-    --panel-foreground: 215 20% 75%;
+    /* Typography & Text Contrast */
+    --text: #e8e8ea;
+    --text-muted: #8e8e96;
+    --text-faint: #5c5c64;
 
-    --muted: 223 35% 15%;
-    --muted-foreground: 217 19% 65%;
+    /* Accent & Semantic Signals */
+    --accent: #4f8cff;
+    --accent-hover: #6aa0ff;
+    --accent-tint: rgba(79, 140, 255, 0.12);
+    --success: #3fb950;
+    --warning: #d29922;
+    --danger: #f85149;
 
-    --border: 223 30% 18%;
-    --border-strong: 223 25% 25%;
-    --input: 223 30% 18%;
-    --ring: 239 84% 67%;
+    /* Geometry & Sizing Tokens */
+    --radius-sm: 4px;
+    --radius-md: 6px;
+    --radius-lg: 8px;
+    --radius-button: 6px;
+    --radius-card: 8px;
 
-    --brand-cyan: #0EA5E9;
-    --brand-indigo: #6366F1;
-    --brand-rose: #F43F5E;
-    --brand-gradient: linear-gradient(135deg, #0EA5E9 0%, #6366F1 50%, #F43F5E 100%);
-    --brand-gradient-hover: linear-gradient(135deg, #38BDF8 0%, #818CF8 50%, #FB7185 100%);
-    --brand-glow: 0 10px 30px -5px rgba(99, 102, 241, 0.4), 0 0 15px 0 rgba(14, 165, 233, 0.2);
+    /* Typography Stacks */
+    --font-sans: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 
-    --success: 152 76% 48%;
-    --warning: 38 92% 50%;
-    --destructive: 350 89% 60%;
+    /* Backward-compatible brand tokens (clean redirect to accent) */
+    --brand-cyan: var(--accent);
+    --brand-indigo: var(--accent);
+    --brand-rose: var(--accent);
+    --brand-gradient: linear-gradient(135deg, var(--accent) 0%, var(--accent) 100%);
+    --brand-gradient-hover: linear-gradient(135deg, var(--accent-hover) 0%, var(--accent-hover) 100%);
+    --brand-glow: none;
+
+    /* Legacy Radix / shadcn token compatibility aliases */
+    --background: var(--bg);
+    --foreground: var(--text);
+    --card: var(--surface);
+    --card-foreground: var(--text);
+    --panel: var(--surface);
+    --panel-foreground: var(--text-muted);
+    --muted: var(--surface-2);
+    --muted-foreground: var(--text-muted);
+    --input: var(--border);
+    --ring: var(--accent);
+    --destructive: var(--danger);
+    --radius: 6px;
   }
 
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+
+  html,
   body {
-    background-color: hsl(var(--background));
-    color: hsl(var(--foreground));
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", "Noto Sans", Arial, sans-serif;
+    background-color: var(--bg);
+    color: var(--text);
+    font-family: var(--font-sans);
     font-size: 13px;
+    line-height: 1.5;
     -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
+    min-height: 100vh;
+    margin: 0;
+    padding: 0;
+  }
+
+  /* IDE-style text selection */
+  ::selection {
+    background-color: var(--accent);
+    color: #ffffff;
+  }
+
+  /* Form controls inherit typography stack automatically */
+  input,
+  button,
+  textarea,
+  select {
+    font-family: inherit;
+    font-size: inherit;
+  }
+
+  /* Standard monospace elements reset */
+  code,
+  kbd,
+  samp,
+  pre {
+    font-family: var(--font-mono);
   }
 }
 
 @theme inline {
-  --color-background: hsl(var(--background));
-  --color-foreground: hsl(var(--foreground));
-  --color-card: hsl(var(--card));
-  --color-card-foreground: hsl(var(--card-foreground));
-  --color-panel: hsl(var(--panel));
-  --color-panel-foreground: hsl(var(--panel-foreground));
-  --color-muted: hsl(var(--muted));
-  --color-muted-foreground: hsl(var(--muted-foreground));
-  --color-border: hsl(var(--border));
-  --color-border-strong: hsl(var(--border-strong));
-  --color-input: hsl(var(--input));
-  --color-ring: hsl(var(--ring));
+  /* Surfaces & Background */
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
 
-  --color-brand-cyan: var(--brand-cyan);
-  --color-brand-indigo: var(--brand-indigo);
-  --color-brand-rose: var(--brand-rose);
+  /* Borders */
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
 
-  --radius-xl: var(--radius);
-  --radius-2xl: calc(var(--radius) + 4px);
-  --radius-3xl: calc(var(--radius) + 12px);
+  /* Typography */
+  --color-text: var(--text);
+  --color-text-muted: var(--text-muted);
+  --color-text-faint: var(--text-faint);
+
+  /* Shorthand aliases for typography and surfaces */
+  --color-muted: var(--text-muted);
+  --color-faint: var(--text-faint);
+  --color-background: var(--bg);
+  --color-foreground: var(--text);
+  --color-card: var(--surface);
+  --color-card-foreground: var(--text);
+  --color-panel: var(--surface);
+  --color-panel-foreground: var(--text-muted);
+  --color-input: var(--border);
+  --color-ring: var(--accent);
+
+  /* Accent & Semantics */
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-tint: var(--accent-tint);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
+
+  /* Backward-compatible brand mappings */
+  --color-brand-cyan: var(--accent);
+  --color-brand-indigo: var(--accent);
+  --color-brand-rose: var(--accent);
+
+  /* Radii — capped at 8px, buttons at 6px */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-button: 6px;
+  --radius-card: 8px;
+  --radius-xl: 8px;
+  --radius-2xl: 8px;
+  --radius-3xl: 8px;
+
+  /* Dense Spacing Scale */
+  --spacing: 0.25rem;
+  --spacing-1: 4px;
+  --spacing-2: 8px;
+  --spacing-3: 12px;
+  --spacing-4: 16px;
+  --spacing-6: 24px;
+
+  /* Font Families */
+  --font-sans: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
-/* Gradient buttons & badges */
+/* ==========================================================================
+   Legacy Backward Compatibility: .btn-vanh-gradient
+   Solid accent replacement (flat, no glow, white text, 6px radius)
+   Maintains visual neutrality and zero logic/styling breakage for unrefactored CTA buttons.
+   ========================================================================== */
 .btn-vanh-gradient {
-  background: var(--brand-gradient);
-  color: #FFFFFF;
-  box-shadow: var(--brand-glow);
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  background-color: var(--accent);
+  color: #ffffff;
+  border: 1px solid transparent;
+  box-shadow: none;
+  border-radius: var(--radius-button, 6px);
+  transition: background-color 150ms ease, opacity 150ms ease, transform 100ms ease;
 }
 
 .btn-vanh-gradient:hover {
-  background: var(--brand-gradient-hover);
-  transform: translateY(-1px);
-  box-shadow: 0 12px 30px -4px rgba(99, 102, 241, 0.5);
+  background-color: var(--accent-hover);
+  color: #ffffff;
+  box-shadow: none;
+  transform: none;
 }
 
-.text-gradient-brand {
-  background: var(--brand-gradient);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
+.btn-vanh-gradient:active {
+  transform: scale(0.98);
 }
 
-.border-gradient-brand {
-  border-image: var(--brand-gradient) 1;
+.btn-vanh-gradient:disabled,
+.btn-vanh-gradient[disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
+  pointer-events: none;
 }
 
-.card-glass {
-  background: rgba(15, 23, 42, 0.7);
-  backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+/* ==========================================================================
+   Standard Component Utilities (Zed / Linear / VS Code Neutral Dark)
+   ========================================================================== */
+
+/* --- Button Utilities --- */
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  background-color: var(--accent);
+  color: #ffffff;
+  border: 1px solid transparent;
+  border-radius: var(--radius-button, 6px);
+  padding: 0.375rem 0.75rem;
+  font-size: 0.75rem; /* 12px */
+  font-weight: 500;
+  line-height: 1rem;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  box-shadow: none;
+  transition: background-color 150ms ease, opacity 150ms ease, transform 100ms ease;
 }
 
-.card-glass-hover {
-  transition: all 0.25s ease;
+.btn-primary:hover:not(:disabled) {
+  background-color: var(--accent-hover);
 }
 
-.card-glass-hover:hover {
-  border-color: rgba(99, 102, 241, 0.35);
-  background: rgba(15, 23, 42, 0.85);
-  box-shadow: 0 8px 30px -4px rgba(0, 0, 0, 0.5), 0 0 20px -2px rgba(99, 102, 241, 0.15);
-  transform: translateY(-2px);
+.btn-primary:active:not(:disabled) {
+  transform: scale(0.98);
 }
 
-/* Custom Scrollbars */
+.btn-primary:disabled,
+.btn-primary[disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  background-color: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-button, 6px);
+  padding: 0.375rem 0.75rem;
+  font-size: 0.75rem; /* 12px */
+  font-weight: 500;
+  line-height: 1rem;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  box-shadow: none;
+  transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease, transform 100ms ease;
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background-color: var(--surface-3);
+  border-color: var(--border-strong);
+}
+
+.btn-secondary:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.btn-secondary:disabled,
+.btn-secondary[disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  background-color: transparent;
+  color: var(--text-muted);
+  border: 1px solid transparent;
+  border-radius: var(--radius-button, 6px);
+  padding: 0.25rem 0.5rem;
+  font-size: 0.75rem; /* 12px */
+  font-weight: 500;
+  line-height: 1rem;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  box-shadow: none;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+
+.btn-ghost:hover:not(:disabled) {
+  background-color: var(--surface-2);
+  color: var(--text);
+}
+
+.btn-ghost:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.btn-ghost:disabled,
+.btn-ghost[disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.btn-danger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  background-color: rgba(248, 81, 73, 0.12);
+  color: var(--danger);
+  border: 1px solid rgba(248, 81, 73, 0.25);
+  border-radius: var(--radius-button, 6px);
+  padding: 0.375rem 0.75rem;
+  font-size: 0.75rem; /* 12px */
+  font-weight: 500;
+  line-height: 1rem;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  box-shadow: none;
+  transition: background-color 150ms ease, border-color 150ms ease, opacity 150ms ease, transform 100ms ease;
+}
+
+.btn-danger:hover:not(:disabled) {
+  background-color: rgba(248, 81, 73, 0.2);
+  border-color: rgba(248, 81, 73, 0.45);
+}
+
+.btn-danger:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.btn-danger:disabled,
+.btn-danger[disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* --- Form Controls --- */
+.input-base {
+  display: block;
+  width: 100%;
+  background-color: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-button, 6px);
+  padding: 0.375rem 0.75rem;
+  font-size: 0.75rem; /* 12px */
+  line-height: 1.25rem;
+  outline: none;
+  box-shadow: none;
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+
+.input-base::placeholder {
+  color: var(--text-faint);
+}
+
+.input-base:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px rgba(79, 140, 255, 0.25);
+}
+
+.input-base:disabled,
+.input-base[disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background-color: var(--surface);
+}
+
+/* --- Card & Panel Utilities --- */
+.card-base {
+  background-color: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card, 8px);
+  padding: 1rem;
+  color: var(--text);
+  box-shadow: none;
+}
+
+.card-interactive {
+  background-color: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card, 8px);
+  padding: 1rem;
+  color: var(--text);
+  box-shadow: none;
+  cursor: pointer;
+  transition: background-color 150ms ease, border-color 150ms ease;
+}
+
+.card-interactive:hover {
+  background-color: var(--surface-2);
+  border-color: var(--border-strong);
+}
+
+.panel-base {
+  background-color: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text);
+  box-shadow: none;
+}
+
+/* --- Badge & Tag Utilities --- */
+.badge-base {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  border-radius: var(--radius-sm, 4px);
+  padding: 0.125rem 0.5rem;
+  font-size: 0.6875rem; /* 11px */
+  font-weight: 500;
+  line-height: 1rem;
+  border: 1px solid transparent;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.badge-accent {
+  background-color: var(--accent-tint);
+  color: var(--accent);
+}
+
+.badge-success {
+  background-color: rgba(63, 185, 80, 0.12);
+  color: var(--success);
+}
+
+.badge-warning {
+  background-color: rgba(210, 153, 34, 0.12);
+  color: var(--warning);
+}
+
+.badge-danger {
+  background-color: rgba(248, 81, 73, 0.12);
+  color: var(--danger);
+}
+
+.badge-neutral {
+  background-color: var(--surface-3);
+  color: var(--text-muted);
+}
+
+/* --- Navigation & Table Utilities --- */
+.nav-item-active {
+  position: relative;
+  background-color: var(--surface-3);
+  color: var(--text);
+  border-radius: var(--radius-button, 6px);
+}
+
+.nav-item-active::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 6px;
+  bottom: 6px;
+  width: 2px;
+  border-radius: 1px;
+  background-color: var(--accent);
+}
+
+.row-hover {
+  transition: background-color 150ms ease;
+}
+
+.row-hover:hover {
+  background-color: var(--surface-2);
+}
+
+/* ==========================================================================
+   Standard Custom Scrollbars (Zed / Linear / VS Code Modern Thin Style)
+   ========================================================================== */
 * {
   scrollbar-width: thin;
-  scrollbar-color: transparent transparent;
-}
-
-*:hover {
-  scrollbar-color: hsl(var(--border)) transparent;
+  scrollbar-color: var(--surface-3) transparent;
 }
 
 ::-webkit-scrollbar {
@@ -160,17 +503,48 @@
 }
 
 ::-webkit-scrollbar-thumb {
-  background-color: transparent;
+  background-color: var(--surface-3);
   border-radius: 9999px;
   border: 2px solid transparent;
   background-clip: content-box;
 }
 
-*:hover::-webkit-scrollbar-thumb {
-  background-color: hsl(var(--border));
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--border-strong);
 }
 
-::-webkit-scrollbar-thumb:hover {
-  background-color: hsl(var(--muted-foreground));
+::-webkit-scrollbar-corner {
+  background: transparent;
 }
+
+/* Explicit .custom-scrollbar support for existing components */
+.custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: var(--surface-3) transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background-color: var(--surface-3);
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background-color: var(--border-strong);
+}
+
+.custom-scrollbar::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
 

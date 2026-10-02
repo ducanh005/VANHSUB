@@ -322,6 +322,27 @@ function FlowCanvasInner({
     return calculateGraphCreditEstimate(nodes);
   }, [nodes]);
 
+  // Dynamic neutral edges with active accent highlight on running/selected connections
+  const styledEdges = useMemo(() => {
+    return edges.map((edge) => {
+      const isSourceRunning = runtimeMap[edge.source]?.status === 'running';
+      const isTargetRunning = runtimeMap[edge.target]?.status === 'running';
+      const isSelected = edge.selected || edge.source === selectedNodeId || edge.target === selectedNodeId;
+      const isActive = isSourceRunning || isTargetRunning || isSelected;
+
+      return {
+        ...edge,
+        style: {
+          stroke: isActive ? '#4f8cff' : '#26262b',
+          strokeWidth: isActive ? 2 : 1.5,
+          ...edge.style,
+          ...(isActive ? { stroke: '#4f8cff' } : {}),
+        },
+        animated: edge.animated || isSourceRunning || isTargetRunning,
+      };
+    });
+  }, [edges, runtimeMap, selectedNodeId]);
+
   // Kéo thả Node từ Library vào Canvas
   const onDragOver = useCallback((event: React.DragEvent) => {
     event.preventDefault();
@@ -453,29 +474,29 @@ function FlowCanvasInner({
   };
 
   return (
-    <div className="w-full h-full flex flex-col bg-[#0b0f19] text-slate-100 overflow-hidden select-none">
+    <div className="w-full h-full flex flex-col bg-bg text-text overflow-hidden select-none">
       {/* Top Navigation Toolbar */}
-      <header className="h-14 shrink-0 border-b border-slate-800/80 bg-[#0d131f]/95 px-4 flex items-center justify-between gap-3 z-10 shadow-lg overflow-x-auto custom-scrollbar min-w-0">
+      <header className="h-12 shrink-0 border-b border-border bg-surface px-4 flex items-center justify-between gap-2.5 z-10 overflow-x-auto custom-scrollbar min-w-0">
         {/* Left: Workflow Title & Preset Picker */}
         <div className="flex items-center gap-2.5 shrink-0">
           <div className="flex items-center gap-2">
-            <div className="p-1.5 rounded-lg bg-indigo-600/30 border border-indigo-500/40 text-indigo-400">
-              <Layers className="w-4 h-4" />
+            <div className="p-1.5 rounded-md bg-surface-2 border border-border text-accent">
+              <Layers className="w-3.5 h-3.5" />
             </div>
             <input
               type="text"
               value={graphName}
               onChange={(e) => setGraphName(e.target.value)}
-              className="bg-transparent border-b border-transparent hover:border-slate-700 focus:border-indigo-500 font-bold text-sm text-white px-1 py-0.5 focus:outline-none transition-colors w-44 lg:w-52 truncate"
+              className="bg-transparent border-b border-transparent hover:border-border focus:border-accent font-semibold text-xs text-text px-1 py-0.5 focus:outline-none transition-colors w-40 lg:w-48 truncate"
               title="Nhấp để đổi tên Workflow"
             />
           </div>
 
-          <div className="h-5 w-[1px] bg-slate-800" />
+          <div className="h-4 w-[1px] bg-border" />
 
           {/* Template Presets Picker */}
           <div className="flex items-center gap-2">
-            <span className="text-xs text-slate-400 hidden sm:inline">Mẫu:</span>
+            <span className="text-xs text-text-muted hidden sm:inline">Mẫu:</span>
             <select
               value={activePresetId}
               onChange={(e) => {
@@ -490,20 +511,20 @@ function FlowCanvasInner({
                   toast.success('Đã tải mẫu workflow mới');
                 }
               }}
-              className="text-xs rounded-lg bg-slate-900 border border-slate-800 px-2.5 py-1 text-slate-200 focus:outline-none focus:border-indigo-500 cursor-pointer"
+              className="text-xs rounded-md bg-surface-2 border border-border px-2.5 py-1 text-text focus:outline-none focus:border-accent cursor-pointer"
             >
               {savedWorkflows.length > 0 && (
                 <optgroup label="Workflow đã lưu của bạn">
                   {savedWorkflows.map((sw) => (
-                    <option key={sw.id} value={`saved_${sw.id}`}>
-                      ⭐ {sw.name}
+                    <option key={sw.id} value={`saved_${sw.id}`} className="bg-surface-2 text-text">
+                      {sw.name}
                     </option>
                   ))}
                 </optgroup>
               )}
               <optgroup label="Mẫu tích hợp sẵn">
                 {WORKFLOW_PRESETS.map((preset) => (
-                  <option key={preset.id} value={preset.id} className="bg-slate-900">
+                  <option key={preset.id} value={preset.id} className="bg-surface-2 text-text">
                     {preset.name}
                   </option>
                 ))}
@@ -513,66 +534,66 @@ function FlowCanvasInner({
             <button
               onClick={() => setShowWorkflowManager(true)}
               title="Quản lý danh sách Workflow đã lưu & Thùng rác (Xoá, Khôi phục)"
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-800 text-xs font-medium text-slate-300 hover:text-white transition-colors cursor-pointer shrink-0"
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-surface-2 hover:bg-surface-3 border border-border text-xs font-medium text-text hover:text-text transition-colors cursor-pointer shrink-0"
             >
-              <FolderKanban className="w-3.5 h-3.5 text-indigo-400" />
+              <FolderKanban className="w-3.5 h-3.5 text-text-muted" />
               <span className="hidden md:inline">Quản lý</span>
             </button>
           </div>
 
-          <div className="h-5 w-[1px] bg-slate-800 hidden sm:block" />
+          <div className="h-4 w-[1px] bg-border hidden sm:block" />
 
           {/* Consistency Bibles (Character & Scene) */}
           <button
             onClick={() => setShowCharacterBible(true)}
             title="Mở Character Bible (Hồ sơ Nhân vật)"
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-rose-950/40 hover:bg-rose-900/60 border border-rose-800/50 text-xs font-semibold text-rose-300 hover:text-white transition-colors shrink-0 cursor-pointer"
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-surface-2 hover:bg-surface-3 border border-border text-xs font-medium text-text hover:text-text transition-colors shrink-0 cursor-pointer"
           >
-            <Users className="w-3.5 h-3.5 text-rose-400" />
+            <Users className="w-3.5 h-3.5 text-text-muted" />
             <span className="hidden lg:inline">Character Bible</span>
           </button>
 
           <button
             onClick={() => setShowSceneBible(true)}
             title="Mở Scene Bible (Bối cảnh Không gian)"
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-950/40 hover:bg-indigo-900/60 border border-indigo-800/50 text-xs font-semibold text-indigo-300 hover:text-white transition-colors shrink-0 cursor-pointer"
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-surface-2 hover:bg-surface-3 border border-border text-xs font-medium text-text hover:text-text transition-colors shrink-0 cursor-pointer"
           >
-            <Building className="w-3.5 h-3.5 text-indigo-400" />
+            <Building className="w-3.5 h-3.5 text-text-muted" />
             <span className="hidden lg:inline">Scene Bible</span>
           </button>
 
           <button
             onClick={() => setShowTimeline(!showTimeline)}
             title="Bật/Tắt Master Timeline (Thanh Dựng Phim)"
-            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-semibold transition-colors shrink-0 cursor-pointer ${
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-xs font-medium transition-colors shrink-0 cursor-pointer ${
               showTimeline
-                ? 'bg-amber-950/50 border-amber-700/60 text-amber-300'
-                : 'bg-slate-900/60 border-slate-800 text-slate-400 hover:text-white'
+                ? 'bg-surface-3 border-accent text-accent'
+                : 'bg-surface-2 border-border text-text-muted hover:text-text'
             }`}
           >
-            <Film className="w-3.5 h-3.5 text-amber-400" />
+            <Film className="w-3.5 h-3.5" />
             <span className="hidden lg:inline">Timeline</span>
           </button>
 
           <button
             onClick={() => setShowStudio(true)}
             title="Mở Storyboard Director Studio (Giao diện Đạo diễn 3 bước chuẩn)"
-            className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-gradient-to-r from-rose-600 to-indigo-600 hover:from-rose-500 hover:to-indigo-500 text-xs font-bold text-white shadow-md shadow-rose-950/40 transition-all shrink-0 cursor-pointer"
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-surface-2 hover:bg-surface-3 border border-border text-xs font-medium text-text hover:text-text transition-colors shrink-0 cursor-pointer"
           >
-            <Sparkles className="w-3.5 h-3.5" />
+            <Sparkles className="w-3.5 h-3.5 text-accent" />
             <span className="hidden lg:inline">Storyboard Studio</span>
           </button>
         </div>
 
         {/* Center: Estimated Render Cost & Credits (Mục 8 đặc tả & Credit Calculator) */}
         {estimatedStats.modelCount > 0 && (
-          <div className="hidden xl:flex items-center gap-2.5 px-3.5 py-1 rounded-full bg-slate-900/90 border border-amber-800/60 text-xs text-slate-300 shrink-0 shadow-sm">
-            <Coins className="w-3.5 h-3.5 text-amber-400" />
-            <span className="text-slate-400">Dự tính tiêu tốn:</span>
-            <span className="font-bold font-mono text-amber-300">~{estimatedStats.totalCredits} Credits</span>
-            <span className="text-slate-500 font-mono">(~${estimatedStats.totalCostUsd} USD)</span>
-            <span className="text-slate-600">•</span>
-            <span className="text-slate-400">{estimatedStats.videoSeconds}s video ({estimatedStats.modelCount} nodes)</span>
+          <div className="hidden xl:flex items-center gap-2 px-3 py-1 rounded-md bg-surface-2 border border-border text-xs text-text shrink-0">
+            <Coins className="w-3.5 h-3.5 text-warning" />
+            <span className="text-text-muted">Dự tính:</span>
+            <span className="font-medium font-mono text-warning">~{estimatedStats.totalCredits} Credits</span>
+            <span className="text-text-muted font-mono">(~${estimatedStats.totalCostUsd})</span>
+            <span className="text-text-faint">•</span>
+            <span className="text-text-muted">{estimatedStats.videoSeconds}s ({estimatedStats.modelCount} nodes)</span>
           </div>
         )}
 
@@ -592,32 +613,32 @@ function FlowCanvasInner({
               toast.success(`Đã lưu workflow "${graphName}" thành công!`);
             }}
             title="Lưu workflow hiện tại vào bộ nhớ máy"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-950/70 hover:bg-emerald-900 border border-emerald-700/60 text-xs font-bold text-emerald-300 hover:text-white transition-colors cursor-pointer shadow-sm"
+            className="flex items-center gap-1.5 px-3 py-1 rounded-md bg-surface-2 hover:bg-surface-3 border border-border text-xs font-medium text-text hover:text-text transition-colors cursor-pointer"
           >
-            <Save className="w-3.5 h-3.5 text-emerald-400" />
-            <span className="hidden sm:inline">Lưu Workflow</span>
+            <Save className="w-3.5 h-3.5 text-text-muted" />
+            <span className="hidden sm:inline">Lưu</span>
           </button>
 
           <button
             onClick={() => fileInputRef.current?.click()}
             title="Nhập Workflow từ file JSON"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-800 text-xs font-medium text-slate-300 hover:text-white transition-colors"
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-surface-2 hover:bg-surface-3 border border-border text-xs font-medium text-text hover:text-text transition-colors"
           >
-            <Upload className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Nhập JSON</span>
+            <Upload className="w-3.5 h-3.5 text-text-muted" />
+            <span className="hidden sm:inline">Nhập</span>
           </button>
 
           <button
             onClick={handleExportJson}
             title="Xuất Workflow ra file JSON"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-800 text-xs font-medium text-slate-300 hover:text-white transition-colors"
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-surface-2 hover:bg-surface-3 border border-border text-xs font-medium text-text hover:text-text transition-colors"
           >
-            <Download className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Xuất JSON</span>
+            <Download className="w-3.5 h-3.5 text-text-muted" />
+            <span className="hidden sm:inline">Xuất</span>
           </button>
 
           {/* Canvas Undo / Redo */}
-          <div className="flex items-center bg-slate-900/80 p-0.5 rounded-lg border border-slate-800">
+          <div className="flex items-center bg-surface-2 p-0.5 rounded-md border border-border">
             <button
               onClick={() => {
                 if (canUndo) {
@@ -627,10 +648,10 @@ function FlowCanvasInner({
               }}
               disabled={!canUndo}
               title="Hoàn tác thay đổi canvas (Ctrl+Z)"
-              className={`p-1.5 rounded-md transition-colors ${
+              className={`p-1 rounded transition-colors ${
                 canUndo
-                  ? 'text-slate-200 hover:bg-slate-800 hover:text-white cursor-pointer'
-                  : 'text-slate-600 cursor-not-allowed opacity-40'
+                  ? 'text-text hover:bg-surface-3 hover:text-text cursor-pointer'
+                  : 'text-text-faint cursor-not-allowed opacity-40'
               }`}
             >
               <Undo2 className="w-3.5 h-3.5" />
@@ -644,10 +665,10 @@ function FlowCanvasInner({
               }}
               disabled={!canRedo}
               title="Làm lại thay đổi canvas (Ctrl+Y hoặc Ctrl+Shift+Z)"
-              className={`p-1.5 rounded-md transition-colors ${
+              className={`p-1 rounded transition-colors ${
                 canRedo
-                  ? 'text-slate-200 hover:bg-slate-800 hover:text-white cursor-pointer'
-                  : 'text-slate-600 cursor-not-allowed opacity-40'
+                  ? 'text-text hover:bg-surface-3 hover:text-text cursor-pointer'
+                  : 'text-text-faint cursor-not-allowed opacity-40'
               }`}
             >
               <Redo2 className="w-3.5 h-3.5" />
@@ -657,25 +678,25 @@ function FlowCanvasInner({
           <button
             onClick={clearCanvas}
             title="Xóa toàn bộ node trên canvas"
-            className="p-1.5 rounded-lg bg-slate-900 hover:bg-rose-950/60 border border-slate-800 hover:border-rose-900/60 text-slate-400 hover:text-rose-300 transition-colors"
+            className="p-1.5 rounded-md bg-surface-2 hover:bg-surface-3 border border-border hover:border-danger/40 text-text-muted hover:text-danger transition-colors cursor-pointer"
           >
             <RotateCcw className="w-3.5 h-3.5" />
           </button>
 
-          <div className="h-5 w-[1px] bg-slate-800" />
+          <div className="h-4 w-[1px] bg-border" />
 
           {/* Google Login / Veo Session Integration */}
-          <div className="flex items-center gap-1.5 bg-slate-900/80 p-0.5 rounded-lg border border-slate-800">
+          <div className="flex items-center gap-1.5 bg-surface-2 p-0.5 rounded-md border border-border">
             {veoMode === 'free_session' ? (
               veoSessionStatus === 'active' ? (
                 <button
                   onClick={() => setShowApiKeyModal(true)}
                   title={`Google Veo đã kết nối (${veoEmail || 'Tài khoản hoạt động'}). Nhấn để quản lý.`}
-                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-emerald-950/60 hover:bg-emerald-900/80 border border-emerald-700/60 text-emerald-300 text-xs font-semibold transition-all cursor-pointer"
+                  className="flex items-center gap-1.5 px-2 py-1 rounded bg-surface hover:bg-surface-3 border border-border text-text text-xs font-medium transition-colors cursor-pointer"
                 >
                   <GoogleIcon className="w-3.5 h-3.5" />
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
-                  <span className="max-w-[120px] truncate text-[11px]">
+                  <span className="w-1.5 h-1.5 rounded-full bg-success shrink-0" />
+                  <span className="max-w-[110px] truncate text-[11px]">
                     {veoEmail ? veoEmail.split('@')[0] : 'Google Sẵn sàng'}
                   </span>
                 </button>
@@ -684,7 +705,7 @@ function FlowCanvasInner({
                   onClick={handleOpenGoogleLogin}
                   disabled={isOpeningGoogle}
                   title="Đăng nhập tài khoản Google để kích hoạt Google Veo Free"
-                  className="flex items-center gap-1.5 px-3 py-1 rounded-md bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs font-semibold shadow-md shadow-indigo-500/20 transition-all cursor-pointer active:scale-95"
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-accent hover:bg-accent-hover text-white text-xs font-medium transition-colors cursor-pointer active:scale-95"
                 >
                   <GoogleIcon className="w-3.5 h-3.5 bg-white p-0.5 rounded-full shrink-0" />
                   <span>{isOpeningGoogle ? 'Đang mở...' : 'Đăng nhập Google'}</span>
@@ -694,13 +715,13 @@ function FlowCanvasInner({
               <button
                 onClick={() => setShowApiKeyModal(true)}
                 title="Cấu hình Google Gemini API Key"
-                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-xs font-semibold transition-all cursor-pointer ${
+                className={`flex items-center gap-1.5 px-2 py-1 rounded border text-xs font-medium transition-colors cursor-pointer ${
                   hasGeminiKey
-                    ? 'bg-indigo-950/60 hover:bg-indigo-900/80 border-indigo-700/60 text-indigo-300'
-                    : 'bg-amber-950/60 hover:bg-amber-900/80 border-amber-700/60 text-amber-300'
+                    ? 'bg-surface hover:bg-surface-3 border-border text-text'
+                    : 'bg-surface hover:bg-surface-3 border-warning/40 text-warning'
                 }`}
               >
-                <Key className="w-3 h-3" />
+                <Key className="w-3 h-3 text-text-muted" />
                 <span className="text-[11px]">
                   {hasGeminiKey ? 'Gemini Key: OK' : 'Cần Gemini Key'}
                 </span>
@@ -709,9 +730,9 @@ function FlowCanvasInner({
               <button
                 onClick={() => setShowApiKeyModal(true)}
                 title="Chế độ mô phỏng Veo không cần tài khoản"
-                className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 text-xs font-medium cursor-pointer"
+                className="flex items-center gap-1.5 px-2 py-1 rounded bg-surface hover:bg-surface-3 border border-border text-text text-xs font-medium cursor-pointer"
               >
-                <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
+                <span className="w-1.5 h-1.5 rounded-full bg-text-muted" />
                 <span className="text-[11px]">Veo Mô phỏng</span>
               </button>
             )}
@@ -720,7 +741,7 @@ function FlowCanvasInner({
             <button
               onClick={() => setShowApiKeyModal(true)}
               title="Cài đặt cấu hình AI (Google Session / API Key / Chế độ)"
-              className="p-1 rounded-md hover:bg-slate-800 text-slate-400 hover:text-slate-200 transition-colors cursor-pointer"
+              className="p-1 rounded hover:bg-surface-3 text-text-muted hover:text-text transition-colors cursor-pointer"
             >
               <Settings className="w-3.5 h-3.5" />
             </button>
@@ -730,10 +751,10 @@ function FlowCanvasInner({
           <button
             onClick={() => setShowLibrary((prev) => !prev)}
             title="Ẩn/Hiện Thư viện Node"
-            className={`px-2 py-1 rounded-lg border text-xs font-medium transition-colors cursor-pointer ${
+            className={`px-2.5 py-1 rounded-md border text-xs font-medium transition-colors cursor-pointer ${
               showLibrary
-                ? 'bg-indigo-950/70 border-indigo-700/60 text-indigo-300'
-                : 'bg-slate-900 border-slate-800 text-slate-400'
+                ? 'bg-surface-3 border-accent text-accent'
+                : 'bg-surface-2 border-border text-text-muted hover:text-text'
             }`}
           >
             Thư viện
@@ -742,10 +763,10 @@ function FlowCanvasInner({
           <button
             onClick={() => setShowInspector((prev) => !prev)}
             title="Ẩn/Hiện Bảng Điều khiển"
-            className={`px-2 py-1 rounded-lg border text-xs font-medium transition-colors cursor-pointer ${
+            className={`px-2.5 py-1 rounded-md border text-xs font-medium transition-colors cursor-pointer ${
               showInspector
-                ? 'bg-indigo-950/70 border-indigo-700/60 text-indigo-300'
-                : 'bg-slate-900 border-slate-800 text-slate-400'
+                ? 'bg-surface-3 border-accent text-accent'
+                : 'bg-surface-2 border-border text-text-muted hover:text-text'
             }`}
           >
             Thuộc tính
@@ -769,10 +790,10 @@ function FlowCanvasInner({
               }
             }}
             title={isZenMode ? 'Thoát Toàn Màn Hình Canvas (Esc)' : 'Toàn màn hình Canvas (Zen Mode)'}
-            className={`p-1.5 rounded-lg border text-xs font-medium transition-colors cursor-pointer ${
+            className={`p-1.5 rounded-md border text-xs font-medium transition-colors cursor-pointer ${
               isZenMode
-                ? 'bg-indigo-600 border-indigo-500 text-white'
-                : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
+                ? 'bg-accent border-accent text-white'
+                : 'bg-surface-2 border-border text-text-muted hover:text-text'
             }`}
           >
             {isZenMode ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
@@ -781,7 +802,7 @@ function FlowCanvasInner({
           {/* Primary Run / Cancel Button */}
           {isRunning ? (
             <div className="flex items-center gap-1.5">
-              <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 border border-amber-500/40 text-amber-300 text-xs font-semibold">
+              <span className="flex items-center gap-1.5 px-3 py-1 rounded-md bg-surface-2 border border-warning/40 text-warning text-xs font-medium">
                 <Clock className="w-3.5 h-3.5 animate-spin" />
                 <span>Đang render...</span>
               </span>
@@ -799,7 +820,7 @@ function FlowCanvasInner({
                     }
                   }
                 }}
-                className="px-2.5 py-1.5 rounded-lg bg-rose-950/70 hover:bg-rose-900 border border-rose-800 text-rose-300 text-xs font-bold transition-colors cursor-pointer active:scale-95"
+                className="px-2.5 py-1 rounded-md bg-danger/10 hover:bg-danger/20 border border-danger/40 text-danger text-xs font-medium transition-colors cursor-pointer active:scale-95"
                 title="Hủy quá trình render hiện tại"
               >
                 Hủy
@@ -813,12 +834,12 @@ function FlowCanvasInner({
                   ? `Khởi chạy toàn bộ đồ thị DAG (${estimatedStats.modelCount} node AI). Dự kiến tiêu tốn: ~${estimatedStats.totalCredits} Credits (~$${estimatedStats.totalCostUsd} USD).`
                   : 'Khởi chạy toàn bộ đồ thị DAG'
               }
-              className="flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-gradient-to-r from-amber-500 via-rose-500 to-indigo-600 hover:from-amber-400 hover:to-indigo-500 text-white text-xs font-bold shadow-[0_0_15px_rgba(244,63,94,0.3)] transition-all active:scale-95 cursor-pointer"
+              className="flex items-center gap-1.5 px-3 py-1 rounded-md bg-accent hover:bg-accent-hover text-white text-xs font-medium shadow-none transition-colors active:scale-95 cursor-pointer"
             >
               <Play className="w-3.5 h-3.5 fill-current" />
               <span>Chạy Workflow</span>
               {estimatedStats.totalCredits > 0 && (
-                <span className="px-1.5 py-0.2 rounded bg-black/35 font-mono text-[10px] text-amber-200 border border-amber-400/30">
+                <span className="px-1.5 py-0.2 rounded bg-black/20 font-mono text-[10px] text-white/90 border border-white/20">
                   ~{estimatedStats.totalCredits} Cr
                 </span>
               )}
@@ -835,20 +856,20 @@ function FlowCanvasInner({
             <NodeLibrary onClose={() => setShowLibrary(false)} />
             <button
               onClick={() => setShowLibrary(false)}
-              className="absolute -right-3 top-1/2 -translate-y-1/2 z-20 w-6 h-12 bg-slate-900 border border-slate-700 hover:border-indigo-500 rounded-r-lg flex items-center justify-center text-slate-400 hover:text-white shadow-xl transition-colors cursor-pointer"
+              className="absolute -right-3 top-1/2 -translate-y-1/2 z-20 w-5 h-10 bg-surface border border-border hover:border-accent rounded-r-md flex items-center justify-center text-text-muted hover:text-text transition-colors cursor-pointer shadow-none"
               title="Thu gọn Thư viện Node (Ẩn panel)"
             >
-              <ChevronLeft className="w-3.5 h-3.5" />
+              <ChevronLeft className="w-3 h-3" />
             </button>
           </div>
         ) : (
           <button
             onClick={() => setShowLibrary(true)}
-            className="absolute left-0 top-1/2 -translate-y-1/2 z-20 px-1.5 py-3 bg-slate-900/90 hover:bg-indigo-950 border border-l-0 border-slate-700 hover:border-indigo-500 rounded-r-xl flex items-center gap-1 text-slate-300 hover:text-white shadow-2xl backdrop-blur-md text-xs font-semibold transition-all group cursor-pointer"
+            className="absolute left-0 top-1/2 -translate-y-1/2 z-20 px-1 py-3 bg-surface hover:bg-surface-2 border border-l-0 border-border hover:border-border-strong rounded-r-md flex items-center gap-1 text-text-muted hover:text-text text-xs font-medium transition-colors group cursor-pointer shadow-none"
             title="Mở rộng Thư viện Node"
           >
-            <ChevronRight className="w-3.5 h-3.5 text-indigo-400 group-hover:translate-x-0.5 transition-transform" />
-            <span className="[writing-mode:vertical-lr] tracking-widest text-[10px] py-1 text-slate-400 group-hover:text-slate-200">
+            <ChevronRight className="w-3.5 h-3.5 text-text-muted group-hover:text-text group-hover:translate-x-0.5 transition-transform" />
+            <span className="[writing-mode:vertical-lr] tracking-widest text-[10px] py-1 text-text-muted group-hover:text-text">
               THƯ VIỆN
             </span>
           </button>
@@ -866,9 +887,9 @@ function FlowCanvasInner({
                   setShowInspector(true);
                   setShowTimeline(true);
                 }}
-                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-2xl backdrop-blur-md transition-all border border-indigo-400/40 cursor-pointer"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-surface-2 hover:bg-surface-3 text-text text-xs font-medium transition-colors border border-border cursor-pointer shadow-none"
               >
-                <Minimize2 className="w-3.5 h-3.5" />
+                <Minimize2 className="w-3.5 h-3.5 text-text-muted" />
                 <span>Thoát Toàn màn hình (Esc)</span>
               </button>
             </div>
@@ -876,7 +897,7 @@ function FlowCanvasInner({
 
           <ReactFlow
             nodes={nodes}
-            edges={edges}
+            edges={styledEdges}
             nodeTypes={nodeTypes}
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
@@ -892,37 +913,39 @@ function FlowCanvasInner({
             maxZoom={2.5}
             defaultViewport={{ x: 0, y: 0, zoom: 0.85 }}
             deleteKeyCode={['Backspace', 'Delete']}
-            className="bg-[#090d16]"
+            connectionLineStyle={{ stroke: '#4f8cff', strokeWidth: 1.5 }}
+            defaultEdgeOptions={{ style: { stroke: '#26262b', strokeWidth: 1.5 } }}
+            className="bg-bg"
           >
-            <Background color="#334155" gap={20} size={1.2} />
-            <Controls className="!bg-[#0f172a] !border-slate-800 !text-slate-300 !fill-slate-300 [&>button]:!border-slate-800 [&>button:hover]:!bg-slate-800" />
+            <Background color="#26262b" gap={20} size={1} />
+            <Controls className="!bg-surface !border !border-border !rounded-md !shadow-none [&>button]:!bg-surface [&>button]:!border-border [&>button]:!text-text-muted [&>button:hover]:!bg-surface-2 [&>button:hover]:!text-text [&>button]:!fill-current" />
             <MiniMap
               nodeColor={(n) => {
                 const nodeData = n.data as any;
-                if (nodeData?.category === 'model') return '#a855f7';
-                if (nodeData?.category === 'input') return '#10b981';
-                if (nodeData?.category === 'output') return '#eab308';
-                if (nodeData?.category === 'consistency') return '#f43f5e';
-                if (nodeData?.category === 'editing') return '#0ea5e9';
-                return '#64748b';
+                if (nodeData?.category === 'model') return '#4f8cff';
+                if (nodeData?.category === 'input') return '#3fb950';
+                if (nodeData?.category === 'output') return '#d29922';
+                if (nodeData?.category === 'consistency') return '#f85149';
+                if (nodeData?.category === 'editing') return '#4f8cff';
+                return '#5c5c64';
               }}
-              maskColor="rgba(11, 15, 25, 0.75)"
-              className="!bg-[#0f172a]/90 !border !border-slate-800 !rounded-xl overflow-hidden shadow-2xl"
+              maskColor="rgba(14, 14, 16, 0.75)"
+              className="!bg-surface !border !border-border !rounded-md !shadow-none overflow-hidden"
             />
           </ReactFlow>
 
           {/* Canvas Bottom Overlay: Node Stats & Quick Controls */}
-          <div className="absolute bottom-4 left-4 z-10 flex items-center gap-2 bg-[#0d131f]/90 backdrop-blur-md px-3 py-1.5 rounded-xl border border-slate-800 text-xs text-slate-400 shadow-xl">
+          <div className="absolute bottom-4 left-4 z-10 flex items-center gap-2 bg-surface/95 px-3 py-1.5 rounded-md border border-border text-xs text-text-muted shadow-none">
             <span className="flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-emerald-500" />
-              <span>{nodes.length} Nodes</span>
+              <span className="w-2 h-2 rounded-full bg-success" />
+              <span className="text-text">{nodes.length} Nodes</span>
             </span>
-            <span className="text-slate-600">•</span>
+            <span className="text-text-faint">•</span>
             <span>{edges.length} Kết nối</span>
-            <span className="text-slate-600">•</span>
+            <span className="text-text-faint">•</span>
             <button
               onClick={() => setShowQueueDrawer((p) => !p)}
-              className="text-indigo-400 hover:text-indigo-300 font-medium flex items-center gap-1 cursor-pointer"
+              className="text-accent hover:text-accent-hover font-medium flex items-center gap-1 cursor-pointer transition-colors"
             >
               <span>Hàng đợi Render</span>
               {showQueueDrawer ? <ChevronDown className="w-3 h-3" /> : <ChevronUp className="w-3 h-3" />}
@@ -935,23 +958,23 @@ function FlowCanvasInner({
           <div className="relative flex shrink-0 h-full">
             <button
               onClick={() => setShowInspector(false)}
-              className="absolute -left-3 top-1/2 -translate-y-1/2 z-20 w-6 h-12 bg-slate-900 border border-slate-700 hover:border-indigo-500 rounded-l-lg flex items-center justify-center text-slate-400 hover:text-white shadow-xl transition-colors cursor-pointer"
+              className="absolute -left-3 top-1/2 -translate-y-1/2 z-20 w-5 h-10 bg-surface border border-border hover:border-accent rounded-l-md flex items-center justify-center text-text-muted hover:text-text transition-colors cursor-pointer shadow-none"
               title="Thu gọn Bảng Điều khiển (Ẩn panel)"
             >
-              <ChevronRight className="w-3.5 h-3.5" />
+              <ChevronRight className="w-3 h-3" />
             </button>
             <Inspector onClose={() => setShowInspector(false)} />
           </div>
         ) : (
           <button
             onClick={() => setShowInspector(true)}
-            className="absolute right-0 top-1/2 -translate-y-1/2 z-20 px-1.5 py-3 bg-slate-900/90 hover:bg-indigo-950 border border-r-0 border-slate-700 hover:border-indigo-500 rounded-l-xl flex items-center gap-1 text-slate-300 hover:text-white shadow-2xl backdrop-blur-md text-xs font-semibold transition-all group cursor-pointer"
+            className="absolute right-0 top-1/2 -translate-y-1/2 z-20 px-1 py-3 bg-surface hover:bg-surface-2 border border-r-0 border-border hover:border-border-strong rounded-l-md flex items-center gap-1 text-text-muted hover:text-text text-xs font-medium transition-colors group cursor-pointer shadow-none"
             title="Mở rộng Bảng Điều khiển (Thuộc tính)"
           >
-            <span className="[writing-mode:vertical-lr] tracking-widest text-[10px] py-1 text-slate-400 group-hover:text-slate-200">
+            <span className="[writing-mode:vertical-lr] tracking-widest text-[10px] py-1 text-text-muted group-hover:text-text">
               THUỘC TÍNH
             </span>
-            <ChevronLeft className="w-3.5 h-3.5 text-indigo-400 group-hover:-translate-x-0.5 transition-transform" />
+            <ChevronLeft className="w-3.5 h-3.5 text-text-muted group-hover:text-text group-hover:-translate-x-0.5 transition-transform" />
           </button>
         )}
       </div>
@@ -960,29 +983,29 @@ function FlowCanvasInner({
       {showQueueDrawer && (
         <div
           style={{ height: isQueueMaximized ? '65vh' : `${queueHeight}px` }}
-          className="border-t border-slate-800 bg-[#0d131f]/95 p-3 flex flex-col shadow-2xl z-20 relative"
+          className="border-t border-border bg-surface p-3 flex flex-col z-20 relative"
         >
           {/* Top Resize Handle */}
           <div
             onMouseDown={handleQueueResizeStart}
-            className="absolute top-0 left-0 right-0 h-2 cursor-ns-resize hover:bg-indigo-500/40 transition-colors flex items-center justify-center group z-30 select-none"
+            className="absolute top-0 left-0 right-0 h-2 cursor-ns-resize hover:bg-accent/20 transition-colors flex items-center justify-center group z-30 select-none"
             title="Kéo chuột lên/xuống để chỉnh độ cao Hàng đợi & Lịch sử"
           >
-            <div className="w-12 h-1 rounded-full bg-slate-700 group-hover:bg-indigo-400 transition-colors" />
+            <div className="w-12 h-1 rounded-full bg-surface-3 group-hover:bg-accent transition-colors" />
           </div>
 
-          <div className="flex items-center justify-between pb-2 pt-1 border-b border-slate-800 text-xs shrink-0">
+          <div className="flex items-center justify-between pb-2 pt-1 border-b border-border text-xs shrink-0">
             <div className="flex items-center gap-2">
-              <Clock className="w-4 h-4 text-indigo-400" />
-              <span className="font-bold text-white">Hàng đợi Render & Nhật ký Thực thi</span>
-              <span className="px-2 py-0.5 rounded bg-indigo-950/80 border border-indigo-800/60 text-indigo-300 text-[10px] font-mono">
+              <Clock className="w-4 h-4 text-accent" />
+              <span className="font-semibold text-text">Hàng đợi Render & Nhật ký Thực thi</span>
+              <span className="px-2 py-0.5 rounded-md bg-surface-2 border border-border text-text-muted text-[10px] font-mono">
                 BullMQ + Redis Ready
               </span>
-              <span className="text-slate-500 text-[10px]">
+              <span className="text-text-muted text-[10px]">
                 ({nodes.length} nodes)
               </span>
               {estimatedStats.totalCredits > 0 && (
-                <span className="px-2 py-0.5 rounded bg-amber-950/80 border border-amber-800/60 text-amber-300 text-[10px] font-mono font-semibold">
+                <span className="px-2 py-0.5 rounded-md bg-warning/10 border border-warning/30 text-warning text-[10px] font-mono font-medium">
                   Tổng dự tính: ~{estimatedStats.totalCredits} Credits (~${estimatedStats.totalCostUsd})
                 </span>
               )}
@@ -990,7 +1013,7 @@ function FlowCanvasInner({
             <div className="flex items-center gap-2">
               <button
                 onClick={() => setIsQueueMaximized((prev) => !prev)}
-                className="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-slate-200 transition-colors cursor-pointer"
+                className="p-1 rounded hover:bg-surface-2 text-text-muted hover:text-text transition-colors cursor-pointer"
                 title={isQueueMaximized ? 'Thu nhỏ về độ cao mặc định' : 'Phóng to bảng hàng đợi'}
               >
                 {isQueueMaximized ? (
@@ -1001,7 +1024,7 @@ function FlowCanvasInner({
               </button>
               <button
                 onClick={() => setShowQueueDrawer(false)}
-                className="text-slate-500 hover:text-slate-300 text-xs px-1.5 py-0.5 rounded hover:bg-slate-800 transition-colors cursor-pointer"
+                className="text-text-muted hover:text-text text-xs px-1.5 py-0.5 rounded hover:bg-surface-2 transition-colors cursor-pointer"
               >
                 Đóng ▼
               </button>
@@ -1010,7 +1033,7 @@ function FlowCanvasInner({
 
           <div className="flex-1 overflow-y-auto pt-2 space-y-1.5 font-mono text-[11px] custom-scrollbar">
             {nodes.length === 0 ? (
-              <div className="py-8 text-center text-slate-500 italic text-xs">
+              <div className="py-8 text-center text-text-muted italic text-xs">
                 Chưa có node nào trên Canvas. Thêm node từ thư viện để bắt đầu.
               </div>
             ) : (
@@ -1019,23 +1042,23 @@ function FlowCanvasInner({
                 return (
                   <div
                     key={node.id}
-                    className="flex items-center justify-between px-2.5 py-1.5 rounded bg-slate-900/60 border border-slate-800/50 text-slate-300 hover:border-slate-700/60 transition-colors"
+                    className="flex items-center justify-between px-2.5 py-1.5 rounded-md bg-surface-2 border border-border text-text hover:bg-surface-3 transition-colors"
                   >
                     <div className="flex items-center gap-2">
-                      <span className="text-indigo-400 font-semibold">{node.id}</span>
-                      <span className="text-slate-400">({node.data.label})</span>
+                      <span className="text-accent font-semibold">{node.id}</span>
+                      <span className="text-text-muted">({node.data.label})</span>
                     </div>
                     <div className="flex items-center gap-2">
-                      {r.status === 'idle' && <span className="text-slate-500">Chưa chạy</span>}
-                      {r.status === 'queued' && <span className="text-sky-400">Đang chờ queue...</span>}
+                      {r.status === 'idle' && <span className="text-text-muted">Chưa chạy</span>}
+                      {r.status === 'queued' && <span className="text-accent">Đang chờ queue...</span>}
                       {r.status === 'running' && (
-                        <span className="text-amber-400 flex items-center gap-1">
+                        <span className="text-warning flex items-center gap-1">
                           <Clock className="w-3 h-3 animate-spin" /> Đang chạy ({r.progress}%)
                         </span>
                       )}
-                      {r.status === 'success' && <span className="text-emerald-400">✓ Hoàn tất</span>}
+                      {r.status === 'success' && <span className="text-success font-medium">✓ Hoàn tất</span>}
                       {r.status === 'failed' && (
-                        <span className="text-rose-400 flex items-center gap-1" title={r.error}>
+                        <span className="text-danger flex items-center gap-1" title={r.error}>
                           ✗ Thất bại {r.error ? `(${r.error})` : ''}
                         </span>
                       )}

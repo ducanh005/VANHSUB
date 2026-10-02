@@ -599,13 +599,13 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
   return (
     <div className="flex flex-1 flex-col gap-4 overflow-hidden p-6">
       {/* Thanh công cụ */}
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-800 bg-slate-900/80 p-4">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-surface p-4">
         <div className="flex flex-wrap items-center gap-3">
-          <label className="text-xs font-semibold text-slate-300">Tác vụ:</label>
+          <label className="text-xs font-semibold text-text">Tác vụ:</label>
           <select
             value={selectedTaskId || ''}
             onChange={(e) => setSelectedTaskId(e.target.value || null)}
-            className="rounded-xl border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs text-slate-200 focus:outline-none"
+            className="rounded-md border border-border bg-surface-2 px-3 py-1.5 text-xs text-text focus:outline-none"
           >
             <option value="">-- Chọn tác vụ đã có SRT --</option>
             {ttsEligibleTasks.map((t) => (
@@ -616,7 +616,7 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
           </select>
 
           {/* Bộ chọn Engine TTS */}
-          <div className="flex items-center overflow-hidden rounded-xl border border-slate-700 bg-slate-950/60 p-0.5">
+          <div className="flex items-center overflow-hidden rounded-md border border-border bg-bg p-0.5">
             <button
               type="button"
               onClick={() => {
@@ -625,12 +625,12 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
               }}
               className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition cursor-pointer ${
                 ttsEngine === 'edge'
-                  ? 'bg-brand-cyan/20 text-brand-cyan border border-brand-cyan/40'
-                  : 'text-slate-400 hover:text-white'
+                  ? 'bg-accent-tint text-accent border border-accent/40'
+                  : 'text-text-muted hover:text-white'
               }`}
               title="Edge TTS miễn phí 100%, không cần tài khoản, giọng đọc Azure Neural tự nhiên"
             >
-              ⚡ Edge TTS (Free)
+              Edge TTS (Free)
             </button>
             <button
               type="button"
@@ -640,16 +640,16 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
               }}
               className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition cursor-pointer ${
                 ttsEngine === 'tiktok'
-                  ? 'bg-brand-indigo/20 text-brand-indigo border border-brand-indigo/40'
-                  : 'text-slate-400 hover:text-white'
+                  ? 'bg-accent-tint text-accent border border-accent/40'
+                  : 'text-text-muted hover:text-white'
               }`}
               title="TikTok TTS (yêu cầu sessionid đã lưu trong Cài đặt)"
             >
-              🎵 TikTok TTS
+              TikTok TTS
             </button>
           </div>
 
-          <label className="text-xs font-semibold text-slate-300">
+          <label className="text-xs font-semibold text-text">
             {ttsEngine === 'edge' ? 'Giọng Edge:' : 'Giọng TikTok:'}
           </label>
           {ttsEngine === 'tiktok' && (
@@ -658,14 +658,14 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
               value={voiceSearch}
               onChange={(e) => setVoiceSearch(e.target.value)}
               placeholder="Tìm giọng (vd: việt, nữ, en_us...)"
-              className="w-40 rounded-xl border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs text-white placeholder:text-slate-500 focus:border-brand-cyan focus:outline-none"
+              className="w-40 rounded-md border border-border bg-surface-2 px-3 py-1.5 text-xs text-white placeholder:text-text-muted focus:border-accent/40 focus:outline-none"
             />
           )}
           <select
             value={voice}
             onChange={(e) => setVoice(e.target.value)}
             disabled={isTtsRunning || isDubbingRunning}
-            className="rounded-xl border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs text-slate-200 focus:outline-none disabled:opacity-50 max-w-[260px]"
+            className="rounded-md border border-border bg-surface-2 px-3 py-1.5 text-xs text-text focus:outline-none disabled:opacity-50 max-w-[260px]"
           >
             {voiceChoices.map((v) => (
               <option key={v.value} value={v.value}>
@@ -673,17 +673,17 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
               </option>
             ))}
           </select>
-          <span className="text-[11px] text-slate-500">
+          <span className="text-[11px] text-text-muted">
             {voiceChoices.length}/{activeVoiceList.length} giọng
           </span>
 
-          <label className="text-xs font-semibold text-slate-300">Tốc độ:</label>
+          <label className="text-xs font-semibold text-text">Tốc độ:</label>
           <select
             value={speed}
             onChange={(e) => setSpeed(Number(e.target.value))}
             disabled={isTtsRunning || isDubbingRunning}
             title={ttsEngine === 'edge' ? 'Tốc độ đọc Edge TTS (0.5x - 2.0x)' : 'TikTok TTS chưa hỗ trợ chỉnh tốc độ'}
-            className="rounded-xl border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs text-slate-200 focus:outline-none disabled:opacity-50"
+            className="rounded-md border border-border bg-surface-2 px-3 py-1.5 text-xs text-text focus:outline-none disabled:opacity-50"
           >
             {SPEED_OPTIONS.map((s) => (
               <option key={s.value} value={s.value}>
@@ -697,7 +697,7 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
             onClick={handlePreview}
             disabled={previewing || isTtsRunning || isDubbingRunning || fullPreviewing}
             title="Nghe thử giọng đang chọn"
-            className="inline-flex items-center gap-1.5 rounded-xl border border-brand-cyan/40 bg-brand-cyan/10 px-3 py-1.5 text-xs font-semibold text-brand-cyan transition hover:bg-brand-cyan/20 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 rounded-md border border-accent/40 bg-accent-tint px-3 py-1.5 text-xs font-semibold text-accent transition hover:bg-accent-tint cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
           >
             {previewing ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -713,10 +713,10 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
             disabled={!selectedTaskId || !hasSrtFile || isTtsRunning || isDubbingRunning}
             title="Gán giọng đọc riêng cho từng dòng phụ đề"
             className={[
-              'inline-flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold transition cursor-pointer disabled:cursor-not-allowed disabled:opacity-50',
+              'inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-semibold transition cursor-pointer disabled:cursor-not-allowed disabled:opacity-50',
               showVoicePanel || customVoiceCount > 0
                 ? 'border-brand-rose/50 bg-brand-rose/10 text-brand-rose hover:bg-brand-rose/20'
-                : 'border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-700',
+                : 'border-border bg-surface-2 text-text hover:bg-surface-3',
             ].join(' ')}
           >
             <Users className="h-3.5 w-3.5" />
@@ -727,7 +727,7 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
 
           {message && (
             <span
-              className={`max-w-[340px] truncate text-xs font-mono ${isError ? 'text-rose-400' : 'text-brand-cyan'}`}
+              className={`max-w-[340px] truncate text-xs font-mono ${isError ? 'text-rose-400' : 'text-accent'}`}
               title={message}
             >
               {message}
@@ -741,7 +741,7 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
               type="button"
               onClick={handleCancelTTS}
               title="Huỷ tạo lồng tiếng — dừng sau câu hiện tại"
-              className="inline-flex items-center gap-2 rounded-xl border border-rose-500/40 bg-rose-500/10 px-4 py-2 text-xs font-semibold text-rose-400 hover:bg-rose-500/20 cursor-pointer"
+              className="inline-flex items-center gap-2 rounded-md border border-rose-500/40 bg-rose-500/10 px-4 py-2 text-xs font-semibold text-rose-400 hover:bg-rose-500/20 cursor-pointer"
             >
               <XCircle className="h-4 w-4" />
               <span>Huỷ</span>
@@ -751,7 +751,7 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
             type="button"
             onClick={handleStartTTS}
             disabled={!selectedTaskId || !hasSrtFile || isTtsRunning || isDubbingRunning}
-            className="btn-vanh-gradient inline-flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-semibold cursor-pointer disabled:opacity-50"
+            className="bg-accent text-white hover:bg-accent-hover inline-flex items-center gap-2 rounded-md px-4 py-2 text-xs font-semibold cursor-pointer disabled:opacity-50"
           >
             {isTtsRunning ? (
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -765,9 +765,9 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
 
       {/* Bảng gán giọng theo từng dòng phụ đề */}
       {showVoicePanel && selectedTaskId && (
-        <div className="flex flex-col overflow-hidden rounded-2xl border border-slate-800 bg-slate-900/80">
-          <div className="flex items-center justify-between border-b border-slate-800/80 px-4 py-2.5">
-            <div className="flex items-center gap-2 text-xs font-semibold text-slate-200">
+        <div className="flex flex-col overflow-hidden rounded-lg border border-border bg-surface">
+          <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
+            <div className="flex items-center gap-2 text-xs font-semibold text-text">
               <Users className="h-3.5 w-3.5 text-brand-rose" />
               <span>
                 Gán giọng theo câu ({srtLines.length} dòng
@@ -777,7 +777,7 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
             <div className="flex items-center gap-2">
               {fullPreviewing ? (
                 <>
-                  <span className="font-mono text-[11px] text-brand-cyan">
+                  <span className="font-mono text-[11px] text-accent">
                     Đang nghe: {fullPreviewLine}/{fullPreview.total || srtLines.length}
                   </span>
                   <button
@@ -796,7 +796,7 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
                   onClick={() => startFullPreview(1)}
                   disabled={srtLines.length === 0 || linePreviewing !== null}
                   title="Phát liên tiếp toàn bộ phụ đề để nghe 1 mạch giọng đọc của video"
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-brand-cyan/40 bg-brand-cyan/10 px-2.5 py-1 text-[11px] font-semibold text-brand-cyan hover:bg-brand-cyan/20 cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-accent/40 bg-accent-tint px-2.5 py-1 text-[11px] font-semibold text-accent hover:bg-accent-tint cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   <Headphones className="h-3 w-3" />
                   <span>Nghe toàn bộ (1 mạch)</span>
@@ -807,9 +807,9 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
                   type="button"
                   onClick={handleOpenSpeakerModal}
                   title="Gán giọng hàng loạt cho tất cả câu của từng nhân vật"
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-brand-indigo/50 bg-brand-indigo/20 px-2.5 py-1 text-[11px] font-semibold text-brand-cyan hover:bg-brand-indigo/35 cursor-pointer shadow-sm shadow-brand-indigo/20 transition-all"
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-accent/40 bg-accent-tint px-2.5 py-1 text-[11px] font-semibold text-accent hover:bg-accent/35 cursor-pointer transition-all"
                 >
-                  <Users className="h-3 w-3 text-brand-cyan" />
+                  <Users className="h-3 w-3 text-accent" />
                   <span>Phân vai nhân vật ({detectedSpeakers.length})</span>
                 </button>
               )}
@@ -817,7 +817,7 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
                 <button
                   type="button"
                   onClick={() => setVoiceOverrides({})}
-                  className="rounded-lg border border-slate-700 bg-slate-800 px-2.5 py-1 text-[11px] font-medium text-slate-300 hover:bg-slate-700 cursor-pointer"
+                  className="rounded-lg border border-border bg-surface-2 px-2.5 py-1 text-[11px] font-medium text-text hover:bg-surface-3 cursor-pointer"
                 >
                   Về giọng chung tất cả
                 </button>
@@ -826,7 +826,7 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
                 type="button"
                 onClick={() => setShowVoicePanel(false)}
                 title="Đóng bảng gán giọng"
-                className="flex h-6 w-6 items-center justify-center rounded-lg border border-slate-700 bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-slate-200 cursor-pointer"
+                className="flex h-6 w-6 items-center justify-center rounded-lg border border-border bg-surface-2 text-text-muted hover:bg-surface-3 hover:text-text cursor-pointer"
               >
                 <X className="h-3.5 w-3.5" />
               </button>
@@ -834,9 +834,9 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
           </div>
 
           {fullPreviewing && (
-            <div className="h-1 w-full overflow-hidden bg-slate-800">
+            <div className="h-1 w-full overflow-hidden bg-surface-2">
               <div
-                className="h-full bg-gradient-to-r from-brand-cyan to-brand-indigo transition-all duration-300"
+                className="h-full bg-accent transition-all duration-300"
                 style={{ width: `${((fullPreviewLine || 0) / Math.max(fullPreview.total || srtLines.length, 1)) * 100}%` }}
               />
             </div>
@@ -852,9 +852,9 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
                   src={panelVideoSrc}
                   controls
                   onTimeUpdate={handlePanelVideoTime}
-                  className="h-[min(260px,35vh)] w-full shrink-0 rounded-xl border border-slate-800 bg-black object-contain"
+                  className="h-[min(260px,35vh)] w-full shrink-0 rounded-md border border-border bg-black object-contain"
                 />
-                <p className="text-[10px] leading-relaxed text-slate-500">
+                <p className="text-[10px] leading-relaxed text-text-muted">
                   Bấm vào một dòng bên phải để video nhảy tới đúng câu đó — đối chiếu xem
                   câu đang nói là của nhân vật nào rồi gán giọng.
                 </p>
@@ -862,7 +862,7 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
             )}
             <div className="min-w-0 flex-1 space-y-1.5 overflow-y-auto">
             {srtLines.length === 0 ? (
-              <div className="py-6 text-center text-xs text-slate-500">
+              <div className="py-6 text-center text-xs text-text-muted">
                 Đang tải danh sách dòng phụ đề...
               </div>
             ) : (
@@ -879,20 +879,20 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
                     key={line.id}
                     id={`voice-line-${lineNumber}`}
                     className={[
-                      'flex items-center gap-2 rounded-xl border p-2 text-xs',
+                      'flex items-center gap-2 rounded-md border p-2 text-xs',
                       isActive
-                        ? 'border-brand-cyan bg-brand-cyan/10'
+                        ? 'border-accent/40 bg-accent-tint'
                         : lineVoice
                           ? 'border-brand-rose/40 bg-brand-rose/5'
-                          : 'border-slate-800/80 bg-slate-900/80',
+                          : 'border-border bg-surface',
                     ].join(' ')}
                   >
-                    <span className="w-8 shrink-0 rounded-md bg-slate-800 px-1.5 py-0.5 text-center font-mono text-[10px] font-bold text-brand-cyan">
+                    <span className="w-8 shrink-0 rounded-md bg-surface-2 px-1.5 py-0.5 text-center font-mono text-[10px] font-bold text-accent">
                       {lineNumber}
                     </span>
                     {line.speaker && (
                       <span
-                        className="shrink-0 rounded-md border border-brand-indigo/40 bg-brand-indigo/20 px-1.5 py-0.5 font-mono text-[9px] font-bold text-brand-cyan"
+                        className="shrink-0 rounded-md border border-accent/40 bg-accent-tint px-1.5 py-0.5 font-mono text-[9px] font-bold text-accent"
                         title={`Nhân vật: ${line.speaker}`}
                       >
                         {line.speaker}
@@ -900,7 +900,7 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
                     )}
                     <p
                       className={[
-                        'min-w-0 flex-1 truncate text-slate-300',
+                        'min-w-0 flex-1 truncate text-text',
                         panelVideoSrc ? 'cursor-pointer hover:text-white' : '',
                       ].join(' ')}
                       title={panelVideoSrc ? 'Bấm để video nhảy tới câu này' : line.text}
@@ -915,8 +915,8 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
                       className={[
                         'w-36 shrink-0 rounded-lg border px-2 py-1 text-[11px] focus:outline-none disabled:opacity-50',
                         lineVoice
-                          ? 'border-brand-rose/50 bg-slate-800 text-brand-rose'
-                          : 'border-slate-700 bg-slate-800 text-slate-300',
+                          ? 'border-brand-rose/50 bg-surface-2 text-brand-rose'
+                          : 'border-border bg-surface-2 text-text',
                       ].join(' ')}
                     >
                       <option value="">Mặc định ({currentVoiceLabel(voice)})</option>
@@ -931,7 +931,7 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
                       onClick={() => handlePreviewLine(lineNumber, line.text, lineVoice)}
                       disabled={linePreviewing !== null || fullPreviewing}
                       title="Nghe thử dòng này với giọng đã chọn"
-                      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg border border-brand-cyan/40 bg-brand-cyan/10 text-brand-cyan hover:bg-brand-cyan/25 cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"
+                      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg border border-accent/40 bg-accent-tint text-accent hover:bg-accent/25 cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"
                     >
                       {linePreviewing === lineNumber ? (
                         <Loader2 className="h-3 w-3 animate-spin" />
@@ -945,7 +945,7 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
                         onClick={() => handleRegenerateLine(lineNumber)}
                         disabled={regeneratingLine !== null || isTtsRunning || isDubbingRunning}
                         title="Tạo lại audio dòng này với text hiện tại (sau khi sửa text ở Hiệu đính)"
-                        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg border border-slate-700 bg-slate-800 text-slate-300 hover:border-brand-indigo/50 hover:text-brand-indigo cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"
+                        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg border border-border bg-surface-2 text-text hover:border-accent/40 hover:text-accent cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"
                       >
                         {regeneratingLine === lineNumber ? (
                           <Loader2 className="h-3 w-3 animate-spin" />
@@ -960,7 +960,7 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
             )}
             </div>
           </div>
-          <p className="border-t border-slate-800/80 px-4 py-2 text-[11px] text-slate-500">
+          <p className="border-t border-border px-4 py-2 text-[11px] text-text-muted">
             Dòng để "Mặc định" sẽ dùng giọng chung đã chọn ở thanh công cụ. Bấm
             "Tạo audio lồng tiếng" để áp dụng.
           </p>
@@ -969,14 +969,14 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
 
       {/* Tiến trình khi đang xử lý */}
       {activeProgress && (
-        <div className="rounded-2xl border border-brand-indigo/40 bg-brand-indigo/10 p-4">
+        <div className="rounded-lg border border-accent/40 bg-accent-tint p-4">
           <div className="mb-2 flex items-center justify-between text-xs">
-            <span className="font-medium text-brand-cyan">{stageText}</span>
-            <span className="font-mono text-slate-300">{selectedTask?.progress}%</span>
+            <span className="font-medium text-accent">{stageText}</span>
+            <span className="font-mono text-text">{selectedTask?.progress}%</span>
           </div>
-          <div className="h-1.5 overflow-hidden rounded-full bg-slate-800">
+          <div className="h-1.5 overflow-hidden rounded-full bg-surface-2">
             <div
-              className="h-full rounded-full bg-gradient-to-r from-brand-cyan to-brand-indigo transition-all duration-300"
+              className="h-full rounded-full bg-accent transition-all duration-300"
               style={{ width: `${selectedTask?.progress}%` }}
             />
           </div>
@@ -985,47 +985,47 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
 
       {/* Nội dung chính */}
       {!selectedTaskId ? (
-        <div className="flex flex-1 flex-col items-center justify-center rounded-3xl border border-dashed border-slate-800 bg-slate-900/40 p-12 text-center text-slate-500 text-xs">
-          <Headphones className="h-10 w-10 text-slate-600 mb-3 animate-pulse" />
+        <div className="flex flex-1 flex-col items-center justify-center rounded-lg border border-dashed border-border bg-surface p-12 text-center text-text-muted text-xs">
+          <Headphones className="h-10 w-10 text-text-faint mb-3 animate-pulse" />
           <span>Chọn một tác vụ đã có phụ đề .srt ở menu phía trên để tạo lồng tiếng bằng AI (Edge TTS / TikTok TTS).</span>
         </div>
       ) : !hasSrtFile ? (
-        <div className="flex flex-1 flex-col items-center justify-center rounded-3xl border border-dashed border-slate-800 bg-slate-900/40 p-12 text-center text-slate-500 text-xs">
-          <Headphones className="h-10 w-10 text-slate-600 mb-3" />
+        <div className="flex flex-1 flex-col items-center justify-center rounded-lg border border-dashed border-border bg-surface p-12 text-center text-text-muted text-xs">
+          <Headphones className="h-10 w-10 text-text-faint mb-3" />
           <span>Tác vụ này chưa có file .srt — hãy chạy phiên âm ở Trang chủ trước.</span>
         </div>
       ) : (
-        <div className="flex flex-1 flex-col gap-4 overflow-y-auto rounded-3xl border border-slate-800 bg-slate-900/60 p-6">
+        <div className="flex flex-1 flex-col gap-4 overflow-y-auto rounded-lg border border-border bg-surface p-6">
           <div>
-            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-300 mb-3">Thông tin lồng tiếng</h3>
-            <div className="space-y-2 text-xs text-slate-400">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-text mb-3">Thông tin lồng tiếng</h3>
+            <div className="space-y-2 text-xs text-text-muted">
               <div className="flex justify-between">
                 <span>Tác vụ:</span>
-                <span className="text-slate-200">{selectedTask?.fileName}</span>
+                <span className="text-text">{selectedTask?.fileName}</span>
               </div>
               <div className="flex justify-between">
                 <span>Phụ đề dùng để đọc:</span>
-                <span className="text-slate-200">
+                <span className="text-text">
                   {selectedTask?.translatedSrtPath ? 'Bản dịch' : 'Bản gốc'}
                 </span>
               </div>
               <div className="flex justify-between">
                 <span>Giọng nói:</span>
-                <span className="text-slate-200">{currentVoiceLabel(voice)}</span>
+                <span className="text-text">{currentVoiceLabel(voice)}</span>
               </div>
               <div className="flex justify-between">
                 <span>Tốc độ:</span>
-                <span className="text-slate-200">{speedLabel(speed)}</span>
+                <span className="text-text">{speedLabel(speed)}</span>
               </div>
             </div>
           </div>
 
           {/* File MP3 lồng tiếng tổng hợp cho dự án đã chọn */}
           {(selectedTask?.ttsMergedAudioPath || hasTtsAudio) && (
-            <div className="rounded-2xl border border-cyan-500/30 bg-cyan-950/20 p-4 shadow-lg shadow-cyan-950/20">
-              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-cyan-500/20 pb-3">
+            <div className="rounded-lg border border-accent/40 bg-surface-2 p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-accent/40 pb-3">
                 <div className="flex items-center gap-2.5">
-                  <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-cyan-500/20 text-cyan-400 border border-cyan-500/30">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-md bg-accent/20 text-accent border border-accent/40">
                     <FileAudio className="h-5 w-5" />
                   </div>
                   <div>
@@ -1033,11 +1033,11 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
                       <span className="text-xs font-bold text-white">
                         File MP3 Lồng Tiếng Tổng Hợp Dự Án
                       </span>
-                      <span className="rounded-full bg-cyan-500/20 px-2 py-0.5 text-[10px] font-semibold text-cyan-300 border border-cyan-500/30">
+                      <span className="rounded-full bg-accent/20 px-2 py-0.5 text-[10px] font-semibold text-accent border border-accent/40">
                         Chuẩn timeline 100%
                       </span>
                     </div>
-                    <p className="mt-0.5 font-mono text-[11px] text-slate-400 truncate max-w-[420px]">
+                    <p className="mt-0.5 font-mono text-[11px] text-text-muted truncate max-w-[420px]">
                       {selectedTask?.ttsMergedAudioPath
                         ? selectedTask.ttsMergedAudioPath.split(/[/\\]/).pop()
                         : `${selectedTask?.fileName.replace(/\.[^/.]+$/, '')}_voice.mp3`}
@@ -1050,7 +1050,7 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
                     <button
                       type="button"
                       onClick={handleOpenMergedFolder}
-                      className="inline-flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs font-medium text-slate-300 hover:bg-slate-700 hover:text-white cursor-pointer transition"
+                      className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface-2 px-3 py-1.5 text-xs font-medium text-text hover:bg-surface-3 hover:text-white cursor-pointer transition"
                       title="Mở thư mục chứa file MP3 tổng hợp"
                     >
                       <FolderOpen className="h-3.5 w-3.5 text-amber-400" />
@@ -1061,7 +1061,7 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
                     type="button"
                     onClick={handleExportMergedMp3}
                     disabled={isExportingMp3 || isTtsRunning}
-                    className="inline-flex items-center gap-1.5 rounded-xl border border-cyan-500/40 bg-cyan-500/10 px-3 py-1.5 text-xs font-semibold text-cyan-300 hover:bg-cyan-500/20 cursor-pointer disabled:opacity-50 transition"
+                    className="inline-flex items-center gap-1.5 rounded-md border border-accent/40 bg-accent/10 px-3 py-1.5 text-xs font-semibold text-accent hover:bg-accent/20 cursor-pointer disabled:opacity-50 transition"
                     title="Tổng hợp lại toàn bộ các câu thành 1 file MP3 duy nhất theo timeline"
                   >
                     {isExportingMp3 ? (
@@ -1075,10 +1075,10 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
                     type="button"
                     onClick={handleSaveMergedMp3To}
                     disabled={isExportingMp3 || !selectedTask?.ttsMergedAudioPath}
-                    className="inline-flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs font-medium text-slate-300 hover:bg-slate-700 hover:text-white cursor-pointer disabled:opacity-50 transition"
+                    className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface-2 px-3 py-1.5 text-xs font-medium text-text hover:bg-surface-3 hover:text-white cursor-pointer disabled:opacity-50 transition"
                     title="Lưu file MP3 ra thư mục khác tuỳ chọn"
                   >
-                    <Download className="h-3.5 w-3.5 text-cyan-400" />
+                    <Download className="h-3.5 w-3.5 text-accent" />
                     <span>Lưu ra thư mục khác...</span>
                   </button>
                 </div>
@@ -1086,7 +1086,7 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
 
               {/* Trình phát Audio Player cho file MP3 tổng hợp */}
               {selectedTask?.ttsMergedAudioPath ? (
-                <div className="mt-3 flex items-center gap-3 rounded-xl bg-slate-900/80 px-3.5 py-2.5 border border-slate-800">
+                <div className="mt-3 flex items-center gap-3 rounded-md bg-surface px-3.5 py-2.5 border border-border">
                   <audio
                     ref={mergedAudioRef}
                     src={`vanhmedia://local/${encodeURIComponent(selectedTask.ttsMergedAudioPath)}`}
@@ -1106,7 +1106,7 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
                   <button
                     type="button"
                     onClick={handleTogglePlayMerged}
-                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-cyan-500 text-slate-950 hover:bg-cyan-400 transition cursor-pointer shadow-md shadow-cyan-500/20"
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent text-slate-950 hover:bg-cyan-400 transition cursor-pointer"
                     title={isMergedPlaying ? 'Tạm dừng nghe' : 'Nghe thử file MP3 tổng hợp'}
                   >
                     {isMergedPlaying ? (
@@ -1117,7 +1117,7 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
                   </button>
 
                   <div className="flex-1 space-y-1">
-                    <div className="flex justify-between text-[11px] font-mono text-slate-400">
+                    <div className="flex justify-between text-[11px] font-mono text-text-muted">
                       <span>{formatSeconds(mergedCurrentTime)}</span>
                       <span>{formatSeconds(mergedDuration)}</span>
                     </div>
@@ -1134,12 +1134,12 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
                           mergedAudioRef.current.currentTime = val;
                         }
                       }}
-                      className="h-1.5 w-full cursor-pointer appearance-none rounded-lg bg-slate-800 accent-cyan-400"
+                      className="h-1.5 w-full cursor-pointer appearance-none rounded-lg bg-surface-2 accent-accent"
                     />
                   </div>
                 </div>
               ) : (
-                <div className="mt-2.5 flex items-center justify-between text-xs text-slate-400">
+                <div className="mt-2.5 flex items-center justify-between text-xs text-text-muted">
                   <span>File MP3 tổng hợp chưa được tạo. Bấm "Tổng hợp lại MP3" để tạo ngay.</span>
                 </div>
               )}
@@ -1148,7 +1148,7 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
 
           {/* Bước 2: sau khi TTS xong → ghép vào video */}
           {hasTtsAudio && (
-            <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-4">
+            <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-4">
               <div className="flex items-center gap-2 text-xs font-semibold text-emerald-300">
                 <CheckCircle2 className="h-4 w-4 text-emerald-400" />
                 <span>Đã tạo xong audio lồng tiếng cho từng dòng phụ đề.</span>
@@ -1156,12 +1156,12 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
 
               {!dubbedOutput && !isDubbingRunning && (
                 <div className="mt-3 space-y-3">
-                  <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+                  <label className="flex items-center gap-2 text-xs text-text cursor-pointer">
                     <input
                       type="checkbox"
                       checked={replaceAudio}
                       onChange={(e) => setReplaceAudio(e.target.checked)}
-                      className="h-4 w-4 rounded border-slate-700 bg-slate-800 text-brand-cyan focus:ring-0"
+                      className="h-4 w-4 rounded border-border bg-surface-2 text-accent focus:ring-0"
                     />
                     <span>
                       Thay thế toàn bộ âm thanh gốc (bỏ tick để giữ audio gốc thành track song ngữ)
@@ -1170,30 +1170,30 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
 
                   {replaceAudio && (
                     <>
-                    <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+                    <label className="flex items-center gap-2 text-xs text-text cursor-pointer">
                       <input
                         type="checkbox"
                         checked={mixOriginalAudio}
                         onChange={(e) => setMixOriginalAudio(e.target.checked)}
-                        className="h-4 w-4 rounded border-slate-700 bg-slate-800 text-brand-cyan focus:ring-0"
+                        className="h-4 w-4 rounded border-border bg-surface-2 text-accent focus:ring-0"
                       />
                       <span>
                         Giữ nhạc nền / hiệu ứng âm thanh gốc, mix nhỏ (22%) dưới lời thoại lồng tiếng
                       </span>
                     </label>
 
-                    <label className="flex items-start gap-2 text-xs font-medium text-slate-200 cursor-pointer">
+                    <label className="flex items-start gap-2 text-xs font-medium text-text cursor-pointer">
                       <input
                         type="checkbox"
                         checked={vocalSeparation}
                         onChange={(e) => setVocalSeparation(e.target.checked)}
                         disabled={isTtsRunning || isDubbingRunning}
-                        className="mt-0.5 h-4 w-4 rounded border-slate-700 bg-slate-800 text-brand-cyan focus:ring-0"
+                        className="mt-0.5 h-4 w-4 rounded border-border bg-surface-2 text-accent focus:ring-0"
                       />
                       <span>
                         <span className="font-semibold text-white">Tách lời thoại bằng AI (kiểu CapCut)</span>{' '}
                         — loại hẳn giọng người gốc, giữ nguyên nhạc nền/SFX ở mức bình thường.
-                        <span className="block text-[11px] font-normal text-slate-400">
+                        <span className="block text-[11px] font-normal text-text-muted">
                           Demucs chạy trên CPU, thời gian xử lý xấp xỉ thời lượng video. Lần đầu cần{' '}
                           <code className="font-mono">python -m pip install demucs</code> + tải model ~80MB.
                         </span>
@@ -1203,7 +1203,7 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
                   )}
 
                   <div>
-                    <label className="mb-1.5 block text-xs font-medium text-slate-300">
+                    <label className="mb-1.5 block text-xs font-medium text-text">
                       Chế độ đồng bộ khi câu thoại dài hơn khung phụ đề:
                     </label>
                     <select
@@ -1218,7 +1218,7 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
                         )
                       }
                       disabled={isTtsRunning || isDubbingRunning}
-                      className="w-full rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-white focus:outline-none disabled:opacity-50"
+                      className="w-full rounded-md border border-border bg-surface-2 px-3 py-2 text-xs text-white focus:outline-none disabled:opacity-50"
                     >
                       <option value="strict">Chặt — nén audio theo timeline phụ đề (mặc định)</option>
                       <option value="flexible">Linh hoạt — cho câu dài tràn vào khoảng lặng (tối đa ~3s)</option>
@@ -1230,7 +1230,7 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
                     type="button"
                     onClick={handleStartDubbing}
                     disabled={startingDubbing || isDubbingRunning || isTtsRunning || !hasTtsAudio}
-                    className="btn-vanh-gradient inline-flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-semibold cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="bg-accent text-white hover:bg-accent-hover inline-flex items-center gap-2 rounded-md px-4 py-2 text-xs font-semibold cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {startingDubbing || isDubbingRunning ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
@@ -1239,7 +1239,7 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
                     )}
                     <span>{isDubbingRunning ? 'Đang ghép video...' : 'Ghép audio vào video (Dubbing)'}</span>
                   </button>
-                  <p className="text-[11px] text-slate-400">
+                  <p className="text-[11px] text-text-muted">
                     Audio được ghép đúng theo timeline phụ đề: câu ngắn hơn sẽ được lấp im lặng,
                     câu tràn thời lượng xử lý theo chế độ đồng bộ đã chọn ở trên.
                   </p>
@@ -1250,21 +1250,21 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
 
           {/* Kết quả dubbing */}
           {dubbedOutput && !isDubbingRunning && (
-            <div className="rounded-2xl border border-brand-cyan/30 bg-brand-cyan/10 p-4">
+            <div className="rounded-lg border border-accent/40 bg-accent-tint p-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="text-xs">
-                  <div className="flex items-center gap-2 font-semibold text-brand-cyan">
+                  <div className="flex items-center gap-2 font-semibold text-accent">
                     <CheckCircle2 className="h-4 w-4" />
                     <span>Video lồng tiếng đã sẵn sàng</span>
                   </div>
-                  <div className="mt-1 font-mono text-[11px] text-slate-300">
+                  <div className="mt-1 font-mono text-[11px] text-text">
                     {dubbedOutput.split(/[/\\]/).pop()}
                   </div>
                 </div>
                 <button
                   type="button"
                   onClick={handleOpenOutputFolder}
-                  className="inline-flex items-center gap-2 rounded-xl border border-brand-cyan/40 bg-slate-900 px-3 py-2 text-xs font-medium text-brand-cyan hover:bg-slate-800 cursor-pointer"
+                  className="inline-flex items-center gap-2 rounded-md border border-accent/40 bg-surface px-3 py-2 text-xs font-medium text-accent hover:bg-surface-2 cursor-pointer"
                 >
                   <FolderOpen className="h-3.5 w-3.5" />
                   <span>Mở thư mục chứa file</span>
@@ -1275,7 +1275,7 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
 
           {/* Báo cáo câu tràn thời lượng (cập nhật sau mỗi lần dubbing) */}
           {(selectedTask?.ttsOverruns?.length ?? 0) > 0 && !isDubbingRunning && (
-            <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4">
+            <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-4">
               <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-amber-300">
                 <AlertTriangle className="h-4 w-4 text-amber-400" />
                 <span>
@@ -1284,8 +1284,8 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
               </div>
               <div className="max-h-28 space-y-1 overflow-y-auto">
                 {selectedTask!.ttsOverruns!.map((o) => (
-                  <div key={o.index} className="flex items-center gap-2 text-[11px] text-slate-300">
-                    <span className="w-8 shrink-0 rounded bg-slate-800 px-1.5 py-0.5 text-center font-mono text-brand-cyan">
+                  <div key={o.index} className="flex items-center gap-2 text-[11px] text-text">
+                    <span className="w-8 shrink-0 rounded bg-surface-2 px-1.5 py-0.5 text-center font-mono text-accent">
                       {o.index}
                     </span>
                     <span>tăng tốc {o.tempo.toFixed(2)}x</span>
@@ -1297,7 +1297,7 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
                   </div>
                 ))}
               </div>
-              <p className="mt-2 text-[11px] text-slate-500">
+              <p className="mt-2 text-[11px] text-text-muted">
                 Sửa text ở tab Hiệu đính, dùng nút "Tạo lại" trên dòng tương ứng ở bảng gán giọng,
                 rồi ghép lại video.
               </p>
@@ -1306,7 +1306,7 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
 
           {/* Trạng thái lỗi của pipeline */}
           {selectedTask?.status === 'error' && selectedTask.errorMessage && (
-            <div className="rounded-2xl border border-rose-500/30 bg-rose-500/10 p-4">
+            <div className="rounded-lg border border-rose-500/30 bg-rose-500/10 p-4">
               <div className="flex items-start gap-2 text-xs text-rose-300">
                 <XCircle className="h-4 w-4 text-rose-400 mt-0.5 flex-shrink-0" />
                 <span>{selectedTask.errorMessage}</span>
@@ -1316,10 +1316,10 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
 
           {/* Gợi ý khi chưa làm gì */}
           {!hasTtsAudio && !isTtsRunning && (
-            <div className="flex-1 rounded-2xl border border-slate-800/50 bg-slate-900/40 p-4 flex items-center justify-center text-slate-500 text-xs">
+            <div className="flex-1 rounded-lg border border-border bg-surface p-4 flex items-center justify-center text-text-muted text-xs">
               <p>
-                Bấm <strong className="text-slate-300">"Nghe thử"</strong> để chọn giọng ưng ý, rồi bấm{' '}
-                <strong className="text-slate-300">"Tạo audio lồng tiếng"</strong> để bắt đầu xử lý...
+                Bấm <strong className="text-text">"Nghe thử"</strong> để chọn giọng ưng ý, rồi bấm{' '}
+                <strong className="text-text">"Tạo audio lồng tiếng"</strong> để bắt đầu xử lý...
               </p>
             </div>
           )}
@@ -1328,22 +1328,22 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
 
       {/* Modal gán giọng nhanh theo nhân vật (Speaker Diarization) */}
       {showSpeakerMappingModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="flex w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-slate-700 bg-slate-900 shadow-2xl shadow-black/80">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 animate-in fade-in duration-200">
+          <div className="flex w-full max-w-lg flex-col overflow-hidden rounded-lg border border-border bg-surface /80">
             {/* Modal Header */}
-            <div className="flex items-center justify-between border-b border-slate-800 px-5 py-4 bg-slate-900/90">
+            <div className="flex items-center justify-between border-b border-border px-5 py-4 bg-surface">
               <div className="flex items-center gap-2.5">
-                <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-brand-indigo/20 text-brand-cyan border border-brand-indigo/40">
+                <div className="flex h-8 w-8 items-center justify-center rounded-md bg-accent-tint text-accent border border-accent/40">
                   <Users className="h-4 w-4" />
                 </div>
                 <div>
                   <h3 className="text-sm font-bold text-white flex items-center gap-2">
                     Gán giọng theo nhân vật
-                    <span className="rounded-full bg-brand-indigo/20 px-2 py-0.5 text-[10px] text-brand-cyan font-semibold">
+                    <span className="rounded-full bg-accent-tint px-2 py-0.5 text-[10px] text-accent font-semibold">
                       Diarization
                     </span>
                   </h3>
-                  <p className="text-[11px] text-slate-400">
+                  <p className="text-[11px] text-text-muted">
                     Tự động gán giọng cho toàn bộ câu thoại của từng nhân vật trong phụ đề
                   </p>
                 </div>
@@ -1351,7 +1351,7 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
               <button
                 type="button"
                 onClick={() => setShowSpeakerMappingModal(false)}
-                className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-800 hover:text-white transition-colors cursor-pointer"
+                className="rounded-lg p-1.5 text-text-muted hover:bg-surface-2 hover:text-white transition-colors cursor-pointer"
               >
                 <X className="h-4 w-4" />
               </button>
@@ -1359,10 +1359,10 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
 
             {/* Modal Body */}
             <div className="max-h-[60vh] overflow-y-auto p-5 space-y-3.5">
-              <div className="rounded-xl border border-brand-cyan/20 bg-brand-cyan/5 p-3 text-[11px] text-slate-300 flex items-start gap-2">
-                <Sparkles className="h-4 w-4 text-brand-cyan shrink-0 mt-0.5" />
+              <div className="rounded-md border border-accent/40 bg-accent/5 p-3 text-[11px] text-text flex items-start gap-2">
+                <Sparkles className="h-4 w-4 text-accent shrink-0 mt-0.5" />
                 <span>
-                  Phát hiện <b className="text-brand-cyan">{detectedSpeakers.length} nhân vật</b> trong video. Bạn chỉ cần chọn giọng đọc tương ứng dưới đây, hệ thống sẽ áp dụng đồng loạt cho tất cả các câu thoại tương ứng.
+                  Phát hiện <b className="text-accent">{detectedSpeakers.length} nhân vật</b> trong video. Bạn chỉ cần chọn giọng đọc tương ứng dưới đây, hệ thống sẽ áp dụng đồng loạt cho tất cả các câu thoại tương ứng.
                 </span>
               </div>
 
@@ -1372,14 +1372,14 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
                   return (
                     <div
                       key={sp.name}
-                      className="flex items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-950/60 p-3 hover:border-slate-700 transition-colors"
+                      className="flex items-center justify-between gap-3 rounded-md border border-border bg-bg p-3 hover:border-border transition-colors"
                     >
                       <div className="min-w-0">
                         <div className="flex items-center gap-2">
-                          <span className="font-mono text-xs font-bold text-brand-cyan px-2 py-0.5 rounded bg-brand-indigo/20 border border-brand-indigo/40">
+                          <span className="font-mono text-xs font-bold text-accent px-2 py-0.5 rounded bg-accent-tint border border-accent/40">
                             {sp.name}
                           </span>
-                          <span className="text-[11px] text-slate-400">
+                          <span className="text-[11px] text-text-muted">
                             ({sp.count} câu · {Math.round((sp.count / Math.max(1, srtLines.length)) * 100)}%)
                           </span>
                         </div>
@@ -1393,7 +1393,7 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
                             [sp.name]: e.target.value,
                           }))
                         }
-                        className="w-56 shrink-0 rounded-lg border border-slate-700 bg-slate-800 px-2.5 py-1.5 text-xs text-slate-200 focus:border-brand-cyan focus:outline-none"
+                        className="w-56 shrink-0 rounded-lg border border-border bg-surface-2 px-2.5 py-1.5 text-xs text-text focus:border-accent/40 focus:outline-none"
                       >
                         <option value="">Giọng mặc định ({currentVoiceLabel(voice)})</option>
                         {voiceChoices.map((v) => (
@@ -1409,18 +1409,18 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
             </div>
 
             {/* Modal Footer */}
-            <div className="flex items-center justify-end gap-2.5 border-t border-slate-800 bg-slate-950/40 px-5 py-3.5">
+            <div className="flex items-center justify-end gap-2.5 border-t border-border bg-bg px-5 py-3.5">
               <button
                 type="button"
                 onClick={() => setShowSpeakerMappingModal(false)}
-                className="rounded-xl border border-slate-700 bg-slate-800 px-3.5 py-1.5 text-xs font-medium text-slate-300 hover:bg-slate-700 hover:text-white transition-colors cursor-pointer"
+                className="rounded-md border border-border bg-surface-2 px-3.5 py-1.5 text-xs font-medium text-text hover:bg-surface-3 hover:text-white transition-colors cursor-pointer"
               >
                 Hủy
               </button>
               <button
                 type="button"
                 onClick={handleApplySpeakerMapping}
-                className="btn-vanh-gradient inline-flex items-center gap-2 rounded-xl px-4 py-1.5 text-xs font-semibold text-white shadow-md shadow-brand-indigo/25 cursor-pointer"
+                className="bg-accent text-white hover:bg-accent-hover inline-flex items-center gap-2 rounded-md px-4 py-1.5 text-xs font-semibold text-white cursor-pointer"
               >
                 <CheckCircle2 className="h-4 w-4" />
                 <span>Áp dụng cho tất cả câu thoại</span>

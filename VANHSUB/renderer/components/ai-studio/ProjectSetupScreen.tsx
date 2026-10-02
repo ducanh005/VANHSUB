@@ -442,24 +442,24 @@ export default function ProjectSetupScreen({
   const hasSavedProject = Boolean(activeProj);
 
   return (
-    <div className="h-full w-full overflow-y-auto bg-[#080D1A] custom-scrollbar text-slate-200 p-4 md:p-8 flex flex-col items-center">
+    <div className="h-full w-full overflow-y-auto bg-[#080D1A] custom-scrollbar text-text p-4 md:p-8 flex flex-col items-center">
       <div className="w-full max-w-4xl space-y-6 animate-in fade-in duration-300">
         
         {/* Header Hero Banner */}
-        <div className="rounded-3xl border border-slate-800/80 bg-gradient-to-br from-[#0D1527] via-[#0B1120] to-[#080D1A] p-6 md:p-8 shadow-2xl relative overflow-hidden">
-          <div className="absolute top-0 right-0 -mt-8 -mr-8 w-64 h-64 bg-brand-cyan/10 rounded-full blur-3xl pointer-events-none" />
-          <div className="absolute bottom-0 left-1/3 -mb-12 w-64 h-64 bg-brand-indigo/10 rounded-full blur-3xl pointer-events-none" />
+        <div className="rounded-lg border border-border bg-gradient-to-br from-[#0D1527] via-[#0B1120] to-[#080D1A] p-6 md:p-8 relative overflow-hidden">
+          <div className="absolute top-0 right-0 -mt-8 -mr-8 w-64 h-64 bg-accent-tint rounded-full blur-3xl pointer-events-none" />
+          <div className="absolute bottom-0 left-1/3 -mb-12 w-64 h-64 bg-accent-tint rounded-full blur-3xl pointer-events-none" />
 
           <div className="relative z-10 flex flex-col md:flex-row md:items-center md:justify-between gap-6">
             <div className="space-y-2">
-              <div className="inline-flex items-center gap-2 rounded-full border border-brand-cyan/30 bg-brand-cyan/10 px-3 py-1 text-xs font-bold text-brand-cyan">
+              <div className="inline-flex items-center gap-2 rounded-full border border-accent/40 bg-accent-tint px-3 py-1 text-xs font-bold text-accent">
                 <Sparkles className="h-3.5 w-3.5" />
                 <span>QUY TRÌNH THIẾT LẬP DỰ ÁN 5 BƯỚC</span>
               </div>
               <h1 className="text-2xl md:text-3xl font-extrabold text-white tracking-tight">
                 Chào mừng bạn đến với <span className="bg-gradient-to-r from-brand-cyan via-blue-400 to-brand-indigo bg-clip-text text-transparent">AI Video Studio</span>
               </h1>
-              <p className="text-sm text-slate-400 max-w-2xl leading-relaxed">
+              <p className="text-sm text-text-muted max-w-2xl leading-relaxed">
                 Hoàn thành 5 bước chuẩn hóa để hệ thống đồng bộ toàn bộ pipeline: Tên đề tài → Output Folder → 
                 Cấu hình kênh & AI → Nhân vật đại diện & Bối cảnh → Lưu để mở khóa sinh ý tưởng.
               </p>
@@ -467,18 +467,18 @@ export default function ProjectSetupScreen({
 
             {/* Quick Resume Button if project exists */}
             {hasSavedProject && activeProj && (
-              <div className="shrink-0 rounded-2xl border border-emerald-500/30 bg-emerald-950/20 p-4 flex flex-col gap-2 min-w-[220px]">
+              <div className="shrink-0 rounded-lg border border-emerald-500/30 bg-emerald-950/20 p-4 flex flex-col gap-2 min-w-[220px]">
                 <div className="flex items-center gap-2 text-xs font-semibold text-emerald-400">
                   <CheckCircle2 className="h-4 w-4" />
                   <span>Dự án gần nhất</span>
                 </div>
                 <div className="text-sm font-bold text-white truncate max-w-[200px]" title={activeProj.name}>
-                  📁 {activeProj.name}
+                  {activeProj.name}
                 </div>
                 <button
                   type="button"
                   onClick={onEnterStudio}
-                  className="mt-1 inline-flex items-center justify-center gap-1.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 px-4 py-2 text-xs font-bold text-white shadow-lg hover:brightness-110 active:scale-95 transition cursor-pointer"
+                  className="mt-1 inline-flex items-center justify-center gap-1.5 rounded-md bg-gradient-to-r from-emerald-500 to-teal-600 px-4 py-2 text-xs font-bold text-white hover:brightness-110 active:scale-95 transition cursor-pointer"
                 >
                   <Play className="h-3.5 w-3.5 fill-current" />
                   <span>Vào Studio Tiếp Tục</span>
@@ -490,7 +490,7 @@ export default function ProjectSetupScreen({
 
         {/* Validation Alert */}
         {validationError && (
-          <div className="rounded-2xl border border-rose-500/40 bg-rose-950/40 px-4 py-3 text-xs text-rose-300 flex items-center gap-2.5 animate-in shake shadow-lg">
+          <div className="rounded-lg border border-rose-500/40 bg-rose-950/40 px-4 py-3 text-xs text-rose-300 flex items-center gap-2.5 animate-in shake">
             <AlertCircle className="h-4 w-4 text-rose-400 shrink-0" />
             <span className="font-semibold">{validationError}</span>
           </div>
@@ -498,18 +498,18 @@ export default function ProjectSetupScreen({
 
         {/* Section: Danh Sách Dự Án Đã Lưu */}
         {savedProjects.length > 0 && (
-          <div className="rounded-3xl border border-slate-800/90 bg-[#0B1120]/90 p-5 md:p-6 space-y-4 shadow-xl backdrop-blur-sm">
-            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-3">
+          <div className="rounded-lg border border-border bg-surface p-5 md:p-6 space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border pb-3">
               <div className="flex items-center gap-2">
                 <Folder className="h-5 w-5 text-amber-400" />
-                <h2 className="text-sm font-bold uppercase tracking-wider text-slate-200">
+                <h2 className="text-sm font-bold uppercase tracking-wider text-text">
                   Dự Án Đã Lưu ({savedProjects.length})
                 </h2>
               </div>
               <button
                 type="button"
                 onClick={handleCreateNewProject}
-                className="inline-flex items-center gap-1.5 rounded-xl border border-brand-cyan/40 bg-brand-cyan/10 px-3 py-1.5 text-xs font-bold text-brand-cyan hover:bg-brand-cyan/20 transition cursor-pointer active:scale-95"
+                className="inline-flex items-center gap-1.5 rounded-md border border-accent/40 bg-accent-tint px-3 py-1.5 text-xs font-bold text-accent hover:bg-accent-tint transition cursor-pointer active:scale-95"
               >
                 <Plus className="h-3.5 w-3.5" />
                 <span>Tạo Dự Án Mới</span>
@@ -523,12 +523,12 @@ export default function ProjectSetupScreen({
                 return (
                   <div
                     key={p.id}
-                    className={`rounded-2xl border p-4 flex flex-col justify-between gap-3 transition ${
+                    className={`rounded-lg border p-4 flex flex-col justify-between gap-3 transition ${
                       isCurrentEditing
-                        ? 'border-brand-cyan/80 bg-brand-cyan/10 shadow-md shadow-brand-cyan/10 ring-1 ring-brand-cyan/50'
+                        ? 'border-accent/40 bg-accent-tint   ring-1 ring-accent/30'
                         : isActive
-                        ? 'border-emerald-500/50 bg-emerald-950/20 shadow-md'
-                        : 'border-slate-800 bg-slate-900/50 hover:border-slate-700'
+                        ? 'border-emerald-500/50 bg-emerald-950/20 '
+                        : 'border-border bg-surface hover:border-border'
                     }`}
                   >
                     <div className="space-y-1.5">
@@ -538,7 +538,7 @@ export default function ProjectSetupScreen({
                           <span className="truncate">{p.name}</span>
                         </div>
                         {isCurrentEditing ? (
-                          <span className="shrink-0 rounded-full bg-cyan-500/20 px-2 py-0.5 text-[10px] font-extrabold text-cyan-300">
+                          <span className="shrink-0 rounded-full bg-accent/20 px-2 py-0.5 text-[10px] font-extrabold text-accent">
                             Đang sửa
                           </span>
                         ) : isActive ? (
@@ -549,14 +549,14 @@ export default function ProjectSetupScreen({
                       </div>
 
                       {p.channelProfile.channelNiche && (
-                        <p className="text-xs text-slate-300 font-medium truncate">
-                          🏷️ {p.channelProfile.channelNiche}
+                        <p className="text-xs text-text font-medium truncate">
+                          {p.channelProfile.channelNiche}
                         </p>
                       )}
 
                       {p.outputDir && (
-                        <p className="text-[11px] text-slate-400 truncate flex items-center gap-1" title={p.outputDir}>
-                          <FolderOpen className="h-3 w-3 text-slate-500 shrink-0" />
+                        <p className="text-[11px] text-text-muted truncate flex items-center gap-1" title={p.outputDir}>
+                          <FolderOpen className="h-3 w-3 text-text-muted shrink-0" />
                           <span className="truncate">{p.outputDir}</span>
                         </p>
                       )}
@@ -564,48 +564,48 @@ export default function ProjectSetupScreen({
                       <div className="flex flex-wrap gap-1.5 pt-1">
                         {p.ideas && p.ideas.length > 0 ? (
                           <span className="rounded bg-amber-500/15 border border-amber-500/30 px-2 py-0.5 text-[10px] text-amber-300 font-medium">
-                            💡 {p.ideas.length} ý tưởng
+                            {p.ideas.length} ý tưởng
                           </span>
                         ) : (
-                          <span className="rounded bg-slate-800/80 px-2 py-0.5 text-[10px] text-slate-500">
-                            💡 Chưa có ý tưởng
+                          <span className="rounded bg-surface-2 px-2 py-0.5 text-[10px] text-text-muted">
+                            Chưa có ý tưởng
                           </span>
                         )}
 
                         {p.channelProfile.hostAvatarUrl ? (
-                          <span className="rounded bg-purple-500/15 border border-purple-500/30 px-2 py-0.5 text-[10px] text-purple-300 font-medium">
-                            👤 Có Avatar MC
+                          <span className="rounded bg-accent-tint border border-accent/40 px-2 py-0.5 text-[10px] text-accent font-medium">
+                            Có Avatar MC
                           </span>
                         ) : null}
 
                         {p.flowProjectUrl ? (
                           <span className="rounded bg-blue-500/15 border border-blue-500/30 px-2 py-0.5 text-[10px] text-blue-300 font-medium truncate max-w-[120px]" title={p.flowProjectUrl}>
-                            🔗 Flow Linked
+                            Flow Linked
                           </span>
                         ) : null}
 
                         {p.channelProfile.targetLongDuration && (
-                          <span className="rounded bg-slate-800 px-2 py-0.5 text-[10px] text-slate-400 font-mono">
+                          <span className="rounded bg-surface-2 px-2 py-0.5 text-[10px] text-text-muted font-mono">
                             ⏱ {DURATION_OPTIONS.find(d => d.id === p.channelProfile.targetLongDuration)?.label.split(' ')[0] || p.channelProfile.targetLongDuration}
                           </span>
                         )}
                       </div>
                     </div>
 
-                    <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-800/60">
+                    <div className="flex items-center justify-between gap-2 pt-2 border-t border-border">
                       <div className="flex items-center gap-1.5">
                         <button
                           type="button"
                           onClick={() => handleLoadProjectIntoForm(p)}
-                          className="rounded-lg border border-slate-700 bg-slate-800/80 px-2.5 py-1 text-[11px] font-semibold text-slate-300 hover:text-white hover:bg-slate-700 transition cursor-pointer"
+                          className="rounded-lg border border-border bg-surface-2 px-2.5 py-1 text-[11px] font-semibold text-text hover:text-white hover:bg-surface-3 transition cursor-pointer"
                           title="Nạp thông tin vào form để chỉnh sửa"
                         >
-                          ✏️ Sửa
+                          Sửa
                         </button>
                         <button
                           type="button"
                           onClick={() => handleDeleteProject(p.id, p.name)}
-                          className="rounded-lg border border-slate-800 bg-slate-800/40 p-1 text-slate-500 hover:text-rose-400 hover:bg-rose-950/30 transition cursor-pointer"
+                          className="rounded-lg border border-border bg-surface-2 p-1 text-text-muted hover:text-rose-400 hover:bg-rose-950/30 transition cursor-pointer"
                           title="Xoá dự án này"
                         >
                           <Trash2 className="h-3.5 w-3.5" />
@@ -629,11 +629,11 @@ export default function ProjectSetupScreen({
         )}
 
         {/* Main Setup Card Form - 5 STEPS SEQUENTIAL WORKFLOW */}
-        <div className="rounded-3xl border border-slate-800 bg-[#0B1120]/90 p-6 md:p-8 space-y-8 shadow-xl backdrop-blur-sm">
+        <div className="rounded-lg border border-border bg-surface p-6 md:p-8 space-y-8">
           
           {/* Header indicator when editing a project */}
           {editingProjectId && !isCreatingNew ? (
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+            <div className="flex items-center justify-between pb-3 border-b border-border">
               <div className="flex items-center gap-2 text-xs font-bold text-amber-400">
                 <Edit3 className="h-4 w-4" />
                 <span>Đang chỉnh sửa dự án: "{projectName || 'Dự án'}"</span>
@@ -641,17 +641,17 @@ export default function ProjectSetupScreen({
               <button
                 type="button"
                 onClick={handleCreateNewProject}
-                className="text-xs font-semibold text-brand-cyan hover:underline cursor-pointer flex items-center gap-1"
+                className="text-xs font-semibold text-accent hover:underline cursor-pointer flex items-center gap-1"
               >
                 <Plus className="h-3.5 w-3.5" />
                 <span>Chuyển sang tạo dự án mới</span>
               </button>
             </div>
           ) : (
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+            <div className="flex items-center justify-between pb-3 border-b border-border">
               <div className="flex items-center gap-2 text-xs font-bold text-emerald-400">
                 <Plus className="h-4 w-4 text-emerald-400" />
-                <span>✨ Tạo mới & cấu hình dự án video</span>
+                <span>Tạo mới & cấu hình dự án video</span>
               </div>
               {savedProjects.length > 0 && (
                 <button
@@ -660,7 +660,7 @@ export default function ProjectSetupScreen({
                     const target = activeProj || savedProjects[0];
                     if (target) handleLoadProjectIntoForm(target);
                   }}
-                  className="text-xs font-semibold text-slate-400 hover:text-white cursor-pointer flex items-center gap-1"
+                  className="text-xs font-semibold text-text-muted hover:text-white cursor-pointer flex items-center gap-1"
                 >
                   <span>Nạp dự án gần nhất vào form để sửa</span>
                 </button>
@@ -671,10 +671,10 @@ export default function ProjectSetupScreen({
           {/* BƯỚC 1: TÊN ĐỀ TÀI / TÊN KÊNH */}
           <div className="space-y-2">
             <div className="flex items-center gap-2">
-              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-cyan-500/20 text-cyan-400 text-xs font-bold border border-cyan-500/40">
+              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-accent/20 text-accent text-xs font-bold border border-accent/40">
                 1
               </span>
-              <label className="text-xs font-bold uppercase tracking-wider text-slate-200">
+              <label className="text-xs font-bold uppercase tracking-wider text-text">
                 Tên Đề Tài / Tên Kênh <span className="text-rose-400">*</span>
               </label>
             </div>
@@ -687,10 +687,10 @@ export default function ProjectSetupScreen({
                   if (validationError) setValidationError(null);
                 }}
                 placeholder="VD: Kênh Lịch Sử Chiến Tranh, Bí Ẩn Vũ Trụ, Khám Phá Sinh Tồn..."
-                className="w-full rounded-xl border border-slate-700 bg-slate-900/90 px-4 py-3 text-sm text-white placeholder:text-slate-500 focus:border-brand-cyan focus:ring-1 focus:ring-brand-cyan focus:outline-none transition"
+                className="w-full rounded-md border border-border bg-surface px-4 py-3 text-sm text-white placeholder:text-text-muted focus:border-accent/40 focus:ring-1 focus:ring-accent/30 focus:outline-none transition"
               />
             </div>
-            <p className="text-[11px] text-slate-500 pl-8">
+            <p className="text-[11px] text-text-muted pl-8">
               Tên đề tài sẽ là linh hồn định danh cho kịch bản, thư mục dự án và các video sản xuất sau này.
             </p>
           </div>
@@ -701,7 +701,7 @@ export default function ProjectSetupScreen({
               <span className="flex h-6 w-6 items-center justify-center rounded-full bg-amber-500/20 text-amber-400 text-xs font-bold border border-amber-500/40">
                 2
               </span>
-              <label className="text-xs font-bold uppercase tracking-wider text-slate-200">
+              <label className="text-xs font-bold uppercase tracking-wider text-text">
                 Thư Mục Xuất Ra Đĩa (Output Folder) <span className="text-rose-400">*</span>
               </label>
             </div>
@@ -715,19 +715,19 @@ export default function ProjectSetupScreen({
                     if (validationError) setValidationError(null);
                   }}
                   placeholder="VD: D:\VideoProjects\Chien_Tranh_The_Gioi_1 hoặc C:\ContentCreation..."
-                  className="w-full rounded-xl border border-slate-700 bg-slate-900/90 px-4 py-3 text-sm text-white placeholder:text-slate-500 focus:border-brand-cyan focus:ring-1 focus:ring-brand-cyan focus:outline-none transition font-mono"
+                  className="w-full rounded-md border border-border bg-surface px-4 py-3 text-sm text-white placeholder:text-text-muted focus:border-accent/40 focus:ring-1 focus:ring-accent/30 focus:outline-none transition font-mono"
                 />
               </div>
               <button
                 type="button"
                 onClick={handleChooseOutputDir}
-                className="inline-flex items-center gap-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 px-4 py-3 text-xs font-bold text-slate-200 hover:text-white transition cursor-pointer shadow-md shrink-0 active:scale-95"
+                className="inline-flex items-center gap-2 rounded-md bg-surface-2 hover:bg-surface-3 border border-border px-4 py-3 text-xs font-bold text-text hover:text-white transition cursor-pointer shrink-0 active:scale-95"
               >
                 <FolderOpen className="h-4 w-4 text-amber-400" />
                 <span>Chọn Thư Mục...</span>
               </button>
             </div>
-            <p className="text-[11px] text-slate-500 pl-8">
+            <p className="text-[11px] text-text-muted pl-8">
               Nơi lưu trữ toàn bộ dữ liệu vật lý của dự án: Kịch bản (01_script), giọng đọc (02_voice), ảnh/video tạo ra (05_media), và ảnh tham chiếu (style_refs).
             </p>
           </div>
@@ -739,11 +739,11 @@ export default function ProjectSetupScreen({
                 <span className="flex h-6 w-6 items-center justify-center rounded-full bg-indigo-500/20 text-indigo-400 text-xs font-bold border border-indigo-500/40">
                   3
                 </span>
-                <label className="text-xs font-bold uppercase tracking-wider text-slate-200">
+                <label className="text-xs font-bold uppercase tracking-wider text-text">
                   Cấu Hình Kênh, Mô Hình AI & Dự Án Google Flow <span className="text-rose-400">*</span>
                 </label>
               </div>
-              <span className="text-[11px] text-slate-400 hidden sm:inline">Chọn mẫu nhanh bên dưới hoặc tự nhập</span>
+              <span className="text-[11px] text-text-muted hidden sm:inline">Chọn mẫu nhanh bên dưới hoặc tự nhập</span>
             </div>
 
             {/* Quick Presets for Niche */}
@@ -753,7 +753,7 @@ export default function ProjectSetupScreen({
                   key={idx}
                   type="button"
                   onClick={() => handleApplyPreset(preset)}
-                  className="rounded-lg border border-slate-800 bg-slate-900/60 px-3 py-1.5 text-xs text-slate-300 hover:border-brand-cyan/60 hover:text-white hover:bg-slate-800/80 transition cursor-pointer"
+                  className="rounded-lg border border-border bg-surface px-3 py-1.5 text-xs text-text hover:border-accent/40 hover:text-white hover:bg-surface-2 transition cursor-pointer"
                 >
                   {preset.label}
                 </button>
@@ -762,24 +762,24 @@ export default function ProjectSetupScreen({
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pl-8">
               <div className="space-y-1.5">
-                <span className="text-xs text-slate-400">Chủ đề chính (Niche):</span>
+                <span className="text-xs text-text-muted">Chủ đề chính (Niche):</span>
                 <input
                   type="text"
                   value={channelNiche}
                   onChange={(e) => setChannelNiche(e.target.value)}
                   placeholder="VD: Sinh tồn tiền sử, Khảo cổ học..."
-                  className="w-full rounded-xl border border-slate-700 bg-slate-900/90 px-3.5 py-2.5 text-xs text-white placeholder:text-slate-500 focus:border-brand-cyan focus:outline-none"
+                  className="w-full rounded-md border border-border bg-surface px-3.5 py-2.5 text-xs text-white placeholder:text-text-muted focus:border-accent/40 focus:outline-none"
                 />
               </div>
 
               <div className="space-y-1.5">
-                <span className="text-xs text-slate-400">Định hướng nội dung (Tone & Mood):</span>
+                <span className="text-xs text-text-muted">Định hướng nội dung (Tone & Mood):</span>
                 <input
                   type="text"
                   value={channelOrientation}
                   onChange={(e) => setChannelOrientation(e.target.value)}
                   placeholder="VD: Kịch tính, điều tra điện ảnh, nhịp điệu dồn dập..."
-                  className="w-full rounded-xl border border-slate-700 bg-slate-900/90 px-3.5 py-2.5 text-xs text-white placeholder:text-slate-500 focus:border-brand-cyan focus:outline-none"
+                  className="w-full rounded-md border border-border bg-surface px-3.5 py-2.5 text-xs text-white placeholder:text-text-muted focus:border-accent/40 focus:outline-none"
                 />
               </div>
             </div>
@@ -787,7 +787,7 @@ export default function ProjectSetupScreen({
             {/* Google Flow Project URL Input */}
             <div className="space-y-1.5 pl-8">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className="text-xs text-slate-300 font-semibold flex items-center gap-1.5">
+                <span className="text-xs text-text font-semibold flex items-center gap-1.5">
                   <Link2 className="h-3.5 w-3.5 text-blue-400" />
                   Mã / Link Dự Án Google Flow (Tùy chọn):
                 </span>
@@ -811,10 +811,10 @@ export default function ProjectSetupScreen({
                         console.warn('Không thể lấy URL từ tab Chrome:', e);
                       }
                     }}
-                    className="flex items-center gap-1.5 text-[11px] font-semibold text-cyan-300 hover:text-cyan-200 transition cursor-pointer bg-cyan-950/40 border border-cyan-500/30 px-2.5 py-1 rounded-lg"
+                    className="flex items-center gap-1.5 text-[11px] font-semibold text-accent hover:text-accent transition cursor-pointer bg-surface-2 border border-accent/40 px-2.5 py-1 rounded-lg"
                     title="Tự động lấy link/ID dự án Google Flow từ tab Chrome đang mở"
                   >
-                    <span>🔄 Lấy từ Tab Chrome</span>
+                    <span>Lấy từ Tab Chrome</span>
                   </button>
                   <button
                     type="button"
@@ -846,7 +846,7 @@ export default function ProjectSetupScreen({
                     title="Mở Google Chrome tới đúng dự án Google Flow (hoặc sảnh chính để đăng nhập/chọn dự án)"
                   >
                     <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                    <span>🌐 Mở Sảnh Google Flow</span>
+                    <span>Mở Sảnh Google Flow</span>
                   </button>
                 </div>
               </div>
@@ -855,38 +855,38 @@ export default function ProjectSetupScreen({
                 value={flowProjectUrl}
                 onChange={(e) => setFlowProjectUrl(e.target.value)}
                 placeholder="Để trống để tự động dùng dự án trên Tab Chrome đang mở, hoặc dán link/ID dự án Google Flow..."
-                className="w-full rounded-xl border border-slate-700 bg-slate-900/90 px-3.5 py-2.5 text-xs text-white placeholder:text-slate-500 focus:border-blue-400 focus:outline-none font-mono"
+                className="w-full rounded-md border border-border bg-surface px-3.5 py-2.5 text-xs text-white placeholder:text-text-muted focus:border-blue-400 focus:outline-none font-mono"
               />
             </div>
 
             {/* AI Provider Cards */}
             <div className="space-y-2.5 pl-8">
-              <span className="text-xs text-slate-400">Mô Hình AI Biên Kịch (LLM Provider):</span>
+              <span className="text-xs text-text-muted">Mô Hình AI Biên Kịch (LLM Provider):</span>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                 {/* Gemini Web */}
                 <div
                   onClick={() => setSelectedProvider('gemini_web')}
-                  className={`rounded-2xl border p-3.5 cursor-pointer transition flex flex-col justify-between ${
+                  className={`rounded-lg border p-3.5 cursor-pointer transition flex flex-col justify-between ${
                     selectedProvider === 'gemini_web'
-                      ? 'border-brand-cyan bg-brand-cyan/10 shadow-md shadow-brand-cyan/10'
-                      : 'border-slate-800 bg-slate-900/40 hover:border-slate-700'
+                      ? 'border-accent/40 bg-accent-tint  '
+                      : 'border-border bg-surface hover:border-border'
                   }`}
                 >
                   <div className="space-y-1">
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-bold text-white flex items-center gap-1.5">
-                        <Sparkles className="h-3.5 w-3.5 text-cyan-400" />
+                        <Sparkles className="h-3.5 w-3.5 text-accent" />
                         Gemini Web
                       </span>
-                      <span className="rounded bg-cyan-500/20 px-1.5 py-0.5 text-[9px] font-bold text-cyan-300">
+                      <span className="rounded bg-accent/20 px-1.5 py-0.5 text-[9px] font-bold text-accent">
                         FREE
                       </span>
                     </div>
-                    <p className="text-[10px] text-slate-400 leading-snug">
+                    <p className="text-[10px] text-text-muted leading-snug">
                       Tự động hóa trình duyệt Gemini. Không tốn chi phí API.
                     </p>
                   </div>
-                  <div className="mt-2 flex items-center justify-between text-[10px] text-cyan-400 font-medium">
+                  <div className="mt-2 flex items-center justify-between text-[10px] text-accent font-medium">
                     <span>Zero-API</span>
                     {selectedProvider === 'gemini_web' && <CheckCircle2 className="h-3.5 w-3.5" />}
                   </div>
@@ -895,10 +895,10 @@ export default function ProjectSetupScreen({
                 {/* ChatGPT Web */}
                 <div
                   onClick={() => setSelectedProvider('chatgpt_web')}
-                  className={`rounded-2xl border p-3.5 cursor-pointer transition flex flex-col justify-between ${
+                  className={`rounded-lg border p-3.5 cursor-pointer transition flex flex-col justify-between ${
                     selectedProvider === 'chatgpt_web'
-                      ? 'border-emerald-500 bg-emerald-500/10 shadow-md shadow-emerald-500/10'
-                      : 'border-slate-800 bg-slate-900/40 hover:border-slate-700'
+                      ? 'border-emerald-500 bg-emerald-500/10  '
+                      : 'border-border bg-surface hover:border-border'
                   }`}
                 >
                   <div className="space-y-1">
@@ -911,7 +911,7 @@ export default function ProjectSetupScreen({
                         FREE
                       </span>
                     </div>
-                    <p className="text-[10px] text-slate-400 leading-snug">
+                    <p className="text-[10px] text-text-muted leading-snug">
                       Tự động hóa tài khoản ChatGPT cá nhân.
                     </p>
                   </div>
@@ -924,10 +924,10 @@ export default function ProjectSetupScreen({
                 {/* DeepSeek */}
                 <div
                   onClick={() => setSelectedProvider('deepseek')}
-                  className={`rounded-2xl border p-3.5 cursor-pointer transition flex flex-col justify-between ${
+                  className={`rounded-lg border p-3.5 cursor-pointer transition flex flex-col justify-between ${
                     selectedProvider === 'deepseek'
-                      ? 'border-indigo-500 bg-indigo-500/10 shadow-md shadow-indigo-500/10'
-                      : 'border-slate-800 bg-slate-900/40 hover:border-slate-700'
+                      ? 'border-indigo-500 bg-indigo-500/10  '
+                      : 'border-border bg-surface hover:border-border'
                   }`}
                 >
                   <div className="space-y-1">
@@ -940,7 +940,7 @@ export default function ProjectSetupScreen({
                         API
                       </span>
                     </div>
-                    <p className="text-[10px] text-slate-400 leading-snug">
+                    <p className="text-[10px] text-text-muted leading-snug">
                       Văn phong sắc bén, suy luận logic sâu với chi phí tối ưu.
                     </p>
                   </div>
@@ -953,27 +953,27 @@ export default function ProjectSetupScreen({
                 {/* OpenAI GPT-4o */}
                 <div
                   onClick={() => setSelectedProvider('openai')}
-                  className={`rounded-2xl border p-3.5 cursor-pointer transition flex flex-col justify-between ${
+                  className={`rounded-lg border p-3.5 cursor-pointer transition flex flex-col justify-between ${
                     selectedProvider === 'openai'
-                      ? 'border-purple-500 bg-purple-500/10 shadow-md shadow-purple-500/10'
-                      : 'border-slate-800 bg-slate-900/40 hover:border-slate-700'
+                      ? 'border-purple-500 bg-accent-tint  '
+                      : 'border-border bg-surface hover:border-border'
                   }`}
                 >
                   <div className="space-y-1">
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-bold text-white flex items-center gap-1.5">
-                        <Flame className="h-3.5 w-3.5 text-purple-400" />
+                        <Flame className="h-3.5 w-3.5 text-accent" />
                         OpenAI GPT-4o
                       </span>
-                      <span className="rounded bg-purple-500/20 px-1.5 py-0.5 text-[9px] font-bold text-purple-300">
+                      <span className="rounded bg-accent-tint px-1.5 py-0.5 text-[9px] font-bold text-accent">
                         API
                       </span>
                     </div>
-                    <p className="text-[10px] text-slate-400 leading-snug">
+                    <p className="text-[10px] text-text-muted leading-snug">
                       Sáng tạo câu chuyện mượt mà, cảm xúc điện ảnh.
                     </p>
                   </div>
-                  <div className="mt-2 flex items-center justify-between text-[10px] text-purple-400 font-medium">
+                  <div className="mt-2 flex items-center justify-between text-[10px] text-accent font-medium">
                     <span>gpt-4o</span>
                     {selectedProvider === 'openai' && <CheckCircle2 className="h-3.5 w-3.5" />}
                   </div>
@@ -984,42 +984,42 @@ export default function ProjectSetupScreen({
             {/* Format & Duration */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pl-8">
               <div className="space-y-1.5">
-                <span className="text-xs text-slate-400">Định dạng Video:</span>
+                <span className="text-xs text-text-muted">Định dạng Video:</span>
                 <div className="grid grid-cols-2 gap-3">
                   <button
                     type="button"
                     onClick={() => setAspectRatio('16:9')}
-                    className={`flex items-center justify-center gap-2 rounded-xl border p-2.5 text-xs font-bold transition cursor-pointer ${
+                    className={`flex items-center justify-center gap-2 rounded-md border p-2.5 text-xs font-bold transition cursor-pointer ${
                       aspectRatio === '16:9'
-                        ? 'border-brand-cyan bg-brand-cyan/15 text-white shadow'
-                        : 'border-slate-800 bg-slate-900/50 text-slate-400 hover:text-white'
+                        ? 'border-accent/40 bg-accent/15 text-white shadow'
+                        : 'border-border bg-surface text-text-muted hover:text-white'
                     }`}
                   >
-                    <Tv className="h-4 w-4 text-brand-cyan" />
+                    <Tv className="h-4 w-4 text-accent" />
                     <span>16:9 Video Dài</span>
                   </button>
 
                   <button
                     type="button"
                     onClick={() => setAspectRatio('9:16')}
-                    className={`flex items-center justify-center gap-2 rounded-xl border p-2.5 text-xs font-bold transition cursor-pointer ${
+                    className={`flex items-center justify-center gap-2 rounded-md border p-2.5 text-xs font-bold transition cursor-pointer ${
                       aspectRatio === '9:16'
-                        ? 'border-brand-cyan bg-brand-cyan/15 text-white shadow'
-                        : 'border-slate-800 bg-slate-900/50 text-slate-400 hover:text-white'
+                        ? 'border-accent/40 bg-accent/15 text-white shadow'
+                        : 'border-border bg-surface text-text-muted hover:text-white'
                     }`}
                   >
-                    <Smartphone className="h-4 w-4 text-brand-cyan" />
+                    <Smartphone className="h-4 w-4 text-accent" />
                     <span>9:16 Shorts</span>
                   </button>
                 </div>
               </div>
 
               <div className="space-y-1.5">
-                <span className="text-xs text-slate-400">Thời lượng mục tiêu:</span>
+                <span className="text-xs text-text-muted">Thời lượng mục tiêu:</span>
                 <select
                   value={duration}
                   onChange={(e) => setDuration(e.target.value as ChannelLongDuration)}
-                  className="w-full rounded-xl border border-slate-700 bg-slate-900/90 px-3.5 py-2.5 text-xs text-white focus:border-brand-cyan focus:outline-none cursor-pointer"
+                  className="w-full rounded-md border border-border bg-surface px-3.5 py-2.5 text-xs text-white focus:border-accent/40 focus:outline-none cursor-pointer"
                 >
                   {DURATION_OPTIONS.map((opt) => (
                     <option key={opt.id} value={opt.id}>
@@ -1034,20 +1034,20 @@ export default function ProjectSetupScreen({
           {/* BƯỚC 4: THIẾT LẬP NHÂN VẬT ĐẠI DIỆN & STYLE BỐI CẢNH */}
           <div className="space-y-4">
             <div className="flex items-center gap-2">
-              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-purple-500/20 text-purple-400 text-xs font-bold border border-purple-500/40">
+              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-accent-tint text-accent text-xs font-bold border border-accent/40">
                 4
               </span>
-              <label className="text-xs font-bold uppercase tracking-wider text-slate-200">
+              <label className="text-xs font-bold uppercase tracking-wider text-text">
                 Thiết Lập Nhân Vật Đại Diện & Phong Cách Bối Cảnh
               </label>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pl-8">
               {/* Cột trái: Nhân vật đại diện (Host Avatar) */}
-              <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4 space-y-3">
+              <div className="rounded-lg border border-border bg-surface p-4 space-y-3">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
-                    <User className="h-4 w-4 text-purple-400" />
+                  <span className="text-xs font-bold text-text flex items-center gap-1.5">
+                    <User className="h-4 w-4 text-accent" />
                     Ảnh Đại Diện MC / Nhân Vật (Host Avatar)
                   </span>
                   {hostAvatarUrl ? (
@@ -1055,7 +1055,7 @@ export default function ProjectSetupScreen({
                       Đã đính kèm
                     </span>
                   ) : (
-                    <span className="rounded-full bg-slate-800 px-2 py-0.5 text-[10px] text-slate-400">
+                    <span className="rounded-full bg-surface-2 px-2 py-0.5 text-[10px] text-text-muted">
                       Tùy chọn
                     </span>
                   )}
@@ -1068,7 +1068,7 @@ export default function ProjectSetupScreen({
                       <img
                         src={hostAvatarUrl}
                         alt="Host Avatar"
-                        className="h-16 w-16 rounded-2xl object-cover border-2 border-purple-500/50 shadow-md"
+                        className="h-16 w-16 rounded-lg object-cover border-2 border-accent/40"
                       />
                       <button
                         type="button"
@@ -1080,7 +1080,7 @@ export default function ProjectSetupScreen({
                       </button>
                     </div>
                   ) : (
-                    <div className="h-16 w-16 rounded-2xl border-2 border-dashed border-slate-700 flex flex-col items-center justify-center text-slate-500 shrink-0 bg-slate-900/60">
+                    <div className="h-16 w-16 rounded-lg border-2 border-dashed border-border flex flex-col items-center justify-center text-text-muted shrink-0 bg-surface">
                       <ImageIcon className="h-6 w-6 stroke-[1.5]" />
                     </div>
                   )}
@@ -1089,12 +1089,12 @@ export default function ProjectSetupScreen({
                     <button
                       type="button"
                       onClick={handleSelectAvatarFile}
-                      className="inline-flex items-center gap-1.5 rounded-xl border border-purple-500/40 bg-purple-950/30 hover:bg-purple-900/40 px-3 py-1.5 text-xs font-bold text-purple-300 transition cursor-pointer shadow active:scale-95"
+                      className="inline-flex items-center gap-1.5 rounded-md border border-accent/40 bg-purple-950/30 hover:bg-purple-900/40 px-3 py-1.5 text-xs font-bold text-accent transition cursor-pointer shadow active:scale-95"
                     >
                       <Upload className="h-3.5 w-3.5" />
                       <span>{hostAvatarUrl ? 'Đổi Ảnh Khác...' : 'Tải Ảnh Nhân Vật...'}</span>
                     </button>
-                    <p className="text-[10px] text-slate-500 leading-snug">
+                    <p className="text-[10px] text-text-muted leading-snug">
                       Đính kèm ảnh mẫu nhân vật cố định để Google Flow tái hiện đồng nhất xuyên suốt video.
                     </p>
                   </div>
@@ -1110,26 +1110,26 @@ export default function ProjectSetupScreen({
 
                 {/* Mô tả nhân vật */}
                 <div className="space-y-1 pt-1">
-                  <span className="text-[11px] text-slate-400">Mô tả đặc điểm nhân vật (nếu muốn AI bổ trợ):</span>
+                  <span className="text-[11px] text-text-muted">Mô tả đặc điểm nhân vật (nếu muốn AI bổ trợ):</span>
                   <input
                     type="text"
                     value={hostDescription}
                     onChange={(e) => setHostDescription(e.target.value)}
                     placeholder="VD: Nam 30 tuổi, áo khoác dã chiến màu rêu, tóc ngắn, mắt sắc bén..."
-                    className="w-full rounded-xl border border-slate-700 bg-slate-900/90 px-3 py-2 text-xs text-white placeholder:text-slate-500 focus:border-purple-400 focus:outline-none"
+                    className="w-full rounded-md border border-border bg-surface px-3 py-2 text-xs text-white placeholder:text-text-muted focus:border-purple-400 focus:outline-none"
                   />
                 </div>
               </div>
 
               {/* Cột phải: Phong cách bối cảnh (Style Preset & Tự Prompt Bối Cảnh) */}
-              <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4 space-y-3 flex flex-col justify-between">
+              <div className="rounded-lg border border-border bg-surface p-4 space-y-3 flex flex-col justify-between">
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
-                      <Palette className="h-4 w-4 text-brand-cyan" />
+                    <span className="text-xs font-bold text-text flex items-center gap-1.5">
+                      <Palette className="h-4 w-4 text-accent" />
                       Phong Cách Bối Cảnh (Visual Style)
                     </span>
-                    <span className="text-[10px] text-slate-400">Chọn 1 mẫu</span>
+                    <span className="text-[10px] text-text-muted">Chọn 1 mẫu</span>
                   </div>
 
                   {/* Danh sách preset phong cách */}
@@ -1140,24 +1140,24 @@ export default function ProjectSetupScreen({
                         <div
                           key={st.id}
                           onClick={() => handleSelectStylePreset(st)}
-                          className={`rounded-xl border p-2 cursor-pointer transition flex items-start justify-between gap-1.5 ${
+                          className={`rounded-md border p-2 cursor-pointer transition flex items-start justify-between gap-1.5 ${
                             isSelected
-                              ? 'border-brand-cyan bg-brand-cyan/15 shadow-sm'
-                              : 'border-slate-800/80 bg-slate-900/60 hover:border-slate-700'
+                              ? 'border-accent/40 bg-accent/15 '
+                              : 'border-border bg-surface hover:border-border'
                           }`}
                         >
                           <div className="space-y-0.5 min-w-0 flex-1">
                             <div className="flex items-center gap-1.5">
                               <span className="text-[11px] font-bold text-white truncate">{st.name}</span>
-                              <span className="text-[8px] rounded bg-slate-800 px-1 py-0.2 text-slate-400 shrink-0">
+                              <span className="text-[8px] rounded bg-surface-2 px-1 py-0.2 text-text-muted shrink-0">
                                 {st.badge}
                               </span>
                             </div>
-                            <p className="text-[9px] text-slate-400 leading-snug line-clamp-1">
+                            <p className="text-[9px] text-text-muted leading-snug line-clamp-1">
                               {st.desc}
                             </p>
                           </div>
-                          {isSelected && <CheckCircle2 className="h-3.5 w-3.5 text-brand-cyan shrink-0 mt-0.5" />}
+                          {isSelected && <CheckCircle2 className="h-3.5 w-3.5 text-accent shrink-0 mt-0.5" />}
                         </div>
                       );
                     })}
@@ -1165,9 +1165,9 @@ export default function ProjectSetupScreen({
                 </div>
 
                 {/* Khu vực Tự Prompt Bối Cảnh Visual & AI Gợi Ý */}
-                <div className="space-y-2 pt-2 border-t border-slate-800/80">
+                <div className="space-y-2 pt-2 border-t border-border">
                   <div className="flex items-center justify-between gap-2">
-                    <span className="text-[11px] font-bold text-brand-cyan flex items-center gap-1.5">
+                    <span className="text-[11px] font-bold text-accent flex items-center gap-1.5">
                       <Sparkles className="h-3.5 w-3.5" />
                       Mô Tả Bối Cảnh Thị Giác (Visual Prompt)
                     </span>
@@ -1175,7 +1175,7 @@ export default function ProjectSetupScreen({
                       <button
                         type="button"
                         onClick={handleAiSuggestBackground}
-                        className="inline-flex items-center gap-1 rounded-lg border border-brand-cyan/40 bg-brand-cyan/10 hover:bg-brand-cyan/20 px-2 py-1 text-[10px] font-bold text-brand-cyan transition cursor-pointer active:scale-95 shadow-sm"
+                        className="inline-flex items-center gap-1 rounded-lg border border-accent/40 bg-accent-tint hover:bg-accent-tint px-2 py-1 text-[10px] font-bold text-accent transition cursor-pointer active:scale-95"
                         title="Tự động phân tích Đề tài, Ngách kênh và Phong cách để sinh prompt bối cảnh chuẩn điện ảnh"
                       >
                         <Sparkles className="h-3 w-3" />
@@ -1189,7 +1189,7 @@ export default function ProjectSetupScreen({
                           setBgPromptToast(`🎨 Đã khôi phục prompt mẫu của phong cách ${st.name}`);
                           setTimeout(() => setBgPromptToast(null), 2500);
                         }}
-                        className="text-[10px] text-slate-400 hover:text-white px-1.5 py-0.5 rounded transition cursor-pointer"
+                        className="text-[10px] text-text-muted hover:text-white px-1.5 py-0.5 rounded transition cursor-pointer"
                         title="Điền lại prompt mẫu của phong cách đang chọn"
                       >
                         Mẫu gốc
@@ -1199,7 +1199,7 @@ export default function ProjectSetupScreen({
 
                   {/* Toast thông báo */}
                   {bgPromptToast && (
-                    <div className="text-[10px] text-brand-cyan bg-brand-cyan/10 border border-brand-cyan/30 rounded-lg px-2.5 py-1 animate-in fade-in">
+                    <div className="text-[10px] text-accent bg-accent-tint border border-accent/40 rounded-lg px-2.5 py-1 animate-in fade-in">
                       {bgPromptToast}
                     </div>
                   )}
@@ -1209,11 +1209,11 @@ export default function ProjectSetupScreen({
                     value={projectBackgroundPrompt}
                     onChange={(e) => setProjectBackgroundPrompt(e.target.value)}
                     placeholder="Nhập mô tả bối cảnh không gian, ánh sáng, kiến trúc để AI cố định cho mọi khung hình (vd: Modern cinematic studio environment, atmospheric warm backlight...)"
-                    className="w-full rounded-xl border border-slate-700 bg-slate-900/90 p-2.5 text-xs text-white placeholder:text-slate-500 focus:border-brand-cyan focus:outline-none leading-relaxed resize-y custom-scrollbar"
+                    className="w-full rounded-md border border-border bg-surface p-2.5 text-xs text-white placeholder:text-text-muted focus:border-accent/40 focus:outline-none leading-relaxed resize-y custom-scrollbar"
                   />
 
-                  <p className="text-[10px] text-slate-500 leading-snug">
-                    💡 <strong className="text-slate-400">Đồng bộ Storyboard & Flow:</strong> Bối cảnh này sẽ được áp dụng cố định xuyên suốt tất cả các phân cảnh để giữ tính nhất quán thị giác.
+                  <p className="text-[10px] text-text-muted leading-snug">
+                    <strong className="text-text-muted">Đồng bộ Storyboard & Flow:</strong> Bối cảnh này sẽ được áp dụng cố định xuyên suốt tất cả các phân cảnh để giữ tính nhất quán thị giác.
                   </p>
                 </div>
               </div>
@@ -1221,15 +1221,15 @@ export default function ProjectSetupScreen({
           </div>
 
           {/* BƯỚC 5: LƯU CẤU HÌNH & VÀO STUDIO (ACTION BUTTONS) */}
-          <div className="pt-6 border-t border-slate-800/80 flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div className="pt-6 border-t border-border flex flex-col sm:flex-row items-center justify-between gap-4">
             {onOpenDetailedConfig ? (
               <button
                 type="button"
                 onClick={onOpenDetailedConfig}
-                className="flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-900/60 px-4 py-2.5 text-xs font-semibold text-slate-300 hover:text-white hover:border-slate-700 transition cursor-pointer"
+                className="flex items-center gap-2 rounded-md border border-border bg-surface px-4 py-2.5 text-xs font-semibold text-text hover:text-white hover:border-border transition cursor-pointer"
               >
-                <Settings className="h-4 w-4 text-slate-400" />
-                <span>⚙ Cấu hình chuyên sâu & Master Prompt</span>
+                <Settings className="h-4 w-4 text-text-muted" />
+                <span>Cấu hình chuyên sâu & Master Prompt</span>
               </button>
             ) : <div />}
 
@@ -1237,7 +1237,7 @@ export default function ProjectSetupScreen({
               type="button"
               onClick={handleSaveAndEnter}
               disabled={isSaving}
-              className="w-full sm:w-auto inline-flex items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-[#FA5252] via-orange-500 to-amber-500 hover:brightness-110 px-8 py-3.5 text-sm font-extrabold text-white shadow-xl shadow-orange-500/20 active:scale-95 transition disabled:opacity-50 cursor-pointer"
+              className="w-full sm:w-auto inline-flex items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-[#FA5252] via-orange-500 to-amber-500 hover:brightness-110 px-8 py-3.5 text-sm font-extrabold text-white active:scale-95 transition disabled:opacity-50 cursor-pointer"
             >
               <span>{isCreatingNew ? 'Hoàn Tất Lưu & Vào Studio' : 'Lưu Thay Đổi & Vào Studio'}</span>
               <ArrowRight className="h-4 w-4" />

@@ -247,14 +247,14 @@ export default function AiStudioSettingsTab() {
   };
 
   return (
-    <div className="flex h-full flex-col overflow-y-auto p-6 text-slate-200">
-      <div className="mb-6 flex items-center justify-between border-b border-slate-800 pb-4">
+    <div className="flex h-full flex-col overflow-y-auto p-6 text-text">
+      <div className="mb-6 flex items-center justify-between border-b border-border pb-4">
         <div>
           <h2 className="text-xl font-bold tracking-tight text-white flex items-center gap-2">
-            <Sparkles className="h-5 w-5 text-brand-cyan" />
+            <Sparkles className="h-5 w-5 text-accent" />
             Cấu hình Phân hệ AI Video Studio
           </h2>
-          <p className="text-xs text-slate-400 mt-1">
+          <p className="text-xs text-text-muted mt-1">
             Kho lưu trữ cấu hình riêng biệt, độc lập hoàn toàn với cài đặt chung của Vanhsub.
           </p>
         </div>
@@ -269,7 +269,7 @@ export default function AiStudioSettingsTab() {
             type="button"
             onClick={handleReset}
             disabled={isSaving}
-            className="flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-800 px-3.5 py-2 text-xs font-medium text-slate-300 hover:bg-slate-700 hover:text-white transition cursor-pointer"
+            className="flex items-center gap-1.5 rounded-md border border-border bg-surface-2 px-3.5 py-2 text-xs font-medium text-text hover:bg-surface-3 hover:text-white transition cursor-pointer"
           >
             <RotateCcw className="h-3.5 w-3.5" />
             Khôi phục mặc định
@@ -278,7 +278,7 @@ export default function AiStudioSettingsTab() {
             type="button"
             onClick={handleSave}
             disabled={isSaving}
-            className="btn-vanh-gradient flex items-center gap-1.5 rounded-xl px-4 py-2 text-xs font-semibold text-white shadow-lg shadow-brand-cyan/20 cursor-pointer"
+            className="bg-accent text-white hover:bg-accent-hover flex items-center gap-1.5 rounded-md px-4 py-2 text-xs font-semibold text-white cursor-pointer"
           >
             <Save className="h-3.5 w-3.5" />
             {isSaving ? 'Đang lưu...' : 'Lưu cấu hình'}
@@ -288,14 +288,14 @@ export default function AiStudioSettingsTab() {
 
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
         {/* 1. LLM Settings */}
-        <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 backdrop-blur-sm">
-          <div className="mb-4 flex items-center gap-2 border-b border-slate-800/80 pb-3">
-            <Sparkles className="h-4 w-4 text-brand-cyan" />
+        <div className="rounded-lg border border-border bg-surface p-5">
+          <div className="mb-4 flex items-center gap-2 border-b border-border pb-3">
+            <Sparkles className="h-4 w-4 text-accent" />
             <h3 className="text-sm font-semibold text-white">1. Mô hình Ngôn ngữ (LLM Script)</h3>
           </div>
           <div className="space-y-3.5 text-xs">
             <div>
-              <label className="mb-1 block font-medium text-slate-300">Nhà cung cấp (Provider)</label>
+              <label className="mb-1 block font-medium text-text">Nhà cung cấp (Provider)</label>
               <select
                 value={form.llm.provider}
                 onChange={(e) =>
@@ -304,7 +304,7 @@ export default function AiStudioSettingsTab() {
                     llm: { ...form.llm, provider: e.target.value as LlmProviderType },
                   })
                 }
-                className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-slate-200 focus:border-brand-cyan focus:outline-none"
+                className="w-full rounded-md border border-border bg-bg px-3 py-2 text-text focus:border-accent/40 focus:outline-none"
               >
                 <option value="chatgpt_web">⚡ ChatGPT Web (Chế độ Tiết kiệm — Miễn phí 100% token)</option>
                 <option value="gemini_web">⚡ Gemini Web (Chế độ Tiết kiệm — Miễn phí 100% token)</option>
@@ -315,7 +315,7 @@ export default function AiStudioSettingsTab() {
             </div>
 
             {form.llm.provider === 'chatgpt_web' ? (
-              <div className="space-y-3 rounded-xl border border-emerald-500/30 bg-emerald-950/20 p-3.5">
+              <div className="space-y-3 rounded-md border border-emerald-500/30 bg-emerald-950/20 p-3.5">
                 <div className="flex items-center justify-between">
                   <span className="font-medium text-emerald-300">Trạng thái ChatGPT Web:</span>
                   {chatGptStatus?.isLoggedIn ? (
@@ -338,7 +338,7 @@ export default function AiStudioSettingsTab() {
                         type="button"
                         onClick={handleOpenChatGptLogin}
                         disabled={isOpeningChatGptLogin}
-                        className="flex-1 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-medium py-2 px-3 text-xs transition cursor-pointer flex items-center justify-center gap-1.5 border border-slate-700"
+                        className="flex-1 rounded-md bg-surface-2 hover:bg-surface-3 text-text font-medium py-2 px-3 text-xs transition cursor-pointer flex items-center justify-center gap-1.5 border border-border"
                         title="Mở cửa sổ ChatGPT Web để xem hoặc thao tác trực tiếp"
                       >
                         <ExternalLink className="h-3.5 w-3.5 text-emerald-400" />
@@ -348,7 +348,7 @@ export default function AiStudioSettingsTab() {
                         type="button"
                         onClick={handleLogoutChatGpt}
                         disabled={isLoggingOutChatGpt}
-                        className="rounded-xl border border-rose-900/40 bg-rose-950/30 hover:bg-rose-900/50 text-rose-300 py-2 px-3 text-xs transition cursor-pointer flex items-center gap-1.5"
+                        className="rounded-md border border-rose-900/40 bg-rose-950/30 hover:bg-rose-900/50 text-rose-300 py-2 px-3 text-xs transition cursor-pointer flex items-center gap-1.5"
                         title="Đăng xuất phiên ChatGPT Web trên máy này"
                       >
                         <LogOut className="h-3.5 w-3.5" />
@@ -358,7 +358,7 @@ export default function AiStudioSettingsTab() {
                         type="button"
                         onClick={checkChatGptStatus}
                         disabled={isCheckingChatGpt}
-                        className="rounded-xl border border-slate-700 bg-slate-800 hover:bg-slate-700 text-slate-300 py-2 px-3 text-xs transition cursor-pointer"
+                        className="rounded-md border border-border bg-surface-2 hover:bg-surface-3 text-text py-2 px-3 text-xs transition cursor-pointer"
                       >
                         {isCheckingChatGpt ? 'Đang kiểm tra...' : 'Kiểm tra lại'}
                       </button>
@@ -369,7 +369,7 @@ export default function AiStudioSettingsTab() {
                         type="button"
                         onClick={handleOpenChatGptLogin}
                         disabled={isOpeningChatGptLogin}
-                        className="flex-1 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-medium py-2 px-3 text-xs transition cursor-pointer flex items-center justify-center gap-1.5 shadow-md shadow-emerald-900/30"
+                        className="flex-1 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white font-medium py-2 px-3 text-xs transition cursor-pointer flex items-center justify-center gap-1.5"
                       >
                         <Sparkles className="h-3.5 w-3.5" />
                         {isOpeningChatGptLogin ? 'Đang mở cửa sổ...' : 'Đăng nhập ChatGPT Web'}
@@ -378,7 +378,7 @@ export default function AiStudioSettingsTab() {
                         type="button"
                         onClick={checkChatGptStatus}
                         disabled={isCheckingChatGpt}
-                        className="rounded-xl border border-slate-700 bg-slate-800 hover:bg-slate-700 text-slate-300 py-2 px-3 text-xs transition cursor-pointer"
+                        className="rounded-md border border-border bg-surface-2 hover:bg-surface-3 text-text py-2 px-3 text-xs transition cursor-pointer"
                       >
                         {isCheckingChatGpt ? 'Đang kiểm tra...' : 'Kiểm tra lại'}
                       </button>
@@ -386,8 +386,8 @@ export default function AiStudioSettingsTab() {
                   )}
                 </div>
 
-                <div className="pt-2 border-t border-slate-800/80">
-                  <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+                <div className="pt-2 border-t border-border">
+                  <label className="flex items-center gap-2 text-xs text-text cursor-pointer">
                     <input
                       type="checkbox"
                       checked={form.llm.chatgptWebMode === 'visible'}
@@ -400,11 +400,11 @@ export default function AiStudioSettingsTab() {
                           },
                         })
                       }
-                      className="rounded border-slate-700 bg-slate-900 text-brand-cyan focus:ring-brand-cyan"
+                      className="rounded border-border bg-surface text-accent focus:ring-accent/30"
                     />
                     <span>Xem trực tiếp AI gõ chữ (Mở cửa sổ Live trên màn hình)</span>
                   </label>
-                  <p className="text-[11px] text-slate-400 mt-1 pl-5">
+                  <p className="text-[11px] text-text-muted mt-1 pl-5">
                     Mặc định: Chạy ngầm trong nền (Offscreen) hoàn toàn không che khuất màn hình.
                   </p>
                 </div>
@@ -414,7 +414,7 @@ export default function AiStudioSettingsTab() {
                 </p>
               </div>
             ) : form.llm.provider === 'gemini_web' ? (
-              <div className="space-y-3 rounded-xl border border-blue-500/30 bg-blue-950/20 p-3.5">
+              <div className="space-y-3 rounded-md border border-blue-500/30 bg-blue-950/20 p-3.5">
                 <div className="flex items-center justify-between">
                   <span className="font-medium text-blue-300">Trạng thái Gemini Web (Google):</span>
                   {geminiStatus?.isLoggedIn ? (
@@ -437,7 +437,7 @@ export default function AiStudioSettingsTab() {
                         type="button"
                         onClick={handleOpenGeminiLogin}
                         disabled={isOpeningGeminiLogin}
-                        className="flex-1 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-medium py-2 px-3 text-xs transition cursor-pointer flex items-center justify-center gap-1.5 border border-slate-700"
+                        className="flex-1 rounded-md bg-surface-2 hover:bg-surface-3 text-text font-medium py-2 px-3 text-xs transition cursor-pointer flex items-center justify-center gap-1.5 border border-border"
                         title="Mở cửa sổ Gemini Web để xem hoặc thao tác trực tiếp"
                       >
                         <ExternalLink className="h-3.5 w-3.5 text-blue-400" />
@@ -447,7 +447,7 @@ export default function AiStudioSettingsTab() {
                         type="button"
                         onClick={handleLogoutGemini}
                         disabled={isLoggingOutGemini}
-                        className="rounded-xl border border-rose-900/40 bg-rose-950/30 hover:bg-rose-900/50 text-rose-300 py-2 px-3 text-xs transition cursor-pointer flex items-center gap-1.5"
+                        className="rounded-md border border-rose-900/40 bg-rose-950/30 hover:bg-rose-900/50 text-rose-300 py-2 px-3 text-xs transition cursor-pointer flex items-center gap-1.5"
                         title="Đăng xuất phiên Gemini Web trên máy này"
                       >
                         <LogOut className="h-3.5 w-3.5" />
@@ -457,7 +457,7 @@ export default function AiStudioSettingsTab() {
                         type="button"
                         onClick={checkGeminiStatus}
                         disabled={isCheckingGemini}
-                        className="rounded-xl border border-slate-700 bg-slate-800 hover:bg-slate-700 text-slate-300 py-2 px-3 text-xs transition cursor-pointer"
+                        className="rounded-md border border-border bg-surface-2 hover:bg-surface-3 text-text py-2 px-3 text-xs transition cursor-pointer"
                       >
                         {isCheckingGemini ? 'Đang kiểm tra...' : 'Kiểm tra lại'}
                       </button>
@@ -468,7 +468,7 @@ export default function AiStudioSettingsTab() {
                         type="button"
                         onClick={handleOpenGeminiLogin}
                         disabled={isOpeningGeminiLogin}
-                        className="flex-1 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-medium py-2 px-3 text-xs transition cursor-pointer flex items-center justify-center gap-1.5 shadow-md shadow-blue-900/30"
+                        className="flex-1 rounded-md bg-blue-600 hover:bg-blue-500 text-white font-medium py-2 px-3 text-xs transition cursor-pointer flex items-center justify-center gap-1.5"
                       >
                         <Sparkles className="h-3.5 w-3.5" />
                         {isOpeningGeminiLogin ? 'Đang mở cửa sổ...' : 'Đăng nhập Gemini Web'}
@@ -477,7 +477,7 @@ export default function AiStudioSettingsTab() {
                         type="button"
                         onClick={checkGeminiStatus}
                         disabled={isCheckingGemini}
-                        className="rounded-xl border border-slate-700 bg-slate-800 hover:bg-slate-700 text-slate-300 py-2 px-3 text-xs transition cursor-pointer"
+                        className="rounded-md border border-border bg-surface-2 hover:bg-surface-3 text-text py-2 px-3 text-xs transition cursor-pointer"
                       >
                         {isCheckingGemini ? 'Đang kiểm tra...' : 'Kiểm tra lại'}
                       </button>
@@ -485,8 +485,8 @@ export default function AiStudioSettingsTab() {
                   )}
                 </div>
 
-                <div className="pt-2 border-t border-slate-800/80">
-                  <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+                <div className="pt-2 border-t border-border">
+                  <label className="flex items-center gap-2 text-xs text-text cursor-pointer">
                     <input
                       type="checkbox"
                       checked={form.llm.geminiWebMode === 'visible'}
@@ -499,11 +499,11 @@ export default function AiStudioSettingsTab() {
                           },
                         })
                       }
-                      className="rounded border-slate-700 bg-slate-900 text-brand-cyan focus:ring-brand-cyan"
+                      className="rounded border-border bg-surface text-accent focus:ring-accent/30"
                     />
                     <span>Xem trực tiếp AI gõ chữ (Mở cửa sổ Live trên màn hình)</span>
                   </label>
-                  <p className="text-[11px] text-slate-400 mt-1 pl-5">
+                  <p className="text-[11px] text-text-muted mt-1 pl-5">
                     Mặc định: Chạy ngầm trong nền (Offscreen) hoàn toàn không che khuất màn hình.
                   </p>
                 </div>
@@ -515,7 +515,7 @@ export default function AiStudioSettingsTab() {
             ) : (
               <>
                 <div>
-                  <label className="mb-1 block font-medium text-slate-300">API Key</label>
+                  <label className="mb-1 block font-medium text-text">API Key</label>
                   <div className="relative">
                     <input
                       type={showApiKey ? 'text' : 'password'}
@@ -527,24 +527,24 @@ export default function AiStudioSettingsTab() {
                         })
                       }
                       placeholder="sk-..."
-                      className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 pr-10 text-slate-200 focus:border-brand-cyan focus:outline-none"
+                      className="w-full rounded-md border border-border bg-bg px-3 py-2 pr-10 text-text focus:border-accent/40 focus:outline-none"
                     />
                     <button
                       type="button"
                       onClick={() => setShowApiKey(!showApiKey)}
-                      className="absolute right-3 top-2.5 text-slate-500 hover:text-slate-300 cursor-pointer"
+                      className="absolute right-3 top-2.5 text-text-muted hover:text-text cursor-pointer"
                     >
                       {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                     </button>
                   </div>
-                  <p className="mt-1 text-[10px] text-slate-500">
+                  <p className="mt-1 text-[10px] text-text-muted">
                     Khóa được mã hoá an toàn DPAPI khi lưu trữ trên máy.
                   </p>
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="mb-1 block font-medium text-slate-300">Model</label>
+                    <label className="mb-1 block font-medium text-text">Model</label>
                     <input
                       type="text"
                       value={form.llm.model}
@@ -555,11 +555,11 @@ export default function AiStudioSettingsTab() {
                         })
                       }
                       placeholder="deepseek-chat"
-                      className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-slate-200 focus:border-brand-cyan focus:outline-none"
+                      className="w-full rounded-md border border-border bg-bg px-3 py-2 text-text focus:border-accent/40 focus:outline-none"
                     />
                   </div>
                   <div>
-                    <label className="mb-1 block font-medium text-slate-300">Độ sáng tạo (Temp: {form.llm.temperature})</label>
+                    <label className="mb-1 block font-medium text-text">Độ sáng tạo (Temp: {form.llm.temperature})</label>
                     <input
                       type="range"
                       min="0"
@@ -582,10 +582,10 @@ export default function AiStudioSettingsTab() {
         </div>
 
         {/* 2. TTS & Voice Settings */}
-        <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 backdrop-blur-sm">
-          <div className="mb-4 flex items-center justify-between border-b border-slate-800/80 pb-3">
+        <div className="rounded-lg border border-border bg-surface p-5">
+          <div className="mb-4 flex items-center justify-between border-b border-border pb-3">
             <div className="flex items-center gap-2">
-              <Mic className="h-4 w-4 text-brand-cyan" />
+              <Mic className="h-4 w-4 text-accent" />
               <h3 className="text-sm font-semibold text-white">2. Giọng đọc &amp; Lồng tiếng</h3>
             </div>
             {form.voice.provider === 'tiktok_tts' && (
@@ -606,7 +606,7 @@ export default function AiStudioSettingsTab() {
           </div>
           <div className="space-y-3.5 text-xs">
             <div>
-              <label className="mb-1 block font-medium text-slate-300">Công nghệ Giọng đọc (TTS Engine)</label>
+              <label className="mb-1 block font-medium text-text">Công nghệ Giọng đọc (TTS Engine)</label>
               <select
                 value={form.voice.provider || 'edge_tts'}
                 onChange={(e) => {
@@ -620,7 +620,7 @@ export default function AiStudioSettingsTab() {
                     },
                   });
                 }}
-                className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-slate-200 focus:border-brand-cyan focus:outline-none cursor-pointer"
+                className="w-full rounded-md border border-border bg-bg px-3 py-2 text-text focus:border-accent/40 focus:outline-none cursor-pointer"
               >
                 <option value="edge_tts">Microsoft Edge TTS (Việt Nam / Đa ngôn ngữ, miễn phí, ổn định)</option>
                 <option value="tiktok_tts">TikTok TTS (Giọng đọc đặc trưng từ Session TikTok)</option>
@@ -628,7 +628,7 @@ export default function AiStudioSettingsTab() {
             </div>
 
             <div>
-              <label className="mb-1 block font-medium text-slate-300">
+              <label className="mb-1 block font-medium text-text">
                 {form.voice.provider === 'tiktok_tts' ? 'Giọng đọc TikTok' : 'Giọng đọc tiếng Việt (Edge TTS)'}
               </label>
               {form.voice.provider === 'tiktok_tts' ? (
@@ -640,7 +640,7 @@ export default function AiStudioSettingsTab() {
                       voice: { ...form.voice, voiceId: e.target.value },
                     })
                   }
-                  className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-slate-200 focus:border-brand-cyan focus:outline-none cursor-pointer"
+                  className="w-full rounded-md border border-border bg-bg px-3 py-2 text-text focus:border-accent/40 focus:outline-none cursor-pointer"
                 >
                   <option value="BV074_streaming">TikTok — Tiếng Việt Nữ (BV074)</option>
                   <option value="BV075_streaming">TikTok — Tiếng Việt Nam (BV075)</option>
@@ -656,7 +656,7 @@ export default function AiStudioSettingsTab() {
                       voice: { ...form.voice, voiceId: e.target.value },
                     })
                   }
-                  className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-slate-200 focus:border-brand-cyan focus:outline-none cursor-pointer"
+                  className="w-full rounded-md border border-border bg-bg px-3 py-2 text-text focus:border-accent/40 focus:outline-none cursor-pointer"
                 >
                   <option value="vi-VN-HoaiMyNeural">Hoài My (Nữ — Truyền cảm, tự nhiên)</option>
                   <option value="vi-VN-NamMinhNeural">Nam Minh (Nam — Trầm ấm, đĩnh đạc)</option>
@@ -665,14 +665,14 @@ export default function AiStudioSettingsTab() {
             </div>
 
             {form.voice.provider === 'tiktok_tts' && (
-              <div className="rounded-xl border border-slate-800/80 bg-slate-950/60 p-3.5 space-y-2.5">
+              <div className="rounded-md border border-border bg-bg p-3.5 space-y-2.5">
                 <div className="flex items-center justify-between">
-                  <span className="font-semibold text-slate-200">Cấu hình TikTok Session ID</span>
+                  <span className="font-semibold text-text">Cấu hình TikTok Session ID</span>
                   <button
                     type="button"
                     onClick={handleValidateTikTok}
                     disabled={isValidatingTikTok}
-                    className="text-[11px] text-brand-cyan hover:underline cursor-pointer disabled:opacity-50"
+                    className="text-[11px] text-accent hover:underline cursor-pointer disabled:opacity-50"
                   >
                     {isValidatingTikTok ? 'Đang kiểm tra...' : 'Kiểm tra kết nối'}
                   </button>
@@ -685,12 +685,12 @@ export default function AiStudioSettingsTab() {
                       value={tikTokSessionInput}
                       onChange={(e) => setTikTokSessionInput(e.target.value)}
                       placeholder={hasTikTokSession ? '•••••••••••••••• (Đã lưu session)' : 'Dán sessionid TikTok vào đây...'}
-                      className="w-full rounded-lg border border-slate-800 bg-slate-900 px-3 py-1.5 text-xs text-slate-200 focus:border-brand-cyan focus:outline-none pr-8"
+                      className="w-full rounded-lg border border-border bg-surface px-3 py-1.5 text-xs text-text focus:border-accent/40 focus:outline-none pr-8"
                     />
                     <button
                       type="button"
                       onClick={() => setShowTikTokSession(!showTikTokSession)}
-                      className="absolute right-2.5 top-2 text-slate-500 hover:text-slate-300 cursor-pointer"
+                      className="absolute right-2.5 top-2 text-text-muted hover:text-text cursor-pointer"
                     >
                       {showTikTokSession ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
                     </button>
@@ -699,7 +699,7 @@ export default function AiStudioSettingsTab() {
                     type="button"
                     onClick={handleSaveTikTokSession}
                     disabled={!tikTokSessionInput.trim() || isSavingTikTokSession}
-                    className="rounded-lg bg-brand-cyan/20 border border-brand-cyan/40 px-3 py-1.5 text-xs font-semibold text-brand-cyan hover:bg-brand-cyan/30 disabled:opacity-40 cursor-pointer"
+                    className="rounded-lg bg-accent-tint border border-accent/40 px-3 py-1.5 text-xs font-semibold text-accent hover:bg-accent/30 disabled:opacity-40 cursor-pointer"
                   >
                     {isSavingTikTokSession ? 'Đang lưu...' : 'Lưu Session'}
                   </button>
@@ -711,7 +711,7 @@ export default function AiStudioSettingsTab() {
                   </p>
                 )}
 
-                <p className="text-[11px] text-slate-500 leading-relaxed">
+                <p className="text-[11px] text-text-muted leading-relaxed">
                   💡 <strong>Cơ chế tự phục hồi (Graceful Fallback):</strong> Nếu phiên TikTok chưa cấu hình hoặc hết hạn, hệ thống sẽ tự động chuyển sang giọng Edge TTS tiếng Việt tương ứng (Hoài My / Nam Minh) để tiến trình sản xuất video không bị gián đoạn.
                 </p>
               </div>
@@ -719,7 +719,7 @@ export default function AiStudioSettingsTab() {
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="mb-1 block font-medium text-slate-300">Tốc độ đọc</label>
+                <label className="mb-1 block font-medium text-text">Tốc độ đọc</label>
                 <select
                   value={form.voice.rate}
                   onChange={(e) =>
@@ -728,7 +728,7 @@ export default function AiStudioSettingsTab() {
                       voice: { ...form.voice, rate: e.target.value },
                     })
                   }
-                  className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-slate-200 focus:border-brand-cyan focus:outline-none"
+                  className="w-full rounded-md border border-border bg-bg px-3 py-2 text-text focus:border-accent/40 focus:outline-none"
                 >
                   <option value="-15%">-15% (Chậm rãi)</option>
                   <option value="-5%">-5% (Vừa phải)</option>
@@ -739,7 +739,7 @@ export default function AiStudioSettingsTab() {
               </div>
 
               <div>
-                <label className="mb-1 block font-medium text-slate-300">Trích xuất Time từng từ</label>
+                <label className="mb-1 block font-medium text-text">Trích xuất Time từng từ</label>
                 <div className="flex items-center gap-2 mt-2">
                   <input
                     type="checkbox"
@@ -753,7 +753,7 @@ export default function AiStudioSettingsTab() {
                     }
                     className="h-4 w-4 rounded accent-brand-cyan"
                   />
-                  <label htmlFor="autoWordAlignment" className="text-slate-300 cursor-pointer">
+                  <label htmlFor="autoWordAlignment" className="text-text cursor-pointer">
                     Bật Word-boundary
                   </label>
                 </div>
@@ -763,15 +763,15 @@ export default function AiStudioSettingsTab() {
         </div>
 
         {/* 3. Google Flow Engine Settings */}
-        <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 backdrop-blur-sm">
-          <div className="mb-4 flex items-center gap-2 border-b border-slate-800/80 pb-3">
-            <Film className="h-4 w-4 text-brand-cyan" />
+        <div className="rounded-lg border border-border bg-surface p-5">
+          <div className="mb-4 flex items-center gap-2 border-b border-border pb-3">
+            <Film className="h-4 w-4 text-accent" />
             <h3 className="text-sm font-semibold text-white">3. Google Flow Engine (Ảnh/Video)</h3>
           </div>
           <div className="space-y-3.5 text-xs">
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="mb-1 block font-medium text-slate-300">Tỷ lệ khung hình</label>
+                <label className="mb-1 block font-medium text-text">Tỷ lệ khung hình</label>
                 <select
                   value={form.flowEngine.aspectRatio}
                   onChange={(e) =>
@@ -780,7 +780,7 @@ export default function AiStudioSettingsTab() {
                       flowEngine: { ...form.flowEngine, aspectRatio: e.target.value as FlowAspectRatio },
                     })
                   }
-                  className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-slate-200 focus:border-brand-cyan focus:outline-none"
+                  className="w-full rounded-md border border-border bg-bg px-3 py-2 text-text focus:border-accent/40 focus:outline-none"
                 >
                   <option value="16:9">16:9 (YouTube ngang)</option>
                   <option value="9:16">9:16 (TikTok / Reels)</option>
@@ -789,7 +789,7 @@ export default function AiStudioSettingsTab() {
               </div>
 
               <div>
-                <label className="mb-1 block font-medium text-slate-300">Chế độ đầu ra</label>
+                <label className="mb-1 block font-medium text-text">Chế độ đầu ra</label>
                 <select
                   value={form.flowEngine.outputMode}
                   onChange={(e) =>
@@ -798,7 +798,7 @@ export default function AiStudioSettingsTab() {
                       flowEngine: { ...form.flowEngine, outputMode: e.target.value as any },
                     })
                   }
-                  className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-slate-200 focus:border-brand-cyan focus:outline-none"
+                  className="w-full rounded-md border border-border bg-bg px-3 py-2 text-text focus:border-accent/40 focus:outline-none"
                 >
                   <option value="image">Ảnh tĩnh + Ken Burns Motion</option>
                   <option value="video">Video chuyển động</option>
@@ -807,7 +807,7 @@ export default function AiStudioSettingsTab() {
             </div>
 
             <div>
-              <label className="mb-1 block font-medium text-slate-300">
+              <label className="mb-1 block font-medium text-text">
                 Chế độ phân cảnh thị giác (Visual Pacing)
               </label>
               <select
@@ -818,18 +818,18 @@ export default function AiStudioSettingsTab() {
                     flowEngine: { ...form.flowEngine, shotMode: e.target.value as any },
                   })
                 }
-                className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-slate-200 focus:border-brand-cyan focus:outline-none"
+                className="w-full rounded-md border border-border bg-bg px-3 py-2 text-text focus:border-accent/40 focus:outline-none"
               >
                 <option value="single">1 câu kịch bản = 1 phân cảnh (1:1 - Khuyến nghị, nhanh &amp; tiết kiệm lượt)</option>
                 <option value="multi">Đa góc quay điện ảnh (Multi-shot - Tự động chia 2-4 góc máy)</option>
               </select>
-              <p className="mt-1 text-[11px] text-slate-500">
+              <p className="mt-1 text-[11px] text-text-muted">
                 Chế độ 1:1 đảm bảo mỗi câu thoại có đúng 1 media tương ứng, không bị lặp lại phân cảnh và tiết kiệm credit.
               </p>
             </div>
 
             <div>
-              <label className="mb-1 block font-medium text-slate-300">
+              <label className="mb-1 block font-medium text-text">
                 Mức độ chi tiết hoá phân cảnh (Granularity)
               </label>
               <select
@@ -840,19 +840,19 @@ export default function AiStudioSettingsTab() {
                     flowEngine: { ...form.flowEngine, granularity: e.target.value as any },
                   })
                 }
-                className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-slate-200 focus:border-brand-cyan focus:outline-none"
+                className="w-full rounded-md border border-border bg-bg px-3 py-2 text-text focus:border-accent/40 focus:outline-none"
               >
                 <option value="detailed">🎯 Chi tiết (1 shot/câu, bám sát nội dung nhất)</option>
                 <option value="balanced">⚖️ Cân bằng (Mặc định - AI tự gộp các câu mô tả tĩnh &amp; tối ưu pacing)</option>
                 <option value="fast">⚡ Nhanh (Ưu tiên gộp nhiều câu vào 1 shot ~8-15s, tiết kiệm credit &amp; thời gian)</option>
               </select>
-              <p className="mt-1 text-[11px] text-slate-500">
+              <p className="mt-1 text-[11px] text-text-muted">
                 Ở mức "Cân bằng" hoặc "Nhanh", AI tự động nhận diện các đoạn mô tả tĩnh kéo dài để gộp thành 1 shot ảnh kèm hiệu ứng Ken Burns, tránh giật hình và tiết kiệm thời gian sinh media.
               </p>
             </div>
 
             <div>
-              <label className="mb-1 block font-medium text-slate-300">Tiền tố phong cách (Style Prefix)</label>
+              <label className="mb-1 block font-medium text-text">Tiền tố phong cách (Style Prefix)</label>
               <input
                 type="text"
                 value={form.flowEngine.stylePromptPrefix}
@@ -862,12 +862,12 @@ export default function AiStudioSettingsTab() {
                     flowEngine: { ...form.flowEngine, stylePromptPrefix: e.target.value },
                   })
                 }
-                className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-slate-200 focus:border-brand-cyan focus:outline-none"
+                className="w-full rounded-md border border-border bg-bg px-3 py-2 text-text focus:border-accent/40 focus:outline-none"
               />
             </div>
 
             <div>
-              <label className="mb-1 block font-medium text-slate-300">Negative Prompt</label>
+              <label className="mb-1 block font-medium text-text">Negative Prompt</label>
               <input
                 type="text"
                 value={form.flowEngine.negativePrompt}
@@ -877,22 +877,22 @@ export default function AiStudioSettingsTab() {
                     flowEngine: { ...form.flowEngine, negativePrompt: e.target.value },
                   })
                 }
-                className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-slate-200 focus:border-brand-cyan focus:outline-none"
+                className="w-full rounded-md border border-border bg-bg px-3 py-2 text-text focus:border-accent/40 focus:outline-none"
               />
             </div>
           </div>
         </div>
 
         {/* 4. Rendering & Subtitle Settings */}
-        <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 backdrop-blur-sm">
-          <div className="mb-4 flex items-center gap-2 border-b border-slate-800/80 pb-3">
-            <Video className="h-4 w-4 text-brand-cyan" />
+        <div className="rounded-lg border border-border bg-surface p-5">
+          <div className="mb-4 flex items-center gap-2 border-b border-border pb-3">
+            <Video className="h-4 w-4 text-accent" />
             <h3 className="text-sm font-semibold text-white">4. Dựng phim (FFmpeg) & Phụ đề</h3>
           </div>
           <div className="space-y-3.5 text-xs">
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="mb-1 block font-medium text-slate-300">Độ phân giải</label>
+                <label className="mb-1 block font-medium text-text">Độ phân giải</label>
                 <select
                   value={form.rendering.resolution}
                   onChange={(e) =>
@@ -901,7 +901,7 @@ export default function AiStudioSettingsTab() {
                       rendering: { ...form.rendering, resolution: e.target.value as RenderResolution },
                     })
                   }
-                  className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-slate-200 focus:border-brand-cyan focus:outline-none"
+                  className="w-full rounded-md border border-border bg-bg px-3 py-2 text-text focus:border-accent/40 focus:outline-none"
                 >
                   <option value="1080p">1080p (Full HD)</option>
                   <option value="720p">720p (Nhanh)</option>
@@ -910,7 +910,7 @@ export default function AiStudioSettingsTab() {
               </div>
 
               <div>
-                <label className="mb-1 block font-medium text-slate-300">Kiểu hiển thị phụ đề</label>
+                <label className="mb-1 block font-medium text-text">Kiểu hiển thị phụ đề</label>
                 <select
                   value={form.subtitles.preset}
                   onChange={(e) =>
@@ -919,7 +919,7 @@ export default function AiStudioSettingsTab() {
                       subtitles: { ...form.subtitles, preset: e.target.value as SubtitlePreset },
                     })
                   }
-                  className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-slate-200 focus:border-brand-cyan focus:outline-none"
+                  className="w-full rounded-md border border-border bg-bg px-3 py-2 text-text focus:border-accent/40 focus:outline-none"
                 >
                   <option value="tiktok_bold">TikTok Bold (Chữ to nổi bật)</option>
                   <option value="minimalist">Minimalist (Tinh gọn, thanh lịch)</option>
@@ -930,7 +930,7 @@ export default function AiStudioSettingsTab() {
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="mb-1 block font-medium text-slate-300">
+                <label className="mb-1 block font-medium text-text">
                   Âm lượng nhạc nền ({Math.round(form.rendering.bgmVolume * 100)}%)
                 </label>
                 <input
@@ -963,7 +963,7 @@ export default function AiStudioSettingsTab() {
                     }
                     className="h-4 w-4 rounded accent-brand-cyan"
                   />
-                  <label htmlFor="kenBurns" className="text-slate-300 cursor-pointer">
+                  <label htmlFor="kenBurns" className="text-text cursor-pointer">
                     Hiệu ứng Ken Burns (Zoom/Pan)
                   </label>
                 </div>
@@ -980,7 +980,7 @@ export default function AiStudioSettingsTab() {
                     }
                     className="h-4 w-4 rounded accent-brand-cyan"
                   />
-                  <label htmlFor="audioDucking" className="text-slate-300 cursor-pointer">
+                  <label htmlFor="audioDucking" className="text-text cursor-pointer">
                     Hạ nhạc nền khi nói (Ducking)
                   </label>
                 </div>

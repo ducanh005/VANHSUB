@@ -26,6 +26,8 @@ interface TranslatedItem {
 
 interface CheckpointData {
   targetLanguage: string;
+  srtMtimeMs?: number;
+  totalLines?: number;
   /** key = id dòng phụ đề ('line-0'…); value = text gốc + bản dịch đã có */
   translations: Record<string, { source: string; target: string }>;
 }
@@ -35,19 +37,52 @@ export function getCheckpointPath(srtPath: string): string {
   return path.join(path.dirname(srtPath), `${path.basename(srtPath, '.srt')}.checkpoint.json`);
 }
 
-/** Đọc checkpoint (trả về Map rỗng nếu chưa có / sai ngôn ngữ / hỏng file) */
-export function loadCheckpoint(srtPath: string, targetLanguage: string): Map<string, string> {
+/** Đọc checkpoint (trả về Map rỗng nếu chưa có / sai ngôn ngữ / hỏng file / SRT đã thay đổi) */
+export function loadCheckpoint(
+  srtPath: string,
+  targetLanguage: string,
+  expectedTotalLines?: number
+): Map<string, string> {
   const result = new Map<string, string>();
   const filePath = getCheckpointPath(srtPath);
   if (!fs.existsSync(filePath)) return result;
 
   try {
+    // Kiểm tra thời gian sửa đổi: nếu file SRT mới hơn checkpoint quá 2s, phụ đề gốc đã thay đổi
+    if (fs.existsSync(srtPath)) {
+      const srtMtime = fs.statSync(srtPath).mtimeMs;
+      const cpMtime = fs.statSync(filePath).mtimeMs;
+      if (srtMtime > cpMtime + 2000) {
+        console.warn(`[Translate] File SRT đã thay đổi sau lần lưu checkpoint trước — hủy checkpoint cũ.`);
+        try { fs.unlinkSync(filePath); } catch {}
+        return result;
+      }
+    }
+
     const data = JSON.parse(fs.readFileSync(filePath, 'utf-8')) as CheckpointData;
     if (data?.targetLanguage !== targetLanguage || typeof data.translations !== 'object') {
       return result;
     }
+
+    // Nếu checkpoint lưu số dòng khác với số dòng hiện tại của file SRT, phụ đề gốc đã thay đổi
+    if (expectedTotalLines !== undefined && typeof data.totalLines === 'number' && data.totalLines !== expectedTotalLines) {
+      console.warn(`[Translate] Số dòng file SRT (${expectedTotalLines}) khác số dòng trong checkpoint (${data.totalLines}) — hủy checkpoint cũ.`);
+      try { fs.unlinkSync(filePath); } catch {}
+      return result;
+    }
+
     for (const [id, entry] of Object.entries(data.translations)) {
       if (entry && typeof entry.source === 'string' && typeof entry.target === 'string') {
+        const targetTrim = entry.target.trim();
+        const sourceTrim = entry.source.trim();
+        if (!targetTrim) continue;
+        // Loại bỏ dữ liệu rác/lỗi từ lần chạy trước: nếu target giống hệt source (kể cả câu ngắn như "Hello", "Thanks", "No", "Hi", chữ Hán/Nhật/Hàn)
+        if (targetTrim.toLowerCase() === sourceTrim.toLowerCase() && /[\p{L}\u4e00-\u9fa5\u3040-\u30ff\uac00-\ud7af]/u.test(sourceTrim)) {
+          // Ngoại trừ các ký hiệu ngắn toàn cầu như "OK" hoặc "O.K."
+          if (sourceTrim.toUpperCase() !== 'OK' && sourceTrim.toUpperCase() !== 'O.K.') {
+            continue;
+          }
+        }
         result.set(id, JSON.stringify([entry.source, entry.target]));
       }
     }
@@ -57,13 +92,20 @@ export function loadCheckpoint(srtPath: string, targetLanguage: string): Map<str
   return result;
 }
 
-/** Ghi checkpoint xuống đĩa (đè file cũ) */
+/** Ghi checkpoint xuống đĩa (đè file cũ) kèm metadata thời gian sửa đổi */
 export function saveCheckpoint(
   srtPath: string,
   targetLanguage: string,
   translations: Record<string, { source: string; target: string }>,
+  totalLines?: number
 ): void {
-  const data: CheckpointData = { targetLanguage, translations };
+  let srtMtimeMs: number | undefined;
+  try {
+    if (fs.existsSync(srtPath)) {
+      srtMtimeMs = fs.statSync(srtPath).mtimeMs;
+    }
+  } catch {}
+  const data: CheckpointData = { targetLanguage, translations, srtMtimeMs, totalLines };
   fs.writeFileSync(getCheckpointPath(srtPath), JSON.stringify(data), 'utf-8');
 }
 
@@ -93,20 +135,47 @@ function buildStyleGuidePrompt(): string {
 
 /** Ghép prompt hệ thống: rules gốc + glossary + style guide */
 export function buildSystemPrompt(targetLanguage: string): string {
-  const base = `Bạn là biên dịch viên phụ đề chuyên nghiệp.
+  const base = `Bạn là biên dịch viên phụ đề phim và video chuyên nghiệp.
 Nhiệm vụ: Dịch danh sách các câu phụ đề sang ngôn ngữ đích: "${targetLanguage}".
-Quy tắc BẮT BUỘC:
-1. Nhận đầu vào là JSON chứa mảng các phần tử {"i": "id", "text": "nội dung"}.
-2. Trả về DUY NHẤT một chuỗi JSON mảng các phần tử {"i": "id", "text": "bản dịch"}. Không thêm markdown block (\`\`\`json), không giải thích thêm.
-3. Dữ liệu ngữ cảnh 2 câu vừa dịch trước đó (nếu có) chỉ dùng để hiểu ngữ cảnh, KHÔNG dịch lại 2 câu ngữ cảnh đó.
-4. Giữ đúng thứ tự và số lượng phần tử. Giữ nguyên định dạng ID.
-5. Dịch tự nhiên, phù hợp với ngữ cảnh video.
-6. Dịch nhất quán: cùng 1 từ/tên riêng/thuật ngữ thì dùng cùng 1 cách dịch ở mọi dòng.`;
+
+QUY TẮC BẮT BUỘC:
+1. ĐỊNH DẠNG ĐẦU VÀO:
+   - Nhận JSON chứa mảng các phần tử: {"i": "id", "text": "nội dung"}.
+2. ĐỊNH DẠNG ĐẦU RA:
+   - Trả về DUY NHẤT một chuỗi JSON mảng các đối tượng: [{"i": "id", "text": "bản dịch"}].
+   - Tuyệt đối không thêm markdown block (\`\`\`json), không giải thích thêm, không kèm văn bản nào khác.
+3. TOÀN VẸN 100% (RẤT QUAN TRỌNG):
+   - BẮT BUỘC dịch đầy đủ 100% tất cả các câu từ đầu đến cuối danh sách (tỷ lệ sót dòng = 0%).
+   - Các câu ngắn ("Ồ!", "Dạ.", "Vâng!", "Hả?"), câu ngắt quãng hay câu đầu file/giữa file đều PHẢI dịch chính xác sang ngôn ngữ đích, tuyệt đối không bỏ qua hoặc giữ nguyên câu gốc chưa dịch.
+4. BẢO TOÀN ID:
+   - Giữ NGUYÊN 100% định dạng và giá trị của trường "i" cho từng dòng tương ứng (ví dụ: "line-0", "line-1"). Không tự ý đổi ID thành số hay chuỗi khác.
+5. NGỮ CẢNH:
+   - Dữ liệu ngữ cảnh câu trước đó (nếu có) chỉ dùng để hiểu mạch thoại. TUYỆT ĐỐI không dịch lại các câu ngữ cảnh đó và không đưa vào mảng kết quả.
+6. VĂN PHONG PHIM — CÔ ĐỌNG, SÚC TÍCH, TỐI ĐA 2 DÒNG HIỂN THỊ (QUAN TRỌNG):
+   - Bản dịch phải sát nghĩa, tự nhiên theo văn nói đời thường của phim/video.
+   - Câu chữ phải cô đọng, súc tích, độ dài tương xứng với câu gốc và thời lượng hiển thị (CPS chuẩn).
+   - TUYỆT ĐỐI không dịch lê thê, dài dòng. Mỗi câu dịch phải có độ dài phù hợp, tối đa 2 dòng hiển thị (mỗi dòng tối đa 37-40 ký tự; tổng độ dài toàn câu không vượt quá 70-74 ký tự). Tuyệt đối không để câu dịch quá dài làm tràn 3-4 dòng trên màn hình.
+7. NHẤT QUÁN:
+   - Dịch nhất quán: cùng một nhân vật, từ ngữ, tên riêng hoặc thuật ngữ thì dùng cùng một cách dịch ở mọi dòng trong video.`;
   return base + buildGlossaryPrompt() + buildStyleGuidePrompt();
 }
 
+/** Prompt dự phòng chặt chẽ dùng khi retry batch bị thiếu dòng hoặc sai định dạng */
+export function buildRetrySystemPrompt(targetLanguage: string, expectedCount: number): string {
+  return `Bạn là hệ thống dịch thuật máy tự động chính xác cao cho phụ đề video.
+Nhiệm vụ: Dịch TOÀN BỘ danh sách câu sau sang ngôn ngữ đích: "${targetLanguage}".
+
+QUY TẮC CỰC KỲ NGHIÊM NGẶT:
+1. Danh sách có chính xác ${expectedCount} câu. Bạn PHẢI trả về đúng mảng JSON gồm chính xác ${expectedCount} phần tử.
+2. Định dạng trả về: DUY NHẤT chuỗi JSON thuần:
+[{"i": "id_gốc", "text": "bản_dịch"}]
+3. Giữ NGUYÊN 100% trường "i" của từng câu giống hệt đầu vào. Không bỏ sót bất kỳ câu nào dù ngắn hay dài.
+4. Mỗi câu dịch phải ngắn gọn, súc tích, tối đa 2 dòng hiển thị (dưới 70 ký tự toàn câu, mỗi dòng <= 37-40 ký tự).
+5. Không giải thích, không bọc trong markdown.`;
+}
+
 /**
- * Định dạng ngắt dòng hiển thị (\n) thuần tuý cho các dòng phụ đề tiếng Việt vượt quá 37 ký tự.
+ * Định dạng ngắt dòng hiển thị (\n) thuần tuý cho các dòng phụ đề tiếng Việt vượt quá 37 ký tự hoặc có trên 2 dòng.
  * Bảo toàn 100% số lượng dòng, id, startMs, endMs, speaker từ file phụ đề gốc.
  * Tuyệt đối không xé vụn thành nhiều dòng, không tính lại timestamp, không chèn khoảng hở nhân tạo.
  */
@@ -114,18 +183,462 @@ export function applyVisualLineWrapping(lines: SrtLine[], isVietnamese = true): 
   if (!isVietnamese) return lines;
   return lines.map((line) => {
     if (!line.text) return line;
-    const hasOverflow = line.text.includes('\n')
-      ? line.text.split(/\r?\n/).some((sub) => sub.trim().length > 37)
-      : line.text.length > 37;
-    if (hasOverflow) {
+    const rawLines = line.text.split(/\r?\n/);
+    const hasLengthOverflow = rawLines.some((sub) => sub.trim().length > 37);
+    const hasLineCountOverflow = rawLines.length > 2;
+
+    if (hasLengthOverflow || hasLineCountOverflow) {
+      const normalized = line.text.replace(/\r?\n/g, ' ').replace(/[ \t]+/g, ' ').trim();
+      const wrapped37 = breakVietnameseLines(normalized, 37);
+      const sublines37 = wrapped37.split('\n');
+
+      // Nếu chuẩn 37 bị ngắt thành > 2 dòng:
+      // Kiểm tra xem chuẩn 38-42 ký tự (chuẩn hiển thị video cho phép tối đa 37-40 ký tự)
+      // có giữ vừa vặn trong 2 dòng không để tránh làm vỡ thành 3 dòng làm choáng màn hình
+      if (sublines37.length > 2) {
+        for (const limit of [38, 39, 40, 41, 42]) {
+          const wrapped = breakVietnameseLines(normalized, limit);
+          const sublines = wrapped.split('\n');
+          if (sublines.length <= 2 && sublines.every((s) => s.trim().length <= limit)) {
+            return {
+              ...line,
+              text: wrapped,
+            };
+          }
+        }
+
+        // Nếu chuỗi <= 105 ký tự mà vẫn bị ngắt > 2 dòng do phạt ngữ cảnh từ ghép/từ nối:
+        // Tìm điểm ngắt khoảng trắng tối ưu nhất thành đúng 2 dòng cân bằng (ưu tiên <= 46 ký tự, tối đa <= 52 ký tự)
+        if (normalized.length <= 105 && normalized.includes(' ')) {
+          const spaces: number[] = [];
+          for (let i = 0; i < normalized.length; i++) {
+            if (normalized[i] === ' ') spaces.push(i);
+          }
+
+          // Thử ngưỡng chặt trước (46), nếu không có khoảng trắng phù hợp thì nới rộng sang 52
+          for (const maxSubline of [46, 52]) {
+            let bestIdx = -1;
+            let bestDiff = Infinity;
+            for (const sp of spaces) {
+              const left = normalized.slice(0, sp).trim();
+              const right = normalized.slice(sp + 1).trim();
+              if (left.length <= maxSubline && right.length <= maxSubline) {
+                const diff = Math.abs(left.length - right.length);
+                if (diff < bestDiff) {
+                  bestDiff = diff;
+                  bestIdx = sp;
+                }
+              }
+            }
+            if (bestIdx !== -1) {
+              return {
+                ...line,
+                text: `${normalized.slice(0, bestIdx).trim()}\n${normalized.slice(bestIdx + 1).trim()}`,
+              };
+            }
+          }
+        }
+      }
+
       return {
         ...line,
-        text: breakVietnameseLines(line.text.replace(/\r?\n/g, ' '), 37),
+        text: wrapped37,
       };
     }
     return line;
   });
 }
+
+/**
+ * Trích xuất và chuẩn hóa linh hoạt dữ liệu JSON trả về từ Gemini:
+ * - Hỗ trợ định dạng mảng: [{"i": "line-0", "text": "..."}], [{"id": "line-0", ...}], [{"index": 0, ...}]
+ * - Hỗ trợ cấu trúc bao bọc: { items: [...] }, { translations: [...] }, { result: [...] }, { data: [...] }
+ * - Hỗ trợ cấu trúc dictionary: { "line-0": "...", "line-1": "..." } hoặc { "0": "...", "1": "..." }
+ * - Hỗ trợ mảng chuỗi đơn thuần theo đúng thứ tự (positional fallback): ["Dịch 1", "Dịch 2"]
+ * - Nhận diện ID linh hoạt: ID chuỗi, ID số, ID kèm tiền tố, index 0-based hoặc 1-based.
+ * - Không bỏ sót ID 0 (tránh bẫy falsy của JavaScript khi i === 0).
+ */
+export function extractAndNormalizeTranslationBatch(
+  rawContent: string,
+  expectedItems: BatchItem[]
+): Map<string, string> {
+  const resultMap = new Map<string, string>();
+  if (!rawContent || !rawContent.trim()) return resultMap;
+
+  const tryParseJson = (text: string): any => {
+    if (!text || !text.trim()) return null;
+    try {
+      return JSON.parse(text);
+    } catch {
+      try {
+        return JSON.parse(jsonrepair(text));
+      } catch {
+        return null;
+      }
+    }
+  };
+
+  // 1. Trích xuất nội dung code block markdown nếu có
+  const fenceMatches = Array.from(rawContent.matchAll(/```(?:json)?\s*([\s\S]*?)\s*```/gi));
+  let itemsList: any[] = [];
+  let parsed: any = null;
+
+  if (fenceMatches.length > 1) {
+    // Có nhiều block markdown: thử parse từng block và gom các items lại
+    for (const fm of fenceMatches) {
+      const blkParsed = tryParseJson(fm[1].trim());
+      if (Array.isArray(blkParsed)) {
+        itemsList.push(...blkParsed);
+      } else if (blkParsed && typeof blkParsed === 'object') {
+        const found = blkParsed.items || blkParsed.translations || blkParsed.result;
+        if (Array.isArray(found)) itemsList.push(...found);
+        else {
+          for (const [k, v] of Object.entries(blkParsed)) {
+            const exp = expectedItems.find((e) => e.i === k || e.i.toLowerCase() === k.toLowerCase());
+            if (exp && typeof v === 'string' && v.trim()) resultMap.set(exp.i, v.trim());
+          }
+        }
+      }
+    }
+  }
+
+  if (itemsList.length === 0 && resultMap.size === 0) {
+    let cleaned = fenceMatches.length === 1 ? fenceMatches[0][1].trim() : rawContent.trim();
+    parsed = tryParseJson(cleaned);
+
+    // Nếu parse trực tiếp chưa thành công (ví dụ do có văn bản bao quanh chứa dấu ngoặc vuông/nhọn):
+    // Quét tìm tất cả các vị trí mở ngoặc '[' hoặc '{' và thử trích xuất khối JSON hợp lệ
+    if (!parsed || (typeof parsed !== 'object' && !Array.isArray(parsed))) {
+      const candidateStarts: number[] = [];
+      for (let i = 0; i < cleaned.length; i++) {
+        if (cleaned[i] === '[' || cleaned[i] === '{') {
+          candidateStarts.push(i);
+        }
+      }
+
+      for (const startIdx of candidateStarts) {
+        const isArr = cleaned[startIdx] === '[';
+        const endChar = isArr ? ']' : '}';
+        const endIdx = cleaned.lastIndexOf(endChar);
+        if (endIdx > startIdx) {
+          const candidate = cleaned.slice(startIdx, endIdx + 1);
+          parsed = tryParseJson(candidate);
+          if (parsed && typeof parsed === 'object') break;
+        }
+      }
+    }
+  }
+
+  // 2. Tìm danh sách item trong kết quả
+  if (itemsList.length === 0 && parsed) {
+    if (Array.isArray(parsed)) {
+      itemsList = parsed;
+    } else if (typeof parsed === 'object' && parsed !== null) {
+    const arrayKeys = [
+      'items',
+      'translations',
+      'result',
+      'results',
+      'data',
+      'subtitles',
+      'lines',
+      'output',
+      'response',
+      'dialogue',
+      'content',
+    ];
+    for (const key of arrayKeys) {
+      if (Array.isArray(parsed[key]) && parsed[key].length > 0) {
+        itemsList = parsed[key];
+        break;
+      }
+    }
+    // Nếu chưa thấy, tìm mảng con bất kỳ có phần tử
+    if (itemsList.length === 0) {
+      for (const val of Object.values(parsed)) {
+        if (Array.isArray(val) && val.length > 0) {
+          itemsList = val;
+          break;
+        }
+      }
+    }
+
+    // Nếu không có mảng con, kiểm tra xem parsed có phải là dictionary mapping id -> text không
+    if (itemsList.length === 0) {
+      const keys = Object.keys(parsed);
+      const isDictNumeric = keys.length === expectedItems.length && keys.every((k) => /^\d+$/.test(k.trim()));
+      if (isDictNumeric) {
+        const nums = keys.map((k) => parseInt(k.trim(), 10));
+        const dictZero = nums.includes(0) && nums.every((n) => n >= 0 && n < expectedItems.length);
+        const dictOne = !nums.includes(0) && nums.every((n) => n >= 1 && n <= expectedItems.length);
+        if (dictZero || dictOne) {
+          for (const [key, val] of Object.entries(parsed)) {
+            const num = parseInt(key.trim(), 10);
+            const targetExp = dictZero ? expectedItems[num] : expectedItems[num - 1];
+            if (targetExp) {
+              const textVal =
+                typeof val === 'string'
+                  ? val
+                  : (val as any)?.text ?? (val as any)?.target ?? (val as any)?.translation ?? '';
+              if (typeof textVal === 'string' && textVal.trim()) {
+                resultMap.set(targetExp.i, textVal.trim());
+              }
+            }
+          }
+          if (resultMap.size > 0) return resultMap;
+        }
+      }
+
+      const matchesAnyExpected = keys.some((k) =>
+        expectedItems.some(
+          (exp) =>
+            exp.i === k ||
+            exp.i.endsWith(`-${k}`) ||
+            exp.i.replace(/\D/g, '') === k.replace(/\D/g, '') ||
+            k === String(expectedItems.indexOf(exp))
+        )
+      );
+
+      if (matchesAnyExpected) {
+        for (const [key, val] of Object.entries(parsed)) {
+          const textVal =
+            typeof val === 'string'
+              ? val
+              : (val as any)?.text ?? (val as any)?.target ?? (val as any)?.translation ?? '';
+          if (typeof textVal === 'string' && textVal.trim()) {
+            const matchedExp = expectedItems.find(
+              (exp, idx) =>
+                exp.i === key ||
+                exp.i.toLowerCase() === key.toLowerCase() ||
+                exp.i.replace(/\D/g, '') === key.replace(/\D/g, '') ||
+                String(idx) === key
+            );
+            if (matchedExp) {
+              resultMap.set(matchedExp.i, textVal.trim());
+            }
+          }
+        }
+        return resultMap;
+      }
+    }
+  }
+  }
+
+  // 3. Phân tích từng phần tử trong itemsList (nếu có)
+  if (itemsList.length > 0) {
+    const allNumericIds: number[] = [];
+  for (const it of itemsList) {
+    if (typeof it === 'object' && it !== null) {
+      const raw = it.i ?? it.id ?? it.index ?? it.line;
+      if (typeof raw === 'number') {
+        allNumericIds.push(raw);
+      } else if (typeof raw === 'string' && /^\d+$/.test(raw.trim())) {
+        allNumericIds.push(parseInt(raw.trim(), 10));
+      }
+    }
+  }
+  const isOneBased =
+    allNumericIds.length === expectedItems.length &&
+    !allNumericIds.includes(0) &&
+    allNumericIds.includes(expectedItems.length) &&
+    allNumericIds.every((n) => n >= 1 && n <= expectedItems.length);
+
+  const isZeroBased =
+    allNumericIds.length === expectedItems.length &&
+    allNumericIds.includes(0) &&
+    allNumericIds.every((n) => n >= 0 && n < expectedItems.length);
+
+  // 3. Phân tích từng phần tử trong itemsList
+  for (let idx = 0; idx < itemsList.length; idx++) {
+    const item = itemsList[idx];
+    if (item === null || item === undefined) continue;
+
+    let text = '';
+    let rawId: any = undefined;
+
+    if (typeof item === 'string') {
+      text = item.trim();
+      if (itemsList.length === expectedItems.length && idx < expectedItems.length) {
+        rawId = expectedItems[idx].i;
+      }
+    } else if (typeof item === 'object') {
+      const entries = Object.entries(item);
+      const idEntry = entries.find(([k]) =>
+        /^(i|id|index|idx|key|line|lineid|line_id|linenumber)$/i.test(k.trim())
+      );
+      if (idEntry) {
+        rawId = idEntry[1];
+      }
+
+      const textEntry = entries.find(([k]) =>
+        /^(text|target|translation|translated|translatedtext|translated_text|content|subtitle|sub|val|value|result|output)$/i.test(
+          k.trim()
+        )
+      );
+      if (textEntry && textEntry[1] !== undefined && textEntry[1] !== null) {
+        text = String(textEntry[1]);
+      } else if (entries.length === 2 && idEntry) {
+        // Nếu đối tượng chỉ có 2 trường (1 trường ID và 1 trường ngôn ngữ/bản dịch), trường còn lại chính là bản dịch
+        const otherEntry = entries.find(([k]) => k !== idEntry[0]);
+        if (otherEntry && otherEntry[1] !== undefined && otherEntry[1] !== null) {
+          text = String(otherEntry[1]);
+        }
+      } else if (entries.length === 1 && typeof entries[0][1] === 'string') {
+        text = entries[0][1];
+        if (rawId === undefined) {
+          rawId = entries[0][0]; // Khóa duy nhất của object chính là ID dòng!
+        }
+      } else {
+        text =
+          item.text ??
+          item.target ??
+          item.translation ??
+          item.translated ??
+          item.translatedText ??
+          item.translated_text ??
+          item.content ??
+          item.subtitle ??
+          item.sub ??
+          item.val ??
+          item.value ??
+          '';
+      }
+      if (typeof text !== 'string') text = String(text || '');
+
+      if (rawId === undefined) {
+        rawId =
+          item.i ??
+          item.id ??
+          item.ID ??
+          item.index ??
+          item.idx ??
+          item.key ??
+          item.line ??
+          item.lineId ??
+          item.line_id;
+      }
+    }
+
+    if (!text.trim()) continue;
+
+    let matchedId: string | undefined;
+
+    // 3a. Nếu phát hiện 1-based hoặc 0-based indexing và rawId là số
+    if (isOneBased && rawId !== undefined && rawId !== null) {
+      const num = typeof rawId === 'number' ? rawId : parseInt(String(rawId).trim(), 10);
+      if (!isNaN(num) && num >= 1 && num <= expectedItems.length) {
+        matchedId = expectedItems[num - 1].i;
+      }
+    } else if (isZeroBased && rawId !== undefined && rawId !== null) {
+      const num = typeof rawId === 'number' ? rawId : parseInt(String(rawId).trim(), 10);
+      if (!isNaN(num) && num >= 0 && num < expectedItems.length) {
+        matchedId = expectedItems[num].i;
+      }
+    }
+
+    if (!matchedId && rawId !== undefined && rawId !== null) {
+      const rawIdStr = String(rawId).trim();
+      // 3b. Khớp chính xác ID
+      const exact = expectedItems.find((exp) => exp.i === rawIdStr);
+      if (exact) {
+        matchedId = exact.i;
+      } else {
+        // 3c. Khớp sau khi chuẩn hóa chữ thường và dấu gạch
+        const normRaw = rawIdStr.toLowerCase().replace(/[^a-z0-9]/g, '');
+        const normMatch = expectedItems.find(
+          (exp) => exp.i.toLowerCase().replace(/[^a-z0-9]/g, '') === normRaw
+        );
+        if (normMatch) {
+          matchedId = normMatch.i;
+        } else {
+          // 3d. Khớp theo chỉ số số học nếu có duy nhất 1 dòng khớp
+          const digits = rawIdStr.replace(/\D/g, '');
+          if (digits) {
+            const digitMatches = expectedItems.filter((exp) => exp.i.replace(/\D/g, '') === digits);
+            if (digitMatches.length === 1) {
+              matchedId = digitMatches[0].i;
+            }
+          }
+        }
+      }
+    }
+
+    // 3e. Khớp theo vị trí nếu cùng số lượng phần tử
+    if (!matchedId && itemsList.length === expectedItems.length && idx < expectedItems.length) {
+      if (!resultMap.has(expectedItems[idx].i)) {
+        matchedId = expectedItems[idx].i;
+      }
+    }
+
+    if (matchedId) {
+      resultMap.set(matchedId, text.trim());
+    }
+  }
+
+  // 4. Khớp bổ sung theo vị trí nếu cùng độ dài mà còn sót dòng
+  if (itemsList.length === expectedItems.length) {
+    for (let i = 0; i < expectedItems.length; i++) {
+      if (!resultMap.has(expectedItems[i].i)) {
+        const item = itemsList[i];
+        let text = '';
+        if (typeof item === 'string') text = item.trim();
+        else if (typeof item === 'object' && item !== null) {
+          text = item.text ?? item.target ?? item.translation ?? '';
+        }
+        if (typeof text === 'string' && text.trim()) {
+          resultMap.set(expectedItems[i].i, text.trim());
+        }
+      }
+    }
+  }
+  }
+
+  // 5. Fallback: trích xuất dạng văn bản thuần có ID nếu mô hình không trả về JSON hợp lệ
+  if (resultMap.size < expectedItems.length) {
+    const rawLines = rawContent.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+    for (const rLine of rawLines) {
+      if (rLine.startsWith('```') || /^Dưới đây|^Here is/i.test(rLine)) continue;
+      const match = rLine.match(/^(?:[-*•]\s*)?(?:\[([a-zA-Z0-9_-]+)\]|([a-zA-Z0-9_-]+))\s*[:=-]\s*(.+)$/);
+      if (match) {
+        const idKey = (match[1] || match[2]).trim();
+        const lineText = match[3].trim();
+        if (lineText) {
+          const matchedExp = expectedItems.find(
+            (exp, idx) =>
+              exp.i.toLowerCase() === idKey.toLowerCase() ||
+              exp.i.replace(/\D/g, '') === idKey.replace(/\D/g, '') ||
+              String(idx) === idKey
+          );
+          if (matchedExp && !resultMap.has(matchedExp.i)) {
+            resultMap.set(matchedExp.i, lineText);
+          }
+        }
+      }
+    }
+
+    if (resultMap.size === 0) {
+      const numberedMatches: { num: number; text: string }[] = [];
+      for (const rLine of rawLines) {
+        const numMatch = rLine.match(/^(\d+)[\.\)]\s*(.+)$/);
+        if (numMatch) {
+          numberedMatches.push({ num: parseInt(numMatch[1], 10), text: numMatch[2].trim() });
+        }
+      }
+      if (numberedMatches.length === expectedItems.length) {
+        const hasZero = numberedMatches.some((m) => m.num === 0);
+        numberedMatches.forEach((m, idx) => {
+          const targetExp = hasZero ? expectedItems[m.num] : expectedItems[m.num - 1] || expectedItems[idx];
+          if (targetExp && m.text && !resultMap.has(targetExp.i)) {
+            resultMap.set(targetExp.i, m.text);
+          }
+        });
+      }
+    }
+  }
+
+  return resultMap;
+}
+
 
 export async function translateSrtFile(
   srtPath: string,
@@ -148,7 +661,7 @@ export async function translateSrtFile(
   const systemPrompt = buildSystemPrompt(targetLanguage);
 
   // Nạp cache từ checkpoint của lần chạy trước (nếu có)
-  const cachedRaw = loadCheckpoint(srtPath, targetLanguage);
+  const cachedRaw = loadCheckpoint(srtPath, targetLanguage, lines.length);
   // Map id -> bản dịch; chỉ dùng khi text gốc KHÔNG đổi (nếu đổi sẽ dịch lại)
   const cachedTarget = new Map<string, string>();
   const checkpointData: Record<string, { source: string; target: string }> = {};
@@ -175,16 +688,19 @@ export async function translateSrtFile(
   }
 
   /**
-   * Dịch 1 batch, có retry. Ngữ cảnh = 2 dòng cuối của batch trước: bản dịch
-   * của chúng chỉ dùng được khi batch trước đã xong — concurrency 1 thì luôn
-   * có, chạy song song batch trước chưa xong thì gửi tạm text gốc (vẫn giúp
-   * model hiểu mạch nội dung).
+   * Dịch 1 batch, có retry và kiểm tra tính toàn vẹn 100%.
+   * Ngữ cảnh = 2 dòng cuối của batch trước (nếu có).
    */
   const translateBatch = async (b: number): Promise<SrtLine[]> => {
     const batchLines = lines.slice(b * batchSize, (b + 1) * batchSize);
 
-    // Dòng nào đã có trong cache (text gốc trùng khớp) hoặc trùng text với dòng đã dịch thì dùng lại
+    // Dòng nào đã có trong cache (text gốc trùng khớp) hoặc trùng text với dòng đã dịch thì dùng lại.
+    // Dòng nào rỗng/khoảng trắng hoặc chỉ chứa dấu câu/ký hiệu (không có chữ cái hay chữ số) thì ghi nhận luôn để không gửi lên mô hình AI.
     for (const l of batchLines) {
+      if (!l.text || !l.text.trim() || !/[\p{L}\p{N}]/u.test(l.text)) {
+        cachedTarget.set(l.id, l.text);
+        continue;
+      }
       if (cachedTarget.has(l.id)) continue;
       for (const [_, entry] of Object.entries(checkpointData)) {
         if (entry.source === l.text && entry.target) {
@@ -195,20 +711,27 @@ export async function translateSrtFile(
     }
 
     const itemsToTranslate: BatchItem[] = batchLines
-      .filter((l) => !cachedTarget.has(l.id))
+      .filter((l) => !cachedTarget.has(l.id) && l.text && l.text.trim())
       .map((l) => ({ i: l.id, text: l.text }));
 
-    let batchResult: TranslatedItem[] = [];
+    let resultMap = new Map<string, string>();
 
     if (itemsToTranslate.length > 0) {
       const prevLines = b > 0 ? lines.slice((b - 1) * batchSize, b * batchSize) : [];
       const prevTranslated = b > 0 ? batchResults[b - 1] : undefined;
       const previousContext = prevLines.slice(-2).map((orig, idx) => ({
         original: orig.text,
-        translated: prevTranslated?.[prevTranslated.length - 2 + idx]?.text || orig.text,
+        translated:
+          prevTranslated?.[prevTranslated.length - 2 + idx]?.text ||
+          cachedTarget.get(orig.id) ||
+          orig.text,
       }));
 
-      const userPayload = { context: previousContext, items: itemsToTranslate };
+      // Nếu không có ngữ cảnh (như batch 0 đầu file), không gửi field context rỗng để tránh làm model bối rối
+      const baseUserPayload =
+        previousContext.length > 0
+          ? { context: previousContext, items: itemsToTranslate }
+          : { items: itemsToTranslate };
 
       let attempts = 0;
       let success = false;
@@ -217,12 +740,24 @@ export async function translateSrtFile(
       while (attempts < 3 && !success) {
         try {
           attempts++;
+
+          // Lần thử đầu dùng system prompt chuẩn; các lần retry sau dùng prompt dự phòng chặt chẽ
+          const activeSystemPrompt =
+            attempts === 1
+              ? systemPrompt
+              : buildRetrySystemPrompt(targetLanguage, itemsToTranslate.length);
+
+          const activePayload =
+            attempts === 1
+              ? baseUserPayload
+              : { items: itemsToTranslate };
+
           const response = await client.chat.completions.create({
             model,
-            temperature: 0.3,
+            temperature: attempts === 1 ? 0.3 : 0.1,
             messages: [
-              { role: 'system', content: systemPrompt },
-              { role: 'user', content: JSON.stringify(userPayload) },
+              { role: 'system', content: activeSystemPrompt },
+              { role: 'user', content: JSON.stringify(activePayload) },
             ],
           });
 
@@ -231,22 +766,32 @@ export async function translateSrtFile(
             throw new Error('Mô hình trả về phản hồi rỗng.');
           }
 
-          let cleaned = rawContent.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+          resultMap = extractAndNormalizeTranslationBatch(rawContent, itemsToTranslate);
 
-          let parsed: any;
-          try {
-            parsed = JSON.parse(cleaned);
-          } catch {
-            const repaired = jsonrepair(cleaned);
-            parsed = JSON.parse(repaired);
+          // Đồng bộ bản dịch cho các dòng có text trùng lặp với dòng đã dịch trong batch trước khi kiểm tra toàn vẹn
+          for (const item of itemsToTranslate) {
+            if (!resultMap.has(item.i)) {
+              const match = itemsToTranslate.find(
+                (other) => other.text === item.text && resultMap.has(other.i)
+              );
+              if (match) {
+                const trans = resultMap.get(match.i);
+                if (trans) resultMap.set(item.i, trans);
+              }
+            }
           }
 
-          if (Array.isArray(parsed)) {
-            batchResult = parsed;
-          } else if (parsed && Array.isArray(parsed.items)) {
-            batchResult = parsed.items;
-          } else {
-            throw new Error('Kết quả JSON trả về không đúng định dạng mảng.');
+          // Kiểm tra tính toàn vẹn (Integrity Verification):
+          // Phải dịch đủ 100% các dòng trong itemsToTranslate, không được thiếu bất kỳ dòng nào!
+          const missingItems = itemsToTranslate.filter((item) => {
+            const trans = resultMap.get(item.i);
+            return !trans || typeof trans !== 'string' || !trans.trim();
+          });
+
+          if (missingItems.length > 0) {
+            throw new Error(
+              `Batch phản hồi thiếu ${missingItems.length}/${itemsToTranslate.length} dòng dịch (${missingItems.map((m) => m.i).join(', ')}).`
+            );
           }
 
           success = true;
@@ -257,7 +802,7 @@ export async function translateSrtFile(
           if (attempts < 3) {
             const delay = isRateLimit ? attempts * 8000 : attempts * 1500;
             console.warn(
-              `[Translate] Batch ${b + 1} lỗi (lần ${attempts}/3): ${err?.message || err} — thử lại sau ${delay}ms`
+              `[Translate] Batch ${b + 1} lỗi hoặc thiếu dòng (lần ${attempts}/3): ${err?.message || err} — tự động retry với prompt dự phòng sau ${delay}ms`
             );
             await new Promise((res) => setTimeout(res, delay));
           }
@@ -268,25 +813,22 @@ export async function translateSrtFile(
         // Checkpoint vẫn còn trên đĩa — lần chạy lại sẽ tiếp tục từ đây
         throw new Error(
           `Dịch thất bại ở batch ${b + 1}/${totalBatches}: ${friendlyGeminiError(lastError)}. ` +
-            `Các batch đã dịch được lưu tạm — chạy lại sẽ tiếp tục từ chỗ dừng.`
+            `Hệ thống không tự ý trả về câu gốc chưa dịch để đảm bảo tính toàn vẹn bản dịch. ` +
+            `Các batch đã dịch được lưu tạm trong checkpoint — chạy lại sẽ tiếp tục từ chỗ dừng.`
         );
-      }
-    }
-
-    // Ghép kết quả: ưu tiên bản dịch vừa nhận, fallback sang cache, cuối cùng là text gốc
-    const resultMap = new Map<string, string>();
-    for (const item of batchResult) {
-      if (item && item.i && typeof item.text === 'string') {
-        resultMap.set(item.i, item.text);
       }
     }
 
     // Nếu một dòng trong batch có cùng text nguồn với dòng vừa được dịch, đồng bộ bản dịch
     for (const line of batchLines) {
       if (!resultMap.has(line.id) && !cachedTarget.has(line.id)) {
-        const match = batchLines.find((other) => other.text === line.text && resultMap.has(other.id));
+        const match = batchLines.find(
+          (other) =>
+            other.text === line.text && (resultMap.has(other.id) || cachedTarget.has(other.id))
+        );
         if (match) {
-          resultMap.set(line.id, resultMap.get(match.id)!);
+          const trans = resultMap.get(match.id) ?? cachedTarget.get(match.id);
+          if (trans) resultMap.set(line.id, trans);
         }
       }
     }
@@ -294,15 +836,20 @@ export async function translateSrtFile(
     // Lưu vào cache + ghi checkpoint NGAY sau mỗi batch (chỉ các dòng mới dịch)
     for (const line of batchLines) {
       const target = resultMap.get(line.id) ?? cachedTarget.get(line.id);
-      if (target !== undefined) {
+      if (target !== undefined && target.trim()) {
         checkpointData[line.id] = { source: line.text, target };
       }
     }
-    saveCheckpoint(srtPath, targetLanguage, checkpointData);
+    saveCheckpoint(srtPath, targetLanguage, checkpointData, lines.length);
 
     return batchLines.map((line) => {
-      const transText = resultMap.get(line.id) ?? cachedTarget.get(line.id) ?? line.text;
-      return { ...line, text: transText };
+      const transText = resultMap.get(line.id) ?? cachedTarget.get(line.id);
+      if (line.text.trim() && (!transText || !transText.trim())) {
+        throw new Error(
+          `Dòng phụ đề ${line.id} ("${line.text}") không có bản dịch hợp lệ sau khi gọi mô hình.`
+        );
+      }
+      return { ...line, text: transText ?? line.text };
     });
   };
 
@@ -342,6 +889,12 @@ export async function translateSrtFile(
   const translatedLines: SrtLine[] = batchResults.filter(
     (r): r is SrtLine[] => Array.isArray(r),
   ).flat();
+
+  if (translatedLines.length !== lines.length) {
+    throw new Error(
+      `Lỗi toàn vẹn: Số lượng dòng dịch (${translatedLines.length}) không khớp với file phụ đề gốc (${lines.length}).`
+    );
+  }
 
   // Bảo toàn 100% số lượng dòng, startMs, endMs, speaker từ file phụ đề gốc (1-1 translation mapping).
   // Đối với các câu dài vượt quá 37 ký tự: dùng breakVietnameseLines để định dạng ngắt dòng

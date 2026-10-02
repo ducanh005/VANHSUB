@@ -56,23 +56,23 @@ export const ExportFormatPanel: React.FC<ExportFormatPanelProps> = ({
   const SPEED_PRESETS = [1.00, 1.05, 1.10, 1.25, 1.50, 2.00];
 
   return (
-    <div className="flex flex-col gap-4 rounded-2xl border border-slate-800 bg-slate-900/70 p-4">
-      <div className="flex items-center justify-between border-b border-slate-800/80 pb-3">
+    <div className="flex flex-col gap-4 rounded-lg border border-border bg-surface p-4">
+      <div className="flex items-center justify-between border-b border-border pb-3">
         <div className="flex items-center gap-2">
-          <Film className="h-4 w-4 text-brand-cyan" />
-          <h3 className="text-xs font-semibold text-slate-200">
+          <Film className="h-4 w-4 text-accent" />
+          <h3 className="text-xs font-semibold text-text">
             Tùy chọn Định dạng & Tỉ lệ Khung hình (Export Presets)
           </h3>
         </div>
-        <div className="flex items-center gap-1.5 rounded-full border border-slate-700 bg-slate-800/80 px-2.5 py-0.5 text-[11px] font-mono text-slate-300">
-          <HardDrive className="h-3 w-3 text-brand-cyan" />
+        <div className="flex items-center gap-1.5 rounded-full border border-border bg-surface-2 px-2.5 py-0.5 text-[11px] font-mono text-text">
+          <HardDrive className="h-3 w-3 text-accent" />
           <span>Ước tính: ~{estimatedSizeMb} MB</span>
         </div>
       </div>
 
       {/* 1. Chọn tỉ lệ khung hình (Aspect Ratio) */}
       <div>
-        <label className="mb-2 block text-xs font-medium text-slate-300">
+        <label className="mb-2 block text-xs font-medium text-text">
           Tỉ lệ khung hình (Aspect Ratio):
         </label>
         <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
@@ -84,15 +84,15 @@ export const ExportFormatPanel: React.FC<ExportFormatPanelProps> = ({
                 key={item.id}
                 type="button"
                 onClick={() => onChangeFormat({ aspectRatio: item.id as any })}
-                className={`flex flex-col items-center gap-1.5 rounded-xl border p-3 text-center transition cursor-pointer ${
+                className={`flex flex-col items-center gap-1.5 rounded-md border p-3 text-center transition cursor-pointer ${
                   active
-                    ? 'border-brand-cyan/80 bg-brand-cyan/15 ring-1 ring-brand-cyan/50 text-white'
-                    : 'border-slate-800 bg-slate-800/50 text-slate-400 hover:border-slate-700 hover:text-slate-200'
+                    ? 'border-accent/40 bg-accent/15 ring-1 ring-accent/30 text-white'
+                    : 'border-border bg-surface-2 text-text-muted hover:border-border hover:text-text'
                 }`}
               >
-                <Icon className={`h-5 w-5 ${active ? 'text-brand-cyan' : 'text-slate-400'}`} />
+                <Icon className={`h-5 w-5 ${active ? 'text-accent' : 'text-text-muted'}`} />
                 <span className="text-xs font-semibold">{item.label}</span>
-                <span className="text-[10px] text-slate-500 leading-tight">{item.desc}</span>
+                <span className="text-[10px] text-text-muted leading-tight">{item.desc}</span>
               </button>
             );
           })}
@@ -103,13 +103,13 @@ export const ExportFormatPanel: React.FC<ExportFormatPanelProps> = ({
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 pt-1">
         {/* Độ phân giải */}
         <div>
-          <label className="mb-1 block text-[11px] font-medium text-slate-400">
+          <label className="mb-1 block text-[11px] font-medium text-text-muted">
             Độ phân giải:
           </label>
           <select
             value={currentResolution}
             onChange={(e) => onChangeFormat({ resolution: e.target.value as any })}
-            className="w-full rounded-xl border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs text-slate-200 focus:outline-none"
+            className="w-full rounded-md border border-border bg-surface-2 px-3 py-1.5 text-xs text-text focus:outline-none"
           >
             <option value="original">Gốc (Auto)</option>
             <option value="1080p">1080p Full HD</option>
@@ -120,13 +120,13 @@ export const ExportFormatPanel: React.FC<ExportFormatPanelProps> = ({
 
         {/* FPS */}
         <div>
-          <label className="mb-1 block text-[11px] font-medium text-slate-400">
+          <label className="mb-1 block text-[11px] font-medium text-text-muted">
             Khung hình (FPS):
           </label>
           <select
             value={currentFps}
             onChange={(e) => onChangeFormat({ fps: Number(e.target.value) || undefined })}
-            className="w-full rounded-xl border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs text-slate-200 focus:outline-none"
+            className="w-full rounded-md border border-border bg-surface-2 px-3 py-1.5 text-xs text-text focus:outline-none"
           >
             <option value={0}>Tự động (Theo video gốc)</option>
             <option value={24}>24 fps (Điện ảnh Cinematic)</option>
@@ -137,13 +137,13 @@ export const ExportFormatPanel: React.FC<ExportFormatPanelProps> = ({
 
         {/* Bitrate */}
         <div>
-          <label className="mb-1 block text-[11px] font-medium text-slate-400">
+          <label className="mb-1 block text-[11px] font-medium text-text-muted">
             Bitrate (Chất lượng):
           </label>
           <select
             value={currentBitrate}
             onChange={(e) => onChangeFormat({ bitrateKbps: Number(e.target.value) || undefined })}
-            className="w-full rounded-xl border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs text-slate-200 focus:outline-none"
+            className="w-full rounded-md border border-border bg-surface-2 px-3 py-1.5 text-xs text-text focus:outline-none"
           >
             <option value={0}>Tự động (CRF 23)</option>
             <option value={4000}>4,000 kbps (1080p chuẩn)</option>
@@ -154,13 +154,13 @@ export const ExportFormatPanel: React.FC<ExportFormatPanelProps> = ({
 
         {/* Video Codec */}
         <div>
-          <label className="mb-1 block text-[11px] font-medium text-slate-400">
+          <label className="mb-1 block text-[11px] font-medium text-text-muted">
             Bộ mã hóa (Codec):
           </label>
           <select
             value={currentCodec}
             onChange={(e) => onChangeFormat({ videoCodec: e.target.value as any })}
-            className="w-full rounded-xl border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs text-slate-200 focus:outline-none"
+            className="w-full rounded-md border border-border bg-surface-2 px-3 py-1.5 text-xs text-text focus:outline-none"
           >
             <option value="libx264">H.264 (libx264 — Tương thích cao)</option>
             <option value="libx265">H.265 / HEVC (libx265 — Nén sâu)</option>
@@ -169,38 +169,38 @@ export const ExportFormatPanel: React.FC<ExportFormatPanelProps> = ({
       </div>
 
       {/* 3. Bộ công cụ CapCut Mini (Mirror & Speed) */}
-      <div className="flex flex-col gap-3 rounded-xl border border-cyan-500/20 bg-slate-950/40 p-3.5">
-        <div className="flex items-center justify-between border-b border-slate-800/80 pb-2">
+      <div className="flex flex-col gap-3 rounded-md border border-accent/40 bg-bg p-3.5">
+        <div className="flex items-center justify-between border-b border-border pb-2">
           <div className="flex items-center gap-2">
-            <Sparkles className="h-3.5 w-3.5 text-brand-cyan" />
-            <span className="text-xs font-semibold text-slate-200">
+            <Sparkles className="h-3.5 w-3.5 text-accent" />
+            <span className="text-xs font-semibold text-text">
               Bộ công cụ CapCut Mini (Lật gương & Tua nhanh)
             </span>
           </div>
-          <span className="rounded bg-brand-cyan/10 px-2 py-0.5 text-[10px] font-mono text-brand-cyan border border-brand-cyan/20">
+          <span className="rounded bg-accent-tint px-2 py-0.5 text-[10px] font-mono text-accent border border-accent/40">
             Chống quét bản quyền & Tăng tốc
           </span>
         </div>
 
         <div className="grid gap-3 md:grid-cols-2">
           {/* A. Phản chiếu gương ngang (Horizontal Mirror) */}
-          <div className="flex flex-col justify-between rounded-xl border border-slate-800 bg-slate-900/60 p-3">
+          <div className="flex flex-col justify-between rounded-md border border-border bg-surface p-3">
             <div className="flex items-start justify-between gap-2">
               <div className="flex items-center gap-2.5">
                 <div
                   className={`p-2 rounded-lg border transition ${
                     formatOptions.mirrorHorizontal
-                      ? 'border-brand-cyan/60 bg-brand-cyan/20 text-brand-cyan shadow-sm shadow-cyan-500/20'
-                      : 'border-slate-800 bg-slate-800 text-slate-400'
+                      ? 'border-accent/40 bg-accent-tint text-accent  '
+                      : 'border-border bg-surface-2 text-text-muted'
                   }`}
                 >
                   <FlipHorizontal className="h-4 w-4" />
                 </div>
                 <div>
-                  <div className="text-xs font-semibold text-slate-200">
+                  <div className="text-xs font-semibold text-text">
                     Phản chiếu gương / Lật ngang video
                   </div>
-                  <div className="text-[10px] text-slate-400 leading-tight mt-0.5">
+                  <div className="text-[10px] text-text-muted leading-tight mt-0.5">
                     Lật ngang video gốc; phụ đề mới và watermark giữ nguyên chiều xuôi
                   </div>
                 </div>
@@ -215,22 +215,22 @@ export const ExportFormatPanel: React.FC<ExportFormatPanelProps> = ({
                   onChangeFormat({ mirrorHorizontal: !formatOptions.mirrorHorizontal })
                 }
                 className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                  formatOptions.mirrorHorizontal ? 'bg-brand-cyan' : 'bg-slate-700'
+                  formatOptions.mirrorHorizontal ? 'bg-accent' : 'bg-surface-3'
                 }`}
               >
                 <span
-                  className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
+                  className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white  ring-0 transition duration-200 ease-in-out ${
                     formatOptions.mirrorHorizontal ? 'translate-x-4' : 'translate-x-0'
                   }`}
                 />
               </button>
             </div>
 
-            <div className="mt-2 text-[10px] text-slate-500 flex items-center gap-1.5">
+            <div className="mt-2 text-[10px] text-text-muted flex items-center gap-1.5">
               <span
                 className={`inline-block h-1.5 w-1.5 rounded-full ${
                   formatOptions.mirrorHorizontal
-                    ? 'bg-brand-cyan animate-pulse'
+                    ? 'bg-accent animate-pulse'
                     : 'bg-slate-600'
                 }`}
               />
@@ -244,11 +244,11 @@ export const ExportFormatPanel: React.FC<ExportFormatPanelProps> = ({
           </div>
 
           {/* B. Tua nhanh video (Speedup 1.00x - 2.00x) */}
-          <div className="flex flex-col gap-2 rounded-xl border border-slate-800 bg-slate-900/60 p-3">
+          <div className="flex flex-col gap-2 rounded-md border border-border bg-surface p-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-1.5">
-                <Gauge className="h-4 w-4 text-brand-cyan" />
-                <span className="text-xs font-semibold text-slate-200">
+                <Gauge className="h-4 w-4 text-accent" />
+                <span className="text-xs font-semibold text-text">
                   Tốc độ phát (Speed):
                 </span>
               </div>
@@ -268,9 +268,9 @@ export const ExportFormatPanel: React.FC<ExportFormatPanelProps> = ({
                       onChangeFormat({ speed: clamped });
                     }
                   }}
-                  className="w-16 rounded border border-slate-700 bg-slate-800 px-1.5 py-0.5 text-center font-mono text-xs font-bold text-brand-cyan focus:outline-none focus:border-brand-cyan"
+                  className="w-16 rounded border border-border bg-surface-2 px-1.5 py-0.5 text-center font-mono text-xs font-bold text-accent focus:outline-none focus:border-accent/40"
                 />
-                <span className="text-xs font-mono text-slate-400">x</span>
+                <span className="text-xs font-mono text-text-muted">x</span>
               </div>
             </div>
 
@@ -285,13 +285,13 @@ export const ExportFormatPanel: React.FC<ExportFormatPanelProps> = ({
                 onChange={(e) =>
                   onChangeFormat({ speed: parseFloat(e.target.value) })
                 }
-                className="flex-1 accent-cyan-400 cursor-pointer h-1.5 bg-slate-700 rounded-lg"
+                className="flex-1 accent-accent cursor-pointer h-1.5 bg-surface-3 rounded-lg"
               />
             </div>
 
             {/* Quick Select Buttons */}
             <div className="flex flex-wrap items-center gap-1 pt-1">
-              <span className="text-[10px] text-slate-400 mr-0.5">Mốc:</span>
+              <span className="text-[10px] text-text-muted mr-0.5">Mốc:</span>
               {SPEED_PRESETS.map((presetSpeed) => {
                 const current = formatOptions.speed || 1.00;
                 const isActive = Math.abs(current - presetSpeed) < 0.005;
@@ -302,8 +302,8 @@ export const ExportFormatPanel: React.FC<ExportFormatPanelProps> = ({
                     onClick={() => onChangeFormat({ speed: presetSpeed })}
                     className={`rounded px-1.5 py-0.5 font-mono text-[10px] transition cursor-pointer ${
                       isActive
-                        ? 'border border-brand-cyan bg-brand-cyan/25 text-brand-cyan font-bold ring-1 ring-brand-cyan/40'
-                        : 'border border-slate-800 bg-slate-800/80 text-slate-400 hover:border-slate-700 hover:text-slate-200'
+                        ? 'border border-accent/40 bg-accent/25 text-accent font-bold ring-1 ring-accent/30'
+                        : 'border border-border bg-surface-2 text-text-muted hover:border-border hover:text-text'
                     }`}
                   >
                     {presetSpeed.toFixed(2)}x

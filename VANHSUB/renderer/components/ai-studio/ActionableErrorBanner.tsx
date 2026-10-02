@@ -84,10 +84,10 @@ export default function ActionableErrorBanner({
   };
 
   return (
-    <div className="w-full rounded-2xl border p-4 shadow-xl backdrop-blur-md transition-all duration-200 animate-in fade-in slide-in-from-top-2 z-30 mb-4 border-rose-500/40 bg-gradient-to-r from-rose-950/80 via-slate-900/90 to-[#0F172A]/90">
+    <div className="w-full rounded-lg border p-4 transition-all duration-200 animate-in fade-in slide-in-from-top-2 z-30 mb-4 border-rose-500/40 bg-gradient-to-r from-rose-950/80 via-slate-900/90 to-[#0F172A]/90">
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-start gap-3 min-w-0 flex-1">
-          <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-rose-500/20 text-rose-400 border border-rose-500/30">
+          <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-rose-500/20 text-rose-400 border border-rose-500/30">
             {isUnusualActivity ? (
               <ShieldAlert className="h-5 w-5 text-amber-400" />
             ) : isTimeout || isRateLimited ? (
@@ -125,7 +125,7 @@ export default function ActionableErrorBanner({
               )}
             </div>
 
-            <p className="text-xs text-slate-200 leading-relaxed break-words">
+            <p className="text-xs text-text leading-relaxed break-words">
               {error}
             </p>
 
@@ -136,7 +136,7 @@ export default function ActionableErrorBanner({
                   <button
                     type="button"
                     onClick={handleOpenLobbyDefault}
-                    className="flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-rose-600 to-amber-600 px-3.5 py-1.5 text-xs font-bold text-white shadow-md hover:from-rose-500 hover:to-amber-500 transition cursor-pointer"
+                    className="flex items-center gap-1.5 rounded-md bg-danger px-3.5 py-1.5 text-xs font-bold text-white hover:from-rose-500 hover:to-amber-500 transition cursor-pointer"
                   >
                     <ExternalLink className="h-3.5 w-3.5" />
                     <span>Mở Sảnh Đăng Nhập Ngay</span>
@@ -145,7 +145,7 @@ export default function ActionableErrorBanner({
                     <button
                       type="button"
                       onClick={onOpenChromeBridge}
-                      className="flex items-center gap-1.5 rounded-xl border border-blue-500/40 bg-blue-950/40 px-3 py-1.5 text-xs font-semibold text-blue-300 hover:bg-blue-900/50 hover:text-white transition cursor-pointer"
+                      className="flex items-center gap-1.5 rounded-md border border-blue-500/40 bg-blue-950/40 px-3 py-1.5 text-xs font-semibold text-blue-300 hover:bg-blue-900/50 hover:text-white transition cursor-pointer"
                     >
                       <Globe className="h-3.5 w-3.5 text-blue-400" />
                       <span>Kết Nối Chrome Extension (Tránh Lỗi)</span>
@@ -159,7 +159,7 @@ export default function ActionableErrorBanner({
                   <button
                     type="button"
                     onClick={handleOpenLobbyDefault}
-                    className="flex items-center gap-1.5 rounded-xl bg-amber-600 hover:bg-amber-500 px-3.5 py-1.5 text-xs font-bold text-white shadow-md transition cursor-pointer"
+                    className="flex items-center gap-1.5 rounded-md bg-amber-600 hover:bg-amber-500 px-3.5 py-1.5 text-xs font-bold text-white transition cursor-pointer"
                   >
                     <ExternalLink className="h-3.5 w-3.5" />
                     <span>Mở Sảnh Thực Tế Giải Captcha</span>
@@ -168,7 +168,7 @@ export default function ActionableErrorBanner({
                     <button
                       type="button"
                       onClick={onOpenChromeBridge}
-                      className="flex items-center gap-1.5 rounded-xl border border-emerald-500/40 bg-emerald-950/40 px-3 py-1.5 text-xs font-semibold text-emerald-300 hover:bg-emerald-900/50 hover:text-white transition cursor-pointer"
+                      className="flex items-center gap-1.5 rounded-md border border-emerald-500/40 bg-emerald-950/40 px-3 py-1.5 text-xs font-semibold text-emerald-300 hover:bg-emerald-900/50 hover:text-white transition cursor-pointer"
                     >
                       <Globe className="h-3.5 w-3.5 text-emerald-400" />
                       <span>Dùng Chrome Extension Thay Thế</span>
@@ -181,7 +181,7 @@ export default function ActionableErrorBanner({
                 <button
                   type="button"
                   onClick={onOpenChromeBridge}
-                  className="flex items-center gap-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 px-3.5 py-1.5 text-xs font-bold text-white shadow-md transition cursor-pointer"
+                  className="flex items-center gap-1.5 rounded-md bg-blue-600 hover:bg-blue-500 px-3.5 py-1.5 text-xs font-bold text-white transition cursor-pointer"
                 >
                   <Globe className="h-3.5 w-3.5" />
                   <span>Hướng Dẫn Mở Chrome Extension (30s)</span>
@@ -192,7 +192,7 @@ export default function ActionableErrorBanner({
                 <button
                   type="button"
                   onClick={onRetry}
-                  className="flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-800 hover:bg-slate-700 px-3 py-1.5 text-xs font-medium text-slate-200 hover:text-white transition cursor-pointer"
+                  className="flex items-center gap-1.5 rounded-md border border-border bg-surface-2 hover:bg-surface-3 px-3 py-1.5 text-xs font-medium text-text hover:text-white transition cursor-pointer"
                 >
                   <RefreshCw className="h-3.5 w-3.5" />
                   <span>Thử Lại Ngay</span>
@@ -203,7 +203,7 @@ export default function ActionableErrorBanner({
                 <button
                   type="button"
                   onClick={onOpenDiagnostics}
-                  className="flex items-center gap-1.5 rounded-xl border border-indigo-500/30 bg-indigo-950/40 px-3 py-1.5 text-xs font-semibold text-indigo-300 hover:bg-indigo-900/50 hover:text-white transition cursor-pointer"
+                  className="flex items-center gap-1.5 rounded-md border border-indigo-500/30 bg-indigo-950/40 px-3 py-1.5 text-xs font-semibold text-indigo-300 hover:bg-indigo-900/50 hover:text-white transition cursor-pointer"
                 >
                   <Cpu className="h-3.5 w-3.5 text-indigo-400" />
                   <span>Tự Chẩn Đoán 1-Click</span>
@@ -217,7 +217,7 @@ export default function ActionableErrorBanner({
           <button
             type="button"
             onClick={onDismiss}
-            className="rounded-lg p-1 text-slate-400 hover:bg-slate-800 hover:text-slate-200 transition cursor-pointer"
+            className="rounded-lg p-1 text-text-muted hover:bg-surface-2 hover:text-text transition cursor-pointer"
             title="Đóng thông báo"
           >
             <X className="h-4 w-4" />

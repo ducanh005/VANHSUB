@@ -179,12 +179,12 @@ export default function CharacterBibleModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-      <div className="relative w-full max-w-3xl bg-[#0f172a] border border-slate-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 animate-in fade-in duration-200">
+      <div className="relative w-full max-w-3xl bg-[#0f172a] border border-border rounded-lg overflow-hidden flex flex-col max-h-[85vh]">
         {/* Header */}
-        <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between bg-slate-900/60">
+        <div className="px-6 py-4 border-b border-border flex items-center justify-between bg-surface">
           <div className="flex items-center gap-2.5">
-            <div className="p-2 rounded-xl bg-rose-950/80 border border-rose-800/60 text-rose-400">
+            <div className="p-2 rounded-md bg-rose-950/80 border border-rose-800/60 text-rose-400">
               <Users className="w-5 h-5" />
             </div>
             <div>
@@ -194,7 +194,7 @@ export default function CharacterBibleModal({
                   Consistency Lock
                 </span>
               </h2>
-              <p className="text-xs text-slate-400">
+              <p className="text-xs text-text-muted">
                 Lưu trữ định danh khuôn mặt, trang phục và hạt giống Seed nhất quán xuyên suốt các Shot
               </p>
             </div>
@@ -204,7 +204,7 @@ export default function CharacterBibleModal({
             {!isEditing && (
               <button
                 onClick={handleOpenAdd}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold shadow-lg shadow-rose-900/30 transition-all"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold transition-all"
               >
                 <Plus className="w-3.5 h-3.5" />
                 <span>Thêm nhân vật</span>
@@ -212,7 +212,7 @@ export default function CharacterBibleModal({
             )}
             <button
               onClick={onClose}
-              className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors"
+              className="p-1.5 text-text-muted hover:text-white rounded-lg hover:bg-surface-2 transition-colors"
             >
               <X className="w-5 h-5" />
             </button>
@@ -224,21 +224,21 @@ export default function CharacterBibleModal({
           {isEditing ? (
             /* Form thêm / sửa nhân vật */
             <form onSubmit={handleSave} className="space-y-4 max-w-xl mx-auto">
-              <div className="flex items-center justify-between pb-2 border-b border-slate-800">
-                <h3 className="text-sm font-bold text-slate-200">
+              <div className="flex items-center justify-between pb-2 border-b border-border">
+                <h3 className="text-sm font-bold text-text">
                   {editId ? 'Chỉnh sửa Hồ sơ Nhân vật' : 'Thêm Nhân vật mới'}
                 </h3>
                 <button
                   type="button"
                   onClick={() => setIsEditing(false)}
-                  className="text-xs text-slate-400 hover:text-slate-200"
+                  className="text-xs text-text-muted hover:text-text"
                 >
                   Quay lại danh sách
                 </button>
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                <label className="block text-xs font-semibold text-text mb-1">
                   Tên nhân vật *
                 </label>
                 <input
@@ -247,19 +247,19 @@ export default function CharacterBibleModal({
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   placeholder="Ví dụ: Điệp viên Vanh, Tiến sĩ Lan Anh..."
-                  className="w-full text-xs rounded-lg bg-slate-950 border border-slate-800 px-3 py-2 text-white focus:outline-none focus:border-rose-500"
+                  className="w-full text-xs rounded-lg bg-bg border border-border px-3 py-2 text-white focus:outline-none focus:border-rose-500"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  <label className="block text-xs font-semibold text-text mb-1">
                     Giới tính
                   </label>
                   <select
                     value={gender}
                     onChange={(e) => setGender(e.target.value as any)}
-                    className="w-full text-xs rounded-lg bg-slate-950 border border-slate-800 px-3 py-2 text-white focus:outline-none focus:border-rose-500"
+                    className="w-full text-xs rounded-lg bg-bg border border-border px-3 py-2 text-white focus:outline-none focus:border-rose-500"
                   >
                     <option value="male">Nam</option>
                     <option value="female">Nữ</option>
@@ -267,7 +267,7 @@ export default function CharacterBibleModal({
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  <label className="block text-xs font-semibold text-text mb-1">
                     Độ tuổi / Nhận diện
                   </label>
                   <input
@@ -275,13 +275,13 @@ export default function CharacterBibleModal({
                     value={ageGroup}
                     onChange={(e) => setAgeGroup(e.target.value)}
                     placeholder="Ví dụ: 28 tuổi, trung niên..."
-                    className="w-full text-xs rounded-lg bg-slate-950 border border-slate-800 px-3 py-2 text-white focus:outline-none focus:border-rose-500"
+                    className="w-full text-xs rounded-lg bg-bg border border-border px-3 py-2 text-white focus:outline-none focus:border-rose-500"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                <label className="block text-xs font-semibold text-text mb-1">
                   Mô tả ngoại hình & trang phục đặc trưng
                 </label>
                 <textarea
@@ -289,13 +289,13 @@ export default function CharacterBibleModal({
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   placeholder="Mô tả khuôn mặt, kiểu tóc, trang phục giúp AI giữ nguyên hình ảnh..."
-                  className="w-full text-xs rounded-lg bg-slate-950 border border-slate-800 p-2.5 text-white focus:outline-none focus:border-rose-500 leading-relaxed"
+                  className="w-full text-xs rounded-lg bg-bg border border-border p-2.5 text-white focus:outline-none focus:border-rose-500 leading-relaxed"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1 flex items-center gap-1">
+                  <label className="block text-xs font-semibold text-text mb-1 flex items-center gap-1">
                     <Lock className="w-3 h-3 text-rose-400" />
                     <span>Locked Seed (Cố định hạt giống)</span>
                   </label>
@@ -304,11 +304,11 @@ export default function CharacterBibleModal({
                     value={lockedSeed ?? ''}
                     onChange={(e) => setLockedSeed(parseInt(e.target.value) || undefined)}
                     placeholder="Ví dụ: 424242"
-                    className="w-full text-xs rounded-lg bg-slate-950 border border-slate-800 px-3 py-2 text-white font-mono focus:outline-none focus:border-rose-500"
+                    className="w-full text-xs rounded-lg bg-bg border border-border px-3 py-2 text-white font-mono focus:outline-none focus:border-rose-500"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1 flex items-center justify-between">
+                  <label className="block text-xs font-semibold text-text mb-1 flex items-center justify-between">
                     <span className="flex items-center gap-1">
                       <Camera className="w-3 h-3 text-rose-400" />
                       <span>Ảnh chân dung tham chiếu</span>
@@ -331,22 +331,22 @@ export default function CharacterBibleModal({
                     value={refImage}
                     onChange={(e) => setRefImage(e.target.value)}
                     placeholder="Dán đường dẫn ảnh hoặc bấm 'Chọn file ảnh'..."
-                    className="w-full text-xs rounded-lg bg-slate-950 border border-slate-800 px-3 py-2 text-white focus:outline-none focus:border-rose-500"
+                    className="w-full text-xs rounded-lg bg-bg border border-border px-3 py-2 text-white focus:outline-none focus:border-rose-500"
                   />
                 </div>
               </div>
 
-              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-800">
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-border">
                 <button
                   type="button"
                   onClick={() => setIsEditing(false)}
-                  className="px-4 py-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-medium text-slate-300"
+                  className="px-4 py-2 rounded-lg bg-surface hover:bg-surface-2 text-xs font-medium text-text"
                 >
                   Hủy
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold shadow-lg shadow-rose-900/30"
+                  className="px-5 py-2 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold"
                 >
                   Lưu Nhân vật
                 </button>
@@ -358,7 +358,7 @@ export default function CharacterBibleModal({
               {characters.map((char) => (
                 <div
                   key={char.id}
-                  className="rounded-xl border border-slate-800 bg-slate-900/40 p-4 hover:border-rose-500/50 transition-all flex flex-col justify-between group relative overflow-hidden"
+                  className="rounded-md border border-border bg-surface p-4 hover:border-rose-500/50 transition-all flex flex-col justify-between group relative overflow-hidden"
                 >
                   <div className="space-y-2">
                     <div className="flex items-start justify-between gap-2">
@@ -381,7 +381,7 @@ export default function CharacterBibleModal({
                           <h4 className="text-sm font-bold text-white tracking-wide">
                             {char.name}
                           </h4>
-                          <div className="flex items-center gap-2 text-[11px] text-slate-400 font-mono">
+                          <div className="flex items-center gap-2 text-[11px] text-text-muted font-mono">
                             <span>{char.gender === 'male' ? 'Nam' : 'Nữ'}</span>
                             <span>•</span>
                             <span>{char.ageGroup || '25-30'}</span>
@@ -392,14 +392,14 @@ export default function CharacterBibleModal({
                       <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                         <button
                           onClick={() => handleOpenEdit(char)}
-                          className="p-1.5 text-slate-400 hover:text-white rounded hover:bg-slate-800"
+                          className="p-1.5 text-text-muted hover:text-white rounded hover:bg-surface-2"
                           title="Chỉnh sửa"
                         >
                           <Edit2 className="w-3.5 h-3.5" />
                         </button>
                         <button
                           onClick={() => handleDelete(char.id, char.name)}
-                          className="p-1.5 text-slate-400 hover:text-rose-400 rounded hover:bg-rose-950/40"
+                          className="p-1.5 text-text-muted hover:text-rose-400 rounded hover:bg-rose-950/40"
                           title="Xóa"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
@@ -407,16 +407,16 @@ export default function CharacterBibleModal({
                       </div>
                     </div>
 
-                    <p className="text-xs text-slate-300 line-clamp-2 leading-relaxed">
+                    <p className="text-xs text-text line-clamp-2 leading-relaxed">
                       {char.description || 'Chưa có mô tả chi tiết.'}
                     </p>
 
-                    <div className="flex items-center gap-2 pt-1 text-[10px] font-mono text-slate-400">
-                      <span className="flex items-center gap-1 bg-slate-950 px-2 py-0.5 rounded border border-slate-800">
+                    <div className="flex items-center gap-2 pt-1 text-[10px] font-mono text-text-muted">
+                      <span className="flex items-center gap-1 bg-bg px-2 py-0.5 rounded border border-border">
                         <Lock className="w-2.5 h-2.5 text-rose-400" />
                         <span>Seed: {char.lockedSeed || 'Auto'}</span>
                       </span>
-                      <span className="bg-slate-950 px-2 py-0.5 rounded border border-slate-800">
+                      <span className="bg-bg px-2 py-0.5 rounded border border-border">
                         ID: {char.id}
                       </span>
                     </div>
@@ -428,7 +428,7 @@ export default function CharacterBibleModal({
                         onSelectCharacter(char);
                         onClose();
                       }}
-                      className="mt-3 w-full py-1.5 rounded-lg bg-slate-800 hover:bg-rose-600/80 text-slate-200 hover:text-white text-xs font-semibold transition-colors flex items-center justify-center gap-1"
+                      className="mt-3 w-full py-1.5 rounded-lg bg-surface-2 hover:bg-rose-600/80 text-text hover:text-white text-xs font-semibold transition-colors flex items-center justify-center gap-1"
                     >
                       <Check className="w-3 h-3" />
                       <span>Chọn cho Node hiện tại</span>

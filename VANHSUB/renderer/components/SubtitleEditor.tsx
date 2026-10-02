@@ -79,7 +79,7 @@ function TimeField({ valueMs, onChangeMs }: { valueMs: number; onChangeMs: (ms: 
           (e.target as HTMLInputElement).blur();
         }
       }}
-      className="w-[104px] rounded bg-slate-950 px-1.5 py-0.5 text-[11px] text-slate-300 border border-slate-800 font-mono focus:border-brand-indigo focus:outline-none"
+      className="w-[104px] rounded bg-bg px-1.5 py-0.5 text-[11px] text-text border border-border font-mono focus:border-accent/40 focus:outline-none"
     />
   );
 }
@@ -90,7 +90,7 @@ function NudgeButton({ label, onClick, title }: { label: string; onClick: () => 
       type="button"
       onClick={onClick}
       title={title}
-      className="inline-flex h-5 min-w-[26px] items-center justify-center rounded border border-slate-700 bg-slate-800 px-1 text-[9px] font-mono text-slate-300 hover:bg-slate-700 hover:text-white cursor-pointer"
+      className="inline-flex h-5 min-w-[26px] items-center justify-center rounded border border-border bg-surface-2 px-1 text-[9px] font-mono text-text hover:bg-surface-3 hover:text-white cursor-pointer"
     >
       {label}
     </button>
@@ -110,7 +110,7 @@ function TimeRow({
 }) {
   return (
     <div className="flex items-center gap-1.5">
-      <span className="w-10 shrink-0 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+      <span className="w-10 shrink-0 text-[10px] font-semibold uppercase tracking-wide text-text-muted">
         {label}
       </span>
       <TimeField valueMs={valueMs} onChangeMs={onChangeMs} />
@@ -122,7 +122,7 @@ function TimeRow({
         type="button"
         onClick={onSyncVideo}
         title="Gán bằng thời điểm phát hiện tại của video"
-        className="inline-flex h-5 w-5 items-center justify-center rounded border border-brand-cyan/40 bg-brand-cyan/10 text-brand-cyan hover:bg-brand-cyan/25 cursor-pointer"
+        className="inline-flex h-5 w-5 items-center justify-center rounded border border-accent/40 bg-accent-tint text-accent hover:bg-accent-tint/25 cursor-pointer"
       >
         <Crosshair className="h-3 w-3" />
       </button>
@@ -870,13 +870,13 @@ export default function SubtitleEditor({
   return (
     <div className="flex flex-1 flex-col gap-4 overflow-hidden p-6">
       {/* Thanh công cụ trên */}
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-800 bg-slate-900/80 p-4">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-surface p-4">
         <div className="flex flex-wrap items-center gap-3">
-          <label className="text-xs font-semibold text-slate-300">Tác vụ:</label>
+          <label className="text-xs font-semibold text-text">Tác vụ:</label>
           <select
             value={selectedTaskId || ''}
             onChange={(e) => handleTaskChange(e.target.value || null)}
-            className="rounded-xl border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs text-slate-200 focus:outline-none"
+            className="rounded-md border border-border bg-surface-2 px-3 py-1.5 text-xs text-text focus:outline-none"
           >
             <option value="">-- Chọn tác vụ đã có SRT --</option>
             {editorTasks.map((t) => (
@@ -889,16 +889,16 @@ export default function SubtitleEditor({
           {/* Nguồn phụ đề đang hiệu đính: bản gốc hay bản dịch */}
           {selectedTaskId && selectedTask?.srtPath && (
             <div className="flex items-center gap-1.5">
-              <label className="text-xs font-semibold text-slate-300">Đang sửa:</label>
-              <div className="flex overflow-hidden rounded-xl border border-slate-700 bg-slate-950/50">
+              <label className="text-xs font-semibold text-text">Đang sửa:</label>
+              <div className="flex overflow-hidden rounded-md border border-border bg-bg">
                 <button
                   type="button"
                   onClick={() => handleSourceChange('original')}
                   className={[
                     'px-3 py-1.5 text-[11px] font-medium transition cursor-pointer',
                     srtSource === 'original'
-                      ? 'bg-brand-cyan/20 text-brand-cyan font-semibold'
-                      : 'bg-slate-800 text-slate-300 hover:bg-slate-700',
+                      ? 'bg-accent-tint text-accent font-semibold'
+                      : 'bg-surface-2 text-text hover:bg-surface-3',
                   ].join(' ')}
                 >
                   Bản gốc (.srt)
@@ -913,12 +913,12 @@ export default function SubtitleEditor({
                       : 'Chưa có bản dịch — bấm "Dịch bằng Gemini" để tạo'
                   }
                   className={[
-                    'border-l border-slate-700 px-3 py-1.5 text-[11px] font-medium transition',
+                    'border-l border-border px-3 py-1.5 text-[11px] font-medium transition',
                     srtSource === 'translated'
-                      ? 'bg-brand-cyan/20 text-brand-cyan font-semibold cursor-pointer'
+                      ? 'bg-accent-tint text-accent font-semibold cursor-pointer'
                       : hasTranslatedSrt
-                        ? 'bg-slate-800 text-slate-300 hover:bg-slate-700 cursor-pointer'
-                        : 'bg-slate-800/40 text-slate-500 cursor-not-allowed',
+                        ? 'bg-surface-2 text-text hover:bg-surface-3 cursor-pointer'
+                        : 'bg-surface-2 text-text-muted cursor-not-allowed',
                   ].join(' ')}
                 >
                   Bản dịch {hasTranslatedSrt ? '✓' : '(chưa có)'}
@@ -932,9 +932,9 @@ export default function SubtitleEditor({
                   setReloadKey((k) => k + 1);
                 }}
                 title="Tải lại file SRT từ đĩa để đồng bộ mới nhất"
-                className="rounded-xl border border-slate-700 bg-slate-800 p-1.5 text-slate-300 hover:bg-slate-700 hover:text-white transition cursor-pointer"
+                className="rounded-md border border-border bg-surface-2 p-1.5 text-text hover:bg-surface-3 hover:text-white transition cursor-pointer"
               >
-                <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin text-brand-cyan' : ''}`} />
+                <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin text-accent' : ''}`} />
               </button>
             </div>
           )}
@@ -942,8 +942,8 @@ export default function SubtitleEditor({
           {/* Nút dịch toàn bộ file trực tiếp trong Editor */}
           {selectedTaskId && (
             <div className="flex items-center gap-1.5">
-              <div className="flex items-center gap-1 rounded-xl border border-slate-700 bg-slate-800 px-2 py-1">
-                <span className="text-[10px] font-semibold text-slate-400">Sang:</span>
+              <div className="flex items-center gap-1 rounded-md border border-border bg-surface-2 px-2 py-1">
+                <span className="text-[10px] font-semibold text-text-muted">Sang:</span>
                 <select
                   value={targetLanguage}
                   onChange={(e) => {
@@ -954,10 +954,10 @@ export default function SubtitleEditor({
                     }
                   }}
                   disabled={isTranslating}
-                  className="bg-transparent text-xs text-slate-200 focus:outline-none cursor-pointer disabled:opacity-50"
+                  className="bg-transparent text-xs text-text focus:outline-none cursor-pointer disabled:opacity-50"
                 >
                   {TARGET_LANGUAGES.map((l) => (
-                    <option key={l.code} value={l.code} className="bg-slate-800 text-white">
+                    <option key={l.code} value={l.code} className="bg-surface-2 text-white">
                       {l.label}
                     </option>
                   ))}
@@ -968,7 +968,7 @@ export default function SubtitleEditor({
                 <button
                   type="button"
                   onClick={handleCancelTranslate}
-                  className="inline-flex items-center gap-1.5 rounded-xl border border-rose-500/40 bg-rose-500/10 px-3 py-1.5 text-xs font-medium text-rose-400 hover:bg-rose-500/20 cursor-pointer"
+                  className="inline-flex items-center gap-1.5 rounded-md border border-rose-500/40 bg-rose-500/10 px-3 py-1.5 text-xs font-medium text-rose-400 hover:bg-rose-500/20 cursor-pointer"
                 >
                   <XCircle className="h-3.5 w-3.5" />
                   <span>Huỷ dịch {selectedTask?.progress ? `(${selectedTask.progress}%)` : ''}</span>
@@ -979,7 +979,7 @@ export default function SubtitleEditor({
                   onClick={handleStartFullTranslate}
                   disabled={loading}
                   title={hasTranslatedSrt ? 'Dịch lại toàn bộ phụ đề bằng Gemini' : 'Dịch toàn bộ phụ đề sang ngôn ngữ đã chọn'}
-                  className="inline-flex items-center gap-1.5 rounded-xl border border-brand-indigo/40 bg-brand-indigo/10 px-3 py-1.5 text-xs font-semibold text-brand-cyan hover:bg-brand-indigo/25 cursor-pointer disabled:opacity-50 transition"
+                  className="inline-flex items-center gap-1.5 rounded-md border border-accent/40 bg-accent-tint px-3 py-1.5 text-xs font-semibold text-accent hover:bg-accent-tint/25 cursor-pointer disabled:opacity-50 transition"
                 >
                   <Globe2 className="h-3.5 w-3.5" />
                   <span>{hasTranslatedSrt ? 'Dịch lại (Gemini)' : 'Dịch bằng Gemini'}</span>
@@ -995,10 +995,10 @@ export default function SubtitleEditor({
               onClick={() => setShowBilingual((v) => !v)}
               title="Bật/tắt khung hiển thị câu gốc để đối chiếu khi sửa bản dịch"
               className={[
-                'inline-flex items-center gap-1.5 rounded-xl border px-2.5 py-1.5 text-[11px] font-medium transition cursor-pointer',
+                'inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[11px] font-medium transition cursor-pointer',
                 showBilingual
-                  ? 'border-brand-cyan/40 bg-brand-cyan/10 text-brand-cyan'
-                  : 'border-slate-700 bg-slate-800 text-slate-400 hover:text-slate-200',
+                  ? 'border-accent/40 bg-accent-tint text-accent'
+                  : 'border-border bg-surface-2 text-text-muted hover:text-text',
               ].join(' ')}
             >
               <Languages className="h-3.5 w-3.5" />
@@ -1024,9 +1024,9 @@ export default function SubtitleEditor({
               onClick={handleVisualWrapLines}
               disabled={loading || isCleaningSubtitles || isTranslating}
               title="Tự động ngắt dòng hiển thị (\n) cho các câu dài vượt quá 37 ký tự, bảo toàn 100% mốc thời gian và số dòng [Ctrl+Shift+W]"
-              className="inline-flex items-center gap-1.5 rounded-xl border border-brand-cyan/40 bg-brand-cyan/10 px-3 py-1.5 text-xs font-semibold text-brand-cyan hover:bg-brand-cyan/25 cursor-pointer disabled:opacity-50 transition"
+              className="inline-flex items-center gap-1.5 rounded-md border border-accent/40 bg-accent-tint px-3 py-1.5 text-xs font-semibold text-accent hover:bg-accent-tint/25 cursor-pointer disabled:opacity-50 transition"
             >
-              <Sparkles className="h-3.5 w-3.5 text-brand-cyan" />
+              <Sparkles className="h-3.5 w-3.5 text-accent" />
               <span>Ngắt dòng hiển thị (\n)</span>
             </button>
           )}
@@ -1038,12 +1038,12 @@ export default function SubtitleEditor({
               onClick={handleSanitizeGarbage}
               disabled={loading || isCleaningSubtitles || isTranslating}
               title="Tự động phát hiện và loại bỏ các dòng rác OCR (1 ký tự, dấu câu trôi nổi, nhiễu khung hình <150ms)"
-              className="inline-flex items-center gap-1.5 rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-xs font-semibold text-amber-300 hover:bg-amber-500/25 cursor-pointer disabled:opacity-50 transition"
+              className="inline-flex items-center gap-1.5 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-xs font-semibold text-amber-300 hover:bg-amber-500/25 cursor-pointer disabled:opacity-50 transition"
             >
               <Filter className="h-3.5 w-3.5 text-amber-400" />
               <span>Lọc rác & Làm sạch</span>
               {detectedGarbageCount > 0 && (
-                <span className="rounded-full bg-rose-500/90 px-1.5 py-0.2 text-[10px] font-bold text-white leading-none shadow-sm">
+                <span className="rounded-full bg-rose-500/90 px-1.5 py-0.2 text-[10px] font-bold text-white leading-none">
                   {detectedGarbageCount}
                 </span>
               )}
@@ -1057,12 +1057,12 @@ export default function SubtitleEditor({
               onClick={handleAiCleanSubtitles}
               disabled={loading || isCleaningSubtitles || isTranslating}
               title="Dùng Gemini AI quét và gộp các câu phụ đề lặp lại do OCR, ghép câu ngắt vụn và sửa lỗi chính tả"
-              className="inline-flex items-center gap-1.5 rounded-xl border border-purple-500/40 bg-purple-500/10 px-3 py-1.5 text-xs font-semibold text-purple-300 hover:bg-purple-500/25 cursor-pointer disabled:opacity-50 transition"
+              className="inline-flex items-center gap-1.5 rounded-md border border-accent/40 bg-accent-tint px-3 py-1.5 text-xs font-semibold text-accent hover:bg-accent-tint cursor-pointer disabled:opacity-50 transition"
             >
               {isCleaningSubtitles ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin text-purple-400" />
+                <Loader2 className="h-3.5 w-3.5 animate-spin text-accent" />
               ) : (
-                <Wand2 className="h-3.5 w-3.5 text-purple-400" />
+                <Wand2 className="h-3.5 w-3.5 text-accent" />
               )}
               <span>{isCleaningSubtitles ? 'Đang dọn dẹp...' : 'AI Gọn Phụ Đề'}</span>
             </button>
@@ -1074,10 +1074,10 @@ export default function SubtitleEditor({
             onClick={() => setShowKeyInput((v) => !v)}
             title="Cấu hình Gemini API key & Model"
             className={[
-              'inline-flex items-center gap-1.5 rounded-xl border px-2.5 py-1.5 text-[11px] font-medium transition cursor-pointer',
+              'inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[11px] font-medium transition cursor-pointer',
               hasApiKey
                 ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20'
-                : 'border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700',
+                : 'border-border bg-surface-2 text-text hover:bg-surface-3',
             ].join(' ')}
           >
             <KeyRound className="h-3 w-3" />
@@ -1085,19 +1085,19 @@ export default function SubtitleEditor({
           </button>
 
           {showKeyInput && (
-            <div className="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-800 px-2.5 py-1.5 shadow-lg">
+            <div className="flex items-center gap-2 rounded-md border border-border bg-surface-2 px-2.5 py-1.5">
               <input
                 type="password"
                 value={keyDraft}
                 onChange={(e) => setKeyDraft(e.target.value)}
                 placeholder="Dán Gemini API key (AIza...)"
-                className="w-56 bg-transparent text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none"
+                className="w-56 bg-transparent text-xs text-text placeholder:text-text-muted focus:outline-none"
               />
               <button
                 type="button"
                 onClick={handleSaveKey}
                 disabled={savingKey || !keyDraft.trim()}
-                className="btn-vanh-gradient rounded-lg px-2.5 py-1 text-[11px] font-semibold cursor-pointer disabled:opacity-50"
+                className="bg-accent text-white hover:bg-accent-hover rounded-lg px-2.5 py-1 text-[11px] font-semibold cursor-pointer disabled:opacity-50"
               >
                 {savingKey ? '...' : 'Lưu'}
               </button>
@@ -1105,7 +1105,7 @@ export default function SubtitleEditor({
           )}
 
           {statusMessage && (
-            <span className={`max-w-[280px] truncate text-xs font-mono ${statusError ? 'text-rose-400' : 'text-brand-cyan'}`} title={statusMessage}>
+            <span className={`max-w-[280px] truncate text-xs font-mono ${statusError ? 'text-rose-400' : 'text-accent'}`} title={statusMessage}>
               {statusMessage}
             </span>
           )}
@@ -1113,13 +1113,13 @@ export default function SubtitleEditor({
 
         <div className="flex items-center gap-2">
           {selectedTaskId && (
-            <div className="flex items-center gap-1 rounded-xl border border-slate-700 bg-slate-800 p-1">
+            <div className="flex items-center gap-1 rounded-md border border-border bg-surface-2 p-1">
               <button
                 type="button"
                 onClick={handleUndo}
                 disabled={!canUndo}
                 title="Hoàn tác (Ctrl+Z)"
-                className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs text-slate-300 hover:bg-slate-700 hover:text-white cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed transition"
+                className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs text-text hover:bg-surface-3 hover:text-white cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed transition"
               >
                 <Undo2 className="h-3.5 w-3.5" />
                 <span className="hidden sm:inline">Undo</span>
@@ -1129,7 +1129,7 @@ export default function SubtitleEditor({
                 onClick={handleRedo}
                 disabled={!canRedo}
                 title="Làm lại (Ctrl+Y / Ctrl+Shift+Z)"
-                className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs text-slate-300 hover:bg-slate-700 hover:text-white cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed transition"
+                className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs text-text hover:bg-surface-3 hover:text-white cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed transition"
               >
                 <Redo2 className="h-3.5 w-3.5" />
                 <span className="hidden sm:inline">Redo</span>
@@ -1142,10 +1142,10 @@ export default function SubtitleEditor({
               type="button"
               onClick={handleSave}
               disabled={loading}
-              className={`inline-flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-semibold cursor-pointer disabled:opacity-50 transition ${
+              className={`inline-flex items-center gap-2 rounded-md px-4 py-2 text-xs font-semibold cursor-pointer disabled:opacity-50 transition ${
                 dirty
-                  ? 'btn-vanh-gradient shadow-lg shadow-brand-indigo/30 animate-pulse'
-                  : 'border border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-700'
+                  ? 'bg-accent text-white hover:bg-accent-hover   animate-pulse'
+                  : 'border border-border bg-surface-2 text-text hover:bg-surface-3'
               }`}
             >
               {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4 text-emerald-400" />}
@@ -1157,17 +1157,17 @@ export default function SubtitleEditor({
 
       {/* Tiến trình khi task đang dịch */}
       {selectedTask && isTranslating && (
-        <div className="rounded-2xl border border-brand-indigo/40 bg-brand-indigo/10 p-3.5">
+        <div className="rounded-lg border border-accent/40 bg-accent-tint p-3.5">
           <div className="mb-1.5 flex items-center justify-between text-xs">
-            <span className="flex items-center gap-2 font-medium text-brand-cyan">
+            <span className="flex items-center gap-2 font-medium text-accent">
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
               <span>{selectedTask.stageDescription || 'Đang dịch phụ đề bằng Gemini...'}</span>
             </span>
             <span className="font-mono font-bold text-white">{selectedTask.progress}%</span>
           </div>
-          <div className="h-1.5 overflow-hidden rounded-full bg-slate-800">
+          <div className="h-1.5 overflow-hidden rounded-full bg-surface-2">
             <div
-              className="h-full rounded-full bg-gradient-to-r from-brand-cyan to-brand-indigo transition-all duration-300"
+              className="h-full rounded-full bg-accent transition-all duration-300"
               style={{ width: `${selectedTask.progress}%` }}
             />
           </div>
@@ -1176,54 +1176,54 @@ export default function SubtitleEditor({
 
       {/* Thống kê chi tiết OCR theo Rule 17 */}
       {selectedTask?.ocrStats && (
-        <div className="flex flex-wrap items-center gap-4 rounded-2xl border border-brand-indigo/30 bg-slate-900/90 px-4 py-2.5 text-xs text-slate-300 shadow-sm">
-          <div className="flex items-center gap-1.5 font-semibold text-brand-cyan">
+        <div className="flex flex-wrap items-center gap-4 rounded-lg border border-accent/40 bg-surface px-4 py-2.5 text-xs text-text">
+          <div className="flex items-center gap-1.5 font-semibold text-accent">
             <Sparkles className="h-4 w-4" />
             <span>Thống kê OCR:</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <span className="text-slate-400">OCR detected:</span>
+            <span className="text-text-muted">OCR detected:</span>
             <span className="font-mono font-bold text-white">{selectedTask.ocrStats.finalEvents}</span>
-            <span className="text-slate-400">subtitle events</span>
+            <span className="text-text-muted">subtitle events</span>
           </div>
-          <span className="text-slate-600">•</span>
+          <span className="text-text-faint">•</span>
           <div className="flex items-center gap-1.5">
-            <span className="text-slate-400">High confidence:</span>
+            <span className="text-text-muted">High confidence:</span>
             <span className="font-mono font-bold text-emerald-400">{selectedTask.ocrStats.highConfidence}</span>
           </div>
-          <span className="text-slate-600">•</span>
+          <span className="text-text-faint">•</span>
           <div className="flex items-center gap-1.5">
-            <span className="text-slate-400">Needs review:</span>
+            <span className="text-text-muted">Needs review:</span>
             <span className="font-mono font-bold text-amber-400">{selectedTask.ocrStats.needsReview}</span>
           </div>
-          <span className="text-slate-600">•</span>
+          <span className="text-text-faint">•</span>
           <div className="flex items-center gap-1.5">
-            <span className="text-slate-400">Duplicates removed:</span>
-            <span className="font-mono font-bold text-purple-300">{selectedTask.ocrStats.duplicatesRemoved}</span>
+            <span className="text-text-muted">Duplicates removed:</span>
+            <span className="font-mono font-bold text-accent">{selectedTask.ocrStats.duplicatesRemoved}</span>
           </div>
         </div>
       )}
 
       {/* Nội dung chính */}
       {!selectedTaskId ? (
-        <div className="flex flex-1 flex-col items-center justify-center rounded-3xl border border-dashed border-slate-800 bg-slate-900/40 p-12 text-center text-slate-500 text-xs">
-          <MessageSquareText className="h-10 w-10 text-slate-600 mb-3 animate-pulse" />
+        <div className="flex flex-1 flex-col items-center justify-center rounded-lg border border-dashed border-border bg-surface p-12 text-center text-text-muted text-xs">
+          <MessageSquareText className="h-10 w-10 text-text-faint mb-3 animate-pulse" />
           <span>
             Chọn một tác vụ đã hoàn thành phiên âm (có file .srt) ở menu phía trên để bắt đầu hiệu đính.
           </span>
         </div>
       ) : !selectedTask?.srtPath ? (
-        <div className="flex flex-1 flex-col items-center justify-center rounded-3xl border border-dashed border-slate-800 bg-slate-900/40 p-12 text-center text-slate-500 text-xs">
-          <MessageSquareText className="h-10 w-10 text-slate-600 mb-3" />
+        <div className="flex flex-1 flex-col items-center justify-center rounded-lg border border-dashed border-border bg-surface p-12 text-center text-text-muted text-xs">
+          <MessageSquareText className="h-10 w-10 text-text-faint mb-3" />
           <span>Tác vụ này chưa có file .srt — hãy chạy "Bắt đầu phiên âm" ở Trang chủ trước.</span>
         </div>
       ) : (
         <div className="grid flex-1 grid-cols-[1fr_380px] gap-5 overflow-hidden">
           {/* Cột trái: danh sách phụ đề */}
-          <div className="flex flex-col overflow-hidden rounded-3xl border border-slate-800 bg-slate-900/60 p-4">
-            <div className="mb-3 flex items-center justify-between border-b border-slate-800/80 pb-3">
+          <div className="flex flex-col overflow-hidden rounded-lg border border-border bg-surface p-4">
+            <div className="mb-3 flex items-center justify-between border-b border-border pb-3">
               <div className="flex items-center gap-2">
-                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-300">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-text">
                   {srtSource === 'translated' ? 'Phụ đề bản dịch' : 'Phụ đề bản gốc'} ({lines.length} dòng)
                 </h3>
                 {dirty && (
@@ -1235,16 +1235,16 @@ export default function SubtitleEditor({
               <button
                 type="button"
                 onClick={addLine}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800 px-2.5 py-1 text-[11px] font-medium text-slate-200 hover:bg-slate-700 cursor-pointer"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface-2 px-2.5 py-1 text-[11px] font-medium text-text hover:bg-surface-3 cursor-pointer"
               >
-                <Plus className="h-3.5 w-3.5 text-brand-cyan" />
+                <Plus className="h-3.5 w-3.5 text-accent" />
                 Thêm dòng
               </button>
             </div>
 
             {loading && lines.length === 0 ? (
-              <div className="flex flex-1 items-center justify-center text-xs text-slate-500">
-                <Loader2 className="mr-2 h-4 w-4 animate-spin text-brand-cyan" />
+              <div className="flex flex-1 items-center justify-center text-xs text-text-muted">
+                <Loader2 className="mr-2 h-4 w-4 animate-spin text-accent" />
                 Đang tải phụ đề...
               </div>
             ) : (
@@ -1265,36 +1265,36 @@ export default function SubtitleEditor({
                       onDragOver={(e) => handleDragOver(e, index)}
                       onDrop={(e) => handleDrop(e, index)}
                       className={[
-                        'group relative flex flex-col gap-2 rounded-2xl border bg-slate-900/90 p-3 text-xs transition duration-150',
+                        'group relative flex flex-col gap-2 rounded-lg border bg-surface p-3 text-xs transition duration-150',
                         isDragging ? 'opacity-40 scale-[0.98]' : '',
                         isDragOver && dragOverPosition === 'above'
-                          ? 'border-t-2 !border-t-brand-cyan shadow-sm shadow-brand-cyan/20'
+                          ? 'border-t-2 !border-t-brand-cyan  '
                           : '',
                         isDragOver && dragOverPosition === 'below'
-                          ? 'border-b-2 !border-b-brand-cyan shadow-sm shadow-brand-cyan/20'
+                          ? 'border-b-2 !border-b-brand-cyan  '
                           : '',
                         isActiveLine
-                          ? 'border-brand-cyan/70 ring-1 ring-brand-cyan/40 shadow-sm shadow-brand-cyan/10'
+                          ? 'border-accent/40 ring-1 ring-accent/30  '
                           : isNewlyAdded
                           ? 'border-emerald-500/60 ring-1 ring-emerald-500/30'
-                          : 'border-slate-800/80 hover:border-brand-indigo/50',
+                          : 'border-border hover:border-accent/40',
                       ].filter(Boolean).join(' ')}
                     >
-                      <div className="flex items-center justify-between text-[11px] text-slate-400 font-mono">
+                      <div className="flex items-center justify-between text-[11px] text-text-muted font-mono">
                         <div className="flex items-center gap-2">
                           <div
                             draggable
                             onDragStart={(e) => handleDragStart(e, index)}
                             onDragEnd={handleDragEnd}
-                            className="cursor-grab active:cursor-grabbing p-1 -ml-1 text-slate-500 hover:text-brand-cyan transition rounded hover:bg-slate-800/80 flex items-center justify-center"
+                            className="cursor-grab active:cursor-grabbing p-1 -ml-1 text-text-muted hover:text-accent transition rounded hover:bg-surface-2 flex items-center justify-center"
                             title="Nhấn giữ và kéo để di chuyển câu phụ đề này đến vị trí mong muốn"
                           >
                             <GripVertical className="h-3.5 w-3.5" />
                           </div>
-                          <span className="rounded-md bg-slate-800 px-2 py-0.5 font-bold text-brand-cyan">
+                          <span className="rounded-md bg-surface-2 px-2 py-0.5 font-bold text-accent">
                             #{index + 1}
                           </span>
-                          <span className="text-[10px] text-slate-500">
+                          <span className="text-[10px] text-text-muted">
                             {formatMs(item.startMs)} → {formatMs(item.endMs)}
                           </span>
                           {isNewlyAdded && (
@@ -1327,7 +1327,7 @@ export default function SubtitleEditor({
                                       ? 'bg-rose-500/20 text-rose-300 border-rose-500/40 animate-pulse'
                                       : len > 32
                                       ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
-                                      : 'bg-slate-800 text-slate-400 border-slate-700'
+                                      : 'bg-surface-2 text-text-muted border-border'
                                   }`}
                                 >
                                   {item.text.split(/\r?\n/).length > 1 ? `D${lIdx + 1}: ` : ''}[{len}/37]
@@ -1346,7 +1346,7 @@ export default function SubtitleEditor({
                                       ? 'bg-rose-500/20 text-rose-300 border-rose-500/40'
                                       : isOptimal
                                       ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
-                                      : 'bg-slate-800 text-slate-400 border-slate-700'
+                                      : 'bg-surface-2 text-text-muted border-border'
                                   }`}
                                 >
                                   {cps} CPS
@@ -1362,7 +1362,7 @@ export default function SubtitleEditor({
                               e.stopPropagation();
                               splitLine(index);
                             }}
-                            className="opacity-0 transition group-hover:opacity-100 text-slate-400 hover:text-amber-400 cursor-pointer p-1 rounded hover:bg-slate-800"
+                            className="opacity-0 transition group-hover:opacity-100 text-text-muted hover:text-amber-400 cursor-pointer p-1 rounded hover:bg-surface-2"
                             title="Cắt đôi câu phụ đề này (Split) tại vị trí video hoặc giữa câu"
                           >
                             <Scissors className="h-3.5 w-3.5" />
@@ -1374,7 +1374,7 @@ export default function SubtitleEditor({
                                 e.stopPropagation();
                                 mergeLineWithNext(index);
                               }}
-                              className="opacity-0 transition group-hover:opacity-100 text-slate-400 hover:text-indigo-400 cursor-pointer p-1 rounded hover:bg-slate-800"
+                              className="opacity-0 transition group-hover:opacity-100 text-text-muted hover:text-indigo-400 cursor-pointer p-1 rounded hover:bg-surface-2"
                               title="Gộp câu này với câu kế tiếp (Merge)"
                             >
                               <GitMerge className="h-3.5 w-3.5" />
@@ -1386,7 +1386,7 @@ export default function SubtitleEditor({
                               e.stopPropagation();
                               insertLineAfter(index);
                             }}
-                            className="opacity-0 transition group-hover:opacity-100 text-slate-400 hover:text-brand-cyan cursor-pointer p-1 rounded hover:bg-slate-800"
+                            className="opacity-0 transition group-hover:opacity-100 text-text-muted hover:text-accent cursor-pointer p-1 rounded hover:bg-surface-2"
                             title="Chèn thêm 1 dòng ngay phía dưới dòng này"
                           >
                             <ListPlus className="h-3.5 w-3.5" />
@@ -1397,7 +1397,7 @@ export default function SubtitleEditor({
                               e.stopPropagation();
                               deleteLine(index);
                             }}
-                            className="opacity-0 transition group-hover:opacity-100 text-rose-400 hover:text-rose-300 cursor-pointer p-1 rounded hover:bg-slate-800"
+                            className="opacity-0 transition group-hover:opacity-100 text-rose-400 hover:text-rose-300 cursor-pointer p-1 rounded hover:bg-surface-2"
                             title="Xoá dòng"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
@@ -1424,13 +1424,13 @@ export default function SubtitleEditor({
                       {srtSource === 'translated' && showBilingual && (
                         <div
                           onClick={(e) => e.stopPropagation()}
-                          className="rounded-xl border border-slate-800 bg-slate-950/70 p-2.5 text-xs"
+                          className="rounded-md border border-border bg-bg p-2.5 text-xs"
                         >
-                          <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-brand-cyan flex items-center gap-1.5">
-                            <span className="h-1.5 w-1.5 rounded-full bg-brand-cyan" />
+                          <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-accent flex items-center gap-1.5">
+                            <span className="h-1.5 w-1.5 rounded-full bg-accent-tint" />
                             <span>Bản gốc đối chiếu:</span>
                           </div>
-                          <p className="font-normal text-slate-300 leading-relaxed whitespace-pre-line">
+                          <p className="font-normal text-text leading-relaxed whitespace-pre-line">
                             {originalLines[index]?.text ||
                               originalLines.find((o) => Math.abs(o.startMs - item.startMs) < 1000)?.text ||
                               '—'}
@@ -1444,7 +1444,7 @@ export default function SubtitleEditor({
                           value={item.text}
                           onChange={(e) => updateLine(index, { text: e.target.value })}
                           placeholder={srtSource === 'translated' ? 'Nội dung bản dịch...' : 'Nội dung câu phụ đề...'}
-                          className="flex-1 rounded-xl border border-slate-800 bg-slate-950 p-2 text-xs text-white placeholder:text-slate-600 focus:border-brand-indigo focus:outline-none"
+                          className="flex-1 rounded-md border border-border bg-bg p-2 text-xs text-white placeholder:text-text-faint focus:border-accent/40 focus:outline-none"
                         />
                         <div className="flex flex-col gap-1">
                           {/* Sửa câu bằng AI (Hiệu đính ngữ pháp/văn phong) */}
@@ -1453,7 +1453,7 @@ export default function SubtitleEditor({
                             onClick={() => handlePolishLine(index)}
                             disabled={aiBusyIndex !== null || !item.text.trim()}
                             title="Hiệu đính câu này bằng Gemini — sửa chính tả, ngữ pháp, làm mượt câu"
-                            className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-brand-indigo/40 bg-brand-indigo/10 text-brand-cyan transition hover:bg-brand-indigo/25 disabled:cursor-not-allowed disabled:opacity-40 cursor-pointer"
+                            className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-accent/40 bg-accent-tint text-accent transition hover:bg-accent-tint/25 disabled:cursor-not-allowed disabled:opacity-40 cursor-pointer"
                           >
                             {isBusyThis && aiActionType === 'polish' ? (
                               <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -1486,13 +1486,13 @@ export default function SubtitleEditor({
           </div>
 
           {/* Cột phải: xem trước video + timeline */}
-          <div className="flex flex-col gap-3 overflow-y-auto rounded-3xl border border-slate-800 bg-slate-900/60 p-4">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-300">
+          <div className="flex flex-col gap-3 overflow-y-auto rounded-lg border border-border bg-surface p-4">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-text">
               Xem trước &amp; Timeline
             </h3>
 
             {mediaUrl ? (
-              <div className="relative overflow-hidden rounded-2xl border border-slate-800 bg-black">
+              <div className="relative overflow-hidden rounded-lg border border-border bg-black">
                 <video
                   ref={videoRef}
                   src={mediaUrl}
@@ -1509,20 +1509,20 @@ export default function SubtitleEditor({
                 />
                 {activeIndex >= 0 && lines[activeIndex]?.text && (
                   <div className="pointer-events-none absolute inset-x-3 bottom-12 flex justify-center">
-                    <span className="max-w-full whitespace-pre-line rounded-lg bg-black/75 px-3 py-1.5 text-center text-xs leading-snug text-white shadow-lg">
+                    <span className="max-w-full whitespace-pre-line rounded-lg bg-black/75 px-3 py-1.5 text-center text-xs leading-snug text-white">
                       {lines[activeIndex].text}
                     </span>
                   </div>
                 )}
               </div>
             ) : (
-              <div className="flex h-[180px] flex-col items-center justify-center rounded-2xl border border-slate-800 bg-slate-950 text-center">
+              <div className="flex h-[180px] flex-col items-center justify-center rounded-lg border border-border bg-bg text-center">
                 <FileVideo className="h-10 w-10 text-slate-700 mb-2" />
-                <span className="text-xs text-slate-400">Không có file media để xem trước</span>
+                <span className="text-xs text-text-muted">Không có file media để xem trước</span>
               </div>
             )}
 
-            <div className="flex items-center justify-between text-[11px] text-slate-400 font-mono">
+            <div className="flex items-center justify-between text-[11px] text-text-muted font-mono">
               <span>{formatMs(currentTimeMs)}</span>
               <span>{formatMs(durationMs)}</span>
             </div>
@@ -1531,7 +1531,7 @@ export default function SubtitleEditor({
             <div
               onClick={handleTimelineClick}
               className={[
-                'relative h-12 w-full overflow-hidden rounded-xl border border-slate-800 bg-slate-950',
+                'relative h-12 w-full overflow-hidden rounded-md border border-border bg-bg',
                 durationMs > 0 ? 'cursor-pointer' : '',
               ].join(' ')}
               title="Bấm để nhảy tới vị trí này trên video"
@@ -1551,8 +1551,8 @@ export default function SubtitleEditor({
                       className={[
                         'absolute bottom-5 top-1 min-w-[2px] rounded-[3px] cursor-pointer transition-colors',
                         index === activeIndex
-                          ? 'bg-brand-cyan'
-                          : 'bg-brand-indigo/50 hover:bg-brand-indigo',
+                          ? 'bg-accent-tint'
+                          : 'bg-accent-tint/50 hover:bg-accent-tint',
                       ].join(' ')}
                       style={{ left: `${left}%`, width: `${width}%` }}
                     />
@@ -1565,16 +1565,16 @@ export default function SubtitleEditor({
                 />
               )}
               {durationMs <= 0 && (
-                <div className="flex h-full items-center justify-center text-[11px] text-slate-600">
+                <div className="flex h-full items-center justify-center text-[11px] text-text-faint">
                   Timeline sẽ hiện khi video tải xong
                 </div>
               )}
             </div>
 
-            <div className="space-y-1.5 rounded-2xl border border-slate-800/60 bg-slate-900/70 p-3 text-[11px] leading-relaxed text-slate-400">
+            <div className="space-y-1.5 rounded-lg border border-border bg-surface p-3 text-[11px] leading-relaxed text-text-muted">
               <p>• Bấm vào một dòng hoặc khối trên timeline để video nhảy tới câu đó.</p>
               <p>• Nút ⊕ (Crosshair) gán thời điểm bắt đầu/kết thúc bằng vị trí phát hiện tại.</p>
-              <p>• Nút đũa thần (🪄) hiệu đính ngữ pháp, nút địa cầu (🌐) dịch câu sang tiếng Việt.</p>
+              <p>• Nút Hiệu đính AI sửa lỗi ngữ pháp, nút Dịch chuyển đổi ngôn ngữ phụ đề.</p>
             </div>
           </div>
         </div>

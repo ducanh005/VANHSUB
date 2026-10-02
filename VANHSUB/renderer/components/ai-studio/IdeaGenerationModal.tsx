@@ -201,19 +201,19 @@ export default function IdeaGenerationModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-md overflow-y-auto animate-in fade-in duration-200">
-      <div className="relative flex max-h-[92vh] w-full max-w-4xl flex-col rounded-3xl border border-slate-800 bg-[#0B101E] shadow-2xl overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 overflow-y-auto animate-in fade-in duration-200">
+      <div className="relative flex max-h-[92vh] w-full max-w-4xl flex-col rounded-lg border border-border bg-[#0B101E] overflow-hidden">
         {/* Modal Header */}
-        <div className="flex items-center justify-between border-b border-slate-800/80 px-6 py-4">
+        <div className="flex items-center justify-between border-b border-border px-6 py-4">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-amber-500/15 border border-amber-500/30 text-amber-400">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-amber-500/15 border border-amber-500/30 text-amber-400">
               <Lightbulb className="h-5 w-5" />
             </div>
             <div>
               <h2 className="text-base font-bold text-white tracking-wide">
                 Tạo &amp; Sinh Ý Tưởng Video
               </h2>
-              <p className="text-xs text-slate-400">
+              <p className="text-xs text-text-muted">
                 Nhập thủ công hoặc bấm &quot;🤖 AI Tự Động Sinh Mẫu&quot; để AI gợi ý điền mẫu
               </p>
             </div>
@@ -221,27 +221,27 @@ export default function IdeaGenerationModal({
           <button
             type="button"
             onClick={onClose}
-            className="flex h-8 w-8 items-center justify-center rounded-xl text-slate-400 hover:bg-slate-800/60 hover:text-white transition cursor-pointer"
+            className="flex h-8 w-8 items-center justify-center rounded-md text-text-muted hover:bg-surface-2 hover:text-white transition cursor-pointer"
           >
             <X className="h-5 w-5" />
           </button>
         </div>
 
         {/* Modal Scrollable Body */}
-        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5 text-slate-200 custom-scrollbar">
+        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5 text-text custom-scrollbar">
           {/* Top Bar: Khung hình & Nút AI Sinh Mẫu */}
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 rounded-2xl border border-slate-800/80 bg-slate-950/60 p-3">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 rounded-lg border border-border bg-bg p-3">
             {/* Aspect Ratio Switcher */}
             <div className="flex items-center gap-2">
-              <span className="text-xs font-semibold text-slate-400">Khung hình:</span>
-              <div className="flex items-center gap-1.5 rounded-xl border border-slate-800 bg-slate-900/90 p-1">
+              <span className="text-xs font-semibold text-text-muted">Khung hình:</span>
+              <div className="flex items-center gap-1.5 rounded-md border border-border bg-surface p-1">
                 <button
                   type="button"
                   onClick={() => setAspectRatio('16:9')}
                   className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition cursor-pointer ${
                     aspectRatio === '16:9'
-                      ? 'bg-gradient-to-r from-orange-500 to-pink-500 text-white shadow-md'
-                      : 'text-slate-400 hover:text-white'
+                      ? 'bg-gradient-to-r from-orange-500 to-pink-500 text-white '
+                      : 'text-text-muted hover:text-white'
                   }`}
                 >
                   <Film className="h-3.5 w-3.5" />
@@ -252,8 +252,8 @@ export default function IdeaGenerationModal({
                   onClick={() => setAspectRatio('9:16')}
                   className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition cursor-pointer ${
                     aspectRatio === '9:16'
-                      ? 'bg-gradient-to-r from-orange-500 to-pink-500 text-white shadow-md'
-                      : 'text-slate-400 hover:text-white'
+                      ? 'bg-gradient-to-r from-orange-500 to-pink-500 text-white '
+                      : 'text-text-muted hover:text-white'
                   }`}
                 >
                   <Smartphone className="h-3.5 w-3.5" />
@@ -267,7 +267,7 @@ export default function IdeaGenerationModal({
               type="button"
               onClick={handleAutoFill}
               disabled={isGenerating}
-              className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 px-4 py-2 text-xs font-bold text-white shadow-lg shadow-violet-600/30 hover:brightness-110 active:scale-95 disabled:opacity-50 transition cursor-pointer"
+              className="flex items-center gap-2 rounded-md bg-gradient-to-r from-violet-600 to-indigo-600 px-4 py-2 text-xs font-bold text-white shadow-violet-600/30 hover:brightness-110 active:scale-95 disabled:opacity-50 transition cursor-pointer"
             >
               {isGenerating ? (
                 <>
@@ -285,7 +285,7 @@ export default function IdeaGenerationModal({
 
           {/* Active Channel Profile Grounding Card */}
           {config.channelProfile && (
-            <div className="flex flex-col gap-2 rounded-2xl border border-indigo-500/20 bg-gradient-to-r from-indigo-950/40 to-slate-950/60 p-3.5 text-xs text-indigo-200">
+            <div className="flex flex-col gap-2 rounded-lg border border-indigo-500/20 bg-gradient-to-r from-indigo-950/40 to-slate-950/60 p-3.5 text-xs text-indigo-200">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-1.5 font-bold text-indigo-300">
                   <Sparkles className="h-4 w-4 text-indigo-400" />
@@ -299,28 +299,28 @@ export default function IdeaGenerationModal({
               </div>
               <div className="flex flex-wrap items-center gap-2 pt-0.5">
                 {config.channelProfile.projectName && (
-                  <span className="inline-flex items-center gap-1.5 rounded-xl bg-slate-900/90 border border-slate-700/80 px-2.5 py-1 text-[11px] text-slate-300">
-                    <Tv className="h-3.5 w-3.5 text-brand-cyan" />
+                  <span className="inline-flex items-center gap-1.5 rounded-md bg-surface border border-border px-2.5 py-1 text-[11px] text-text">
+                    <Tv className="h-3.5 w-3.5 text-accent" />
                     <span>Dự án: <strong className="text-white">{config.channelProfile.projectName}</strong></span>
                   </span>
                 )}
                 {config.channelProfile.channelNiche && (
-                  <span className="inline-flex items-center gap-1.5 rounded-xl bg-slate-900/90 border border-slate-700/80 px-2.5 py-1 text-[11px] text-slate-300">
+                  <span className="inline-flex items-center gap-1.5 rounded-md bg-surface border border-border px-2.5 py-1 text-[11px] text-text">
                     <span>Ngách: <strong className="text-white">{config.channelProfile.channelNiche}</strong></span>
                   </span>
                 )}
-                <span className="inline-flex items-center gap-1.5 rounded-xl bg-slate-900/90 border border-slate-700/80 px-2.5 py-1 text-[11px] text-slate-300">
+                <span className="inline-flex items-center gap-1.5 rounded-md bg-surface border border-border px-2.5 py-1 text-[11px] text-text">
                   <Clock className="h-3.5 w-3.5 text-amber-400" />
                   <span>Thời lượng: <strong className="text-white">{getTargetDurationText()}</strong></span>
                 </span>
                 {(config.channelProfile.hostName || config.channelProfile.channelCharacters?.[0]?.name) && (
-                  <span className="inline-flex items-center gap-1.5 rounded-xl bg-slate-900/90 border border-slate-700/80 px-2.5 py-1 text-[11px] text-slate-300">
+                  <span className="inline-flex items-center gap-1.5 rounded-md bg-surface border border-border px-2.5 py-1 text-[11px] text-text">
                     <User className="h-3.5 w-3.5 text-pink-400" />
                     <span>Nhân vật: <strong className="text-white">{config.channelProfile.hostName || config.channelProfile.channelCharacters?.[0]?.name}</strong></span>
                   </span>
                 )}
                 {(config.channelProfile.imageModel || config.channelProfile.videoModel) && (
-                  <span className="inline-flex items-center gap-1.5 rounded-xl bg-slate-900/90 border border-slate-700/80 px-2.5 py-1 text-[11px] text-slate-300">
+                  <span className="inline-flex items-center gap-1.5 rounded-md bg-surface border border-border px-2.5 py-1 text-[11px] text-text">
                     <ImageIcon className="h-3.5 w-3.5 text-violet-400" />
                     <span>Model: <strong className="text-white">{config.channelProfile.imageModel || 'Nano Banana 2'} / {config.channelProfile.videoModel || 'Omni 1.1 Flash'}</strong></span>
                   </span>
@@ -331,7 +331,7 @@ export default function IdeaGenerationModal({
 
           {/* Feedback & Error Banners */}
           {errorMessage && (
-            <div className="flex items-start gap-2.5 rounded-2xl border border-rose-500/40 bg-rose-500/10 p-3.5 text-xs text-rose-300">
+            <div className="flex items-start gap-2.5 rounded-lg border border-rose-500/40 bg-rose-500/10 p-3.5 text-xs text-rose-300">
               <AlertCircle className="h-4 w-4 shrink-0 text-rose-400 mt-0.5" />
               <div>
                 <span className="font-bold">Lỗi: </span>
@@ -341,7 +341,7 @@ export default function IdeaGenerationModal({
           )}
 
           {successMessage && (
-            <div className="flex items-center gap-2 rounded-2xl border border-emerald-500/40 bg-emerald-500/10 p-3 text-xs text-emerald-300">
+            <div className="flex items-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 p-3 text-xs text-emerald-300">
               <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400" />
               <span>{successMessage}</span>
             </div>
@@ -349,7 +349,7 @@ export default function IdeaGenerationModal({
 
           {/* Field 1: Tiêu đề video / Ý tưởng * */}
           <div className="space-y-1.5">
-            <label className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+            <label className="text-xs font-bold text-text flex items-center gap-1.5">
               <span>📌 Tiêu đề video / Ý tưởng</span>
               <span className="text-rose-400">*</span>
             </label>
@@ -362,14 +362,14 @@ export default function IdeaGenerationModal({
                   ? `Ví dụ: Chủ đề cho dự án "${config.channelProfile.projectName}" (hoặc để trống bấm 🤖 AI Tự Động Sinh Mẫu)`
                   : 'Ví dụ: Cú sốc tài chính toàn cầu 2026 - Sự thật chưa ai kể'
               }
-              className="w-full rounded-2xl border border-slate-800 bg-slate-950/80 px-4 py-3 text-sm text-white placeholder:text-slate-600 focus:border-brand-cyan focus:ring-1 focus:ring-brand-cyan focus:outline-none transition"
+              className="w-full rounded-lg border border-border bg-bg px-4 py-3 text-sm text-white placeholder:text-text-faint focus:border-accent/40 focus:ring-1 focus:ring-accent/30 focus:outline-none transition"
             />
           </div>
 
           {/* Field 2 & 3: 2 Columns (Hook 3s & Góc nhìn/Angle) */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-1.5">
-              <label className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+              <label className="text-xs font-bold text-text flex items-center gap-1.5">
                 <span>⚡ Hook 3s mở đầu</span>
               </label>
               <input
@@ -377,12 +377,12 @@ export default function IdeaGenerationModal({
                 value={hookConcept}
                 onChange={(e) => setHookConcept(e.target.value)}
                 placeholder="Mở đầu gây tò mò / câu hỏi giữ chân"
-                className="w-full rounded-2xl border border-slate-800 bg-slate-950/80 px-4 py-2.5 text-xs text-white placeholder:text-slate-600 focus:border-brand-cyan focus:ring-1 focus:ring-brand-cyan focus:outline-none transition"
+                className="w-full rounded-lg border border-border bg-bg px-4 py-2.5 text-xs text-white placeholder:text-text-faint focus:border-accent/40 focus:ring-1 focus:ring-accent/30 focus:outline-none transition"
               />
             </div>
 
             <div className="space-y-1.5">
-              <label className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+              <label className="text-xs font-bold text-text flex items-center gap-1.5">
                 <span>🎯 Góc nhìn / Đột phá (Angle)</span>
               </label>
               <input
@@ -390,14 +390,14 @@ export default function IdeaGenerationModal({
                 value={narrativeAngle}
                 onChange={(e) => setNarrativeAngle(e.target.value)}
                 placeholder="Góc tiếp cận độc đáo của kênh"
-                className="w-full rounded-2xl border border-slate-800 bg-slate-950/80 px-4 py-2.5 text-xs text-white placeholder:text-slate-600 focus:border-brand-cyan focus:ring-1 focus:ring-brand-cyan focus:outline-none transition"
+                className="w-full rounded-lg border border-border bg-bg px-4 py-2.5 text-xs text-white placeholder:text-text-faint focus:border-accent/40 focus:ring-1 focus:ring-accent/30 focus:outline-none transition"
               />
             </div>
           </div>
 
           {/* Field 4: Dàn ý / Các phân đoạn (Outline - mỗi dòng 1 ý) */}
           <div className="space-y-1.5">
-            <label className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+            <label className="text-xs font-bold text-text flex items-center gap-1.5">
               <span>📝 Dàn ý / Các phân đoạn (Outline - mỗi dòng 1 ý)</span>
             </label>
             <textarea
@@ -405,13 +405,13 @@ export default function IdeaGenerationModal({
               value={outline}
               onChange={(e) => setOutline(e.target.value)}
               placeholder={`Phân đoạn 1: Mở đầu sự cố...\nPhân đoạn 2: Diễn biến bất ngờ...\nPhân đoạn 3: Bài học & Lối thoát...`}
-              className="w-full rounded-2xl border border-slate-800 bg-slate-950/80 px-4 py-3 text-xs font-mono text-white placeholder:text-slate-600 focus:border-brand-cyan focus:ring-1 focus:ring-brand-cyan focus:outline-none transition leading-relaxed"
+              className="w-full rounded-lg border border-border bg-bg px-4 py-3 text-xs font-mono text-white placeholder:text-text-faint focus:border-accent/40 focus:ring-1 focus:ring-accent/30 focus:outline-none transition leading-relaxed"
             />
           </div>
 
           {/* Field 5: Kịch bản có sẵn (tuỳ chọn) */}
           <div className="space-y-1.5">
-            <label className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+            <label className="text-xs font-bold text-text flex items-center gap-1.5">
               <span>📜 Kịch bản có sẵn (tuỳ chọn)</span>
             </label>
             <textarea
@@ -419,12 +419,12 @@ export default function IdeaGenerationModal({
               value={existingScript}
               onChange={(e) => setExistingScript(e.target.value)}
               placeholder={`Dán kịch bản vào đây...\n\nMỗi câu nên nằm trên 1 dòng — hệ thống tự tách câu nếu bạn dán cả đoạn văn.\nKhông cần nhập thời gian: AI đọc giọng rồi tự trích timing.`}
-              className="w-full rounded-2xl border border-slate-800 bg-slate-950/80 px-4 py-3 text-xs text-white placeholder:text-slate-600 focus:border-brand-cyan focus:ring-1 focus:ring-brand-cyan focus:outline-none transition leading-relaxed"
+              className="w-full rounded-lg border border-border bg-bg px-4 py-3 text-xs text-white placeholder:text-text-faint focus:border-accent/40 focus:ring-1 focus:ring-accent/30 focus:outline-none transition leading-relaxed"
             />
-            <div className="flex items-start gap-1.5 text-[11px] text-slate-400 mt-1">
-              <Info className="h-3.5 w-3.5 shrink-0 text-brand-cyan mt-0.5" />
+            <div className="flex items-start gap-1.5 text-[11px] text-text-muted mt-1">
+              <Info className="h-3.5 w-3.5 shrink-0 text-accent mt-0.5" />
               <span>
-                <span className="font-semibold text-slate-300">ℹ Có kịch bản ở bước này:</span> AI rút nhân vật từ chính kịch bản (đúng tên, đúng vai) rồi mới vẽ chân dung — thay vì bịa nhân vật từ dàn ý. Bỏ trống = AI tự viết kịch bản sau khi bạn duyệt sản xuất.
+                <span className="font-semibold text-text">ℹ Có kịch bản ở bước này:</span> AI rút nhân vật từ chính kịch bản (đúng tên, đúng vai) rồi mới vẽ chân dung — thay vì bịa nhân vật từ dàn ý. Bỏ trống = AI tự viết kịch bản sau khi bạn duyệt sản xuất.
               </span>
             </div>
           </div>
@@ -432,7 +432,7 @@ export default function IdeaGenerationModal({
           {/* Field 6: Concept ảnh bìa (Thumbnail Concept) */}
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
-              <label className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+              <label className="text-xs font-bold text-text flex items-center gap-1.5">
                 <span>🎨 Concept ảnh bìa (Thumbnail Concept)</span>
               </label>
               {(config.channelProfile?.hostName || config.channelProfile?.channelCharacters?.[0]?.name) && (
@@ -447,14 +447,14 @@ export default function IdeaGenerationModal({
               value={thumbnailConcept}
               onChange={(e) => setThumbnailConcept(e.target.value)}
               placeholder="Mô tả ý tưởng hình ảnh bìa (được đồng bộ cùng nhân vật của kênh)"
-              className="w-full rounded-2xl border border-slate-800 bg-slate-950/80 px-4 py-2.5 text-xs text-white placeholder:text-slate-600 focus:border-brand-cyan focus:ring-1 focus:ring-brand-cyan focus:outline-none transition"
+              className="w-full rounded-lg border border-border bg-bg px-4 py-2.5 text-xs text-white placeholder:text-text-faint focus:border-accent/40 focus:ring-1 focus:ring-accent/30 focus:outline-none transition"
             />
           </div>
 
           {/* Field 7: Prompt ảnh bìa cho AI (Thumbnail Prompt tiếng Anh) */}
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
-              <label className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+              <label className="text-xs font-bold text-text flex items-center gap-1.5">
                 <span>🖼️ Prompt ảnh bìa cho AI (Thumbnail Prompt tiếng Anh)</span>
               </label>
               {config.channelProfile?.imageModel && (
@@ -468,10 +468,10 @@ export default function IdeaGenerationModal({
               value={thumbnailPrompt}
               onChange={(e) => setThumbnailPrompt(e.target.value)}
               placeholder="Detailed English image prompt for thumbnail generation..."
-              className="w-full rounded-2xl border border-slate-800 bg-slate-950/80 px-4 py-2.5 text-xs font-mono text-white placeholder:text-slate-600 focus:border-brand-cyan focus:ring-1 focus:ring-brand-cyan focus:outline-none transition"
+              className="w-full rounded-lg border border-border bg-bg px-4 py-2.5 text-xs font-mono text-white placeholder:text-text-faint focus:border-accent/40 focus:ring-1 focus:ring-accent/30 focus:outline-none transition"
             />
             {(config.channelProfile?.hostDescription || config.channelProfile?.channelCharacters?.[0]?.descriptionEn) && (
-              <p className="text-[11px] text-slate-400 italic">
+              <p className="text-[11px] text-text-muted italic">
                 ✨ Chi tiết nhân vật đại diện: <span className="text-pink-300">{config.channelProfile.hostDescription || config.channelProfile.channelCharacters?.[0]?.descriptionEn}</span>
               </p>
             )}
@@ -479,11 +479,11 @@ export default function IdeaGenerationModal({
         </div>
 
         {/* Modal Footer Actions */}
-        <div className="flex items-center justify-between border-t border-slate-800/80 bg-slate-950/90 px-6 py-4">
+        <div className="flex items-center justify-between border-t border-border bg-bg px-6 py-4">
           <button
             type="button"
             onClick={onClose}
-            className="rounded-xl border border-slate-800 bg-slate-900 px-5 py-2.5 text-xs font-semibold text-slate-300 hover:bg-slate-800 hover:text-white transition cursor-pointer"
+            className="rounded-md border border-border bg-surface px-5 py-2.5 text-xs font-semibold text-text hover:bg-surface-2 hover:text-white transition cursor-pointer"
           >
             Hủy
           </button>
@@ -492,7 +492,7 @@ export default function IdeaGenerationModal({
             type="button"
             onClick={handleSubmit}
             disabled={!topic.trim() || isGenerating}
-            className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-orange-500 to-pink-500 px-6 py-2.5 text-xs font-bold text-white shadow-lg shadow-orange-500/25 hover:brightness-110 active:scale-95 disabled:opacity-50 transition cursor-pointer"
+            className="flex items-center gap-2 rounded-md bg-gradient-to-r from-orange-500 to-pink-500 px-6 py-2.5 text-xs font-bold text-white hover:brightness-110 active:scale-95 disabled:opacity-50 transition cursor-pointer"
           >
             <Sparkles className="h-4 w-4" />
             <span>✨ Tạo Ý Tưởng Mới</span>

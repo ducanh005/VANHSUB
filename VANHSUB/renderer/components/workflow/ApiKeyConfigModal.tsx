@@ -339,12 +339,12 @@ export default function ApiKeyConfigModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-200">
-      <div className="w-full max-w-2xl max-h-[92vh] rounded-2xl border border-slate-800 bg-[#0d131f] p-6 shadow-2xl flex flex-col gap-4 text-slate-200 overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 animate-in fade-in duration-200">
+      <div className="w-full max-w-2xl max-h-[92vh] rounded-lg border border-border bg-[#0d131f] p-6 flex flex-col gap-4 text-text overflow-hidden">
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-slate-800 pb-3 shrink-0">
+        <div className="flex items-center justify-between border-b border-border pb-3 shrink-0">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-amber-500 via-rose-500 to-indigo-600 p-0.5 shadow-lg shadow-indigo-950/40">
+            <div className="flex h-10 w-10 items-center justify-center rounded-md bg-accent p-0.5">
               <div className="flex h-full w-full items-center justify-center rounded-[10px] bg-[#0d131f]">
                 <Sparkles className="h-5 w-5 text-amber-400" />
               </div>
@@ -356,28 +356,28 @@ export default function ApiKeyConfigModal({
                   v3.1
                 </span>
               </h2>
-              <p className="text-xs text-slate-400">
+              <p className="text-xs text-text-muted">
                 Chọn Chế độ Sảnh Miễn Phí (tận dụng credit web) hoặc API Key trả phí
               </p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
+            className="p-1.5 rounded-lg text-text-muted hover:text-white hover:bg-surface-2 transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* 3-Mode Selector Tabs */}
-        <div className="grid grid-cols-3 gap-2 bg-slate-950 p-1 rounded-xl border border-slate-800/80 shrink-0">
+        <div className="grid grid-cols-3 gap-2 bg-bg p-1 rounded-md border border-border shrink-0">
           <button
             type="button"
             onClick={() => setActiveTab('free_session')}
             className={`flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
               activeTab === 'free_session'
-                ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-md shadow-emerald-950/50'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
+                ? 'bg-success text-white  '
+                : 'text-text-muted hover:text-text hover:bg-surface'
             }`}
           >
             <Globe className="w-4 h-4" />
@@ -392,8 +392,8 @@ export default function ApiKeyConfigModal({
             onClick={() => setActiveTab('api_key')}
             className={`flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
               activeTab === 'api_key'
-                ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-md shadow-indigo-950/50'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
+                ? 'bg-accent text-white  '
+                : 'text-text-muted hover:text-text hover:bg-surface'
             }`}
           >
             <Key className="w-4 h-4" />
@@ -405,8 +405,8 @@ export default function ApiKeyConfigModal({
             onClick={() => setActiveTab('simulation')}
             className={`flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
               activeTab === 'simulation'
-                ? 'bg-gradient-to-r from-amber-600 to-orange-600 text-white shadow-md shadow-amber-950/50'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
+                ? 'bg-warning text-white  '
+                : 'text-text-muted hover:text-text hover:bg-surface'
             }`}
           >
             <Cpu className="w-4 h-4" />
@@ -423,7 +423,7 @@ export default function ApiKeyConfigModal({
             <div className="space-y-4">
               {/* Session Health Status Card */}
               <div
-                className={`p-4 rounded-xl border flex flex-col gap-3 transition-colors ${
+                className={`p-4 rounded-md border flex flex-col gap-3 transition-colors ${
                   sessionStatus === 'active'
                     ? 'bg-emerald-950/30 border-emerald-800/80 text-emerald-200'
                     : sessionStatus === 'out_of_credits'
@@ -434,7 +434,7 @@ export default function ApiKeyConfigModal({
                     ? 'bg-amber-950/30 border-amber-800/80 text-amber-200'
                     : sessionStatus === 'captcha_required'
                     ? 'bg-orange-950/30 border-orange-800/80 text-orange-200'
-                    : 'bg-slate-900/60 border-slate-800 text-slate-300'
+                    : 'bg-surface border-border text-text'
                 }`}
               >
                 <div className="flex items-start justify-between">
@@ -472,12 +472,12 @@ export default function ApiKeyConfigModal({
                           : 'Đăng nhập tài khoản Google vào sảnh để app tự động bắt session cookie và sử dụng credit Veo miễn phí.'}
                       </p>
                       {accountEmail && (
-                        <p className="text-[11px] font-mono mt-1 text-slate-400">
+                        <p className="text-[11px] font-mono mt-1 text-text-muted">
                           Tài khoản: <span className="text-white font-medium">{accountEmail}</span>
                         </p>
                       )}
                       {lastChecked && (
-                        <p className="text-[10px] text-slate-500 mt-0.5">
+                        <p className="text-[10px] text-text-muted mt-0.5">
                           Kiểm tra lần cuối: {new Date(lastChecked).toLocaleTimeString('vi-VN')}
                         </p>
                       )}
@@ -495,7 +495,7 @@ export default function ApiKeyConfigModal({
 
                 {/* Validation Detail Note */}
                 {validationDetail && (
-                  <div className="text-[11px] p-2 rounded-lg bg-black/40 border border-slate-800/80 font-mono text-slate-300">
+                  <div className="text-[11px] p-2 rounded-lg bg-black/40 border border-border font-mono text-text">
                     {validationDetail}
                   </div>
                 )}
@@ -506,7 +506,7 @@ export default function ApiKeyConfigModal({
                     type="button"
                     onClick={handleOpenLobby}
                     disabled={isOpeningLobby}
-                    className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-md shadow-emerald-950/40 transition-colors cursor-pointer disabled:opacity-50"
+                    className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-colors cursor-pointer disabled:opacity-50"
                     title="Mở cửa sổ trình duyệt chính thức của Google để đăng nhập nhận credit"
                   >
                     {isOpeningLobby ? (
@@ -521,13 +521,13 @@ export default function ApiKeyConfigModal({
                     type="button"
                     onClick={() => handleValidateSession(true)}
                     disabled={isValidatingSession}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 transition-colors cursor-pointer disabled:opacity-50"
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-2 hover:bg-surface-3 text-text text-xs font-semibold border border-border transition-colors cursor-pointer disabled:opacity-50"
                     title="Kiểm tra ngay lập tức xem session còn sống không (< 1.5s) để không mất thời gian render"
                   >
                     {isValidatingSession ? (
                       <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-400" />
                     ) : (
-                      <RefreshCw className="w-3.5 h-3.5 text-brand-cyan" />
+                      <RefreshCw className="w-3.5 h-3.5 text-accent" />
                     )}
                     <span>Kiểm tra Session ngay</span>
                   </button>
@@ -535,7 +535,7 @@ export default function ApiKeyConfigModal({
                   <button
                     type="button"
                     onClick={() => setShowManualCookieInput((prev) => !prev)}
-                    className="text-xs text-slate-400 hover:text-slate-200 px-2 py-1.5 rounded-lg hover:bg-slate-800/60 transition-colors"
+                    className="text-xs text-text-muted hover:text-text px-2 py-1.5 rounded-lg hover:bg-surface-2 transition-colors"
                   >
                     {showManualCookieInput ? 'Ẩn ô dán cookie' : 'Dán Cookie thủ công'}
                   </button>
@@ -547,7 +547,7 @@ export default function ApiKeyConfigModal({
                     className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors cursor-pointer disabled:opacity-50 ${
                       isLobbyDebug
                         ? 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border-amber-500/40'
-                        : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+                        : 'bg-surface-2 hover:bg-surface-3 text-text border-border'
                     }`}
                     title={
                       isLobbyDebug
@@ -560,7 +560,7 @@ export default function ApiKeyConfigModal({
                     ) : isLobbyDebug ? (
                       <EyeOff className="w-3.5 h-3.5 text-amber-400" />
                     ) : (
-                      <Eye className="w-3.5 h-3.5 text-slate-400" />
+                      <Eye className="w-3.5 h-3.5 text-text-muted" />
                     )}
                     <span>{isLobbyDebug ? 'Ẩn cửa sổ Flow' : 'Hiện cửa sổ Flow để debug'}</span>
                   </button>
@@ -580,18 +580,18 @@ export default function ApiKeyConfigModal({
 
                 {/* Collapsible Manual Cookie Form */}
                 {showManualCookieInput && (
-                  <div className="mt-2 pt-2 border-t border-slate-800/80 space-y-2 animate-in fade-in duration-150">
+                  <div className="mt-2 pt-2 border-t border-border space-y-2 animate-in fade-in duration-150">
                     <div className="flex items-center justify-between">
-                      <label className="text-[11px] font-semibold text-slate-300">
+                      <label className="text-[11px] font-semibold text-text">
                         Dán chuỗi Cookie từ trình duyệt (hoặc Bearer Token):
                       </label>
                       <span className="text-[10px] text-emerald-400">
                         ✓ Khắc phục triệt để lỗi "Ứng dụng không tin cậy"
                       </span>
                     </div>
-                    <div className="p-2.5 rounded-lg bg-indigo-950/40 border border-indigo-800/50 text-[11px] text-slate-300 space-y-1.5">
+                    <div className="p-2.5 rounded-lg bg-indigo-950/40 border border-indigo-800/50 text-[11px] text-text space-y-1.5">
                       <p className="font-semibold text-indigo-300">Cách lấy chuỗi Cookie đầy đủ từ Chrome / Edge / Cốc Cốc:</p>
-                      <ol className="list-decimal list-inside space-y-1 text-slate-400 text-[10px]">
+                      <ol className="list-decimal list-inside space-y-1 text-text-muted text-[10px]">
                         <li>Truy cập <span className="text-white font-mono">flow.google.com</span> trên trình duyệt và đăng nhập tài khoản Google.</li>
                         <li>Bấm <b>F12</b> $\rightarrow$ Chọn tab <b>Network (Mạng)</b> $\rightarrow$ F5 tải lại trang $\rightarrow$ Bấm vào dòng request đầu tiên (<span className="text-white font-mono">flow.google.com</span>).</li>
                         <li>Ở bảng bên phải, tìm phần <b>Request Headers</b> $\rightarrow$ Chuột phải vào dòng <b>Cookie:</b> $\rightarrow$ Chọn <b>Copy value</b> (sẽ copy toàn bộ chuỗi).</li>
@@ -606,7 +606,7 @@ export default function ApiKeyConfigModal({
                       onChange={(e) => setManualCookieValue(e.target.value)}
                       placeholder="SID=...; HSID=...; SSID=...; __Secure-1PSID=..."
                       rows={2}
-                      className="w-full text-[11px] font-mono rounded-lg bg-slate-950 border border-slate-800 p-2 text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500"
+                      className="w-full text-[11px] font-mono rounded-lg bg-bg border border-border p-2 text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500"
                     />
                     <div className="flex justify-end gap-2">
                       <button
@@ -625,7 +625,7 @@ export default function ApiKeyConfigModal({
               {/* =========================================================================
                   CẢNH BÁO AN TOÀN & CHỐNG SPAM GOOGLE (THEO ĐẶC TẢ YÊU CẦU CỦA USER)
                   ========================================================================= */}
-              <div className="rounded-xl border border-amber-800/50 bg-amber-950/20 p-3.5 space-y-2.5">
+              <div className="rounded-md border border-amber-800/50 bg-amber-950/20 p-3.5 space-y-2.5">
                 <div
                   className="flex items-center justify-between cursor-pointer"
                   onClick={() => setShowSpamGuidelines((prev) => !prev)}
@@ -642,12 +642,12 @@ export default function ApiKeyConfigModal({
                 </div>
 
                 {showSpamGuidelines && (
-                  <div className="space-y-2 text-xs text-slate-300 pt-1">
+                  <div className="space-y-2 text-xs text-text pt-1">
                     <div className="flex items-start gap-2.5 p-2 rounded-lg bg-black/40 border border-amber-900/40">
                       <ShieldAlert className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
                       <div>
                         <span className="font-bold text-rose-300">1. Tuyệt đối dùng tài khoản phụ (Burner Account):</span>
-                        <p className="text-[11px] text-slate-400 mt-0.5 leading-relaxed">
+                        <p className="text-[11px] text-text-muted mt-0.5 leading-relaxed">
                           Không nên dùng tài khoản Google chính có dữ liệu quan trọng, Google Drive hay thẻ ngân hàng. Hãy tạo riêng 1 tài khoản Google phụ để trải nghiệm sảnh Veo miễn phí.
                         </p>
                       </div>
@@ -657,7 +657,7 @@ export default function ApiKeyConfigModal({
                       <Timer className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
                       <div>
                         <span className="font-bold text-amber-300">2. Giãn cách an toàn (Cooldown 45 giây):</span>
-                        <p className="text-[11px] text-slate-400 mt-0.5 leading-relaxed">
+                        <p className="text-[11px] text-text-muted mt-0.5 leading-relaxed">
                           Google theo dõi tốc độ gọi lệnh. App tự động khóa giãn cách tối thiểu 45s giữa 2 lần render kèm độ trễ ngẫu nhiên (human jitter) để không bị gắn cờ Bot.
                         </p>
                       </div>
@@ -667,7 +667,7 @@ export default function ApiKeyConfigModal({
                       <Wifi className="w-4 h-4 text-sky-400 shrink-0 mt-0.5" />
                       <div>
                         <span className="font-bold text-sky-300">3. Sử dụng mạng Internet sạch:</span>
-                        <p className="text-[11px] text-slate-400 mt-0.5 leading-relaxed">
+                        <p className="text-[11px] text-text-muted mt-0.5 leading-relaxed">
                           Không dùng VPN miễn phí, proxy công cộng hoặc IP Datacenter vì Google sẽ lập tức yêu cầu reCAPTCHA hoặc trả về lỗi 403 Forbidden.
                         </p>
                       </div>
@@ -677,7 +677,7 @@ export default function ApiKeyConfigModal({
                       <Calendar className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
                       <div>
                         <span className="font-bold text-emerald-300">4. Giới hạn Quota hàng ngày:</span>
-                        <p className="text-[11px] text-slate-400 mt-0.5 leading-relaxed">
+                        <p className="text-[11px] text-text-muted mt-0.5 leading-relaxed">
                           Google Labs cấp hạn mức credit nhất định theo ngày cho mỗi tài khoản. Khi thấy báo hết lượt, hãy đợi sang ngày hôm sau hoặc đổi tài khoản khác.
                         </p>
                       </div>
@@ -693,7 +693,7 @@ export default function ApiKeyConfigModal({
               ========================================================================= */}
           {activeTab === 'api_key' && (
             <div className="space-y-4">
-              <div className="p-3.5 rounded-xl bg-indigo-950/30 border border-indigo-800/60 text-indigo-200 text-xs flex items-start gap-2.5">
+              <div className="p-3.5 rounded-md bg-indigo-950/30 border border-indigo-800/60 text-indigo-200 text-xs flex items-start gap-2.5">
                 <Zap className="w-4 h-4 text-indigo-400 shrink-0 mt-0.5" />
                 <p className="leading-relaxed">
                   Chế độ chính thức: Gọi thẳng vào Google Vertex AI / Gemini API qua API Key của bạn. Phù hợp cho công việc chuyên nghiệp cần tốc độ cao, không phụ thuộc sảnh web.
@@ -702,7 +702,7 @@ export default function ApiKeyConfigModal({
 
               <div className="space-y-2">
                 <div className="flex items-center justify-between text-xs">
-                  <label className="font-semibold text-slate-300 flex items-center gap-1.5">
+                  <label className="font-semibold text-text flex items-center gap-1.5">
                     <Key className="w-3.5 h-3.5 text-amber-400" />
                     <span>Google Gemini API Key</span>
                   </label>
@@ -723,26 +723,26 @@ export default function ApiKeyConfigModal({
                     value={apiKey}
                     onChange={(e) => setApiKey(e.target.value)}
                     placeholder="AIzaSy... (dán key lấy từ aistudio.google.com)"
-                    className="w-full text-xs font-mono rounded-xl bg-slate-950 border border-slate-800 px-3.5 py-2.5 pr-10 text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-colors"
+                    className="w-full text-xs font-mono rounded-md bg-bg border border-border px-3.5 py-2.5 pr-10 text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-colors"
                   />
                   <button
                     type="button"
                     onClick={() => setShowKey(!showKey)}
-                    className="absolute right-3 text-slate-500 hover:text-slate-300 transition-colors"
+                    className="absolute right-3 text-text-muted hover:text-text transition-colors"
                     title={showKey ? 'Ẩn key' : 'Hiện key'}
                   >
                     {showKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
                 </div>
 
-                <p className="text-[11px] text-slate-500">
+                <p className="text-[11px] text-text-muted">
                   * Khóa được mã hóa bằng DPAPI (Windows safeStorage) an toàn trên ổ đĩa máy tính của bạn.
                 </p>
               </div>
 
               {apiKeyTestResult && (
                 <div
-                  className={`p-3 rounded-xl border text-xs flex items-center gap-2 ${
+                  className={`p-3 rounded-md border text-xs flex items-center gap-2 ${
                     apiKeyTestResult.ok
                       ? 'bg-emerald-950/40 border-emerald-800 text-emerald-300'
                       : 'bg-rose-950/40 border-rose-800 text-rose-300'
@@ -762,7 +762,7 @@ export default function ApiKeyConfigModal({
                   type="button"
                   onClick={handleTestApiKey}
                   disabled={!apiKey.trim() || isTestingApiKey}
-                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-xs font-semibold text-slate-300 hover:text-white transition-colors disabled:opacity-50 cursor-pointer"
+                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-md bg-surface hover:bg-surface-2 border border-border text-xs font-semibold text-text hover:text-white transition-colors disabled:opacity-50 cursor-pointer"
                 >
                   {isTestingApiKey ? (
                     <>
@@ -785,7 +785,7 @@ export default function ApiKeyConfigModal({
               ========================================================================= */}
           {activeTab === 'simulation' && (
             <div className="space-y-3">
-              <div className="p-4 rounded-xl bg-amber-950/20 border border-amber-800/60 text-amber-200 text-xs space-y-2">
+              <div className="p-4 rounded-md bg-amber-950/20 border border-amber-800/60 text-amber-200 text-xs space-y-2">
                 <div className="flex items-center gap-2 font-bold text-amber-300">
                   <Cpu className="w-4 h-4 text-amber-400" />
                   <span>Chế độ Mô phỏng Offline An toàn (100% Miễn phí & Không cần mạng)</span>
@@ -793,7 +793,7 @@ export default function ApiKeyConfigModal({
                 <p className="leading-relaxed text-[11px] opacity-90">
                   Khi bật chế độ này, app sẽ dùng FFmpeg cục bộ để tạo các clip video gradient hoạt họa mô phỏng đúng thời lượng, tỷ lệ khung hình (16:9 / 9:16) và nội dung prompt.
                 </p>
-                <ul className="list-disc list-inside text-[11px] text-slate-400 space-y-1 pt-1">
+                <ul className="list-disc list-inside text-[11px] text-text-muted space-y-1 pt-1">
                   <li>Thử nghiệm toàn bộ đồ thị DAG, Storyboard Studio, Master Timeline.</li>
                   <li>Không tốn quota Google, không lo hết hạn session.</li>
                   <li>Chuyển video sang Sub Mode mượt mà.</li>
@@ -804,8 +804,8 @@ export default function ApiKeyConfigModal({
         </div>
 
         {/* Footer Actions */}
-        <div className="flex items-center justify-between pt-3 border-t border-slate-800/80 shrink-0">
-          <div className="text-[11px] text-slate-400">
+        <div className="flex items-center justify-between pt-3 border-t border-border shrink-0">
+          <div className="text-[11px] text-text-muted">
             Chế độ đang chọn:{' '}
             <span className="font-bold text-white uppercase">
               {activeTab === 'free_session'
@@ -820,7 +820,7 @@ export default function ApiKeyConfigModal({
             <button
               type="button"
               onClick={onClose}
-              className="px-3.5 py-2 rounded-xl text-xs font-semibold text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+              className="px-3.5 py-2 rounded-md text-xs font-semibold text-text-muted hover:text-white hover:bg-surface-2 transition-colors"
             >
               Đóng
             </button>
@@ -829,7 +829,7 @@ export default function ApiKeyConfigModal({
               type="button"
               onClick={handleApplyModeAndSave}
               disabled={isSaving}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-gradient-to-r from-amber-500 via-rose-500 to-indigo-600 hover:from-amber-400 hover:to-indigo-500 text-xs font-bold text-white shadow-lg shadow-indigo-950/40 transition-all disabled:opacity-50 cursor-pointer"
+              className="flex items-center gap-1.5 px-4 py-2 rounded-md bg-accent hover:from-amber-400 hover:to-indigo-500 text-xs font-bold text-white transition-all disabled:opacity-50 cursor-pointer"
             >
               {isSaving ? (
                 <>

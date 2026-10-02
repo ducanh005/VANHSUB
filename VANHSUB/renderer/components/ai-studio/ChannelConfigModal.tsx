@@ -291,24 +291,24 @@ Output NOTHING else. No analysis, no planning, no alternative titles, no word co
     !profile.channelDescription.trim() || !profile.channelOrientation.trim();
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-2 sm:p-4 backdrop-blur-md animate-in fade-in duration-200">
-      <div className="relative flex max-h-[94vh] w-full max-w-5xl flex-col rounded-2xl border border-slate-800 bg-[#0B1120] text-slate-200 shadow-2xl overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-2 sm:p-4 animate-in fade-in duration-200">
+      <div className="relative flex max-h-[94vh] w-full max-w-5xl flex-col rounded-lg border border-border bg-[#0B1120] text-text overflow-hidden">
         {/* MODAL HEADER */}
-        <div className="flex h-14 shrink-0 items-center justify-between border-b border-slate-800/80 bg-[#0F172A]/90 px-6 backdrop-blur-sm">
+        <div className="flex h-14 shrink-0 items-center justify-between border-b border-border bg-[#0F172A]/90 px-6">
           <div className="flex items-center gap-2.5">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-800 text-slate-300">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-surface-2 text-text">
               <Settings className="h-4 w-4" />
             </div>
             <div className="flex items-baseline gap-2">
               <h2 className="text-sm font-bold text-white tracking-wide">Cấu hình kênh</h2>
-              <span className="text-xs text-slate-400">· bộ não AI, giọng, lịch tự đề xuất</span>
+              <span className="text-xs text-text-muted">· bộ não AI, giọng, lịch tự đề xuất</span>
             </div>
           </div>
 
           <button
             type="button"
             onClick={onClose}
-            className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-700/60 bg-slate-800/50 text-slate-400 hover:bg-slate-700 hover:text-white transition cursor-pointer"
+            className="flex h-8 w-8 items-center justify-center rounded-lg border border-border bg-surface-2 text-text-muted hover:bg-surface-3 hover:text-white transition cursor-pointer"
             title="Đóng"
           >
             <X className="h-4 w-4" />
@@ -327,17 +327,17 @@ Output NOTHING else. No analysis, no planning, no alternative titles, no word co
               </div>
               <h3 className="text-sm font-bold text-white flex items-center gap-1.5">
                 <span>Nội dung &amp; Bộ não</span>
-                <span className="text-xs font-normal text-slate-400">
+                <span className="text-xs font-normal text-text-muted">
                   — quyết định chủ đề &amp; chất riêng của kênh
                 </span>
               </h3>
             </div>
 
             {/* Project Name & Script AI Model (Bắt buộc để tạo Master Prompt) */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 rounded-2xl border border-brand-cyan/25 bg-gradient-to-r from-brand-cyan/10 via-brand-indigo/5 to-slate-950/60 p-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 rounded-lg border border-accent/40 bg-gradient-to-r from-brand-cyan/10 via-brand-indigo/5 to-slate-950/60 p-4">
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-white flex items-center gap-1.5">
-                  <Sparkles className="h-3.5 w-3.5 text-brand-cyan" />
+                  <Sparkles className="h-3.5 w-3.5 text-accent" />
                   <span>Tên Project / Kênh <span className="text-rose-400">*</span></span>
                 </label>
                 <input
@@ -345,9 +345,9 @@ Output NOTHING else. No analysis, no planning, no alternative titles, no word co
                   value={profile.projectName || ''}
                   onChange={(e) => handleChange('projectName', e.target.value)}
                   placeholder="vd: kênh test, Góc Nhìn Chiến Sự..."
-                  className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2.5 text-xs text-white placeholder:text-slate-600 focus:border-brand-cyan focus:outline-none"
+                  className="w-full rounded-md border border-border bg-bg px-3.5 py-2.5 text-xs text-white placeholder:text-text-faint focus:border-accent/40 focus:outline-none"
                 />
-                <p className="text-[10.5px] text-slate-400">
+                <p className="text-[10.5px] text-text-muted">
                   Dùng làm định danh project và xuất hiện trực tiếp trong System Role của Master Prompt.
                 </p>
               </div>
@@ -360,7 +360,7 @@ Output NOTHING else. No analysis, no planning, no alternative titles, no word co
                 <select
                   value={profile.aiProvider}
                   onChange={(e) => handleChange('aiProvider', e.target.value as any)}
-                  className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2.5 text-xs text-white focus:border-brand-cyan focus:outline-none cursor-pointer"
+                  className="w-full rounded-md border border-border bg-bg px-3.5 py-2.5 text-xs text-white focus:border-accent/40 focus:outline-none cursor-pointer"
                 >
                   <option value="default">Mặc định theo Cài đặt ({config.llm.provider})</option>
                   <option value="chatgpt_web">ChatGPT Web (Zero-API Cost)</option>
@@ -368,7 +368,7 @@ Output NOTHING else. No analysis, no planning, no alternative titles, no word co
                   <option value="deepseek">DeepSeek (API - deepseek-chat)</option>
                   <option value="openai">OpenAI (API - GPT-4o)</option>
                 </select>
-                <p className="text-[10.5px] text-slate-400">
+                <p className="text-[10.5px] text-text-muted">
                   Model AI được dùng để tự động tạo Master Prompt và sản xuất kịch bản cho project.
                 </p>
               </div>
@@ -378,12 +378,12 @@ Output NOTHING else. No analysis, no planning, no alternative titles, no word co
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               {/* 1. Nguồn hình */}
               <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-slate-300">Nguồn hình</label>
+                <label className="text-xs font-semibold text-text">Nguồn hình</label>
                 <div className="relative">
                   <select
                     value={profile.imageSource}
                     onChange={(e) => handleChange('imageSource', e.target.value as ChannelImageSource)}
-                    className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2.5 text-xs text-white focus:border-brand-cyan focus:outline-none focus:ring-1 focus:ring-brand-cyan cursor-pointer"
+                    className="w-full rounded-md border border-border bg-bg px-3.5 py-2.5 text-xs text-white focus:border-accent/40 focus:outline-none focus:ring-1 focus:ring-accent/30 cursor-pointer"
                   >
                     <option value="ai_flow_meta">🎨 AI tạo hình (Flow/Meta)</option>
                     <option value="ai_static">📸 Ảnh tĩnh AI chất lượng cao</option>
@@ -394,13 +394,13 @@ Output NOTHING else. No analysis, no planning, no alternative titles, no word co
 
               {/* 2. Kiểu video (bộ não AI) */}
               <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-slate-300">
-                  Kiểu video <span className="text-[10px] text-slate-500">(bộ não AI)</span>
+                <label className="text-xs font-semibold text-text">
+                  Kiểu video <span className="text-[10px] text-text-muted">(bộ não AI)</span>
                 </label>
                 <select
                   value={profile.videoStyleId}
                   onChange={(e) => handleChange('videoStyleId', e.target.value)}
-                  className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2.5 text-xs text-white focus:border-brand-cyan focus:outline-none focus:ring-1 focus:ring-brand-cyan cursor-pointer"
+                  className="w-full rounded-md border border-border bg-bg px-3.5 py-2.5 text-xs text-white focus:border-accent/40 focus:outline-none focus:ring-1 focus:ring-accent/30 cursor-pointer"
                 >
                   <option value="">— Chọn kiểu —</option>
                   {profile.videoStyles.map((style) => (
@@ -415,7 +415,7 @@ Output NOTHING else. No analysis, no planning, no alternative titles, no word co
                   <button
                     type="button"
                     onClick={() => setIsStyleModalOpen(true)}
-                    className="flex items-center gap-1 rounded-lg border border-slate-800 bg-slate-900/90 px-2 py-1 text-[11px] font-medium text-slate-300 hover:bg-slate-800 hover:text-white transition cursor-pointer"
+                    className="flex items-center gap-1 rounded-lg border border-border bg-surface px-2 py-1 text-[11px] font-medium text-text hover:bg-surface-2 hover:text-white transition cursor-pointer"
                   >
                     <Plus className="h-3 w-3" />
                     <span>Tạo</span>
@@ -424,7 +424,7 @@ Output NOTHING else. No analysis, no planning, no alternative titles, no word co
                     type="button"
                     onClick={handleDuplicateStyle}
                     disabled={!profile.videoStyleId}
-                    className="flex items-center gap-1 rounded-lg border border-slate-800 bg-slate-900/90 px-2 py-1 text-[11px] font-medium text-slate-300 hover:bg-slate-800 hover:text-white disabled:opacity-40 transition cursor-pointer"
+                    className="flex items-center gap-1 rounded-lg border border-border bg-surface px-2 py-1 text-[11px] font-medium text-text hover:bg-surface-2 hover:text-white disabled:opacity-40 transition cursor-pointer"
                   >
                     <Copy className="h-3 w-3" />
                     <span>Nhân bản</span>
@@ -444,7 +444,7 @@ Output NOTHING else. No analysis, no planning, no alternative titles, no word co
                       }
                     }}
                     disabled={!profile.videoStyleId}
-                    className="flex items-center gap-1 rounded-lg border border-slate-800 bg-slate-900/90 px-2 py-1 text-[11px] font-medium text-slate-300 hover:bg-slate-800 hover:text-white disabled:opacity-40 transition cursor-pointer"
+                    className="flex items-center gap-1 rounded-lg border border-border bg-surface px-2 py-1 text-[11px] font-medium text-text hover:bg-surface-2 hover:text-white disabled:opacity-40 transition cursor-pointer"
                   >
                     <Edit2 className="h-3 w-3" />
                     <span>Sửa</span>
@@ -453,7 +453,7 @@ Output NOTHING else. No analysis, no planning, no alternative titles, no word co
                     type="button"
                     onClick={handleDeleteStyle}
                     disabled={!profile.videoStyleId}
-                    className="flex items-center gap-1 rounded-lg border border-slate-800 bg-slate-900/90 px-2 py-1 text-[11px] font-medium text-rose-400 hover:bg-rose-950/40 hover:text-rose-300 disabled:opacity-40 transition cursor-pointer"
+                    className="flex items-center gap-1 rounded-lg border border-border bg-surface px-2 py-1 text-[11px] font-medium text-rose-400 hover:bg-rose-950/40 hover:text-rose-300 disabled:opacity-40 transition cursor-pointer"
                   >
                     <Trash2 className="h-3 w-3" />
                     <span>Xoá</span>
@@ -463,41 +463,41 @@ Output NOTHING else. No analysis, no planning, no alternative titles, no word co
 
               {/* 3. Ngách của kênh */}
               <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-slate-300">
-                  Ngách của kênh <span className="text-[10px] text-slate-500">(gõ cụ thể để khác biệt)</span>
+                <label className="text-xs font-semibold text-text">
+                  Ngách của kênh <span className="text-[10px] text-text-muted">(gõ cụ thể để khác biệt)</span>
                 </label>
                 <input
                   type="text"
                   value={profile.channelNiche}
                   onChange={(e) => handleChange('channelNiche', e.target.value)}
                   placeholder="Vd: Sinh tồn của thợ săn voi ma mút vùng Siberia"
-                  className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2.5 text-xs text-white placeholder:text-slate-600 focus:border-brand-cyan focus:outline-none focus:ring-1 focus:ring-brand-cyan"
+                  className="w-full rounded-md border border-border bg-bg px-3.5 py-2.5 text-xs text-white placeholder:text-text-faint focus:border-accent/40 focus:outline-none focus:ring-1 focus:ring-accent/30"
                 />
               </div>
             </div>
 
             {/* Kiểu chuỗi tập (chống trùng chủ đề) */}
             <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-slate-300">
-                Kiểu chuỗi tập <span className="text-[10px] text-slate-500">(chống trùng chủ đề)</span>
+              <label className="text-xs font-semibold text-text">
+                Kiểu chuỗi tập <span className="text-[10px] text-text-muted">(chống trùng chủ đề)</span>
               </label>
               <select
                 value={profile.seriesType}
                 onChange={(e) => handleChange('seriesType', e.target.value as ChannelSeriesType)}
-                className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2.5 text-xs text-white focus:border-brand-cyan focus:outline-none focus:ring-1 focus:ring-brand-cyan cursor-pointer"
+                className="w-full rounded-md border border-border bg-bg px-3.5 py-2.5 text-xs text-white focus:border-accent/40 focus:outline-none focus:ring-1 focus:ring-accent/30 cursor-pointer"
               >
                 <option value="anthology_new_topic">Tuyển tập — mỗi tập một chủ đề MỚI (khuyên dùng)</option>
                 <option value="connected_series">Series nhiều tập liên kết theo mạch truyện dài</option>
                 <option value="standalone">Video đơn lẻ độc lập theo từng yêu cầu</option>
               </select>
-              <p className="text-[11px] text-slate-500 italic">
+              <p className="text-[11px] text-text-muted italic">
                 Mỗi video sẽ về một vụ án/câu chuyện/chủ đề KHÁC HẲN — chỉ giữ chung phong cách &amp; giọng kênh. Tránh 3 video cùng 1 vụ án.
               </p>
             </div>
 
             {/* Warning Banner khi chưa nhập Mô tả & Định hướng */}
             {isMissingDescOrOrient && (
-              <div className="flex items-center gap-2.5 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-2.5 text-xs text-amber-300">
+              <div className="flex items-center gap-2.5 rounded-md border border-amber-500/30 bg-amber-500/10 px-4 py-2.5 text-xs text-amber-300">
                 <AlertTriangle className="h-4 w-4 shrink-0 text-amber-400" />
                 <span>
                   <strong className="font-semibold text-amber-200">Bạn chưa nhập Mô tả &amp; Định hướng</strong> — ý tưởng sẽ dễ chung chung và trùng với kênh khác. Nên điền 2 ô dưới.
@@ -508,41 +508,41 @@ Output NOTHING else. No analysis, no planning, no alternative titles, no word co
             {/* Hai ô Mô tả chi tiết kênh & Định hướng kênh */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-slate-300">
-                  Mô tả chi tiết kênh <span className="text-[10px] text-slate-500">(nói cụ thể về gì)</span>
+                <label className="text-xs font-semibold text-text">
+                  Mô tả chi tiết kênh <span className="text-[10px] text-text-muted">(nói cụ thể về gì)</span>
                 </label>
                 <textarea
                   rows={3}
                   value={profile.channelDescription}
                   onChange={(e) => handleChange('channelDescription', e.target.value)}
                   placeholder="Vd: Kênh kể chuyện sinh tồn của người tiền sử ở vùng băng giá — tập trung vào kỹ năng săn bắt, giữ lửa, và đời sống bộ lạc."
-                  className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2.5 text-xs text-white placeholder:text-slate-600 focus:border-brand-cyan focus:outline-none focus:ring-1 focus:ring-brand-cyan resize-none"
+                  className="w-full rounded-md border border-border bg-bg px-3.5 py-2.5 text-xs text-white placeholder:text-text-faint focus:border-accent/40 focus:outline-none focus:ring-1 focus:ring-accent/30 resize-none"
                 />
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-slate-300">
+                <label className="text-xs font-semibold text-text">
                   Định hướng kênh{' '}
-                  <span className="text-[10px] text-slate-500">(quyết định góc nhìn &amp; giọng của khâu đề xuất ý tưởng)</span>
+                  <span className="text-[10px] text-text-muted">(quyết định góc nhìn &amp; giọng của khâu đề xuất ý tưởng)</span>
                 </label>
                 <textarea
                   rows={3}
                   value={profile.channelOrientation}
                   onChange={(e) => handleChange('channelOrientation', e.target.value)}
                   placeholder="Vd: Nghiêng về cảm xúc &amp; kịch tính sinh tồn hơn là số liệu khoa học; khán giả phổ thông yêu thích lịch sử."
-                  className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2.5 text-xs text-white placeholder:text-slate-600 focus:border-brand-cyan focus:outline-none focus:ring-1 focus:ring-brand-cyan resize-none"
+                  className="w-full rounded-md border border-border bg-bg px-3.5 py-2.5 text-xs text-white placeholder:text-text-faint focus:border-accent/40 focus:outline-none focus:ring-1 focus:ring-accent/30 resize-none"
                 />
               </div>
             </div>
 
             {/* Master prompt viết kịch bản */}
-            <div className="rounded-2xl border border-slate-800/90 bg-slate-950/60 p-4 space-y-3">
+            <div className="rounded-lg border border-border bg-bg p-4 space-y-3">
               <div className="space-y-1">
                 <label className="text-xs font-bold text-amber-400">
                   Master prompt viết kịch bản{' '}
-                  <span className="font-normal text-slate-400">(quyết định toàn bộ giọng &amp; cấu trúc kịch bản)</span>
+                  <span className="font-normal text-text-muted">(quyết định toàn bộ giọng &amp; cấu trúc kịch bản)</span>
                 </label>
-                <p className="text-[11px] text-slate-500 leading-relaxed">
+                <p className="text-[11px] text-text-muted leading-relaxed">
                   Một prompt sản xuất hoàn chỉnh (300–600 dòng) gồm luật nguồn, kiến trúc beat và định dạng đầu ra. Khi có, nó THAY bộ não của kiểu video ở bước viết kịch bản — chỉ bước đó. Sinh ý tưởng, storyboard và SEO vẫn chạy bằng bộ não của kiểu video. Để trống thì kênh chạy hoàn toàn bằng bộ não đó.
                 </p>
               </div>
@@ -552,7 +552,7 @@ Output NOTHING else. No analysis, no planning, no alternative titles, no word co
                 value={profile.masterPrompt}
                 onChange={(e) => handleChange('masterPrompt', e.target.value)}
                 placeholder="Dán TRỌN một master prompt sản xuất vào đây — hoặc bấm “Tạo master prompt cho kênh này” bên dưới. Giữ nguyên {{CHANNEL_NAME}} và {{SOURCE_MATERIAL}}, hệ thống tự điền lúc chạy."
-                className="w-full font-mono rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2.5 text-xs text-slate-300 placeholder:text-slate-600 focus:border-brand-cyan focus:outline-none focus:ring-1 focus:ring-brand-cyan leading-relaxed"
+                className="w-full font-mono rounded-md border border-border bg-bg px-3.5 py-2.5 text-xs text-text placeholder:text-text-faint focus:border-accent/40 focus:outline-none focus:ring-1 focus:ring-accent/30 leading-relaxed"
               />
 
               {/* Action buttons under Master Prompt */}
@@ -562,7 +562,7 @@ Output NOTHING else. No analysis, no planning, no alternative titles, no word co
                     type="button"
                     onClick={handleGenerateMasterPrompt}
                     disabled={isGeneratingPrompt}
-                    className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-rose-500 via-amber-500 to-orange-500 px-4 py-2 text-xs font-bold text-white shadow-md hover:brightness-110 active:scale-95 disabled:opacity-50 transition cursor-pointer"
+                    className="inline-flex items-center gap-2 rounded-md bg-gradient-to-r from-rose-500 via-amber-500 to-orange-500 px-4 py-2 text-xs font-bold text-white hover:brightness-110 active:scale-95 disabled:opacity-50 transition cursor-pointer"
                   >
                     <Zap className={`h-3.5 w-3.5 ${isGeneratingPrompt ? 'animate-spin' : 'fill-current'}`} />
                     <span>{isGeneratingPrompt ? 'Đang tạo prompt...' : 'Tạo master prompt cho kênh này'}</span>
@@ -588,19 +588,19 @@ Output NOTHING else. No analysis, no planning, no alternative titles, no word co
             </div>
 
             {/* Checkbox: Tra cứu dữ kiện trước khi viết */}
-            <div className="rounded-xl border border-slate-800/80 bg-slate-950/40 p-3.5">
+            <div className="rounded-md border border-border bg-bg p-3.5">
               <label className="flex items-start gap-3 cursor-pointer select-none">
                 <input
                   type="checkbox"
                   checked={profile.researchFactBeforeWrite}
                   onChange={(e) => handleChange('researchFactBeforeWrite', e.target.checked)}
-                  className="mt-0.5 rounded border-slate-700 bg-slate-900 text-brand-cyan focus:ring-0 cursor-pointer"
+                  className="mt-0.5 rounded border-border bg-surface text-accent focus:ring-0 cursor-pointer"
                 />
                 <div className="space-y-0.5">
-                  <span className="text-xs font-semibold text-slate-200 flex items-center gap-1.5">
+                  <span className="text-xs font-semibold text-text flex items-center gap-1.5">
                     <span>🔎 Tra cứu dữ kiện trước khi viết</span>
                   </span>
-                  <p className="text-[11px] text-slate-500 leading-relaxed">
+                  <p className="text-[11px] text-text-muted leading-relaxed">
                     AI đi tra dữ kiện thật cho từng chủ đề rồi mới viết. Master prompt nào cũng có mục kỷ luật dữ kiện ĐÒI tư liệu — không có tư liệu thì nó từ chối viết, và video dừng ở bước Kịch bản. Chỉ tắt với kênh truyện hư cấu.
                   </p>
                 </div>
@@ -609,13 +609,13 @@ Output NOTHING else. No analysis, no planning, no alternative titles, no word co
 
             {/* AI chấm điểm & cải thiện kịch bản */}
             <div className="space-y-2">
-              <label className="text-xs font-semibold text-slate-300">
+              <label className="text-xs font-semibold text-text">
                 AI chấm điểm &amp; cải thiện kịch bản
               </label>
               <select
                 value={profile.evaluationLlm}
                 onChange={(e) => handleChange('evaluationLlm', e.target.value as ChannelEvaluationLlm)}
-                className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2.5 text-xs text-white focus:border-brand-cyan focus:outline-none focus:ring-1 focus:ring-brand-cyan cursor-pointer"
+                className="w-full rounded-md border border-border bg-bg px-3.5 py-2.5 text-xs text-white focus:border-accent/40 focus:outline-none focus:ring-1 focus:ring-accent/30 cursor-pointer"
               >
                 <option value="gemini_web">Gemini (web)</option>
                 <option value="chatgpt_web">ChatGPT (web)</option>
@@ -624,7 +624,7 @@ Output NOTHING else. No analysis, no planning, no alternative titles, no word co
               </select>
 
               {profile.evaluationLlm.includes('web') && (
-                <div className="flex items-start gap-2 rounded-xl border border-amber-500/20 bg-amber-500/5 px-3.5 py-2 text-[11px] text-amber-300/90 leading-relaxed">
+                <div className="flex items-start gap-2 rounded-md border border-amber-500/20 bg-amber-500/5 px-3.5 py-2 text-[11px] text-amber-300/90 leading-relaxed">
                   <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-400 mt-0.5" />
                   <span>
                     Bản web dùng phiên đăng nhập, một lượt chỉ nhận ~4.500 ký tự — không đủ cho cả bộ tiêu chí lẫn cả bài kịch bản, và cũng không trả nổi cả bài đã sửa. Chấm điểm và cải thiện sẽ báo lỗi. Chọn DeepSeek rồi nhập API key ở Cài đặt.
@@ -635,16 +635,16 @@ Output NOTHING else. No analysis, no planning, no alternative titles, no word co
 
             {/* Hook của kênh */}
             <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-slate-300">
+              <label className="text-xs font-semibold text-text">
                 Hook của kênh{' '}
-                <span className="text-[10px] text-slate-500">(câu chốt thương hiệu — AI lồng sau đoạn mở đầu)</span>
+                <span className="text-[10px] text-text-muted">(câu chốt thương hiệu — AI lồng sau đoạn mở đầu)</span>
               </label>
               <input
                 type="text"
                 value={profile.channelHook}
                 onChange={(e) => handleChange('channelHook', e.target.value)}
                 placeholder="Vd: Và tôi là Anh 3 Tài Chính - Người giúp bạn biến mọi thứ thành tiền."
-                className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2.5 text-xs text-white placeholder:text-slate-600 focus:border-brand-cyan focus:outline-none focus:ring-1 focus:ring-brand-cyan"
+                className="w-full rounded-md border border-border bg-bg px-3.5 py-2.5 text-xs text-white placeholder:text-text-faint focus:border-accent/40 focus:outline-none focus:ring-1 focus:ring-accent/30"
               />
             </div>
 
@@ -652,11 +652,11 @@ Output NOTHING else. No analysis, no planning, no alternative titles, no word co
             <div className="space-y-2">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-1.5">
-                  <label className="text-xs font-semibold text-slate-300">Độ dài Video dài mục tiêu</label>
+                  <label className="text-xs font-semibold text-text">Độ dài Video dài mục tiêu</label>
                   <select
                     value={profile.targetLongDuration}
                     onChange={(e) => handleChange('targetLongDuration', e.target.value as ChannelLongDuration)}
-                    className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2.5 text-xs text-white focus:border-brand-cyan focus:outline-none focus:ring-1 focus:ring-brand-cyan cursor-pointer"
+                    className="w-full rounded-md border border-border bg-bg px-3.5 py-2.5 text-xs text-white focus:border-accent/40 focus:outline-none focus:ring-1 focus:ring-accent/30 cursor-pointer"
                   >
                     <option value="1_3_min">1 - 3 phút</option>
                     <option value="3_5_min">3 - 5 phút (Mặc định)</option>
@@ -668,11 +668,11 @@ Output NOTHING else. No analysis, no planning, no alternative titles, no word co
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="text-xs font-semibold text-slate-300">Độ dài Shorts mục tiêu</label>
+                  <label className="text-xs font-semibold text-text">Độ dài Shorts mục tiêu</label>
                   <select
                     value={profile.targetShortDuration}
                     onChange={(e) => handleChange('targetShortDuration', e.target.value as ChannelShortDuration)}
-                    className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2.5 text-xs text-white focus:border-brand-cyan focus:outline-none focus:ring-1 focus:ring-brand-cyan cursor-pointer"
+                    className="w-full rounded-md border border-border bg-bg px-3.5 py-2.5 text-xs text-white focus:border-accent/40 focus:outline-none focus:ring-1 focus:ring-accent/30 cursor-pointer"
                   >
                     <option value="30_60_sec">30 - 60 giây</option>
                     <option value="60_90_sec">60 - 90 giây</option>
@@ -682,20 +682,20 @@ Output NOTHING else. No analysis, no planning, no alternative titles, no word co
                 </div>
               </div>
 
-              <p className="text-[11px] text-slate-500 italic">
+              <p className="text-[11px] text-text-muted italic">
                 Hai con số này là ĐỘ DÀI CHỐT của kênh — chúng đè cả độ dài mà ý tưởng ước lượng lẫn độ dài ghi trong Master prompt. Kênh dùng master prompt loại dài (18–28 phút) thì nhớ chọn mức tương ứng ở đây, nếu không kịch bản sẽ bị ép ngắn lại.
               </p>
             </div>
           </section>
 
-          <hr className="border-slate-800/80 my-2" />
+          <hr className="border-border my-2" />
 
           {/* ========================================================================= */}
           {/* PHẦN 2: GIỌNG & HÌNH */}
           {/* ========================================================================= */}
           <section className="space-y-5">
             <div className="flex items-center gap-2">
-              <div className="flex h-6 w-6 items-center justify-center rounded-full bg-cyan-500/20 text-cyan-400">
+              <div className="flex h-6 w-6 items-center justify-center rounded-full bg-accent/20 text-accent">
                 <Mic className="h-3.5 w-3.5" />
               </div>
               <h3 className="text-sm font-bold text-white tracking-wide">Giọng &amp; Hình</h3>
@@ -704,11 +704,11 @@ Output NOTHING else. No analysis, no planning, no alternative titles, no word co
             {/* Row 1: AI provider (văn bản) | Giọng đọc (TTS) | Giọng cụ thể */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-slate-300">AI provider (văn bản)</label>
+                <label className="text-xs font-semibold text-text">AI provider (văn bản)</label>
                 <select
                   value={profile.aiProvider}
                   onChange={(e) => handleChange('aiProvider', e.target.value as any)}
-                  className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2.5 text-xs text-white focus:border-brand-cyan focus:outline-none focus:ring-1 focus:ring-brand-cyan cursor-pointer"
+                  className="w-full rounded-md border border-border bg-bg px-3.5 py-2.5 text-xs text-white focus:border-accent/40 focus:outline-none focus:ring-1 focus:ring-accent/30 cursor-pointer"
                 >
                   <option value="default">Mặc định (theo Cài đặt chung)</option>
                   <option value="chatgpt_web">ChatGPT Web (Chế độ Tiết kiệm)</option>
@@ -720,7 +720,7 @@ Output NOTHING else. No analysis, no planning, no alternative titles, no word co
 
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
-                  <label className="text-xs font-semibold text-slate-300">Giọng đọc (TTS)</label>
+                  <label className="text-xs font-semibold text-text">Giọng đọc (TTS)</label>
                   {profile.ttsEngine === 'tiktok_tts' && (
                     <span className={`text-[10px] font-medium ${hasTikTokSession ? 'text-emerald-400' : 'text-amber-400'}`}>
                       {hasTikTokSession ? '✓ Session OK' : '⚠ Chưa lưu session'}
@@ -739,7 +739,7 @@ Output NOTHING else. No analysis, no planning, no alternative titles, no word co
                       handleChange('ttsEngine', nextEngine);
                     }
                   }}
-                  className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2.5 text-xs text-white focus:border-brand-cyan focus:outline-none focus:ring-1 focus:ring-brand-cyan cursor-pointer"
+                  className="w-full rounded-md border border-border bg-bg px-3.5 py-2.5 text-xs text-white focus:border-accent/40 focus:outline-none focus:ring-1 focus:ring-accent/30 cursor-pointer"
                 >
                   <option value="edge_tts">Edge-TTS (Việt Nam / Đa ngôn ngữ, miễn phí)</option>
                   <option value="tiktok_tts">TikTok TTS (Giọng từ Session TikTok)</option>
@@ -748,12 +748,12 @@ Output NOTHING else. No analysis, no planning, no alternative titles, no word co
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-slate-300">Giọng cụ thể</label>
+                <label className="text-xs font-semibold text-text">Giọng cụ thể</label>
                 {profile.ttsEngine === 'tiktok_tts' ? (
                   <select
                     value={profile.specificVoice || 'BV074_streaming'}
                     onChange={(e) => handleChange('specificVoice', e.target.value)}
-                    className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2.5 text-xs text-white focus:border-brand-cyan focus:outline-none focus:ring-1 focus:ring-brand-cyan cursor-pointer"
+                    className="w-full rounded-md border border-border bg-bg px-3.5 py-2.5 text-xs text-white focus:border-accent/40 focus:outline-none focus:ring-1 focus:ring-accent/30 cursor-pointer"
                   >
                     <option value="BV074_streaming">TikTok — Tiếng Việt Nữ (BV074)</option>
                     <option value="BV075_streaming">TikTok — Tiếng Việt Nam (BV075)</option>
@@ -764,7 +764,7 @@ Output NOTHING else. No analysis, no planning, no alternative titles, no word co
                   <select
                     value={profile.specificVoice || 'vi-VN-HoaiMyNeural'}
                     onChange={(e) => handleChange('specificVoice', e.target.value)}
-                    className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2.5 text-xs text-white focus:border-brand-cyan focus:outline-none focus:ring-1 focus:ring-brand-cyan cursor-pointer"
+                    className="w-full rounded-md border border-border bg-bg px-3.5 py-2.5 text-xs text-white focus:border-accent/40 focus:outline-none focus:ring-1 focus:ring-accent/30 cursor-pointer"
                   >
                     <option value="vi-VN-HoaiMyNeural">Hoài My (Nữ Hà Nội - Truyền cảm)</option>
                     <option value="vi-VN-NamMinhNeural">Nam Minh (Nam Hà Nội - Trầm ấm)</option>
@@ -777,11 +777,11 @@ Output NOTHING else. No analysis, no planning, no alternative titles, no word co
             {/* Row 2: Đồng bộ nhân vật | Vai của nhân vật đại diện | Ảnh nhân vật */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-slate-300">Đồng bộ nhân vật</label>
+                <label className="text-xs font-semibold text-text">Đồng bộ nhân vật</label>
                 <select
                   value={profile.characterSync}
                   onChange={(e) => handleChange('characterSync', e.target.value as ChannelCharacterSync)}
-                  className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2.5 text-xs text-white focus:border-brand-cyan focus:outline-none focus:ring-1 focus:ring-brand-cyan cursor-pointer"
+                  className="w-full rounded-md border border-border bg-bg px-3.5 py-2.5 text-xs text-white focus:border-accent/40 focus:outline-none focus:ring-1 focus:ring-accent/30 cursor-pointer"
                 >
                   <option value="per_video">Trong video (mỗi video một dàn)</option>
                   <option value="consistent_channel">Xuyên suốt các video của kênh</option>
@@ -790,18 +790,18 @@ Output NOTHING else. No analysis, no planning, no alternative titles, no word co
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-slate-300">Vai của nhân vật đại diện</label>
-                <div className="rounded-xl border border-slate-800 bg-slate-950/60 px-3.5 py-2.5 text-xs text-slate-500 italic">
+                <label className="text-xs font-semibold text-text">Vai của nhân vật đại diện</label>
+                <div className="rounded-md border border-border bg-bg px-3.5 py-2.5 text-xs text-text-muted italic">
                   {profile.characterRole || 'Kênh chưa có nhân vật đại diện — tạo ở tab Nhân vật trước.'}
                 </div>
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-slate-300">Ảnh nhân vật</label>
+                <label className="text-xs font-semibold text-text">Ảnh nhân vật</label>
                 <select
                   value={profile.characterImageMode}
                   onChange={(e) => handleChange('characterImageMode', e.target.value as ChannelCharacterImageMode)}
-                  className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2.5 text-xs text-white focus:border-brand-cyan focus:outline-none focus:ring-1 focus:ring-brand-cyan cursor-pointer"
+                  className="w-full rounded-md border border-border bg-bg px-3.5 py-2.5 text-xs text-white focus:border-accent/40 focus:outline-none focus:ring-1 focus:ring-accent/30 cursor-pointer"
                 >
                   <option value="ai_draw">AI tự vẽ (mặc định)</option>
                   <option value="upload_photo">Tải lên ảnh mẫu riêng</option>
@@ -812,17 +812,17 @@ Output NOTHING else. No analysis, no planning, no alternative titles, no word co
 
             {/* Row 3: Profile Chrome của kênh */}
             <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-slate-300">Profile Chrome của kênh</label>
+              <label className="text-xs font-semibold text-text">Profile Chrome của kênh</label>
               <select
                 value={profile.chromeProfile}
                 onChange={(e) => handleChange('chromeProfile', e.target.value)}
-                className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2.5 text-xs text-white focus:border-brand-cyan focus:outline-none focus:ring-1 focus:ring-brand-cyan cursor-pointer"
+                className="w-full rounded-md border border-border bg-bg px-3.5 py-2.5 text-xs text-white focus:border-accent/40 focus:outline-none focus:ring-1 focus:ring-accent/30 cursor-pointer"
               >
                 <option value="auto">Tự chọn (profile trống bất kỳ)</option>
                 <option value="profile_1">Profile 1 (Chính)</option>
                 <option value="profile_2">Profile 2 (Dự phòng)</option>
               </select>
-              <p className="text-[11px] text-slate-500 italic">
+              <p className="text-[11px] text-text-muted italic">
                 Video của kênh sẽ cố dùng đúng profile này (đang bận thì chờ). Nếu profile hết lượt/tắt mới tự chuyển sang profile khác.
               </p>
             </div>
@@ -830,11 +830,11 @@ Output NOTHING else. No analysis, no planning, no alternative titles, no word co
             {/* Row 4: Tạo ảnh/video bằng | Chế độ hình */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-slate-300">Tạo ảnh/video bằng</label>
+                <label className="text-xs font-semibold text-text">Tạo ảnh/video bằng</label>
                 <select
                   value={profile.visualEngine}
                   onChange={(e) => handleChange('visualEngine', e.target.value as any)}
-                  className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2.5 text-xs text-white focus:border-brand-cyan focus:outline-none focus:ring-1 focus:ring-brand-cyan cursor-pointer"
+                  className="w-full rounded-md border border-border bg-bg px-3.5 py-2.5 text-xs text-white focus:border-accent/40 focus:outline-none focus:ring-1 focus:ring-accent/30 cursor-pointer"
                 >
                   <option value="google_flow">Google Flow (Veo/Imagen)</option>
                   <option value="comfyui">ComfyUI / Stable Diffusion Local</option>
@@ -843,11 +843,11 @@ Output NOTHING else. No analysis, no planning, no alternative titles, no word co
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-slate-300">Chế độ hình</label>
+                <label className="text-xs font-semibold text-text">Chế độ hình</label>
                 <select
                   value={profile.visualMode}
                   onChange={(e) => handleChange('visualMode', e.target.value as ChannelVisualMode)}
-                  className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2.5 text-xs text-white focus:border-brand-cyan focus:outline-none focus:ring-1 focus:ring-brand-cyan cursor-pointer"
+                  className="w-full rounded-md border border-border bg-bg px-3.5 py-2.5 text-xs text-white focus:border-accent/40 focus:outline-none focus:ring-1 focus:ring-accent/30 cursor-pointer"
                 >
                   <option value="blend">Trộn ảnh + video</option>
                   <option value="image_only">Chỉ dùng ảnh tĩnh (Ken Burns)</option>
@@ -857,10 +857,10 @@ Output NOTHING else. No analysis, no planning, no alternative titles, no word co
             </div>
 
             {/* Row 4.1: Thư mục lưu trữ Ảnh & Video trên máy */}
-            <div className="rounded-2xl border border-slate-800 bg-[#070B14] p-3.5 space-y-2.5">
+            <div className="rounded-lg border border-border bg-[#070B14] p-3.5 space-y-2.5">
               <div className="flex items-center justify-between">
-                <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
-                  <FolderOpen className="h-3.5 w-3.5 text-brand-cyan" />
+                <label className="text-xs font-semibold text-text flex items-center gap-1.5">
+                  <FolderOpen className="h-3.5 w-3.5 text-accent" />
                   <span>Thư mục lưu trữ Ảnh &amp; Video trên máy</span>
                 </label>
                 {profile.customMediaDir && (
@@ -879,7 +879,7 @@ Output NOTHING else. No analysis, no planning, no alternative titles, no word co
                   readOnly
                   value={profile.customMediaDir || ''}
                   placeholder="Mặc định: Tự động lưu theo thư mục session dự án (/05_media)"
-                  className="flex-1 rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2 text-xs text-slate-300 placeholder:text-slate-600 focus:outline-none"
+                  className="flex-1 rounded-md border border-border bg-bg px-3.5 py-2 text-xs text-text placeholder:text-text-faint focus:outline-none"
                 />
                 <button
                   type="button"
@@ -893,7 +893,7 @@ Output NOTHING else. No analysis, no planning, no alternative titles, no word co
                       console.error('Lỗi chọn thư mục:', err);
                     }
                   }}
-                  className="rounded-xl border border-slate-700 bg-slate-800 hover:bg-slate-700 px-3 py-2 text-xs font-medium text-white transition cursor-pointer flex items-center gap-1 shrink-0"
+                  className="rounded-md border border-border bg-surface-2 hover:bg-surface-3 px-3 py-2 text-xs font-medium text-white transition cursor-pointer flex items-center gap-1 shrink-0"
                 >
                   <FolderOpen className="h-3.5 w-3.5" />
                   <span>Chọn thư mục...</span>
@@ -904,33 +904,33 @@ Output NOTHING else. No analysis, no planning, no alternative titles, no word co
                     onClick={() => {
                       (window as any).vanhsub?.dialog?.openFolder?.(profile.customMediaDir) || (window as any).electronAPI?.dialog?.openFolder?.(profile.customMediaDir);
                     }}
-                    className="rounded-xl border border-cyan-800/60 bg-cyan-950/40 hover:bg-cyan-900/60 px-3 py-2 text-xs font-medium text-cyan-300 transition cursor-pointer shrink-0"
+                    className="rounded-md border border-cyan-800/60 bg-surface-2 hover:bg-cyan-900/60 px-3 py-2 text-xs font-medium text-accent transition cursor-pointer shrink-0"
                     title="Mở thư mục trên máy tính"
                   >
                     Mở
                   </button>
                 )}
               </div>
-              <p className="text-[11px] text-slate-500 leading-relaxed">
+              <p className="text-[11px] text-text-muted leading-relaxed">
                 Toàn bộ ảnh (.png) và video (.mp4) sinh từ Google Flow sẽ được lưu trực tiếp vào thư mục này để tránh đầy ổ hệ thống và tiện sao chép, chỉnh sửa.
               </p>
             </div>
 
             {/* Row 4.2: Chế độ hiển thị cửa sổ Google Flow */}
             <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
+              <label className="text-xs font-semibold text-text flex items-center gap-1.5">
                 <Eye className="h-3.5 w-3.5 text-indigo-400" />
                 <span>Cửa sổ hiển thị Google Flow (Automation UI Mode)</span>
               </label>
               <select
                 value={profile.flowUiMode || 'offscreen'}
                 onChange={(e) => handleChange('flowUiMode', e.target.value as any)}
-                className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2.5 text-xs text-white focus:border-brand-cyan focus:outline-none focus:ring-1 focus:ring-brand-cyan cursor-pointer"
+                className="w-full rounded-md border border-border bg-bg px-3.5 py-2.5 text-xs text-white focus:border-accent/40 focus:outline-none focus:ring-1 focus:ring-accent/30 cursor-pointer"
               >
                 <option value="live_window">🖥️ Mở cửa sổ trực tiếp (Live Window) — Khuyến nghị để theo dõi quá trình AI tạo ảnh &amp; video</option>
                 <option value="offscreen">👻 Chạy ngầm (Offscreen) — Ẩn hoàn toàn cửa sổ dưới nền</option>
               </select>
-              <p className="text-[11px] text-slate-500 italic">
+              <p className="text-[11px] text-text-muted italic">
                 Khi chọn Live Window, bạn có thể thu nhỏ (-) cửa sổ Flow xuống Taskbar bất kỳ lúc nào mà không làm gián đoạn tiến trình.
               </p>
             </div>
@@ -939,31 +939,31 @@ Output NOTHING else. No analysis, no planning, no alternative titles, no word co
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {/* Số cảnh video */}
               <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-slate-300">
+                <label className="text-xs font-semibold text-text">
                   Số cảnh video{' '}
-                  <span className="text-[10px] text-slate-500">(Clip đắt và chậm hơn ảnh — nhập 0 cho phần nào thì phần đó toàn ảnh.)</span>
+                  <span className="text-[10px] text-text-muted">(Clip đắt và chậm hơn ảnh — nhập 0 cho phần nào thì phần đó toàn ảnh.)</span>
                 </label>
                 <div className="flex items-center gap-3">
                   <div className="flex items-center gap-2">
-                    <span className="text-xs text-slate-400">Mở đầu</span>
+                    <span className="text-xs text-text-muted">Mở đầu</span>
                     <input
                       type="number"
                       min={0}
                       max={20}
                       value={profile.videoScenesIntro}
                       onChange={(e) => handleChange('videoScenesIntro', parseInt(e.target.value) || 0)}
-                      className="w-16 rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-xs text-center text-white focus:border-brand-cyan focus:outline-none"
+                      className="w-16 rounded-md border border-border bg-bg px-3 py-2 text-xs text-center text-white focus:border-accent/40 focus:outline-none"
                     />
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="text-xs text-slate-400">Phần thân</span>
+                    <span className="text-xs text-text-muted">Phần thân</span>
                     <input
                       type="number"
                       min={0}
                       max={50}
                       value={profile.videoScenesBody}
                       onChange={(e) => handleChange('videoScenesBody', parseInt(e.target.value) || 0)}
-                      className="w-20 rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-xs text-center text-white focus:border-brand-cyan focus:outline-none"
+                      className="w-20 rounded-md border border-border bg-bg px-3 py-2 text-xs text-center text-white focus:border-accent/40 focus:outline-none"
                     />
                   </div>
                 </div>
@@ -971,9 +971,9 @@ Output NOTHING else. No analysis, no planning, no alternative titles, no word co
 
               {/* Thời gian ảnh tĩnh */}
               <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-slate-300">
+                <label className="text-xs font-semibold text-text">
                   Thời gian ảnh tĩnh{' '}
-                  <span className="text-[10px] text-slate-500">(Khoảng thời gian mỗi cảnh ảnh tĩnh (giây). Tăng lên để video dài tiết kiệm số lần tạo ảnh.)</span>
+                  <span className="text-[10px] text-text-muted">(Khoảng thời gian mỗi cảnh ảnh tĩnh (giây). Tăng lên để video dài tiết kiệm số lần tạo ảnh.)</span>
                 </label>
                 <div className="flex items-center gap-2">
                   <input
@@ -982,18 +982,18 @@ Output NOTHING else. No analysis, no planning, no alternative titles, no word co
                     max={30}
                     value={profile.staticImageDurationMin}
                     onChange={(e) => handleChange('staticImageDurationMin', parseInt(e.target.value) || 5)}
-                    className="w-16 rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-xs text-center text-white focus:border-brand-cyan focus:outline-none"
+                    className="w-16 rounded-md border border-border bg-bg px-3 py-2 text-xs text-center text-white focus:border-accent/40 focus:outline-none"
                   />
-                  <span className="text-xs text-slate-400">s —</span>
+                  <span className="text-xs text-text-muted">s —</span>
                   <input
                     type="number"
                     min={1}
                     max={60}
                     value={profile.staticImageDurationMax}
                     onChange={(e) => handleChange('staticImageDurationMax', parseInt(e.target.value) || 8)}
-                    className="w-16 rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-xs text-center text-white focus:border-brand-cyan focus:outline-none"
+                    className="w-16 rounded-md border border-border bg-bg px-3 py-2 text-xs text-center text-white focus:border-accent/40 focus:outline-none"
                   />
-                  <span className="text-xs text-slate-400">s</span>
+                  <span className="text-xs text-text-muted">s</span>
                 </div>
               </div>
             </div>
@@ -1001,11 +1001,11 @@ Output NOTHING else. No analysis, no planning, no alternative titles, no word co
             {/* Row 6: Model video | Model ảnh */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-slate-300">Model video</label>
+                <label className="text-xs font-semibold text-text">Model video</label>
                 <select
                   value={profile.videoModel}
                   onChange={(e) => handleChange('videoModel', e.target.value)}
-                  className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2.5 text-xs text-white focus:border-brand-cyan focus:outline-none focus:ring-1 focus:ring-brand-cyan cursor-pointer"
+                  className="w-full rounded-md border border-border bg-bg px-3.5 py-2.5 text-xs text-white focus:border-accent/40 focus:outline-none focus:ring-1 focus:ring-accent/30 cursor-pointer"
                 >
                   <optgroup label="🎬 Google Flow &amp; DeepMind (Khuyên dùng)">
                     <option value="Omni 1.1 Flash">Omni 1.1 Flash (Google Flow Video)</option>
@@ -1026,11 +1026,11 @@ Output NOTHING else. No analysis, no planning, no alternative titles, no word co
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-slate-300">Model ảnh</label>
+                <label className="text-xs font-semibold text-text">Model ảnh</label>
                 <select
                   value={profile.imageModel}
                   onChange={(e) => handleChange('imageModel', e.target.value)}
-                  className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2.5 text-xs text-white focus:border-brand-cyan focus:outline-none focus:ring-1 focus:ring-brand-cyan cursor-pointer"
+                  className="w-full rounded-md border border-border bg-bg px-3.5 py-2.5 text-xs text-white focus:border-accent/40 focus:outline-none focus:ring-1 focus:ring-accent/30 cursor-pointer"
                 >
                   <optgroup label="🍌 Google Flow &amp; Banana Studio (Khuyên dùng)">
                     <option value="⭐ Nano Banana 2">⭐ Nano Banana 2 (Google Flow)</option>
@@ -1054,11 +1054,11 @@ Output NOTHING else. No analysis, no planning, no alternative titles, no word co
         </div>
 
         {/* MODAL FOOTER */}
-        <div className="flex h-16 shrink-0 items-center justify-between border-t border-slate-800/80 bg-[#0F172A]/95 px-6 backdrop-blur-sm">
+        <div className="flex h-16 shrink-0 items-center justify-between border-t border-border bg-[#0F172A]/95 px-6">
           <div className="flex items-center gap-3">
-            <span className="text-xs text-slate-400">Thay đổi áp dụng cho ý tưởng / video mới.</span>
+            <span className="text-xs text-text-muted">Thay đổi áp dụng cho ý tưởng / video mới.</span>
             {profile.ttsEngine === 'kokoro_tts' && (
-              <span className="text-[11px] text-slate-500">Đang tải danh sách giọng kokoro...</span>
+              <span className="text-[11px] text-text-muted">Đang tải danh sách giọng kokoro...</span>
             )}
             {profile.ttsEngine === 'tiktok_tts' && (
               <span className={`text-[11px] flex items-center gap-1 ${hasTikTokSession ? 'text-emerald-400' : 'text-amber-400'}`}>
@@ -1072,7 +1072,7 @@ Output NOTHING else. No analysis, no planning, no alternative titles, no word co
               type="button"
               onClick={onClose}
               disabled={isSaving}
-              className="rounded-xl border border-slate-700/80 bg-slate-800 px-5 py-2.5 text-xs font-semibold text-slate-300 hover:bg-slate-700 hover:text-white transition cursor-pointer"
+              className="rounded-md border border-border bg-surface-2 px-5 py-2.5 text-xs font-semibold text-text hover:bg-surface-3 hover:text-white transition cursor-pointer"
             >
               Đóng
             </button>
@@ -1080,7 +1080,7 @@ Output NOTHING else. No analysis, no planning, no alternative titles, no word co
               type="button"
               onClick={handleSave}
               disabled={isSaving}
-              className="rounded-xl bg-[#F95738] hover:bg-[#E54324] px-6 py-2.5 text-xs font-bold text-white shadow-lg shadow-[#F95738]/25 hover:brightness-105 active:scale-95 transition cursor-pointer"
+              className="rounded-md bg-[#F95738] hover:bg-[#E54324] px-6 py-2.5 text-xs font-bold text-white shadow-[#F95738]/25 hover:brightness-105 active:scale-95 transition cursor-pointer"
             >
               {isSaving ? 'Đang lưu...' : 'Lưu cấu hình'}
             </button>
@@ -1090,30 +1090,30 @@ Output NOTHING else. No analysis, no planning, no alternative titles, no word co
         {/* POPUP MODAL: TẠO KIỂU VIDEO MỚI */}
         {isStyleModalOpen && (
           <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-            <div className="w-full max-w-md rounded-2xl border border-slate-700 bg-slate-900 p-5 space-y-4 shadow-2xl">
+            <div className="w-full max-w-md rounded-lg border border-border bg-surface p-5 space-y-4">
               <h4 className="text-sm font-bold text-white flex items-center gap-2">
-                <Plus className="h-4 w-4 text-brand-cyan" />
+                <Plus className="h-4 w-4 text-accent" />
                 <span>Tạo kiểu video (Bộ não AI) mới</span>
               </h4>
               <div className="space-y-3">
                 <div className="space-y-1">
-                  <label className="text-xs text-slate-300 font-medium">Tên kiểu video</label>
+                  <label className="text-xs text-text font-medium">Tên kiểu video</label>
                   <input
                     type="text"
                     value={newStyleName}
                     onChange={(e) => setNewStyleName(e.target.value)}
                     placeholder="Vd: Phóng sự điều tra kỳ án"
-                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white"
+                    className="w-full rounded-md border border-border bg-bg px-3 py-2 text-xs text-white"
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-xs text-slate-300 font-medium">Mô tả đặc trưng</label>
+                  <label className="text-xs text-text font-medium">Mô tả đặc trưng</label>
                   <input
                     type="text"
                     value={newStyleDesc}
                     onChange={(e) => setNewStyleDesc(e.target.value)}
                     placeholder="Vd: Dẫn dắt trinh thám hình sự, tiết tấu nghẹt thở..."
-                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white"
+                    className="w-full rounded-md border border-border bg-bg px-3 py-2 text-xs text-white"
                   />
                 </div>
               </div>
@@ -1121,7 +1121,7 @@ Output NOTHING else. No analysis, no planning, no alternative titles, no word co
                 <button
                   type="button"
                   onClick={() => setIsStyleModalOpen(false)}
-                  className="rounded-xl border border-slate-700 bg-slate-800 px-4 py-2 text-xs font-medium text-slate-300 hover:text-white"
+                  className="rounded-md border border-border bg-surface-2 px-4 py-2 text-xs font-medium text-text hover:text-white"
                 >
                   Hủy
                 </button>
@@ -1129,7 +1129,7 @@ Output NOTHING else. No analysis, no planning, no alternative titles, no word co
                   type="button"
                   onClick={handleAddStyle}
                   disabled={!newStyleName.trim()}
-                  className="btn-vanh-gradient rounded-xl px-4 py-2 text-xs font-bold text-white disabled:opacity-40"
+                  className="bg-accent text-white hover:bg-accent-hover rounded-md px-4 py-2 text-xs font-bold text-white disabled:opacity-40"
                 >
                   Thêm kiểu
                 </button>

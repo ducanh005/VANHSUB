@@ -137,16 +137,16 @@ export const OverlayMaskEditor: React.FC<OverlayMaskEditorProps> = ({
   return (
     <div className="grid gap-4 lg:grid-cols-2">
       {/* 1. Vùng che mờ đa điểm & Chỉnh tay (Multi-mask Bounding Boxes) */}
-      <div className="flex flex-col gap-3.5 rounded-2xl border border-slate-800 bg-slate-900/70 p-4">
+      <div className="flex flex-col gap-3.5 rounded-lg border border-border bg-surface p-4">
         {/* Header chính */}
-        <div className="flex items-center justify-between border-b border-slate-800/80 pb-3">
+        <div className="flex items-center justify-between border-b border-border pb-3">
           <div className="flex items-center gap-2">
-            <ShieldAlert className="h-4 w-4 text-brand-cyan" />
-            <span className="text-xs font-semibold text-slate-200">
+            <ShieldAlert className="h-4 w-4 text-accent" />
+            <span className="text-xs font-semibold text-text">
               Vùng che mờ đa điểm (Multi-mask Bounding Box)
             </span>
             {customMaskEnabled && (
-              <span className="rounded-full bg-brand-cyan/20 px-2 py-0.5 text-[10px] font-mono font-bold text-brand-cyan">
+              <span className="rounded-full bg-accent-tint px-2 py-0.5 text-[10px] font-mono font-bold text-accent">
                 {masksList.filter((m) => m.enabled !== false).length}/{masksList.length} vùng bật
               </span>
             )}
@@ -158,25 +158,25 @@ export const OverlayMaskEditor: React.FC<OverlayMaskEditorProps> = ({
               onChange={(e) => onToggleMask(e.target.checked)}
               className="sr-only peer"
             />
-            <div className="w-9 h-5 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-brand-cyan"></div>
+            <div className="w-9 h-5 bg-surface-2 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-accent"></div>
           </label>
         </div>
 
         {customMaskEnabled ? (
           <div className="flex flex-col gap-3.5">
             {/* Thanh danh sách các vùng che (Mask Tabs) */}
-            <div className="flex flex-col gap-2 rounded-xl border border-slate-800/90 bg-slate-950/60 p-2.5">
+            <div className="flex flex-col gap-2 rounded-md border border-border bg-bg p-2.5">
               <div className="flex items-center justify-between">
-                <span className="text-[11px] font-medium text-slate-400">Danh sách vùng che:</span>
+                <span className="text-[11px] font-medium text-text-muted">Danh sách vùng che:</span>
                 <div className="flex items-center gap-1.5">
                   {onDuplicateMask && (
                     <button
                       type="button"
                       onClick={() => onDuplicateMask(currentIdx)}
-                      className="inline-flex items-center gap-1 rounded-lg border border-slate-700 bg-slate-800 px-2 py-1 text-[11px] text-slate-300 hover:bg-slate-700 transition cursor-pointer"
+                      className="inline-flex items-center gap-1 rounded-lg border border-border bg-surface-2 px-2 py-1 text-[11px] text-text hover:bg-surface-3 transition cursor-pointer"
                       title="Nhân bản vùng che hiện tại"
                     >
-                      <Copy className="h-3 w-3 text-cyan-400" />
+                      <Copy className="h-3 w-3 text-accent" />
                       <span>Nhân bản</span>
                     </button>
                   )}
@@ -184,7 +184,7 @@ export const OverlayMaskEditor: React.FC<OverlayMaskEditorProps> = ({
                     <button
                       type="button"
                       onClick={onAddMask}
-                      className="inline-flex items-center gap-1 rounded-lg border border-brand-cyan/40 bg-brand-cyan/20 px-2.5 py-1 text-[11px] font-semibold text-brand-cyan hover:bg-brand-cyan/30 transition cursor-pointer"
+                      className="inline-flex items-center gap-1 rounded-lg border border-accent/40 bg-accent-tint px-2.5 py-1 text-[11px] font-semibold text-accent hover:bg-accent/30 transition cursor-pointer"
                       title="Thêm một vùng che mới"
                     >
                       <Plus className="h-3.5 w-3.5" />
@@ -205,8 +205,8 @@ export const OverlayMaskEditor: React.FC<OverlayMaskEditorProps> = ({
                       onClick={() => onSelectMask?.(idx)}
                       className={`group flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-[11px] font-medium transition cursor-pointer ${
                         isSelected
-                          ? 'border-brand-cyan/80 bg-brand-cyan/20 text-brand-cyan shadow-sm ring-1 ring-brand-cyan/40'
-                          : 'border-slate-800 bg-slate-800/60 text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                          ? 'border-accent/40 bg-accent-tint text-accent  ring-1 ring-accent/30'
+                          : 'border-border bg-surface-2 text-text-muted hover:bg-surface-2 hover:text-text'
                       }`}
                     >
                       {/* Bật/tắt riêng vùng này */}
@@ -220,8 +220,8 @@ export const OverlayMaskEditor: React.FC<OverlayMaskEditorProps> = ({
                             handleMaskChange({ enabled: !isItemEnabled });
                           }
                         }}
-                        className={`p-0.5 rounded hover:bg-slate-700/60 transition ${
-                          isItemEnabled ? 'text-cyan-400' : 'text-slate-600'
+                        className={`p-0.5 rounded hover:bg-surface-3/60 transition ${
+                          isItemEnabled ? 'text-accent' : 'text-text-faint'
                         }`}
                         title={isItemEnabled ? 'Vùng đang bật (click để tắt)' : 'Vùng đang tắt (click để bật)'}
                       >
@@ -251,22 +251,22 @@ export const OverlayMaskEditor: React.FC<OverlayMaskEditorProps> = ({
             </div>
 
             {/* Chi tiết chỉnh sửa vùng đang chọn */}
-            <div className="flex flex-col gap-3 rounded-xl border border-slate-800 bg-slate-900/90 p-3">
+            <div className="flex flex-col gap-3 rounded-md border border-border bg-surface p-3">
               {/* Tên vùng */}
               <div className="flex items-center gap-2">
-                <span className="text-[11px] text-slate-400 w-16 shrink-0">Tên vùng:</span>
+                <span className="text-[11px] text-text-muted w-16 shrink-0">Tên vùng:</span>
                 <input
                   type="text"
                   value={activeMask.name || `Vùng #${currentIdx + 1}`}
                   onChange={(e) => handleMaskChange({ name: e.target.value })}
                   placeholder="Ví dụ: Che logo góc phải, Che sub cũ..."
-                  className="flex-1 rounded-lg border border-slate-700 bg-slate-800/80 px-2.5 py-1 text-xs text-slate-200 placeholder-slate-500 focus:border-brand-cyan/60 focus:outline-none"
+                  className="flex-1 rounded-lg border border-border bg-surface-2 px-2.5 py-1 text-xs text-text placeholder-slate-500 focus:border-accent/40 focus:outline-none"
                 />
               </div>
 
               {/* 5 Kiểu che mờ */}
               <div>
-                <span className="text-[11px] text-slate-400 mb-1.5 block">Kiểu che mờ:</span>
+                <span className="text-[11px] text-text-muted mb-1.5 block">Kiểu che mờ:</span>
                 <div className="grid grid-cols-3 sm:grid-cols-5 gap-1.5">
                   {[
                     { mode: 'blur' as MaskMode, label: 'Làm mờ', icon: Sparkles, desc: 'Box Blur chuẩn' },
@@ -297,8 +297,8 @@ export const OverlayMaskEditor: React.FC<OverlayMaskEditorProps> = ({
                         }}
                         className={`flex flex-col items-center gap-1 rounded-lg border p-1.5 text-center transition cursor-pointer ${
                           isSelected
-                            ? 'border-brand-cyan/80 bg-brand-cyan/15 text-brand-cyan shadow-sm ring-1 ring-brand-cyan/40'
-                            : 'border-slate-800 bg-slate-800/50 text-slate-400 hover:text-white hover:bg-slate-800'
+                            ? 'border-accent/40 bg-accent/15 text-accent  ring-1 ring-accent/30'
+                            : 'border-border bg-surface-2 text-text-muted hover:text-white hover:bg-surface-2'
                         }`}
                         title={item.desc}
                       >
@@ -312,7 +312,7 @@ export const OverlayMaskEditor: React.FC<OverlayMaskEditorProps> = ({
 
               {/* Vị trí mẫu nhanh (Presets) */}
               <div>
-                <span className="text-[11px] text-slate-400 mb-1.5 block">Căn vị trí nhanh:</span>
+                <span className="text-[11px] text-text-muted mb-1.5 block">Căn vị trí nhanh:</span>
                 <div className="grid grid-cols-3 sm:grid-cols-6 gap-1">
                   {[
                     { id: 'bottom_sub', label: 'Đáy (Sub)' },
@@ -326,7 +326,7 @@ export const OverlayMaskEditor: React.FC<OverlayMaskEditorProps> = ({
                       key={p.id}
                       type="button"
                       onClick={() => applyPreset(p.id as any)}
-                      className="rounded border border-slate-700/80 bg-slate-800/60 px-1.5 py-1 text-[10px] font-medium text-slate-300 hover:border-brand-cyan/50 hover:bg-slate-800 hover:text-brand-cyan transition cursor-pointer text-center"
+                      className="rounded border border-border bg-surface-2 px-1.5 py-1 text-[10px] font-medium text-text hover:border-accent/40 hover:bg-surface-2 hover:text-accent transition cursor-pointer text-center"
                     >
                       {p.label}
                     </button>
@@ -337,8 +337,8 @@ export const OverlayMaskEditor: React.FC<OverlayMaskEditorProps> = ({
               {/* Tọa độ X, Y, W, H - Hỗ trợ cả Slider VÀ Gõ tay số % */}
               <div className="grid grid-cols-2 gap-3 pt-1">
                 {/* Vị trí X */}
-                <div className="rounded-lg border border-slate-800 bg-slate-950/40 p-2">
-                  <div className="flex items-center justify-between text-[11px] text-slate-400 mb-1">
+                <div className="rounded-lg border border-border bg-bg p-2">
+                  <div className="flex items-center justify-between text-[11px] text-text-muted mb-1">
                     <span>X (Trái):</span>
                     <div className="flex items-center gap-1">
                       <input
@@ -351,9 +351,9 @@ export const OverlayMaskEditor: React.FC<OverlayMaskEditorProps> = ({
                           const maxX = Math.max(0, 100 - (activeMask.widthPercent || 4));
                           handleMaskChange({ xPercent: Math.max(0, Math.min(maxX, Number(e.target.value) || 0)) });
                         }}
-                        className="w-12 rounded border border-slate-700 bg-slate-800 px-1 py-0.5 text-right font-mono text-[11px] text-brand-cyan focus:outline-none"
+                        className="w-12 rounded border border-border bg-surface-2 px-1 py-0.5 text-right font-mono text-[11px] text-accent focus:outline-none"
                       />
-                      <span className="font-mono text-slate-500">%</span>
+                      <span className="font-mono text-text-muted">%</span>
                     </div>
                   </div>
                   <input
@@ -363,13 +363,13 @@ export const OverlayMaskEditor: React.FC<OverlayMaskEditorProps> = ({
                     step={0.5}
                     value={activeMask.xPercent}
                     onChange={(e) => handleMaskChange({ xPercent: Number(e.target.value) })}
-                    className="w-full accent-cyan-400 h-1.5 bg-slate-800 rounded-lg cursor-pointer"
+                    className="w-full accent-accent h-1.5 bg-surface-2 rounded-lg cursor-pointer"
                   />
                 </div>
 
                 {/* Vị trí Y */}
-                <div className="rounded-lg border border-slate-800 bg-slate-950/40 p-2">
-                  <div className="flex items-center justify-between text-[11px] text-slate-400 mb-1">
+                <div className="rounded-lg border border-border bg-bg p-2">
+                  <div className="flex items-center justify-between text-[11px] text-text-muted mb-1">
                     <span>Y (Đỉnh):</span>
                     <div className="flex items-center gap-1">
                       <input
@@ -382,9 +382,9 @@ export const OverlayMaskEditor: React.FC<OverlayMaskEditorProps> = ({
                           const maxY = Math.max(0, 100 - (activeMask.heightPercent || 4));
                           handleMaskChange({ yPercent: Math.max(0, Math.min(maxY, Number(e.target.value) || 0)) });
                         }}
-                        className="w-12 rounded border border-slate-700 bg-slate-800 px-1 py-0.5 text-right font-mono text-brand-cyan focus:outline-none"
+                        className="w-12 rounded border border-border bg-surface-2 px-1 py-0.5 text-right font-mono text-accent focus:outline-none"
                       />
-                      <span className="font-mono text-slate-500">%</span>
+                      <span className="font-mono text-text-muted">%</span>
                     </div>
                   </div>
                   <input
@@ -394,13 +394,13 @@ export const OverlayMaskEditor: React.FC<OverlayMaskEditorProps> = ({
                     step={0.5}
                     value={activeMask.yPercent}
                     onChange={(e) => handleMaskChange({ yPercent: Number(e.target.value) })}
-                    className="w-full accent-cyan-400 h-1.5 bg-slate-800 rounded-lg cursor-pointer"
+                    className="w-full accent-accent h-1.5 bg-surface-2 rounded-lg cursor-pointer"
                   />
                 </div>
 
                 {/* Chiều rộng W */}
-                <div className="rounded-lg border border-slate-800 bg-slate-950/40 p-2">
-                  <div className="flex items-center justify-between text-[11px] text-slate-400 mb-1">
+                <div className="rounded-lg border border-border bg-bg p-2">
+                  <div className="flex items-center justify-between text-[11px] text-text-muted mb-1">
                     <span>Chiều rộng (W):</span>
                     <div className="flex items-center gap-1">
                       <input
@@ -413,9 +413,9 @@ export const OverlayMaskEditor: React.FC<OverlayMaskEditorProps> = ({
                           const maxW = Math.max(2, 100 - (activeMask.xPercent || 0));
                           handleMaskChange({ widthPercent: Math.max(2, Math.min(maxW, Number(e.target.value) || 2)) });
                         }}
-                        className="w-12 rounded border border-slate-700 bg-slate-800 px-1 py-0.5 text-right font-mono text-brand-cyan focus:outline-none"
+                        className="w-12 rounded border border-border bg-surface-2 px-1 py-0.5 text-right font-mono text-accent focus:outline-none"
                       />
-                      <span className="font-mono text-slate-500">%</span>
+                      <span className="font-mono text-text-muted">%</span>
                     </div>
                   </div>
                   <input
@@ -425,13 +425,13 @@ export const OverlayMaskEditor: React.FC<OverlayMaskEditorProps> = ({
                     step={0.5}
                     value={activeMask.widthPercent}
                     onChange={(e) => handleMaskChange({ widthPercent: Number(e.target.value) })}
-                    className="w-full accent-cyan-400 h-1.5 bg-slate-800 rounded-lg cursor-pointer"
+                    className="w-full accent-accent h-1.5 bg-surface-2 rounded-lg cursor-pointer"
                   />
                 </div>
 
                 {/* Chiều cao H */}
-                <div className="rounded-lg border border-slate-800 bg-slate-950/40 p-2">
-                  <div className="flex items-center justify-between text-[11px] text-slate-400 mb-1">
+                <div className="rounded-lg border border-border bg-bg p-2">
+                  <div className="flex items-center justify-between text-[11px] text-text-muted mb-1">
                     <span>Chiều cao (H):</span>
                     <div className="flex items-center gap-1">
                       <input
@@ -444,9 +444,9 @@ export const OverlayMaskEditor: React.FC<OverlayMaskEditorProps> = ({
                           const maxH = Math.max(2, 100 - (activeMask.yPercent || 0));
                           handleMaskChange({ heightPercent: Math.max(2, Math.min(maxH, Number(e.target.value) || 2)) });
                         }}
-                        className="w-12 rounded border border-slate-700 bg-slate-800 px-1 py-0.5 text-right font-mono text-brand-cyan focus:outline-none"
+                        className="w-12 rounded border border-border bg-surface-2 px-1 py-0.5 text-right font-mono text-accent focus:outline-none"
                       />
-                      <span className="font-mono text-slate-500">%</span>
+                      <span className="font-mono text-text-muted">%</span>
                     </div>
                   </div>
                   <input
@@ -456,19 +456,19 @@ export const OverlayMaskEditor: React.FC<OverlayMaskEditorProps> = ({
                     step={0.5}
                     value={activeMask.heightPercent}
                     onChange={(e) => handleMaskChange({ heightPercent: Number(e.target.value) })}
-                    className="w-full accent-cyan-400 h-1.5 bg-slate-800 rounded-lg cursor-pointer"
+                    className="w-full accent-accent h-1.5 bg-surface-2 rounded-lg cursor-pointer"
                   />
                 </div>
               </div>
 
               {/* Phím điều hướng vi chỉnh (D-pad nudge) */}
-              <div className="flex items-center justify-between rounded-lg border border-slate-800 bg-slate-950/50 px-3 py-2">
-                <span className="text-[10px] text-slate-400">Vi chỉnh vị trí (D-pad):</span>
+              <div className="flex items-center justify-between rounded-lg border border-border bg-bg px-3 py-2">
+                <span className="text-[10px] text-text-muted">Vi chỉnh vị trí (D-pad):</span>
                 <div className="flex items-center gap-1">
                   <button
                     type="button"
                     onClick={() => nudgeMask(-1, 0)}
-                    className="rounded bg-slate-800 p-1 text-slate-300 hover:bg-slate-700 hover:text-cyan-400 transition cursor-pointer"
+                    className="rounded bg-surface-2 p-1 text-text hover:bg-surface-3 hover:text-accent transition cursor-pointer"
                     title="Sang trái 1%"
                   >
                     <ChevronLeft className="h-3.5 w-3.5" />
@@ -477,7 +477,7 @@ export const OverlayMaskEditor: React.FC<OverlayMaskEditorProps> = ({
                     <button
                       type="button"
                       onClick={() => nudgeMask(0, -1)}
-                      className="rounded bg-slate-800 p-1 text-slate-300 hover:bg-slate-700 hover:text-cyan-400 transition cursor-pointer"
+                      className="rounded bg-surface-2 p-1 text-text hover:bg-surface-3 hover:text-accent transition cursor-pointer"
                       title="Lên trên 1%"
                     >
                       <ChevronUp className="h-3.5 w-3.5" />
@@ -485,7 +485,7 @@ export const OverlayMaskEditor: React.FC<OverlayMaskEditorProps> = ({
                     <button
                       type="button"
                       onClick={() => nudgeMask(0, 1)}
-                      className="rounded bg-slate-800 p-1 text-slate-300 hover:bg-slate-700 hover:text-cyan-400 transition cursor-pointer"
+                      className="rounded bg-surface-2 p-1 text-text hover:bg-surface-3 hover:text-accent transition cursor-pointer"
                       title="Xuống dưới 1%"
                     >
                       <ChevronDown className="h-3.5 w-3.5" />
@@ -494,7 +494,7 @@ export const OverlayMaskEditor: React.FC<OverlayMaskEditorProps> = ({
                   <button
                     type="button"
                     onClick={() => nudgeMask(1, 0)}
-                    className="rounded bg-slate-800 p-1 text-slate-300 hover:bg-slate-700 hover:text-cyan-400 transition cursor-pointer"
+                    className="rounded bg-surface-2 p-1 text-text hover:bg-surface-3 hover:text-accent transition cursor-pointer"
                     title="Sang phải 1%"
                   >
                     <ChevronRight className="h-3.5 w-3.5" />
@@ -506,9 +506,9 @@ export const OverlayMaskEditor: React.FC<OverlayMaskEditorProps> = ({
               <div className="grid grid-cols-2 gap-3">
                 {activeMask.mode === 'solid' ? (
                   <div>
-                    <div className="flex justify-between text-[11px] text-slate-400 mb-1">
+                    <div className="flex justify-between text-[11px] text-text-muted mb-1">
                       <span>Độ đục / Che kín:</span>
-                      <span className="font-mono text-brand-cyan">{activeMask.intensity ?? 100}%</span>
+                      <span className="font-mono text-accent">{activeMask.intensity ?? 100}%</span>
                     </div>
                     <input
                       type="range"
@@ -516,17 +516,17 @@ export const OverlayMaskEditor: React.FC<OverlayMaskEditorProps> = ({
                       max={100}
                       value={activeMask.intensity ?? 100}
                       onChange={(e) => handleMaskChange({ intensity: Number(e.target.value) })}
-                      className="w-full accent-cyan-400 h-1.5 bg-slate-800 rounded-lg cursor-pointer"
+                      className="w-full accent-accent h-1.5 bg-surface-2 rounded-lg cursor-pointer"
                     />
-                    <span className="text-[9px] text-slate-400 block mt-0.5">
+                    <span className="text-[9px] text-text-muted block mt-0.5">
                       {(activeMask.intensity ?? 100) >= 95 ? 'Đặc hoàn toàn (100% không nhìn xuyên)' : 'Đang có độ trong suốt nhẹ'}
                     </span>
                   </div>
                 ) : (
                   <div>
-                    <div className="flex justify-between text-[11px] text-slate-400 mb-1">
+                    <div className="flex justify-between text-[11px] text-text-muted mb-1">
                       <span>Cường độ mờ:</span>
-                      <span className="font-mono text-brand-cyan">{activeMask.intensity ?? 40}</span>
+                      <span className="font-mono text-accent">{activeMask.intensity ?? 40}</span>
                     </div>
                     <input
                       type="range"
@@ -534,16 +534,16 @@ export const OverlayMaskEditor: React.FC<OverlayMaskEditorProps> = ({
                       max={100}
                       value={activeMask.intensity ?? 40}
                       onChange={(e) => handleMaskChange({ intensity: Number(e.target.value) })}
-                      className="w-full accent-cyan-400 h-1.5 bg-slate-800 rounded-lg cursor-pointer"
+                      className="w-full accent-accent h-1.5 bg-surface-2 rounded-lg cursor-pointer"
                     />
                   </div>
                 )}
 
                 {(activeMask.mode === 'solid' || activeMask.mode === 'glass') && (
                   <div>
-                    <div className="flex justify-between text-[11px] text-slate-400 mb-1">
+                    <div className="flex justify-between text-[11px] text-text-muted mb-1">
                       <span>Màu sắc che phủ:</span>
-                      <span className="font-mono text-brand-cyan">{activeMask.colorHex || '#000000'}</span>
+                      <span className="font-mono text-accent">{activeMask.colorHex || '#000000'}</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <input
@@ -559,7 +559,7 @@ export const OverlayMaskEditor: React.FC<OverlayMaskEditorProps> = ({
                             type="button"
                             onClick={() => handleMaskChange({ colorHex: c })}
                             style={{ backgroundColor: c }}
-                            className="h-5 w-5 rounded border border-slate-700 hover:scale-110 transition cursor-pointer"
+                            className="h-5 w-5 rounded border border-border hover:scale-110 transition cursor-pointer"
                             title={c}
                           />
                         ))}
@@ -570,18 +570,18 @@ export const OverlayMaskEditor: React.FC<OverlayMaskEditorProps> = ({
               </div>
 
               {/* Khung thời gian hiệu lực */}
-              <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-2.5">
+              <div className="rounded-md border border-border bg-bg p-2.5">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-[11px] font-medium text-slate-300">
+                  <span className="text-[11px] font-medium text-text">
                     Thời gian áp dụng (giây):
                   </span>
-                  <span className="text-[10px] text-slate-500">
+                  <span className="text-[10px] text-text-muted">
                     (Bỏ trống / 0 = suốt toàn video)
                   </span>
                 </div>
                 <div className="grid grid-cols-2 gap-2 text-xs">
                   <div className="flex items-center gap-1.5">
-                    <span className="text-[10px] text-slate-400">Từ:</span>
+                    <span className="text-[10px] text-text-muted">Từ:</span>
                     <input
                       type="number"
                       min={0}
@@ -593,19 +593,19 @@ export const OverlayMaskEditor: React.FC<OverlayMaskEditorProps> = ({
                           startSec: e.target.value ? Number(e.target.value) : undefined,
                         })
                       }
-                      className="w-full rounded-lg border border-slate-700 bg-slate-800 px-2 py-1 text-xs text-slate-200"
+                      className="w-full rounded-lg border border-border bg-surface-2 px-2 py-1 text-xs text-text"
                     />
                     <button
                       type="button"
                       onClick={() => handleMaskChange({ startSec: Math.round(currentVideoTime * 10) / 10 })}
-                      className="p-1 rounded bg-slate-800 text-slate-400 hover:text-brand-cyan transition cursor-pointer"
+                      className="p-1 rounded bg-surface-2 text-text-muted hover:text-accent transition cursor-pointer"
                       title="Lấy thời gian hiện tại của video"
                     >
                       <Clock className="h-3.5 w-3.5" />
                     </button>
                   </div>
                   <div className="flex items-center gap-1.5">
-                    <span className="text-[10px] text-slate-400">Đến:</span>
+                    <span className="text-[10px] text-text-muted">Đến:</span>
                     <input
                       type="number"
                       min={0}
@@ -617,12 +617,12 @@ export const OverlayMaskEditor: React.FC<OverlayMaskEditorProps> = ({
                           endSec: e.target.value ? Number(e.target.value) : undefined,
                         })
                       }
-                      className="w-full rounded-lg border border-slate-700 bg-slate-800 px-2 py-1 text-xs text-slate-200"
+                      className="w-full rounded-lg border border-border bg-surface-2 px-2 py-1 text-xs text-text"
                     />
                     <button
                       type="button"
                       onClick={() => handleMaskChange({ endSec: Math.round(currentVideoTime * 10) / 10 })}
-                      className="p-1 rounded bg-slate-800 text-slate-400 hover:text-brand-cyan transition cursor-pointer"
+                      className="p-1 rounded bg-surface-2 text-text-muted hover:text-accent transition cursor-pointer"
                       title="Lấy thời gian hiện tại của video"
                     >
                       <Clock className="h-3.5 w-3.5" />
@@ -633,18 +633,18 @@ export const OverlayMaskEditor: React.FC<OverlayMaskEditorProps> = ({
             </div>
           </div>
         ) : (
-          <p className="text-xs leading-relaxed text-slate-500 py-2">
+          <p className="text-xs leading-relaxed text-text-muted py-2">
             Bật tính năng này để thêm nhiều vùng che mờ tự do, che logo kênh, chữ quảng cáo hoặc phụ đề cũ với 5 kiểu che mờ (Gaussian Blur, Kính mờ, Điểm ảnh, Tô màu).
           </p>
         )}
       </div>
 
       {/* 2. Watermark / Logo thương hiệu */}
-      <div className="flex flex-col gap-3 rounded-2xl border border-slate-800 bg-slate-900/70 p-4">
-        <div className="flex items-center justify-between border-b border-slate-800/80 pb-3">
+      <div className="flex flex-col gap-3 rounded-lg border border-border bg-surface p-4">
+        <div className="flex items-center justify-between border-b border-border pb-3">
           <div className="flex items-center gap-2">
-            <Layers className="h-4 w-4 text-brand-cyan" />
-            <span className="text-xs font-semibold text-slate-200">
+            <Layers className="h-4 w-4 text-accent" />
+            <span className="text-xs font-semibold text-text">
               Watermark / Logo thương hiệu
             </span>
           </div>
@@ -655,7 +655,7 @@ export const OverlayMaskEditor: React.FC<OverlayMaskEditorProps> = ({
               onChange={(e) => onToggleWatermark(e.target.checked)}
               className="sr-only peer"
             />
-            <div className="w-9 h-5 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-brand-cyan"></div>
+            <div className="w-9 h-5 bg-surface-2 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-accent"></div>
           </label>
         </div>
 
@@ -663,15 +663,15 @@ export const OverlayMaskEditor: React.FC<OverlayMaskEditorProps> = ({
           <div className="flex flex-col gap-3">
             {/* Loại watermark: Text vs Image */}
             <div className="flex items-center gap-2">
-              <span className="text-xs text-slate-400">Loại:</span>
-              <div className="flex rounded-lg border border-slate-700 bg-slate-800/80 p-0.5">
+              <span className="text-xs text-text-muted">Loại:</span>
+              <div className="flex rounded-lg border border-border bg-surface-2 p-0.5">
                 <button
                   type="button"
                   onClick={() => onChangeWatermark({ type: 'text' })}
                   className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[11px] font-medium transition cursor-pointer ${
                     watermark.type === 'text'
-                      ? 'bg-brand-cyan/20 text-brand-cyan shadow-sm'
-                      : 'text-slate-400 hover:text-white'
+                      ? 'bg-accent-tint text-accent '
+                      : 'text-text-muted hover:text-white'
                   }`}
                 >
                   <Type className="h-3 w-3" />
@@ -682,8 +682,8 @@ export const OverlayMaskEditor: React.FC<OverlayMaskEditorProps> = ({
                   onClick={() => onChangeWatermark({ type: 'image' })}
                   className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[11px] font-medium transition cursor-pointer ${
                     watermark.type === 'image'
-                      ? 'bg-brand-cyan/20 text-brand-cyan shadow-sm'
-                      : 'text-slate-400 hover:text-white'
+                      ? 'bg-accent-tint text-accent '
+                      : 'text-text-muted hover:text-white'
                   }`}
                 >
                   <ImageIcon className="h-3 w-3" />
@@ -695,7 +695,7 @@ export const OverlayMaskEditor: React.FC<OverlayMaskEditorProps> = ({
             {/* Nội dung text hoặc chọn ảnh */}
             {watermark.type === 'text' ? (
               <div>
-                <label className="mb-1 block text-[11px] font-medium text-slate-400">
+                <label className="mb-1 block text-[11px] font-medium text-text-muted">
                   Nội dung chữ:
                 </label>
                 <input
@@ -703,25 +703,25 @@ export const OverlayMaskEditor: React.FC<OverlayMaskEditorProps> = ({
                   placeholder="Ví dụ: @vanhsub_official"
                   value={watermark.content || ''}
                   onChange={(e) => onChangeWatermark({ content: e.target.value })}
-                  className="w-full rounded-xl border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:border-brand-cyan/60 focus:outline-none"
+                  className="w-full rounded-md border border-border bg-surface-2 px-3 py-1.5 text-xs text-text placeholder-slate-500 focus:border-accent/40 focus:outline-none"
                 />
               </div>
             ) : (
               <div>
-                <label className="mb-1 block text-[11px] font-medium text-slate-400">
+                <label className="mb-1 block text-[11px] font-medium text-text-muted">
                   File ảnh logo (PNG, JPG, WebP):
                 </label>
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
                     onClick={handleSelectImage}
-                    className="inline-flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs font-medium text-slate-200 hover:bg-slate-700 transition cursor-pointer shrink-0"
+                    className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface-2 px-3 py-1.5 text-xs font-medium text-text hover:bg-surface-3 transition cursor-pointer shrink-0"
                   >
-                    <FolderOpen className="h-3.5 w-3.5 text-brand-cyan" />
+                    <FolderOpen className="h-3.5 w-3.5 text-accent" />
                     <span>Chọn ảnh...</span>
                   </button>
                   <span
-                    className="flex-1 truncate font-mono text-[11px] text-slate-400"
+                    className="flex-1 truncate font-mono text-[11px] text-text-muted"
                     title={watermark.content}
                   >
                     {watermark.content
@@ -735,7 +735,7 @@ export const OverlayMaskEditor: React.FC<OverlayMaskEditorProps> = ({
             {/* Vị trí watermark: Cố định hoặc Chuyển động */}
             <div>
               <div className="flex items-center justify-between mb-1.5">
-                <label className="text-[11px] font-medium text-slate-400">Vị trí hiển thị:</label>
+                <label className="text-[11px] font-medium text-text-muted">Vị trí hiển thị:</label>
                 {(watermark.position === 'floating' || watermark.position === 'bounce') && (
                   <span className="flex items-center gap-1 rounded bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold text-amber-400 border border-amber-500/30">
                     <Activity className="h-2.5 w-2.5 animate-spin" />
@@ -749,10 +749,10 @@ export const OverlayMaskEditor: React.FC<OverlayMaskEditorProps> = ({
                 <button
                   type="button"
                   onClick={() => onChangeWatermark({ position: 'floating' })}
-                  className={`flex items-center justify-center gap-1.5 rounded-xl border p-2 text-center text-[11px] font-medium transition cursor-pointer ${
+                  className={`flex items-center justify-center gap-1.5 rounded-md border p-2 text-center text-[11px] font-medium transition cursor-pointer ${
                     watermark.position === 'floating'
-                      ? 'border-amber-400 bg-amber-500/20 text-amber-300 shadow-sm ring-1 ring-amber-400/40'
-                      : 'border-slate-800 bg-slate-800/60 text-slate-300 hover:bg-slate-800 hover:text-white'
+                      ? 'border-amber-400 bg-amber-500/20 text-amber-300  ring-1 ring-amber-400/40'
+                      : 'border-border bg-surface-2 text-text hover:bg-surface-2 hover:text-white'
                   }`}
                 >
                   <Waves className="h-3.5 w-3.5 text-amber-400" />
@@ -761,10 +761,10 @@ export const OverlayMaskEditor: React.FC<OverlayMaskEditorProps> = ({
                 <button
                   type="button"
                   onClick={() => onChangeWatermark({ position: 'bounce' })}
-                  className={`flex items-center justify-center gap-1.5 rounded-xl border p-2 text-center text-[11px] font-medium transition cursor-pointer ${
+                  className={`flex items-center justify-center gap-1.5 rounded-md border p-2 text-center text-[11px] font-medium transition cursor-pointer ${
                     watermark.position === 'bounce'
-                      ? 'border-amber-400 bg-amber-500/20 text-amber-300 shadow-sm ring-1 ring-amber-400/40'
-                      : 'border-slate-800 bg-slate-800/60 text-slate-300 hover:bg-slate-800 hover:text-white'
+                      ? 'border-amber-400 bg-amber-500/20 text-amber-300  ring-1 ring-amber-400/40'
+                      : 'border-border bg-surface-2 text-text hover:bg-surface-2 hover:text-white'
                   }`}
                 >
                   <Activity className="h-3.5 w-3.5 text-amber-400" />
@@ -787,8 +787,8 @@ export const OverlayMaskEditor: React.FC<OverlayMaskEditorProps> = ({
                     onClick={() => onChangeWatermark({ position: pos.id as any })}
                     className={`rounded-lg border px-2 py-1.5 text-center text-[11px] font-medium transition cursor-pointer ${
                       watermark.position === pos.id
-                        ? 'border-brand-cyan/70 bg-brand-cyan/15 text-brand-cyan shadow-sm'
-                        : 'border-slate-800 bg-slate-800/60 text-slate-400 hover:text-white'
+                        ? 'border-accent/40 bg-accent/15 text-accent '
+                        : 'border-border bg-surface-2 text-text-muted hover:text-white'
                     }`}
                   >
                     {pos.label}
@@ -799,10 +799,10 @@ export const OverlayMaskEditor: React.FC<OverlayMaskEditorProps> = ({
 
             {/* Tốc độ di chuyển nếu bật chạy khắp màn hình */}
             {(watermark.position === 'floating' || watermark.position === 'bounce') && (
-              <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-2.5">
+              <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-2.5">
                 <div className="flex items-center justify-between mb-1.5">
                   <span className="text-[11px] font-medium text-amber-300">Tốc độ chạy:</span>
-                  <span className="text-[10px] text-slate-400">
+                  <span className="text-[10px] text-text-muted">
                     {watermark.speed === 'slow' ? 'Chậm êm dịu' : watermark.speed === 'fast' ? 'Nhanh' : 'Tiêu chuẩn'}
                   </span>
                 </div>
@@ -819,7 +819,7 @@ export const OverlayMaskEditor: React.FC<OverlayMaskEditorProps> = ({
                       className={`rounded-lg border px-2 py-1 text-center text-[11px] font-medium transition cursor-pointer ${
                         (watermark.speed || 'medium') === s.id
                           ? 'border-amber-400/80 bg-amber-500/20 text-amber-300'
-                          : 'border-slate-700 bg-slate-800/80 text-slate-400 hover:text-white'
+                          : 'border-border bg-surface-2 text-text-muted hover:text-white'
                       }`}
                     >
                       {s.label}
@@ -832,9 +832,9 @@ export const OverlayMaskEditor: React.FC<OverlayMaskEditorProps> = ({
             {/* Độ mờ (Opacity) & Tỉ lệ kích thước (Scale) */}
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <div className="flex justify-between text-[11px] text-slate-400 mb-1">
+                <div className="flex justify-between text-[11px] text-text-muted mb-1">
                   <span>Độ mờ (Opacity):</span>
-                  <span className="font-mono text-brand-cyan">
+                  <span className="font-mono text-accent">
                     {Math.round((watermark.opacity ?? 0.8) * 100)}%
                   </span>
                 </div>
@@ -844,14 +844,14 @@ export const OverlayMaskEditor: React.FC<OverlayMaskEditorProps> = ({
                   max={100}
                   value={Math.round((watermark.opacity ?? 0.8) * 100)}
                   onChange={(e) => onChangeWatermark({ opacity: Number(e.target.value) / 100 })}
-                  className="w-full accent-cyan-400 h-1.5 bg-slate-800 rounded-lg cursor-pointer"
+                  className="w-full accent-accent h-1.5 bg-surface-2 rounded-lg cursor-pointer"
                 />
               </div>
 
               <div>
-                <div className="flex justify-between text-[11px] text-slate-400 mb-1">
+                <div className="flex justify-between text-[11px] text-text-muted mb-1">
                   <span>Kích thước tỉ lệ:</span>
-                  <span className="font-mono text-brand-cyan">
+                  <span className="font-mono text-accent">
                     {watermark.scalePercent ?? 18}%
                   </span>
                 </div>
@@ -861,13 +861,13 @@ export const OverlayMaskEditor: React.FC<OverlayMaskEditorProps> = ({
                   max={45}
                   value={watermark.scalePercent ?? 18}
                   onChange={(e) => onChangeWatermark({ scalePercent: Number(e.target.value) })}
-                  className="w-full accent-cyan-400 h-1.5 bg-slate-800 rounded-lg cursor-pointer"
+                  className="w-full accent-accent h-1.5 bg-surface-2 rounded-lg cursor-pointer"
                 />
               </div>
             </div>
           </div>
         ) : (
-          <p className="text-xs leading-relaxed text-slate-500 py-2">
+          <p className="text-xs leading-relaxed text-text-muted py-2">
             Bật tính năng này để chèn logo công ty, kênh TikTok, YouTube hoặc watermark bản quyền lên video. Hỗ trợ chế độ chạy lượn khắp màn hình chống cắt crop re-up!
           </p>
         )}

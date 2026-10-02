@@ -246,12 +246,12 @@ export default function ChannelSkillModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-md p-4 animate-in fade-in duration-200">
-      <div className="relative flex max-h-[92vh] w-full max-w-4xl flex-col rounded-2xl border border-slate-800 bg-[#0B0F17] shadow-2xl">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-4 animate-in fade-in duration-200">
+      <div className="relative flex max-h-[92vh] w-full max-w-4xl flex-col rounded-lg border border-border bg-[#0B0F17]">
         {/* HEADER */}
-        <div className="flex h-16 shrink-0 items-center justify-between border-b border-slate-800/80 px-6">
+        <div className="flex h-16 shrink-0 items-center justify-between border-b border-border px-6">
           <div className="flex items-center gap-2.5">
-            <Sparkles className="h-5 w-5 text-brand-cyan" />
+            <Sparkles className="h-5 w-5 text-accent" />
             <h2 className="text-base font-bold text-white tracking-wide">
               Skill tạo master prompt
             </h2>
@@ -259,25 +259,25 @@ export default function ChannelSkillModal({
           <button
             type="button"
             onClick={onClose}
-            className="flex h-8 w-8 items-center justify-center rounded-xl bg-slate-900 border border-slate-800 text-slate-400 hover:text-white hover:border-slate-700 transition cursor-pointer"
+            className="flex h-8 w-8 items-center justify-center rounded-md bg-surface border border-border text-text-muted hover:text-white hover:border-border transition cursor-pointer"
           >
             <X className="h-4 w-4" />
           </button>
         </div>
 
         {/* SUB-HEADER / INSTRUCTIONS BAR (Match Screenshot) */}
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800/60 bg-[#090D14] px-6 py-3 text-xs">
-          <p className="text-slate-400">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-[#090D14] px-6 py-3 text-xs">
+          <p className="text-text-muted">
             1. Sao chép toàn bộ skill. 2. Dán vào ChatGPT/Claude/Gemini kèm mô tả kênh của bạn. 3. Dán kết quả nhận được vào ô Master prompt.
           </p>
-          <div className="flex items-center gap-1.5 bg-slate-950 p-1 rounded-xl border border-slate-800">
+          <div className="flex items-center gap-1.5 bg-bg p-1 rounded-md border border-border">
             <button
               type="button"
               onClick={() => setViewMode('filled')}
               className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition cursor-pointer ${
                 viewMode === 'filled'
-                  ? 'bg-brand-cyan/20 text-brand-cyan border border-brand-cyan/30'
-                  : 'text-slate-400 hover:text-white'
+                  ? 'bg-accent-tint text-accent border border-accent/40'
+                  : 'text-text-muted hover:text-white'
               }`}
             >
               Đã điền thông tin kênh
@@ -287,8 +287,8 @@ export default function ChannelSkillModal({
               onClick={() => setViewMode('template')}
               className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition cursor-pointer ${
                 viewMode === 'template'
-                  ? 'bg-brand-cyan/20 text-brand-cyan border border-brand-cyan/30'
-                  : 'text-slate-400 hover:text-white'
+                  ? 'bg-accent-tint text-accent border border-accent/40'
+                  : 'text-text-muted hover:text-white'
               }`}
             >
               Template gốc
@@ -297,21 +297,21 @@ export default function ChannelSkillModal({
         </div>
 
         {/* CONTENT (Scrollable code-like container) */}
-        <div className="flex-1 overflow-y-auto p-6 font-mono text-[13px] leading-relaxed text-slate-200 selection:bg-brand-cyan/30 selection:text-white">
+        <div className="flex-1 overflow-y-auto p-6 font-mono text-[13px] leading-relaxed text-text selection:bg-accent/30 selection:text-white">
           <pre className="whitespace-pre-wrap font-sans break-words bg-transparent select-text">
             {contentToDisplay}
           </pre>
         </div>
 
         {/* FOOTER ACTION BAR */}
-        <div className="flex h-16 shrink-0 items-center justify-between border-t border-slate-800/80 bg-[#0B0F17]/95 px-6">
+        <div className="flex h-16 shrink-0 items-center justify-between border-t border-border bg-[#0B0F17]/95 px-6">
           <div className="flex items-center gap-2 text-xs">
             {copied ? (
               <span className="flex items-center gap-1.5 text-emerald-400 font-semibold animate-pulse">
                 <Check className="h-4 w-4" /> Đã sao chép vào bộ nhớ tạm!
               </span>
             ) : (
-              <span className="text-slate-400 text-xs">
+              <span className="text-text-muted text-xs">
                 {viewMode === 'filled'
                   ? '✓ Đã tự động thay thế tên kênh, ngách và định hướng của bạn'
                   : '✓ Bản template chuẩn chứa các biến giữ chỗ [[...]]'}
@@ -323,7 +323,7 @@ export default function ChannelSkillModal({
             <button
               type="button"
               onClick={onClose}
-              className="rounded-xl border border-slate-700/80 bg-slate-800 px-4 py-2 text-xs font-semibold text-slate-300 hover:bg-slate-700 hover:text-white transition cursor-pointer"
+              className="rounded-md border border-border bg-surface-2 px-4 py-2 text-xs font-semibold text-text hover:bg-surface-3 hover:text-white transition cursor-pointer"
             >
               Đóng
             </button>
@@ -332,7 +332,7 @@ export default function ChannelSkillModal({
             <button
               type="button"
               onClick={handleCopy}
-              className="flex items-center gap-2 rounded-xl bg-[#FA5252] hover:bg-[#E03131] px-6 py-2.5 text-xs font-bold text-white shadow-lg shadow-red-500/20 active:scale-95 transition cursor-pointer"
+              className="flex items-center gap-2 rounded-md bg-[#FA5252] hover:bg-[#E03131] px-6 py-2.5 text-xs font-bold text-white shadow-red-500/20 active:scale-95 transition cursor-pointer"
             >
               {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
               <span>{copied ? 'Đã sao chép' : 'Sao chép'}</span>

@@ -259,11 +259,11 @@ export default function StoryboardDirectorStudio({
   };
 
   return (
-    <div className="fixed inset-0 z-40 bg-slate-950/95 backdrop-blur-xl flex flex-col text-slate-200">
+    <div className="fixed inset-0 z-40 bg-bg flex flex-col text-text">
       {/* Top Header */}
-      <div className="h-14 px-6 border-b border-slate-800 flex items-center justify-between bg-slate-900/60">
+      <div className="h-14 px-6 border-b border-border flex items-center justify-between bg-surface">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-rose-600 flex items-center justify-center shadow-lg shadow-rose-950/50">
+          <div className="w-8 h-8 rounded-lg bg-rose-600 flex items-center justify-center">
             <Film className="w-4 h-4 text-white" />
           </div>
           <div>
@@ -273,46 +273,46 @@ export default function StoryboardDirectorStudio({
                 Simple Mode
               </span>
             </h1>
-            <p className="text-[11px] text-slate-400">
+            <p className="text-[11px] text-text-muted">
               Quy trình đạo diễn chuẩn 3 bước: Kịch bản $\rightarrow$ Storyboard Keyframe tĩnh $\rightarrow$ Veo 3.1 Chuyển động
             </p>
           </div>
         </div>
 
         {/* Step Tabs */}
-        <div className="flex items-center gap-2 bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs">
+        <div className="flex items-center gap-2 bg-bg p-1 rounded-md border border-border text-xs">
           <button
             onClick={() => setCurrentStep(1)}
             className={`px-3 py-1 rounded-lg font-semibold flex items-center gap-1.5 transition-all ${
               currentStep === 1
-                ? 'bg-rose-600 text-white shadow-md'
-                : 'text-slate-400 hover:text-white'
+                ? 'bg-rose-600 text-white '
+                : 'text-text-muted hover:text-white'
             }`}
           >
             <span>1. Kịch bản & Nhân vật</span>
           </button>
 
-          <ChevronRight className="w-3.5 h-3.5 text-slate-600" />
+          <ChevronRight className="w-3.5 h-3.5 text-text-faint" />
 
           <button
             onClick={() => setCurrentStep(2)}
             className={`px-3 py-1 rounded-lg font-semibold flex items-center gap-1.5 transition-all ${
               currentStep === 2
-                ? 'bg-rose-600 text-white shadow-md'
-                : 'text-slate-400 hover:text-white'
+                ? 'bg-rose-600 text-white '
+                : 'text-text-muted hover:text-white'
             }`}
           >
             <span>2. Storyboard Keyframe ({shots.length} shots)</span>
           </button>
 
-          <ChevronRight className="w-3.5 h-3.5 text-slate-600" />
+          <ChevronRight className="w-3.5 h-3.5 text-text-faint" />
 
           <button
             onClick={() => setCurrentStep(3)}
             className={`px-3 py-1 rounded-lg font-semibold flex items-center gap-1.5 transition-all ${
               currentStep === 3
-                ? 'bg-rose-600 text-white shadow-md'
-                : 'text-slate-400 hover:text-white'
+                ? 'bg-rose-600 text-white '
+                : 'text-text-muted hover:text-white'
             }`}
           >
             <span>3. Chuyển động & Dựng phim</span>
@@ -341,7 +341,7 @@ export default function StoryboardDirectorStudio({
           {onSyncToCanvasGraph && (
             <button
               onClick={() => onSyncToCanvasGraph(shots, selectedCharacterId, selectedSceneId)}
-              className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-300 flex items-center gap-1.5 transition-colors"
+              className="px-3 py-1.5 rounded-lg bg-surface-2 hover:bg-surface-3 text-xs font-semibold text-text flex items-center gap-1.5 transition-colors"
               title="Chuyển sang dạng Node Canvas để can thiệp kỹ thuật chuyên sâu"
             >
               <Layers className="w-3.5 h-3.5" />
@@ -351,7 +351,7 @@ export default function StoryboardDirectorStudio({
 
           <button
             onClick={onCloseStudio}
-            className="px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-800 text-xs font-semibold text-slate-400 hover:text-white transition-colors"
+            className="px-3 py-1.5 rounded-lg bg-surface hover:bg-surface-2 border border-border text-xs font-semibold text-text-muted hover:text-white transition-colors"
           >
             Đóng Studio
           </button>
@@ -363,13 +363,13 @@ export default function StoryboardDirectorStudio({
         {/* STEP 1: SCRIPT & CHARACTER BIBLE */}
         {currentStep === 1 && (
           <div className="max-w-4xl mx-auto space-y-6">
-            <div className="p-6 rounded-2xl bg-slate-900/70 border border-slate-800 space-y-4">
+            <div className="p-6 rounded-lg bg-surface border border-border space-y-4">
               <div className="flex items-center justify-between">
                 <span className="text-sm font-bold text-white flex items-center gap-2">
                   <Film className="w-4 h-4 text-rose-400" />
                   <span>Kịch bản hoặc Ý tưởng cốt truyện</span>
                 </span>
-                <span className="text-xs text-slate-400">Bước 1: Viết tóm tắt nội dung</span>
+                <span className="text-xs text-text-muted">Bước 1: Viết tóm tắt nội dung</span>
               </div>
 
               <textarea
@@ -377,14 +377,14 @@ export default function StoryboardDirectorStudio({
                 value={rawScript}
                 onChange={(e) => setRawScript(e.target.value)}
                 placeholder="Nhập kịch bản tóm tắt hoặc ý tưởng của bạn..."
-                className="w-full text-sm rounded-xl bg-slate-950 border border-slate-800 p-4 text-slate-200 focus:outline-none focus:border-rose-500 leading-relaxed custom-scrollbar"
+                className="w-full text-sm rounded-md bg-bg border border-border p-4 text-text focus:outline-none focus:border-rose-500 leading-relaxed custom-scrollbar"
               />
 
               <div className="flex items-center justify-end">
                 <button
                   onClick={handleAutoGenerateShotlist}
                   disabled={isGeneratingShotlist}
-                  className="px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-xs font-bold text-white flex items-center gap-2 shadow-lg shadow-rose-950/40 transition-all"
+                  className="px-5 py-2.5 rounded-md bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-xs font-bold text-white flex items-center gap-2 transition-all"
                 >
                   <Sparkles className="w-4 h-4" />
                   <span>{isGeneratingShotlist ? 'Đang phân tích...' : 'Gemini Đạo diễn: Tự Động Phân Rã Shotlist'}</span>
@@ -396,19 +396,19 @@ export default function StoryboardDirectorStudio({
             {/* Character & Scene Selection */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {/* Character Bible Selection */}
-              <div className="p-5 rounded-2xl bg-slate-900/70 border border-slate-800 space-y-3">
+              <div className="p-5 rounded-lg bg-surface border border-border space-y-3">
                 <span className="text-xs font-bold text-white flex items-center gap-2">
                   <Users className="w-4 h-4 text-rose-400" />
                   <span>Khóa Nhân Vật Chính (Character Consistency)</span>
                 </span>
-                <p className="text-xs text-slate-400">
+                <p className="text-xs text-text-muted">
                   Nhân vật được cố định khuôn mặt và seed xuyên suốt các shot.
                 </p>
 
                 <select
                   value={selectedCharacterId}
                   onChange={(e) => setSelectedCharacterId(e.target.value)}
-                  className="w-full text-xs rounded-xl bg-slate-950 border border-slate-800 p-2.5 text-slate-200 focus:outline-none focus:border-rose-500 cursor-pointer"
+                  className="w-full text-xs rounded-md bg-bg border border-border p-2.5 text-text focus:outline-none focus:border-rose-500 cursor-pointer"
                 >
                   {characters.map((c) => (
                     <option key={c.id} value={c.id}>
@@ -419,19 +419,19 @@ export default function StoryboardDirectorStudio({
               </div>
 
               {/* Scene Bible Selection */}
-              <div className="p-5 rounded-2xl bg-slate-900/70 border border-slate-800 space-y-3">
+              <div className="p-5 rounded-lg bg-surface border border-border space-y-3">
                 <span className="text-xs font-bold text-white flex items-center gap-2">
                   <Building className="w-4 h-4 text-indigo-400" />
                   <span>Bối cảnh & Ánh sáng Chủ đạo (Scene Bible)</span>
                 </span>
-                <p className="text-xs text-slate-400">
+                <p className="text-xs text-text-muted">
                   Tông màu và kiến trúc được duy trì liên tục giữa các cảnh quay.
                 </p>
 
                 <select
                   value={selectedSceneId}
                   onChange={(e) => setSelectedSceneId(e.target.value)}
-                  className="w-full text-xs rounded-xl bg-slate-950 border border-slate-800 p-2.5 text-slate-200 focus:outline-none focus:border-indigo-500 cursor-pointer"
+                  className="w-full text-xs rounded-md bg-bg border border-border p-2.5 text-text focus:outline-none focus:border-indigo-500 cursor-pointer"
                 >
                   {scenes.map((s) => (
                     <option key={s.id} value={s.id}>
@@ -447,10 +447,10 @@ export default function StoryboardDirectorStudio({
         {/* STEP 2: SHOTLIST & KEYFRAMES REVIEW */}
         {currentStep === 2 && (
           <div className="max-w-6xl mx-auto space-y-6">
-            <div className="flex items-center justify-between bg-slate-900/80 p-4 rounded-2xl border border-slate-800">
+            <div className="flex items-center justify-between bg-surface p-4 rounded-lg border border-border">
               <div>
                 <h3 className="text-sm font-bold text-white">Bảng Shotlist & Kiểm Duyệt Keyframe Tĩnh</h3>
-                <p className="text-xs text-slate-400 mt-0.5">
+                <p className="text-xs text-text-muted mt-0.5">
                   Quy tắc vàng: Hoàn thiện ảnh tĩnh từng shot (Imagen 3 & Inpainting) trước khi đưa vào chuyển động video.
                 </p>
               </div>
@@ -469,7 +469,7 @@ export default function StoryboardDirectorStudio({
                     };
                     setShots([...shots, newShot]);
                   }}
-                  className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200 flex items-center gap-1.5 transition-colors"
+                  className="px-3 py-1.5 rounded-lg bg-surface-2 hover:bg-surface-3 text-xs font-semibold text-text flex items-center gap-1.5 transition-colors"
                 >
                   <Plus className="w-3.5 h-3.5" />
                   <span>Thêm Shot</span>
@@ -477,7 +477,7 @@ export default function StoryboardDirectorStudio({
 
                 <button
                   onClick={() => setCurrentStep(3)}
-                  className="px-4 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-xs font-bold text-white flex items-center gap-1.5 shadow-md shadow-rose-950/40 transition-all"
+                  className="px-4 py-1.5 rounded-md bg-rose-600 hover:bg-rose-500 text-xs font-bold text-white flex items-center gap-1.5 transition-all"
                 >
                   <span>Chuyển sang Bước 3: Diễn hoạt Video</span>
                   <ArrowRight className="w-4 h-4" />
@@ -490,22 +490,22 @@ export default function StoryboardDirectorStudio({
               {shots.map((shot) => (
                 <div
                   key={shot.id}
-                  className={`rounded-2xl border bg-slate-900/90 overflow-hidden flex flex-col transition-all ${
+                  className={`rounded-lg border bg-surface overflow-hidden flex flex-col transition-all ${
                     shot.isKeyframeApproved
-                      ? 'border-emerald-700/60 shadow-lg shadow-emerald-950/20'
-                      : 'border-slate-800'
+                      ? 'border-emerald-700/60  '
+                      : 'border-border'
                   }`}
                 >
                   {/* Shot Card Header */}
-                  <div className="px-4 py-2.5 bg-slate-950 border-b border-slate-800 flex items-center justify-between text-xs">
+                  <div className="px-4 py-2.5 bg-bg border-b border-border flex items-center justify-between text-xs">
                     <span className="font-bold text-white flex items-center gap-1.5">
                       <Film className="w-3.5 h-3.5 text-rose-500" />
                       <span>Shot #{shot.shotNumber}</span>
                     </span>
-                    <span className="px-2 py-0.5 rounded bg-slate-900 border border-slate-800 font-mono text-[11px] text-indigo-400">
+                    <span className="px-2 py-0.5 rounded bg-surface border border-border font-mono text-[11px] text-indigo-400">
                       {shot.shotType.toUpperCase()}
                     </span>
-                    <span className="text-slate-400 font-mono text-[11px]">{shot.durationSeconds}s</span>
+                    <span className="text-text-muted font-mono text-[11px]">{shot.durationSeconds}s</span>
                   </div>
 
                   {/* Keyframe Staging Canvas / Preview */}
@@ -517,8 +517,8 @@ export default function StoryboardDirectorStudio({
                         className="w-full h-full object-cover"
                       />
                     ) : (
-                      <div className="flex flex-col items-center justify-center text-slate-500 text-xs p-4 text-center">
-                        <Camera className="w-8 h-8 text-slate-600 mb-2" />
+                      <div className="flex flex-col items-center justify-center text-text-muted text-xs p-4 text-center">
+                        <Camera className="w-8 h-8 text-text-faint mb-2" />
                         <span>Chưa có Keyframe tĩnh</span>
                       </div>
                     )}
@@ -527,7 +527,7 @@ export default function StoryboardDirectorStudio({
                     <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center gap-2 transition-opacity p-2">
                       <button
                         onClick={() => handleGenerateKeyframeForShot(shot.id)}
-                        className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold flex items-center gap-1 shadow-md"
+                        className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold flex items-center gap-1"
                         title="Tạo ảnh Keyframe chuẩn bằng Imagen 3"
                       >
                         <Sparkles className="w-3.5 h-3.5" />
@@ -540,7 +540,7 @@ export default function StoryboardDirectorStudio({
                             setInpaintImageUrl(shot.keyframeImageUrl!);
                             setActiveShotIdForInpaint(shot.id);
                           }}
-                          className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold flex items-center gap-1 shadow-md"
+                          className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold flex items-center gap-1"
                           title="Bôi cọ sửa lỗi mắt/bàn tay"
                         >
                           <Paintbrush className="w-3.5 h-3.5" />
@@ -553,16 +553,16 @@ export default function StoryboardDirectorStudio({
                   {/* Shot Prompt & Camera motion description */}
                   <div className="p-3.5 space-y-2.5 flex-1 flex flex-col justify-between text-xs">
                     <div>
-                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
+                      <span className="text-[10px] font-bold text-text-muted uppercase tracking-wider block mb-1">
                         Hành động & Diễn hoạt:
                       </span>
-                      <p className="text-slate-300 line-clamp-3 leading-relaxed">
+                      <p className="text-text line-clamp-3 leading-relaxed">
                         {shot.actionPrompt}
                       </p>
                     </div>
 
-                    <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between text-[11px]">
-                      <span className="text-slate-400">Máy quay:</span>
+                    <div className="pt-2 border-t border-border flex items-center justify-between text-[11px]">
+                      <span className="text-text-muted">Máy quay:</span>
                       <span className="font-mono text-emerald-400 font-semibold bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-900/60">
                         {shot.cameraMotion}
                       </span>
@@ -577,26 +577,26 @@ export default function StoryboardDirectorStudio({
         {/* STEP 3: ANIMATE & MASTER SEQUENCE */}
         {currentStep === 3 && (
           <div className="max-w-5xl mx-auto space-y-6">
-            <div className="p-6 rounded-2xl bg-slate-900/80 border border-slate-800 flex flex-col md:flex-row items-center justify-between gap-4">
+            <div className="p-6 rounded-lg bg-surface border border-border flex flex-col md:flex-row items-center justify-between gap-4">
               <div className="space-y-2">
                 <h3 className="text-base font-bold text-white flex items-center gap-2">
                   <Video className="w-5 h-5 text-rose-500" />
                   <span>Chuyển Động Hóa Image-to-Video (Google Veo)</span>
                 </h3>
-                <p className="text-xs text-slate-400">
+                <p className="text-xs text-text-muted">
                   Đưa từng bức ảnh Keyframe tĩnh vào Veo để diễn hoạt chuyển động vật lý 3–5 giây.
                 </p>
 
                 {/* Model Variant & Credit Badge */}
                 <div className="flex flex-wrap items-center gap-3 pt-1">
-                  <div className="flex items-center gap-1.5 bg-slate-950 p-1 rounded-lg border border-slate-800 text-xs">
-                    <span className="text-[11px] text-slate-400 pl-1.5">Model:</span>
+                  <div className="flex items-center gap-1.5 bg-bg p-1 rounded-lg border border-border text-xs">
+                    <span className="text-[11px] text-text-muted pl-1.5">Model:</span>
                     <button
                       onClick={() => setSelectedVeoModel('veo-3.1-quality')}
                       className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-all cursor-pointer ${
                         selectedVeoModel === 'veo-3.1-quality'
-                          ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-sm'
-                          : 'text-slate-400 hover:text-white'
+                          ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white '
+                          : 'text-text-muted hover:text-white'
                       }`}
                     >
                       Veo 3.1 Quality (1080p)
@@ -605,8 +605,8 @@ export default function StoryboardDirectorStudio({
                       onClick={() => setSelectedVeoModel('veo-3.1-lite')}
                       className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-all cursor-pointer ${
                         selectedVeoModel === 'veo-3.1-lite'
-                          ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-sm'
-                          : 'text-slate-400 hover:text-white'
+                          ? 'bg-success text-white '
+                          : 'text-text-muted hover:text-white'
                       }`}
                     >
                       Veo 3.1 Lite (Tiết kiệm Cr)
@@ -623,7 +623,7 @@ export default function StoryboardDirectorStudio({
               <button
                 onClick={handleAnimateAllShots}
                 disabled={isAnimatingAll}
-                className="px-6 py-3 rounded-xl bg-gradient-to-r from-rose-600 to-indigo-600 hover:from-rose-500 hover:to-indigo-500 disabled:opacity-50 text-xs font-bold text-white flex items-center gap-2 shadow-xl shadow-rose-950/50 transition-all shrink-0 cursor-pointer"
+                className="px-6 py-3 rounded-md bg-gradient-to-r from-rose-600 to-indigo-600 hover:from-rose-500 hover:to-indigo-500 disabled:opacity-50 text-xs font-bold text-white flex items-center gap-2 transition-all shrink-0 cursor-pointer"
               >
                 <Sparkles className="w-4 h-4" />
                 <span>
@@ -637,24 +637,24 @@ export default function StoryboardDirectorStudio({
               {shots.map((shot, idx) => (
                 <div
                   key={shot.id}
-                  className="p-4 rounded-xl bg-slate-900/60 border border-slate-800 flex items-center justify-between gap-4"
+                  className="p-4 rounded-md bg-surface border border-border flex items-center justify-between gap-4"
                 >
                   <div className="flex items-center gap-3">
-                    <span className="font-mono font-bold text-slate-500 text-sm">
+                    <span className="font-mono font-bold text-text-muted text-sm">
                       #{idx + 1}
                     </span>
-                    <div className="w-20 h-12 bg-slate-950 rounded-lg overflow-hidden border border-slate-800 relative flex items-center justify-center">
+                    <div className="w-20 h-12 bg-bg rounded-lg overflow-hidden border border-border relative flex items-center justify-center">
                       {shot.keyframeImageUrl ? (
                         <img src={shot.keyframeImageUrl} className="w-full h-full object-cover" />
                       ) : (
-                        <Film className="w-4 h-4 text-slate-600" />
+                        <Film className="w-4 h-4 text-text-faint" />
                       )}
                     </div>
                     <div>
                       <h4 className="text-xs font-bold text-white">
                         Shot {shot.shotNumber}: {shot.shotType.toUpperCase()}
                       </h4>
-                      <p className="text-[11px] text-slate-400 line-clamp-1 max-w-md">
+                      <p className="text-[11px] text-text-muted line-clamp-1 max-w-md">
                         {shot.actionPrompt}
                       </p>
                     </div>
@@ -671,7 +671,7 @@ export default function StoryboardDirectorStudio({
                         <CheckCircle2 className="w-3.5 h-3.5" /> Đã hoàn tất
                       </span>
                     ) : (
-                      <span className="text-slate-500 text-xs">Chờ diễn hoạt</span>
+                      <span className="text-text-muted text-xs">Chờ diễn hoạt</span>
                     )}
                   </div>
                 </div>
@@ -680,20 +680,20 @@ export default function StoryboardDirectorStudio({
 
             {/* Master Movie Export & Send to Sub Mode */}
             {masterSequenceUrl && (
-              <div className="p-6 rounded-2xl bg-gradient-to-br from-rose-950/40 via-slate-900 to-indigo-950/40 border border-rose-800/60 flex items-center justify-between">
+              <div className="p-6 rounded-lg bg-gradient-to-br from-rose-950/40 via-slate-900 to-indigo-950/40 border border-rose-800/60 flex items-center justify-between">
                 <div>
                   <h4 className="text-sm font-bold text-white flex items-center gap-2">
                     <CheckCircle2 className="w-4 h-4 text-emerald-400" />
                     <span>Bộ Phim Master Sequence Đã Sẵn Sàng!</span>
                   </h4>
-                  <p className="text-xs text-slate-300 mt-1">
+                  <p className="text-xs text-text mt-1">
                     Chuỗi phim hoàn chỉnh đã ghép nối mượt mà qua Master Timeline. Bạn có thể chuyển sang Sub Mode ngay để lồng tiếng và làm phụ đề.
                   </p>
                 </div>
 
                 <button
                   onClick={() => onSendToSubMode(masterSequenceUrl, 'Bộ phim Storyboard AI hoàn chỉnh')}
-                  className="px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-xs font-bold text-white flex items-center gap-2 shadow-lg shadow-rose-950/50 transition-all shrink-0"
+                  className="px-5 py-2.5 rounded-md bg-rose-600 hover:bg-rose-500 text-xs font-bold text-white flex items-center gap-2 transition-all shrink-0"
                 >
                   <Subtitles className="w-4 h-4" />
                   <span>Chuyển Sang Sub Mode (Lồng tiếng & Phụ đề)</span>

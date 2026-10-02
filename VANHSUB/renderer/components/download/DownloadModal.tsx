@@ -22,6 +22,13 @@ import {
 import { toast } from 'sonner';
 import { backgroundDownloadManager } from '../../lib/downloadManager';
 
+export const PLATFORM_BADGES = {
+  youtube: 'bg-red-500/10 text-red-400 border border-red-500/30',
+  douyin: 'bg-accent/10 text-accent border border-accent/30',
+  tiktok: 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/30',
+  bilibili: 'bg-pink-500/10 text-pink-400 border border-pink-500/30',
+};
+
 interface MediaInfo {
   url: string;
   cleanUrl: string;
@@ -278,35 +285,35 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
     switch (platform) {
       case 'douyin':
         return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-rose-500/20 text-rose-300 border border-rose-500/40">
-            <span className="h-1.5 w-1.5 rounded-full bg-rose-400 animate-pulse" />
+          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-medium bg-surface-2 text-text border border-border">
+            <span className="h-1.5 w-1.5 rounded-full bg-accent" />
             Douyin (TikTok Trung Quốc)
           </span>
         );
       case 'bilibili':
         return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-blue-500/20 text-blue-300 border border-blue-500/40">
-            <span className="h-1.5 w-1.5 rounded-full bg-blue-400" />
+          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-medium bg-surface-2 text-text border border-border">
+            <span className="h-1.5 w-1.5 rounded-full bg-accent" />
             Bilibili Video
           </span>
         );
       case 'youtube':
         return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-red-600/20 text-red-300 border border-red-500/40">
-            <span className="h-1.5 w-1.5 rounded-full bg-red-500" />
+          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-medium bg-surface-2 text-text border border-border">
+            <span className="h-1.5 w-1.5 rounded-full bg-accent" />
             YouTube / Shorts
           </span>
         );
       case 'tiktok':
         return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-cyan-500/20 text-cyan-300 border border-cyan-500/40">
-            <span className="h-1.5 w-1.5 rounded-full bg-cyan-400" />
+          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-medium bg-surface-2 text-text border border-border">
+            <span className="h-1.5 w-1.5 rounded-full bg-accent" />
             TikTok Quốc Tế
           </span>
         );
       default:
         return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-slate-800 text-slate-300 border border-slate-700">
+          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-medium bg-surface-2 text-text-muted border border-border">
             <Link2 className="h-3 w-3" />
             Liên kết trực tuyến
           </span>
@@ -317,18 +324,18 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-[100] bg-black/75 backdrop-blur-sm data-[state=open]:animate-in data-[state=open]:fade-in-0" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 z-[100] w-[640px] max-w-[94vw] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-3xl border border-slate-800 bg-[#0B1120] p-6 shadow-2xl shadow-cyan-950/40 outline-none data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 text-white">
-          <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+        <Dialog.Overlay className="fixed inset-0 z-[100] bg-black/60 data-[state=open]:animate-in data-[state=open]:fade-in-0" />
+        <Dialog.Content className="fixed left-1/2 top-1/2 z-[100] w-[640px] max-w-[94vw] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-lg border border-border bg-surface p-5 outline-none data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 text-text">
+          <div className="flex items-center justify-between pb-3 border-b border-border">
             <div className="flex items-center gap-2.5">
-              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-cyan-400 to-teal-600 text-slate-950 shadow-md">
-                <Download className="h-5 w-5" />
+              <div className="flex h-8 w-8 items-center justify-center rounded-md bg-surface-2 border border-border text-accent">
+                <Download className="h-4 w-4" />
               </div>
               <div>
-                <Dialog.Title className="text-base font-bold text-white">
+                <Dialog.Title className="text-sm font-semibold text-text">
                   Tải video từ liên kết (Douyin, YouTube, Bilibili...)
                 </Dialog.Title>
-                <Dialog.Description className="text-xs text-slate-400">
+                <Dialog.Description className="text-xs text-text-muted">
                   Dán đường link, hệ thống sẽ tự động bóc tách thông tin và gom vào thư mục dự án riêng.
                 </Dialog.Description>
               </div>
@@ -336,11 +343,11 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
             <Dialog.Close asChild>
               <button
                 type="button"
-                className="flex h-7 w-7 items-center justify-center rounded-lg border border-slate-700 bg-slate-800 text-slate-400 transition hover:bg-slate-700 hover:text-white cursor-pointer"
+                className="flex h-7 w-7 items-center justify-center rounded-md border border-border bg-surface-2 text-text-muted transition hover:bg-surface-3 hover:text-text cursor-pointer"
                 title={isDownloading ? 'Thu nhỏ cửa sổ tải (video vẫn tiếp tục tải ngầm)' : 'Đóng'}
               >
                 {isDownloading ? (
-                  <Minimize2 className="h-3.5 w-3.5 text-cyan-400" />
+                  <Minimize2 className="h-3.5 w-3.5 text-accent" />
                 ) : (
                   <X className="h-3.5 w-3.5" />
                 )}
@@ -348,16 +355,16 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
             </Dialog.Close>
           </div>
 
-        <div className="space-y-4 mt-2">
+        <div className="space-y-3.5 mt-2">
           {/* Ô nhập liên kết */}
           <div className="space-y-1.5">
-            <div className="flex items-center justify-between text-xs text-slate-400">
+            <div className="flex items-center justify-between text-xs text-text-muted">
               <span>Đường dẫn video (URL):</span>
               <button
                 type="button"
                 onClick={handlePasteClipboard}
                 disabled={isInspecting || isDownloading}
-                className="inline-flex items-center gap-1 text-cyan-400 hover:text-cyan-300 cursor-pointer disabled:opacity-50"
+                className="inline-flex items-center gap-1 text-accent hover:text-accent-hover cursor-pointer disabled:opacity-50"
               >
                 <Clipboard className="h-3 w-3" />
                 Dán từ khay nhớ tạm
@@ -375,7 +382,7 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
                 }}
                 disabled={isInspecting || isDownloading}
                 placeholder="Dán link Douyin, YouTube, Bilibili, TikTok..."
-                className="w-full rounded-xl border border-slate-700 bg-slate-800/80 px-3.5 py-2.5 pr-24 font-mono text-xs text-white placeholder:text-slate-500 focus:border-cyan-400 focus:outline-none focus:ring-1 focus:ring-cyan-400"
+                className="w-full rounded-md border border-border bg-surface-2 px-3 py-2 pr-24 font-mono text-xs text-text placeholder:text-text-faint focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/25 transition"
               />
               <div className="absolute right-1.5 flex items-center gap-1">
                 {urlInput && (
@@ -387,7 +394,7 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
                       setError(null);
                     }}
                     disabled={isInspecting || isDownloading}
-                    className="p-1 text-slate-400 hover:text-white rounded-lg cursor-pointer"
+                    className="p-1 text-text-muted hover:text-text rounded-md cursor-pointer"
                   >
                     <X className="h-3.5 w-3.5" />
                   </button>
@@ -396,7 +403,7 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
                   type="button"
                   onClick={handleInspect}
                   disabled={isInspecting || isDownloading || !urlInput.trim()}
-                  className="inline-flex items-center gap-1 rounded-lg bg-cyan-500 px-3 py-1.5 text-xs font-semibold text-slate-950 hover:bg-cyan-400 disabled:opacity-50 cursor-pointer transition"
+                  className="inline-flex items-center gap-1 rounded-md bg-accent px-3 py-1 text-xs font-medium text-white hover:bg-accent-hover disabled:opacity-50 cursor-pointer transition"
                 >
                   {isInspecting ? (
                     <>
@@ -412,16 +419,16 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
                 </button>
               </div>
             </div>
-            <p className="text-[11px] text-slate-500">
+            <p className="text-[11px] text-text-faint">
               Mẹo: Với Douyin, bạn có thể dán nguyên văn bản chia sẻ từ app điện thoại (hệ thống sẽ tự lọc link).
             </p>
           </div>
 
           {/* Chọn thư mục lưu trữ */}
-          <div className="space-y-1.5 rounded-2xl border border-slate-800 bg-slate-900/50 p-3">
+          <div className="space-y-1.5 rounded-md border border-border bg-surface-2 p-3">
             <div className="flex items-center justify-between text-xs">
-              <span className="flex items-center gap-1.5 font-medium text-slate-300">
-                <FolderOpen className="h-3.5 w-3.5 text-cyan-400" />
+              <span className="flex items-center gap-1.5 font-medium text-text-muted">
+                <FolderOpen className="h-3.5 w-3.5 text-text-muted" />
                 <span>Thư mục lưu video & dự án:</span>
               </span>
               {saveDir && defaultDir && saveDir !== defaultDir && (
@@ -429,7 +436,7 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
                   type="button"
                   onClick={handleResetDefaultDir}
                   disabled={isDownloading}
-                  className="inline-flex items-center gap-1 text-[11px] text-slate-400 hover:text-cyan-300 transition cursor-pointer disabled:opacity-50"
+                  className="inline-flex items-center gap-1 text-[11px] text-text-muted hover:text-text transition cursor-pointer disabled:opacity-50"
                   title="Khôi phục về thư mục mặc định của hệ thống"
                 >
                   <RotateCcw className="h-3 w-3" />
@@ -451,26 +458,26 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
                 disabled={isDownloading}
                 placeholder="Đang tải thư mục mặc định..."
                 title={saveDir || defaultDir}
-                className="flex-1 truncate rounded-xl border border-slate-700 bg-slate-800/80 px-3 py-2 font-mono text-[11px] text-white placeholder:text-slate-500 focus:border-cyan-400 focus:outline-none focus:ring-1 focus:ring-cyan-400 disabled:opacity-60"
+                className="flex-1 truncate rounded-md border border-border bg-surface px-3 py-1.5 font-mono text-[11px] text-text placeholder:text-text-faint focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/25 disabled:opacity-60"
               />
               <button
                 type="button"
                 onClick={handleChooseDirectory}
                 disabled={isDownloading}
-                className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-xs font-medium text-slate-200 hover:bg-slate-700 hover:text-white transition cursor-pointer disabled:opacity-50 shadow-sm"
+                className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-border bg-surface px-3 py-1.5 text-xs font-medium text-text hover:bg-surface-3 transition cursor-pointer disabled:opacity-50"
               >
-                <FolderOpen className="h-3.5 w-3.5 text-cyan-400" />
+                <FolderOpen className="h-3.5 w-3.5 text-text-muted" />
                 <span>Chọn thư mục</span>
               </button>
             </div>
-            <p className="text-[11px] text-slate-500">
+            <p className="text-[11px] text-text-faint">
               Hệ thống sẽ tự động tạo thư mục dự án riêng bên trong thư mục này chứa video và toàn bộ tệp xử lý.
             </p>
           </div>
 
           {/* Lỗi nếu có */}
           {error && (
-            <div className="flex items-start gap-2.5 rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-300">
+            <div className="flex items-start gap-2.5 rounded-md border border-danger/30 bg-danger/10 p-3 text-xs text-danger">
               <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
               <div className="flex-1 leading-relaxed">{error}</div>
             </div>
@@ -478,12 +485,12 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
 
           {/* Khung xem trước thông tin video đã phân tích */}
           {mediaInfo && (
-            <div className="rounded-2xl border border-slate-700/80 bg-slate-800/60 p-4 space-y-4">
+            <div className="rounded-md border border-border bg-surface-2 p-3.5 space-y-3">
               <div className="flex items-center justify-between">
                 {renderPlatformBadge(mediaInfo.platform)}
                 {mediaInfo.durationFormatted && (
-                  <span className="inline-flex items-center gap-1 text-xs text-slate-400">
-                    <Clock className="h-3 w-3 text-slate-500" />
+                  <span className="inline-flex items-center gap-1 text-xs text-text-muted">
+                    <Clock className="h-3 w-3 text-text-faint" />
                     {mediaInfo.durationFormatted}
                   </span>
                 )}
@@ -491,7 +498,7 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
 
               <div className="flex gap-4">
                 {/* Thumbnail */}
-                <div className="relative h-24 w-36 shrink-0 rounded-xl overflow-hidden bg-slate-900 border border-slate-700/60 flex items-center justify-center">
+                <div className="relative h-20 w-32 shrink-0 rounded-md overflow-hidden bg-surface border border-border flex items-center justify-center">
                   {mediaInfo.thumbnail ? (
                     <img
                       src={mediaInfo.thumbnail}
@@ -499,7 +506,7 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
                       className="h-full w-full object-cover"
                     />
                   ) : (
-                    <Play className="h-8 w-8 text-slate-600" />
+                    <Play className="h-6 w-6 text-text-faint" />
                   )}
                 </div>
 
@@ -508,8 +515,8 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
                   {/* Tên file / Tiêu đề có thể chỉnh sửa */}
                   <div className="space-y-1">
                     <div className="flex items-center justify-between text-[11px]">
-                      <span className="font-medium text-slate-300 flex items-center gap-1.5">
-                        <Edit3 className="h-3 w-3 text-cyan-400" />
+                      <span className="font-medium text-text-muted flex items-center gap-1.5">
+                        <Edit3 className="h-3 w-3 text-accent" />
                         <span>Tên file lưu trữ:</span>
                       </span>
                       {customTitle && mediaInfo.title && customTitle !== mediaInfo.title && (
@@ -517,7 +524,7 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
                           type="button"
                           onClick={() => setCustomTitle(mediaInfo.title)}
                           disabled={isDownloading}
-                          className="inline-flex items-center gap-1 text-[10px] text-slate-400 hover:text-cyan-300 transition cursor-pointer disabled:opacity-50"
+                          className="inline-flex items-center gap-1 text-[10px] text-text-muted hover:text-text transition cursor-pointer disabled:opacity-50"
                           title="Đặt lại tên theo tiêu đề gốc của video"
                         >
                           <RotateCcw className="h-2.5 w-2.5" />
@@ -531,20 +538,20 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
                       onChange={(e) => setCustomTitle(e.target.value)}
                       disabled={isDownloading}
                       placeholder="Nhập tên file bạn muốn lưu..."
-                      className="w-full rounded-xl border border-slate-700 bg-slate-900/90 px-3 py-1.5 text-xs text-white placeholder:text-slate-500 focus:border-cyan-400 focus:outline-none focus:ring-1 focus:ring-cyan-400 font-medium"
+                      className="w-full rounded-md border border-border bg-surface px-2.5 py-1.5 text-xs text-text placeholder:text-text-faint focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/25 font-medium"
                     />
                   </div>
 
                   {mediaInfo.author && (
-                    <p className="inline-flex items-center gap-1 text-xs text-slate-400">
-                      <User className="h-3 w-3 text-slate-500" />
+                    <p className="inline-flex items-center gap-1 text-xs text-text-muted">
+                      <User className="h-3 w-3 text-text-faint" />
                       {mediaInfo.author}
                     </p>
                   )}
 
                   {/* Lựa chọn chất lượng */}
                   <div className="pt-1 flex items-center gap-2">
-                    <span className="text-[11px] text-slate-400 shrink-0">Chất lượng:</span>
+                    <span className="text-[11px] text-text-muted shrink-0">Chất lượng:</span>
                     <div className="flex flex-wrap gap-1.5">
                       {mediaInfo.availableQualities.map((q) => (
                         <button
@@ -552,10 +559,10 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
                           type="button"
                           onClick={() => setSelectedQuality(q.id)}
                           disabled={isDownloading}
-                          className={`px-2.5 py-1 rounded-lg text-xs font-medium transition cursor-pointer ${
+                          className={`px-2.5 py-1 rounded-md text-xs font-medium transition cursor-pointer ${
                             selectedQuality === q.id
-                              ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-400'
-                              : 'bg-slate-700/50 text-slate-300 border border-slate-600 hover:bg-slate-700'
+                              ? 'bg-accent text-white'
+                              : 'bg-surface border border-border text-text-muted hover:text-text hover:bg-surface-3'
                           }`}
                         >
                           {q.label}
@@ -568,22 +575,22 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
 
               {/* Badge không watermark cho Douyin/TikTok */}
               {(mediaInfo.platform === 'douyin' || mediaInfo.platform === 'tiktok') && mediaInfo.noWatermarkUrl && (
-                <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-emerald-950/40 border border-emerald-500/30 text-[11px] text-emerald-300">
-                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 shrink-0 animate-pulse" />
+                <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-success/10 border border-success/30 text-[11px] text-success">
+                  <span className="h-1.5 w-1.5 rounded-full bg-success shrink-0" />
                   <span>Video sẽ được tải <strong>không có watermark / logo Douyin</strong> — giống Cốc Cốc, chất lượng gốc.</span>
                 </div>
               )}
 
               {/* Thông báo thư mục lưu trữ & tên file */}
-              <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-slate-900/80 border border-slate-700/50 text-[11px] text-slate-300">
-                <Layers className="h-3.5 w-3.5 text-cyan-400 shrink-0" />
+              <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-surface border border-border text-[11px] text-text-muted">
+                <Layers className="h-3.5 w-3.5 text-text-muted shrink-0" />
                 <span className="truncate">
                   Dự án & video sẽ được lưu tại:{' '}
-                  <strong className="font-mono text-cyan-300" title={saveDir || defaultDir}>
+                  <strong className="font-mono text-text" title={saveDir || defaultDir}>
                     {saveDir || defaultDir || 'Thư mục mặc định'}
                   </strong>
                   {' → '}
-                  <span className="font-mono text-emerald-300 font-medium">
+                  <span className="font-mono text-accent font-medium">
                     {(customTitle.trim() || mediaInfo.title || 'video').replace(/[\\/:*?"<>|]/g, '_')}_vanhsub/
                   </span>
                 </span>
@@ -593,26 +600,26 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
 
           {/* Thanh tiến trình tải */}
           {isDownloading && progress && (
-            <div className="rounded-2xl border border-cyan-500/30 bg-cyan-950/20 p-4 space-y-2.5">
+            <div className="rounded-md border border-border bg-surface-2 p-3 space-y-2">
               <div className="flex items-center justify-between text-xs">
-                <span className="font-semibold text-cyan-300 flex items-center gap-1.5">
-                  <Loader2 className="h-3.5 w-3.5 animate-spin text-cyan-400" />
+                <span className="font-medium text-text flex items-center gap-1.5">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin text-accent" />
                   {progress.stageDescription || 'Đang tải video...'}
                 </span>
-                <span className="font-mono font-bold text-cyan-400">
+                <span className="font-mono font-medium text-accent">
                   {progress.percent.toFixed(1)}%
                 </span>
               </div>
 
               {/* Progress track */}
-              <div className="h-2 w-full rounded-full bg-slate-800 overflow-hidden">
+              <div className="h-1.5 w-full rounded-full bg-surface-3 overflow-hidden">
                 <div
-                  className="h-full bg-gradient-to-r from-cyan-500 to-teal-400 transition-all duration-300"
+                  className="h-full bg-accent rounded-full transition-all duration-300"
                   style={{ width: `${progress.percent}%` }}
                 />
               </div>
 
-              <div className="flex items-center justify-between text-[11px] text-slate-400 font-mono">
+              <div className="flex items-center justify-between text-[11px] text-text-muted font-mono">
                 <span>{progress.speed ? `Tốc độ: ${progress.speed}` : ''}</span>
                 <span>{progress.eta ? `Còn lại: ${progress.eta}` : ''}</span>
               </div>
@@ -621,13 +628,13 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
         </div>
 
         {/* Footer Actions */}
-        <div className="mt-4 flex items-center justify-between gap-2.5 pt-3 border-t border-slate-800">
+        <div className="mt-4 flex items-center justify-between gap-2.5 pt-3 border-t border-border">
           <div>
             {isDownloading && (
-              <span className="text-[11px] text-cyan-300 flex items-center gap-1.5 font-medium">
+              <span className="text-[11px] text-accent flex items-center gap-1.5 font-medium">
                 <span className="relative flex h-2 w-2">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-cyan-500"></span>
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-accent opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-accent"></span>
                 </span>
                 Đang tải chạy nền — bạn có thể thu nhỏ hoặc chuyển tab khác
               </span>
@@ -640,7 +647,7 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
                 type="button"
                 onClick={handleCancelDownload}
                 disabled={isCancelling}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold text-rose-400 bg-rose-500/10 border border-rose-500/30 hover:bg-rose-500/20 hover:border-rose-500/50 transition cursor-pointer disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium text-danger bg-danger/10 border border-danger/30 hover:bg-danger/20 transition cursor-pointer disabled:opacity-50"
               >
                 {isCancelling ? (
                   <>
@@ -659,11 +666,11 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
             <button
               type="button"
               onClick={() => onOpenChange(false)}
-              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800 transition cursor-pointer"
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-md text-xs font-medium text-text bg-surface-2 border border-border hover:bg-surface-3 transition cursor-pointer"
             >
               {isDownloading ? (
                 <>
-                  <Minimize2 className="h-3.5 w-3.5 text-cyan-400" />
+                  <Minimize2 className="h-3.5 w-3.5 text-accent" />
                   <span>Thu nhỏ & Chạy nền</span>
                 </>
               ) : (
@@ -675,16 +682,16 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
               <button
                 type="button"
                 onClick={handleDownload}
-                className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-cyan-500 to-teal-400 px-5 py-2 text-xs font-bold text-slate-950 hover:opacity-90 transition cursor-pointer shadow-lg shadow-cyan-500/20"
+                className="inline-flex items-center gap-2 rounded-md bg-accent px-4 py-1.5 text-xs font-medium text-white hover:bg-accent-hover transition cursor-pointer"
               >
-                <Download className="h-4 w-4" />
+                <Download className="h-3.5 w-3.5" />
                 <span>Tải video & Bắt đầu làm việc</span>
               </button>
             )}
 
             {isDownloading && (
-              <div className="inline-flex items-center gap-2 rounded-xl bg-cyan-500/20 border border-cyan-500/40 px-4 py-2 text-xs font-semibold text-cyan-300">
-                <Loader2 className="h-4 w-4 animate-spin text-cyan-400" />
+              <div className="inline-flex items-center gap-2 rounded-md bg-accent-tint border border-accent/30 px-3 py-1.5 text-xs font-medium text-accent">
+                <Loader2 className="h-3.5 w-3.5 animate-spin text-accent" />
                 <span>Đang tải xuống ({progress?.percent ?? 0}%)...</span>
               </div>
             )}

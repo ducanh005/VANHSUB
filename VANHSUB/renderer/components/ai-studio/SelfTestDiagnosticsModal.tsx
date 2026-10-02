@@ -89,12 +89,12 @@ export default function SelfTestDiagnosticsModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm animate-in fade-in duration-150">
-      <div className="relative w-full max-w-2xl rounded-3xl border border-slate-800 bg-[#0E1526] shadow-2xl p-6 space-y-5 text-slate-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 animate-in fade-in duration-150">
+      <div className="relative w-full max-w-2xl rounded-lg border border-border bg-[#0E1526] p-6 space-y-5 text-text">
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-slate-800/80 pb-4">
+        <div className="flex items-center justify-between border-b border-border pb-4">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
               <Cpu className="h-5 w-5" />
             </div>
             <div>
@@ -112,7 +112,7 @@ export default function SelfTestDiagnosticsModal({
                   </span>
                 )}
               </h2>
-              <p className="text-xs text-slate-400">
+              <p className="text-xs text-text-muted">
                 Kiểm tra toàn diện 4 mắt xích cốt lõi trong thời gian tối đa 3 giây
                 {executionTimeMs !== null && ` (phản hồi trong ${executionTimeMs}ms)`}
               </p>
@@ -122,7 +122,7 @@ export default function SelfTestDiagnosticsModal({
           <button
             type="button"
             onClick={onClose}
-            className="rounded-xl p-1.5 text-slate-400 hover:bg-slate-800 hover:text-white transition cursor-pointer"
+            className="rounded-md p-1.5 text-text-muted hover:bg-surface-2 hover:text-white transition cursor-pointer"
           >
             <X className="h-5 w-5" />
           </button>
@@ -132,15 +132,15 @@ export default function SelfTestDiagnosticsModal({
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
           {/* 1. Chrome Extension Bridge */}
           <div
-            className={`rounded-2xl border p-4 transition flex flex-col justify-between ${
+            className={`rounded-lg border p-4 transition flex flex-col justify-between ${
               result?.bridge.ok
                 ? 'border-emerald-500/40 bg-emerald-950/20'
-                : 'border-slate-800 bg-[#0B101D]'
+                : 'border-border bg-[#0B101D]'
             }`}
           >
             <div className="space-y-1.5">
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 text-xs font-bold text-slate-200">
+                <div className="flex items-center gap-2 text-xs font-bold text-text">
                   <Globe className="h-4 w-4 text-blue-400" />
                   <span>Chrome Extension Bridge</span>
                 </div>
@@ -149,12 +149,12 @@ export default function SelfTestDiagnosticsModal({
                     <CheckCircle2 className="h-3.5 w-3.5" /> Đã Kết Nối
                   </span>
                 ) : (
-                  <span className="flex items-center gap-1 text-[11px] font-bold text-slate-500">
+                  <span className="flex items-center gap-1 text-[11px] font-bold text-text-muted">
                     <XCircle className="h-3.5 w-3.5" /> Chưa Bật
                   </span>
                 )}
               </div>
-              <p className="text-xs text-slate-400 leading-relaxed">
+              <p className="text-xs text-text-muted leading-relaxed">
                 {result?.bridge.message || 'Đang kiểm tra kết nối WebSocket Port 8765...'}
               </p>
             </div>
@@ -167,7 +167,7 @@ export default function SelfTestDiagnosticsModal({
                     onClose();
                     onOpenChromeBridge();
                   }}
-                  className="w-full flex items-center justify-center gap-1.5 rounded-xl border border-blue-500/40 bg-blue-950/40 hover:bg-blue-900/50 px-3 py-1.5 text-xs font-semibold text-blue-300 transition cursor-pointer"
+                  className="w-full flex items-center justify-center gap-1.5 rounded-md border border-blue-500/40 bg-blue-950/40 hover:bg-blue-900/50 px-3 py-1.5 text-xs font-semibold text-blue-300 transition cursor-pointer"
                 >
                   <Globe className="h-3.5 w-3.5 text-blue-400" />
                   <span>Mở Hướng Dẫn Kết Nối (30s)</span>
@@ -178,15 +178,15 @@ export default function SelfTestDiagnosticsModal({
 
           {/* 2. Google Flow Session (Electron Lobby) */}
           <div
-            className={`rounded-2xl border p-4 transition flex flex-col justify-between ${
+            className={`rounded-lg border p-4 transition flex flex-col justify-between ${
               result?.session.ok
                 ? 'border-emerald-500/40 bg-emerald-950/20'
-                : 'border-slate-800 bg-[#0B101D]'
+                : 'border-border bg-[#0B101D]'
             }`}
           >
             <div className="space-y-1.5">
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 text-xs font-bold text-slate-200">
+                <div className="flex items-center gap-2 text-xs font-bold text-text">
                   <Sparkles className="h-4 w-4 text-amber-400" />
                   <span>Sảnh Google Flow (Electron)</span>
                 </div>
@@ -200,7 +200,7 @@ export default function SelfTestDiagnosticsModal({
                   </span>
                 )}
               </div>
-              <p className="text-xs text-slate-400 leading-relaxed">
+              <p className="text-xs text-text-muted leading-relaxed">
                 {result?.session.message || 'Đang kiểm tra phiên lưu trữ trong persist:google_veo...'}
               </p>
             </div>
@@ -210,7 +210,7 @@ export default function SelfTestDiagnosticsModal({
                 <button
                   type="button"
                   onClick={handleOpenLobby}
-                  className="w-full flex items-center justify-center gap-1.5 rounded-xl bg-amber-600 hover:bg-amber-500 px-3 py-1.5 text-xs font-bold text-white shadow-md transition cursor-pointer"
+                  className="w-full flex items-center justify-center gap-1.5 rounded-md bg-amber-600 hover:bg-amber-500 px-3 py-1.5 text-xs font-bold text-white transition cursor-pointer"
                 >
                   <ExternalLink className="h-3.5 w-3.5" />
                   <span>Mở Sảnh Đăng Nhập Ngay</span>
@@ -221,7 +221,7 @@ export default function SelfTestDiagnosticsModal({
 
           {/* 3. Disk Output Directory */}
           <div
-            className={`rounded-2xl border p-4 transition flex flex-col justify-between ${
+            className={`rounded-lg border p-4 transition flex flex-col justify-between ${
               result?.disk.ok
                 ? 'border-emerald-500/40 bg-emerald-950/20'
                 : 'border-rose-500/40 bg-rose-950/20'
@@ -229,8 +229,8 @@ export default function SelfTestDiagnosticsModal({
           >
             <div className="space-y-1.5">
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 text-xs font-bold text-slate-200">
-                  <HardDrive className="h-4 w-4 text-cyan-400" />
+                <div className="flex items-center gap-2 text-xs font-bold text-text">
+                  <HardDrive className="h-4 w-4 text-accent" />
                   <span>Quyền Ghi Ổ Đĩa (Output)</span>
                 </div>
                 {result?.disk.ok ? (
@@ -243,7 +243,7 @@ export default function SelfTestDiagnosticsModal({
                   </span>
                 )}
               </div>
-              <p className="text-xs text-slate-400 leading-relaxed truncate" title={result?.disk.path}>
+              <p className="text-xs text-text-muted leading-relaxed truncate" title={result?.disk.path}>
                 {result?.disk.message || 'Đang thử ghi file kiểm tra...'}
               </p>
             </div>
@@ -253,7 +253,7 @@ export default function SelfTestDiagnosticsModal({
                 <button
                   type="button"
                   onClick={handleSelectFolder}
-                  className="w-full flex items-center justify-center gap-1.5 rounded-xl border border-rose-500/40 bg-rose-950/40 hover:bg-rose-900/50 px-3 py-1.5 text-xs font-semibold text-rose-300 transition cursor-pointer"
+                  className="w-full flex items-center justify-center gap-1.5 rounded-md border border-rose-500/40 bg-rose-950/40 hover:bg-rose-900/50 px-3 py-1.5 text-xs font-semibold text-rose-300 transition cursor-pointer"
                 >
                   <FolderOpen className="h-3.5 w-3.5" />
                   <span>Chọn Lại Thư Mục Khác</span>
@@ -264,7 +264,7 @@ export default function SelfTestDiagnosticsModal({
 
           {/* 4. AI Provider (LLM / API) */}
           <div
-            className={`rounded-2xl border p-4 transition flex flex-col justify-between ${
+            className={`rounded-lg border p-4 transition flex flex-col justify-between ${
               result?.llm.ok
                 ? 'border-emerald-500/40 bg-emerald-950/20'
                 : 'border-amber-500/40 bg-amber-950/20'
@@ -272,8 +272,8 @@ export default function SelfTestDiagnosticsModal({
           >
             <div className="space-y-1.5">
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 text-xs font-bold text-slate-200">
-                  <Sparkles className="h-4 w-4 text-purple-400" />
+                <div className="flex items-center gap-2 text-xs font-bold text-text">
+                  <Sparkles className="h-4 w-4 text-accent" />
                   <span>Trí Tuệ Nhân Tạo (AI LLM)</span>
                 </div>
                 {result?.llm.ok ? (
@@ -286,7 +286,7 @@ export default function SelfTestDiagnosticsModal({
                   </span>
                 )}
               </div>
-              <p className="text-xs text-slate-400 leading-relaxed">
+              <p className="text-xs text-text-muted leading-relaxed">
                 {result?.llm.message || 'Đang kiểm tra nhà cung cấp AI...'}
               </p>
             </div>
@@ -299,7 +299,7 @@ export default function SelfTestDiagnosticsModal({
                     onClose();
                     onOpenSettings();
                   }}
-                  className="w-full flex items-center justify-center gap-1.5 rounded-xl border border-purple-500/40 bg-purple-950/40 hover:bg-purple-900/50 px-3 py-1.5 text-xs font-semibold text-purple-300 transition cursor-pointer"
+                  className="w-full flex items-center justify-center gap-1.5 rounded-md border border-accent/40 bg-purple-950/40 hover:bg-purple-900/50 px-3 py-1.5 text-xs font-semibold text-accent transition cursor-pointer"
                 >
                   <Settings className="h-3.5 w-3.5" />
                   <span>Mở Cài Đặt Khóa API</span>
@@ -310,8 +310,8 @@ export default function SelfTestDiagnosticsModal({
         </div>
 
         {/* Footer info & re-check */}
-        <div className="flex items-center justify-between border-t border-slate-800/80 pt-4 text-xs">
-          <span className="text-slate-400">
+        <div className="flex items-center justify-between border-t border-border pt-4 text-xs">
+          <span className="text-text-muted">
             {result?.overallReady
               ? '✓ Bạn đã sẵn sàng để tạo ảnh và sinh video tự động!'
               : '💡 Chỉ cần tối thiểu 1 trong 2 kênh (Chrome Extension hoặc Sảnh Flow) hoạt động.'}
@@ -322,7 +322,7 @@ export default function SelfTestDiagnosticsModal({
               type="button"
               onClick={runDiagnostics}
               disabled={isRunning}
-              className="flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-800 hover:bg-slate-700 px-3.5 py-1.5 font-medium text-slate-200 hover:text-white transition cursor-pointer disabled:opacity-50"
+              className="flex items-center gap-1.5 rounded-md border border-border bg-surface-2 hover:bg-surface-3 px-3.5 py-1.5 font-medium text-text hover:text-white transition cursor-pointer disabled:opacity-50"
             >
               <RefreshCw className={`h-3.5 w-3.5 ${isRunning ? 'animate-spin' : ''}`} />
               <span>{isRunning ? 'Đang kiểm tra...' : 'Chẩn Đoán Lại'}</span>
@@ -330,7 +330,7 @@ export default function SelfTestDiagnosticsModal({
             <button
               type="button"
               onClick={onClose}
-              className="rounded-xl bg-brand-cyan/20 border border-brand-cyan/40 hover:bg-brand-cyan/30 px-4 py-1.5 font-bold text-brand-cyan transition cursor-pointer"
+              className="rounded-md bg-accent-tint border border-accent/40 hover:bg-accent/30 px-4 py-1.5 font-bold text-accent transition cursor-pointer"
             >
               Đóng
             </button>

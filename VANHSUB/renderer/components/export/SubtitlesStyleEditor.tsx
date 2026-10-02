@@ -255,16 +255,16 @@ export const SubtitlesStyleEditor: React.FC<SubtitlesStyleEditorProps> = ({
   const customCount = Object.keys(perLineStyles).length;
 
   return (
-    <div className="flex flex-col gap-4 rounded-2xl border border-slate-800 bg-slate-900/70 p-4">
+    <div className="flex flex-col gap-4 rounded-lg border border-border bg-surface p-4">
       {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/80 pb-3">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border pb-3">
         <div className="flex items-center gap-2">
-          <Palette className="h-4 w-4 text-brand-cyan" />
-          <h3 className="text-xs font-semibold text-slate-200">
+          <Palette className="h-4 w-4 text-accent" />
+          <h3 className="text-xs font-semibold text-text">
             Tùy biến Style từng câu thoại (Mini CapCut)
           </h3>
           {customCount > 0 && (
-            <span className="rounded-full border border-brand-cyan/40 bg-brand-cyan/10 px-2 py-0.5 text-[10px] font-semibold text-brand-cyan">
+            <span className="rounded-full border border-accent/40 bg-accent-tint px-2 py-0.5 text-[10px] font-semibold text-accent">
               {customCount} câu đã đổi style
             </span>
           )}
@@ -275,7 +275,7 @@ export const SubtitlesStyleEditor: React.FC<SubtitlesStyleEditorProps> = ({
             <button
               type="button"
               onClick={onClearAllStyles}
-              className="flex items-center gap-1 rounded-lg border border-slate-700 bg-slate-800 px-2.5 py-1 text-[11px] font-medium text-slate-400 hover:border-rose-500/50 hover:bg-rose-500/10 hover:text-rose-300 transition cursor-pointer"
+              className="flex items-center gap-1 rounded-lg border border-border bg-surface-2 px-2.5 py-1 text-[11px] font-medium text-text-muted hover:border-rose-500/50 hover:bg-rose-500/10 hover:text-rose-300 transition cursor-pointer"
             >
               <RotateCcw className="h-3 w-3" />
               <span>Khôi phục mặc định tất cả</span>
@@ -285,9 +285,9 @@ export const SubtitlesStyleEditor: React.FC<SubtitlesStyleEditorProps> = ({
       </div>
 
       {/* Dải Mẫu Style Đã Lưu (Saved Style Presets Bar) */}
-      <div className="rounded-xl border border-slate-800/90 bg-slate-950/60 p-3">
+      <div className="rounded-md border border-border bg-bg p-3">
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-1.5 text-xs font-medium text-slate-300">
+          <div className="flex items-center gap-1.5 text-xs font-medium text-text">
             <Bookmark className="h-3.5 w-3.5 text-amber-400" />
             <span>Mẫu style đã lưu (Click để áp nhanh cho câu đang chọn):</span>
           </div>
@@ -303,19 +303,19 @@ export const SubtitlesStyleEditor: React.FC<SubtitlesStyleEditorProps> = ({
                     onChange={(e) => setNewPresetName(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && handleSaveCurrentAsPreset()}
                     autoFocus
-                    className="w-32 rounded-lg border border-slate-700 bg-slate-800 px-2 py-0.5 text-xs text-white focus:outline-none focus:border-brand-cyan"
+                    className="w-32 rounded-lg border border-border bg-surface-2 px-2 py-0.5 text-xs text-white focus:outline-none focus:border-accent/40"
                   />
                   <button
                     type="button"
                     onClick={handleSaveCurrentAsPreset}
-                    className="rounded-lg bg-brand-cyan/20 px-2 py-0.5 text-xs font-semibold text-brand-cyan hover:bg-brand-cyan/30"
+                    className="rounded-lg bg-accent-tint px-2 py-0.5 text-xs font-semibold text-accent hover:bg-accent/30"
                   >
                     Lưu
                   </button>
                   <button
                     type="button"
                     onClick={() => setIsSavingPreset(false)}
-                    className="p-0.5 text-slate-400 hover:text-white"
+                    className="p-0.5 text-text-muted hover:text-white"
                   >
                     <X className="h-3.5 w-3.5" />
                   </button>
@@ -327,7 +327,7 @@ export const SubtitlesStyleEditor: React.FC<SubtitlesStyleEditorProps> = ({
                     setIsSavingPreset(true);
                     setNewPresetName(`Mẫu style #${savedPresets.length + 1}`);
                   }}
-                  className="inline-flex items-center gap-1 rounded-lg border border-slate-700 bg-slate-800/90 px-2.5 py-1 text-[11px] font-medium text-amber-300 hover:bg-slate-700 transition cursor-pointer"
+                  className="inline-flex items-center gap-1 rounded-lg border border-border bg-surface-2 px-2.5 py-1 text-[11px] font-medium text-amber-300 hover:bg-surface-3 transition cursor-pointer"
                 >
                   <BookmarkPlus className="h-3 w-3 text-amber-400" />
                   <span>Lưu style câu #{selectedIndex + 1} thành mẫu</span>
@@ -344,7 +344,7 @@ export const SubtitlesStyleEditor: React.FC<SubtitlesStyleEditorProps> = ({
               key={preset.id}
               type="button"
               onClick={() => handleApplyPreset(preset.style)}
-              className="group flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-900/90 px-3 py-1.5 text-xs text-slate-300 hover:border-brand-cyan/60 hover:bg-slate-800 transition cursor-pointer"
+              className="group flex items-center gap-2 rounded-md border border-border bg-surface px-3 py-1.5 text-xs text-text hover:border-accent/40 hover:bg-surface-2 transition cursor-pointer"
               title="Nhấp để áp dụng style này cho câu đang chọn"
             >
               <div
@@ -352,9 +352,9 @@ export const SubtitlesStyleEditor: React.FC<SubtitlesStyleEditorProps> = ({
                   backgroundColor: preset.style.textColorHex || '#FFFFFF',
                   borderColor: preset.style.outlineColorHex || '#000000',
                 }}
-                className="h-3 w-3 rounded-full border shadow-sm shrink-0"
+                className="h-3 w-3 rounded-full border shrink-0"
               />
-              <span className="font-medium text-slate-200 group-hover:text-white">
+              <span className="font-medium text-text group-hover:text-white">
                 {preset.name}
               </span>
               <span
@@ -370,7 +370,7 @@ export const SubtitlesStyleEditor: React.FC<SubtitlesStyleEditorProps> = ({
               {preset.id.startsWith('preset_') && !DEFAULT_SAVED_PRESETS.some((d) => d.id === preset.id) && (
                 <span
                   onClick={(e) => handleDeletePreset(preset.id, e)}
-                  className="text-slate-500 hover:text-rose-400 p-0.5 ml-1"
+                  className="text-text-muted hover:text-rose-400 p-0.5 ml-1"
                   title="Xóa mẫu này"
                 >
                   <X className="h-3 w-3" />
@@ -386,18 +386,18 @@ export const SubtitlesStyleEditor: React.FC<SubtitlesStyleEditorProps> = ({
         <div className="flex flex-col gap-2 lg:col-span-6">
           <div className="flex items-center justify-between gap-2">
             <div className="relative flex-1">
-              <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-slate-500" />
+              <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-text-muted" />
               <input
                 type="text"
                 placeholder="Tìm kiếm nội dung câu thoại..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full rounded-xl border border-slate-700 bg-slate-800/90 pl-8 pr-3 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:border-brand-cyan/60 focus:outline-none"
+                className="w-full rounded-md border border-border bg-surface-2 pl-8 pr-3 py-1.5 text-xs text-text placeholder-slate-500 focus:border-accent/40 focus:outline-none"
               />
             </div>
 
             {copiedStyle && (
-              <div className="flex items-center gap-1 rounded-lg border border-brand-cyan/40 bg-brand-cyan/10 px-2 py-1 text-[11px] text-brand-cyan font-mono shrink-0">
+              <div className="flex items-center gap-1 rounded-lg border border-accent/40 bg-accent-tint px-2 py-1 text-[11px] text-accent font-mono shrink-0">
                 <Copy className="h-3 w-3" />
                 <span>Đã chép #{copiedFromIdx !== null ? copiedFromIdx + 1 : ''}</span>
               </div>
@@ -406,8 +406,8 @@ export const SubtitlesStyleEditor: React.FC<SubtitlesStyleEditorProps> = ({
 
           {/* Thanh tác vụ khi tích chọn nhiều checkbox câu */}
           {selectedMultiIndices.size > 0 && (
-            <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-brand-indigo/40 bg-brand-indigo/15 p-2 px-3">
-              <span className="text-xs font-semibold text-brand-cyan">
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-accent/40 bg-accent/15 p-2 px-3">
+              <span className="text-xs font-semibold text-accent">
                 Đã tích chọn {selectedMultiIndices.size} câu
               </span>
               <div className="flex flex-wrap items-center gap-1.5">
@@ -415,7 +415,7 @@ export const SubtitlesStyleEditor: React.FC<SubtitlesStyleEditorProps> = ({
                   <button
                     type="button"
                     onClick={handleApplyToMultiChecked}
-                    className="rounded-lg bg-brand-cyan/20 px-2.5 py-1 text-[11px] font-medium text-brand-cyan hover:bg-brand-cyan/30 transition cursor-pointer"
+                    className="rounded-lg bg-accent-tint px-2.5 py-1 text-[11px] font-medium text-accent hover:bg-accent/30 transition cursor-pointer"
                   >
                     Áp style câu #{selectedIndex + 1}
                   </button>
@@ -433,7 +433,7 @@ export const SubtitlesStyleEditor: React.FC<SubtitlesStyleEditorProps> = ({
                 <button
                   type="button"
                   onClick={handleClearMultiCheckedStyles}
-                  className="rounded-lg bg-slate-800 px-2 py-1 text-[11px] font-medium text-rose-300 hover:bg-rose-500/20 transition cursor-pointer"
+                  className="rounded-lg bg-surface-2 px-2 py-1 text-[11px] font-medium text-rose-300 hover:bg-rose-500/20 transition cursor-pointer"
                   title="Xóa style riêng của các câu này"
                 >
                   Xóa style
@@ -441,7 +441,7 @@ export const SubtitlesStyleEditor: React.FC<SubtitlesStyleEditorProps> = ({
                 <button
                   type="button"
                   onClick={() => setSelectedMultiIndices(new Set())}
-                  className="p-1 text-slate-400 hover:text-white"
+                  className="p-1 text-text-muted hover:text-white"
                   title="Bỏ chọn"
                 >
                   <X className="h-3.5 w-3.5" />
@@ -451,9 +451,9 @@ export const SubtitlesStyleEditor: React.FC<SubtitlesStyleEditorProps> = ({
           )}
 
           {/* Danh sách các câu */}
-          <div className="max-h-72 overflow-y-auto rounded-xl border border-slate-800 bg-slate-950/60 p-1 divide-y divide-slate-800/40">
+          <div className="max-h-72 overflow-y-auto rounded-md border border-border bg-bg p-1 divide-y divide-slate-800/40">
             {filteredLines.length === 0 ? (
-              <div className="py-6 text-center text-xs text-slate-500">
+              <div className="py-6 text-center text-xs text-text-muted">
                 {lines.length === 0 ? 'Chưa tải được câu thoại' : 'Không tìm thấy câu phù hợp'}
               </div>
             ) : (
@@ -469,25 +469,25 @@ export const SubtitlesStyleEditor: React.FC<SubtitlesStyleEditorProps> = ({
                     onClick={() => onSelectLine(line.originalIdx)}
                     className={`group flex w-full items-start gap-2.5 rounded-lg px-2.5 py-2 text-left transition cursor-pointer ${
                       isSelected
-                        ? 'bg-brand-cyan/15 ring-1 ring-brand-cyan/50 text-white'
-                        : 'hover:bg-slate-800/60 text-slate-300'
+                        ? 'bg-accent/15 ring-1 ring-accent/30 text-white'
+                        : 'hover:bg-surface-2 text-text'
                     }`}
                   >
                     {/* Checkbox multi-select */}
                     <button
                       type="button"
                       onClick={(e) => handleToggleMultiSelect(line.originalIdx, e)}
-                      className="shrink-0 mt-0.5 text-slate-500 hover:text-brand-cyan transition"
+                      className="shrink-0 mt-0.5 text-text-muted hover:text-accent transition"
                       title="Tích chọn câu này để áp dụng hàng loạt"
                     >
                       {isChecked ? (
-                        <CheckSquare className="h-3.5 w-3.5 text-brand-cyan" />
+                        <CheckSquare className="h-3.5 w-3.5 text-accent" />
                       ) : (
                         <Square className="h-3.5 w-3.5" />
                       )}
                     </button>
 
-                    <span className="shrink-0 font-mono text-[10px] text-slate-500 mt-0.5">
+                    <span className="shrink-0 font-mono text-[10px] text-text-muted mt-0.5">
                       #{line.originalIdx + 1}
                     </span>
 
@@ -505,7 +505,7 @@ export const SubtitlesStyleEditor: React.FC<SubtitlesStyleEditorProps> = ({
                       >
                         {line.text}
                       </p>
-                      <span className="text-[10px] font-mono text-slate-500">
+                      <span className="text-[10px] font-mono text-text-muted">
                         {formatMs(line.startMs).split(',')[0]} → {formatMs(line.endMs).split(',')[0]}
                       </span>
                     </div>
@@ -518,7 +518,7 @@ export const SubtitlesStyleEditor: React.FC<SubtitlesStyleEditorProps> = ({
                           e.stopPropagation();
                           handlePasteToLine(line.originalIdx);
                         }}
-                        className="opacity-0 group-hover:opacity-100 flex items-center gap-1 rounded bg-slate-800/90 border border-slate-700 px-1.5 py-0.5 text-[10px] text-brand-cyan hover:bg-brand-cyan hover:text-black transition"
+                        className="opacity-0 group-hover:opacity-100 flex items-center gap-1 rounded bg-surface-2 border border-border px-1.5 py-0.5 text-[10px] text-accent hover:bg-accent hover:text-black transition"
                         title={`Áp dụng style đã chép (từ câu #${copiedFromIdx !== null ? copiedFromIdx + 1 : ''}) cho câu này`}
                       >
                         <ClipboardPaste className="h-3 w-3" />
@@ -528,7 +528,7 @@ export const SubtitlesStyleEditor: React.FC<SubtitlesStyleEditorProps> = ({
 
                     {hasCustom && (
                       <span
-                        className="shrink-0 h-2 w-2 rounded-full bg-brand-cyan mt-1.5"
+                        className="shrink-0 h-2 w-2 rounded-full bg-accent mt-1.5"
                         title="Dòng này có style riêng"
                       />
                     )}
@@ -540,17 +540,17 @@ export const SubtitlesStyleEditor: React.FC<SubtitlesStyleEditorProps> = ({
         </div>
 
         {/* CỘT PHẢI: Bảng điều khiển style câu được chọn */}
-        <div className="flex flex-col gap-3 rounded-xl border border-slate-800 bg-slate-800/40 p-3.5 lg:col-span-6">
+        <div className="flex flex-col gap-3 rounded-md border border-border bg-surface-2 p-3.5 lg:col-span-6">
           {selectedIndex === null ? (
-            <div className="flex flex-1 flex-col items-center justify-center p-6 text-center text-xs text-slate-500">
-              <Sparkles className="h-6 w-6 text-slate-600 mb-2" />
+            <div className="flex flex-1 flex-col items-center justify-center p-6 text-center text-xs text-text-muted">
+              <Sparkles className="h-6 w-6 text-text-faint mb-2" />
               <span>Chọn một câu thoại bên trái để chỉnh màu sắc, cỡ chữ và sao chép áp dụng riêng lẻ.</span>
             </div>
           ) : (
             <>
               {/* Header câu chọn + Action Buttons (Sao chép, Dán, Xóa) */}
-              <div className="flex items-center justify-between border-b border-slate-700/60 pb-2">
-                <span className="text-xs font-semibold text-brand-cyan">
+              <div className="flex items-center justify-between border-b border-border pb-2">
+                <span className="text-xs font-semibold text-accent">
                   Chỉnh câu #{selectedIndex + 1}
                 </span>
 
@@ -559,10 +559,10 @@ export const SubtitlesStyleEditor: React.FC<SubtitlesStyleEditorProps> = ({
                   <button
                     type="button"
                     onClick={handleCopyCurrentStyle}
-                    className="flex items-center gap-1 rounded-lg border border-slate-700 bg-slate-800 px-2 py-1 text-[11px] font-medium text-slate-300 hover:border-brand-cyan/60 hover:text-brand-cyan transition cursor-pointer"
+                    className="flex items-center gap-1 rounded-lg border border-border bg-surface-2 px-2 py-1 text-[11px] font-medium text-text hover:border-accent/40 hover:text-accent transition cursor-pointer"
                     title="Sao chép toàn bộ màu chữ, cỡ chữ, viền của câu này"
                   >
-                    <Copy className="h-3 w-3 text-brand-cyan" />
+                    <Copy className="h-3 w-3 text-accent" />
                     <span>Sao chép</span>
                   </button>
 
@@ -595,7 +595,7 @@ export const SubtitlesStyleEditor: React.FC<SubtitlesStyleEditorProps> = ({
               </div>
 
               {/* Preview câu được chọn */}
-              <div className="flex items-center justify-center rounded-lg border border-slate-700 bg-slate-950 p-3 min-h-[50px] text-center overflow-hidden">
+              <div className="flex items-center justify-center rounded-lg border border-border bg-bg p-3 min-h-[50px] text-center overflow-hidden">
                 <span
                   style={{
                     color: activeStyle.textColorHex || '#FFFFFF',
@@ -621,32 +621,32 @@ export const SubtitlesStyleEditor: React.FC<SubtitlesStyleEditorProps> = ({
               {/* Controls Màu Sắc */}
               <div className="grid grid-cols-2 gap-3 text-xs">
                 {/* Màu chữ */}
-                <div className="flex items-center justify-between rounded-lg border border-slate-700 bg-slate-900/80 px-2.5 py-1.5">
-                  <span className="text-slate-400 text-[11px]">Màu chữ:</span>
+                <div className="flex items-center justify-between rounded-lg border border-border bg-surface px-2.5 py-1.5">
+                  <span className="text-text-muted text-[11px]">Màu chữ:</span>
                   <div className="flex items-center gap-1.5">
                     <input
                       type="color"
                       value={activeStyle.textColorHex || '#FFFFFF'}
                       onChange={(e) => handleStyleChange({ textColorHex: e.target.value })}
-                      className="h-6 w-7 cursor-pointer rounded border border-slate-700 bg-transparent"
+                      className="h-6 w-7 cursor-pointer rounded border border-border bg-transparent"
                     />
-                    <span className="font-mono text-[10px] text-slate-300">
+                    <span className="font-mono text-[10px] text-text">
                       {activeStyle.textColorHex || '#FFFFFF'}
                     </span>
                   </div>
                 </div>
 
                 {/* Màu viền */}
-                <div className="flex items-center justify-between rounded-lg border border-slate-700 bg-slate-900/80 px-2.5 py-1.5">
-                  <span className="text-slate-400 text-[11px]">Màu viền:</span>
+                <div className="flex items-center justify-between rounded-lg border border-border bg-surface px-2.5 py-1.5">
+                  <span className="text-text-muted text-[11px]">Màu viền:</span>
                   <div className="flex items-center gap-1.5">
                     <input
                       type="color"
                       value={activeStyle.outlineColorHex || '#000000'}
                       onChange={(e) => handleStyleChange({ outlineColorHex: e.target.value })}
-                      className="h-6 w-7 cursor-pointer rounded border border-slate-700 bg-transparent"
+                      className="h-6 w-7 cursor-pointer rounded border border-border bg-transparent"
                     />
-                    <span className="font-mono text-[10px] text-slate-300">
+                    <span className="font-mono text-[10px] text-text">
                       {activeStyle.outlineColorHex || '#000000'}
                     </span>
                   </div>
@@ -656,9 +656,9 @@ export const SubtitlesStyleEditor: React.FC<SubtitlesStyleEditorProps> = ({
               {/* Cỡ chữ & độ dày viền */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <div className="flex justify-between text-[11px] text-slate-400 mb-1">
+                  <div className="flex justify-between text-[11px] text-text-muted mb-1">
                     <span>Cỡ chữ:</span>
-                    <span className="font-mono text-brand-cyan">{activeStyle.fontSize || 24}px</span>
+                    <span className="font-mono text-accent">{activeStyle.fontSize || 24}px</span>
                   </div>
                   <input
                     type="range"
@@ -666,13 +666,13 @@ export const SubtitlesStyleEditor: React.FC<SubtitlesStyleEditorProps> = ({
                     max={60}
                     value={activeStyle.fontSize || 24}
                     onChange={(e) => handleStyleChange({ fontSize: Number(e.target.value) })}
-                    className="w-full accent-cyan-400"
+                    className="w-full accent-accent"
                   />
                 </div>
                 <div>
-                  <div className="flex justify-between text-[11px] text-slate-400 mb-1">
+                  <div className="flex justify-between text-[11px] text-text-muted mb-1">
                     <span>Độ dày viền:</span>
-                    <span className="font-mono text-brand-cyan">{activeStyle.outlineWidth || 2}px</span>
+                    <span className="font-mono text-accent">{activeStyle.outlineWidth || 2}px</span>
                   </div>
                   <input
                     type="range"
@@ -680,17 +680,17 @@ export const SubtitlesStyleEditor: React.FC<SubtitlesStyleEditorProps> = ({
                     max={8}
                     value={activeStyle.outlineWidth || 2}
                     onChange={(e) => handleStyleChange({ outlineWidth: Number(e.target.value) })}
-                    className="w-full accent-cyan-400"
+                    className="w-full accent-accent"
                   />
                 </div>
               </div>
 
               {/* Điều khiển Vị trí 9 điểm & Kiểu chữ xếp dọc */}
-              <div className="flex flex-col gap-2.5 border-t border-slate-700/60 pt-2.5">
+              <div className="flex flex-col gap-2.5 border-t border-border pt-2.5">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="text-[11px] font-semibold text-slate-300 flex items-center gap-1">
+                  <span className="text-[11px] font-semibold text-text flex items-center gap-1">
                     <span>Vị trí & Bố cục câu:</span>
-                    <span className="font-mono text-brand-cyan text-[10px]">
+                    <span className="font-mono text-accent text-[10px]">
                       {activeStyle.alignment === 7 ? 'Đỉnh trái' :
                        activeStyle.alignment === 8 ? 'Đỉnh giữa' :
                        activeStyle.alignment === 9 ? 'Đỉnh phải' :
@@ -708,19 +708,19 @@ export const SubtitlesStyleEditor: React.FC<SubtitlesStyleEditorProps> = ({
                     onClick={() => handleStyleChange({ isVertical: !activeStyle.isVertical })}
                     className={`inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-[11px] font-medium transition cursor-pointer ${
                       activeStyle.isVertical
-                        ? 'bg-purple-500/20 text-purple-300 ring-1 ring-purple-500/50 font-semibold'
-                        : 'border border-slate-700 bg-slate-800 text-slate-400 hover:text-white'
+                        ? 'bg-accent-tint text-accent ring-1 ring-purple-500/50 font-semibold'
+                        : 'border border-border bg-surface-2 text-text-muted hover:text-white'
                     }`}
                     title="Bật chế độ chữ xếp dọc thẳng đứng (chuyên dụng cho lời bài hát Douyin / TikTok)"
                   >
-                    <span>🔤 Xếp dọc:</span>
+                    <span>Xếp dọc:</span>
                     <span>{activeStyle.isVertical ? 'BẬT' : 'TẮT'}</span>
                   </button>
                 </div>
 
                 <div className="flex items-center gap-4">
                   {/* Lưới 3x3 căn vị trí Numpad */}
-                  <div className="grid grid-cols-3 gap-1 rounded-xl border border-slate-700 bg-slate-900/90 p-1.5 shrink-0">
+                  <div className="grid grid-cols-3 gap-1 rounded-md border border-border bg-surface p-1.5 shrink-0">
                     {[
                       { id: 7, label: '↖', title: 'Đỉnh - Trái' },
                       { id: 8, label: '⬆', title: 'Đỉnh - Giữa' },
@@ -740,8 +740,8 @@ export const SubtitlesStyleEditor: React.FC<SubtitlesStyleEditorProps> = ({
                           onClick={() => handleStyleChange({ alignment: btn.id as any })}
                           className={`flex h-7 w-7 items-center justify-center rounded-lg text-xs font-mono transition cursor-pointer ${
                             isCurrent
-                              ? 'bg-brand-cyan text-black font-bold shadow-md shadow-brand-cyan/30'
-                              : 'bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-white'
+                              ? 'bg-accent text-black font-bold  '
+                              : 'bg-surface-2 text-text hover:bg-surface-3 hover:text-white'
                           }`}
                           title={btn.title}
                         >
@@ -754,9 +754,9 @@ export const SubtitlesStyleEditor: React.FC<SubtitlesStyleEditorProps> = ({
                   {/* Thanh trượt lề dọc & ngang */}
                   <div className="flex-1 flex flex-col gap-2">
                     <div>
-                      <div className="flex justify-between text-[10px] text-slate-400 mb-0.5">
+                      <div className="flex justify-between text-[10px] text-text-muted mb-0.5">
                         <span>Lề dọc (Margin V):</span>
-                        <span className="font-mono text-brand-cyan">{activeStyle.marginV ?? 25}px</span>
+                        <span className="font-mono text-accent">{activeStyle.marginV ?? 25}px</span>
                       </div>
                       <input
                         type="range"
@@ -764,13 +764,13 @@ export const SubtitlesStyleEditor: React.FC<SubtitlesStyleEditorProps> = ({
                         max={120}
                         value={activeStyle.marginV ?? 25}
                         onChange={(e) => handleStyleChange({ marginV: Number(e.target.value) })}
-                        className="w-full accent-cyan-400"
+                        className="w-full accent-accent"
                       />
                     </div>
                     <div>
-                      <div className="flex justify-between text-[10px] text-slate-400 mb-0.5">
+                      <div className="flex justify-between text-[10px] text-text-muted mb-0.5">
                         <span>Lề ngang (Margin H):</span>
-                        <span className="font-mono text-brand-cyan">{activeStyle.marginH ?? 20}px</span>
+                        <span className="font-mono text-accent">{activeStyle.marginH ?? 20}px</span>
                       </div>
                       <input
                         type="range"
@@ -778,21 +778,21 @@ export const SubtitlesStyleEditor: React.FC<SubtitlesStyleEditorProps> = ({
                         max={150}
                         value={activeStyle.marginH ?? 20}
                         onChange={(e) => handleStyleChange({ marginH: Number(e.target.value) })}
-                        className="w-full accent-cyan-400"
+                        className="w-full accent-accent"
                       />
                     </div>
                   </div>
                 </div>
 
                 {/* Định dạng In đậm & In nghiêng */}
-                <div className="flex items-center gap-2 pt-1 border-t border-slate-700/40">
+                <div className="flex items-center gap-2 pt-1 border-t border-border">
                   <button
                     type="button"
                     onClick={() => handleStyleChange({ bold: !activeStyle.bold })}
                     className={`flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs transition cursor-pointer ${
                       activeStyle.bold
-                        ? 'bg-brand-cyan/20 text-brand-cyan ring-1 ring-brand-cyan/50 font-bold'
-                        : 'text-slate-400 hover:bg-slate-700 hover:text-white'
+                        ? 'bg-accent-tint text-accent ring-1 ring-accent/30 font-bold'
+                        : 'text-text-muted hover:bg-surface-3 hover:text-white'
                     }`}
                     title="In đậm"
                   >
@@ -804,8 +804,8 @@ export const SubtitlesStyleEditor: React.FC<SubtitlesStyleEditorProps> = ({
                     onClick={() => handleStyleChange({ italic: !activeStyle.italic })}
                     className={`flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs transition cursor-pointer ${
                       activeStyle.italic
-                        ? 'bg-brand-cyan/20 text-brand-cyan ring-1 ring-brand-cyan/50'
-                        : 'text-slate-400 hover:bg-slate-700 hover:text-white'
+                        ? 'bg-accent-tint text-accent ring-1 ring-accent/30'
+                        : 'text-text-muted hover:bg-surface-3 hover:text-white'
                     }`}
                     title="In nghiêng"
                   >
@@ -816,14 +816,14 @@ export const SubtitlesStyleEditor: React.FC<SubtitlesStyleEditorProps> = ({
               </div>
 
               {/* Hàng nút mở rộng phía dưới */}
-              <div className="pt-2 border-t border-slate-700/60 flex flex-wrap items-center justify-between gap-2">
-                <span className="text-[11px] text-slate-400">
-                  Tip: Bạn có thể sao chép rồi bấm nút 📋 Dán trực tiếp trên bất kỳ câu nào bên trái.
+              <div className="pt-2 border-t border-border flex flex-wrap items-center justify-between gap-2">
+                <span className="text-[11px] text-text-muted">
+                  Tip: Bạn có thể sao chép rồi bấm nút Dán trực tiếp trên bất kỳ câu nào bên trái.
                 </span>
                 <button
                   type="button"
                   onClick={() => onBatchApplyStyles(activeStyle)}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-brand-indigo/40 bg-brand-indigo/20 px-3 py-1.5 text-xs font-semibold text-brand-cyan hover:bg-brand-indigo/30 transition cursor-pointer"
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-accent/40 bg-accent-tint px-3 py-1.5 text-xs font-semibold text-accent hover:bg-accent/30 transition cursor-pointer"
                 >
                   <Check className="h-3.5 w-3.5" />
                   <span>Áp dụng cho tất cả câu</span>

@@ -44,13 +44,13 @@ export interface GeminiModelGroup {
 
 export const GEMINI_MODEL_GROUPS: GeminiModelGroup[] = [
   {
-    group: '⚡ Model Free khuyên dùng & Tốc độ cao',
+    group: 'Model Free khuyên dùng & Tốc độ cao',
     models: [
       {
         id: 'gemini-2.5-flash',
         name: 'Gemini 2.5 Flash',
         badge: 'Khuyên dùng • Free',
-        badgeColor: 'bg-brand-cyan/20 text-brand-cyan border-brand-cyan/40',
+        badgeColor: 'bg-accent-tint text-accent border-accent/40',
         desc: 'Model thế hệ mới nhất, tốc độ cực nhanh, dịch thuật & hiệu đính chuẩn xác. Miễn phí (15 RPM / 1M TPM).',
         isRecommended: true,
       },
@@ -79,13 +79,13 @@ export const GEMINI_MODEL_GROUPS: GeminiModelGroup[] = [
         id: 'gemini-1.5-flash',
         name: 'Gemini 1.5 Flash',
         badge: 'Kinh điển • Free',
-        badgeColor: 'bg-slate-500/20 text-slate-300 border-slate-500/40',
+        badgeColor: 'bg-slate-500/20 text-text border-slate-500/40',
         desc: 'Bản 1.5 Flash kinh điển, ổn định dài lâu, dịch phụ đề mượt mà. Miễn phí (15 RPM).',
       },
     ],
   },
   {
-    group: '💎 Model Pro — Dịch thuật & Hiệu đính chuyên sâu',
+    group: 'Model Pro — Dịch thuật & Hiệu đính chuyên sâu',
     models: [
       {
         id: 'gemini-2.5-pro',
@@ -104,20 +104,20 @@ export const GEMINI_MODEL_GROUPS: GeminiModelGroup[] = [
     ],
   },
   {
-    group: '🔄 Tự động cập nhật bản mới nhất (Alias)',
+    group: 'Tự động cập nhật bản mới nhất (Alias)',
     models: [
       {
         id: 'gemini-flash-latest',
         name: 'gemini-flash-latest',
         badge: 'Auto Flash',
-        badgeColor: 'bg-purple-500/20 text-purple-300 border-purple-500/40',
+        badgeColor: 'bg-accent-tint text-accent border-accent/40',
         desc: 'Luôn tự động trỏ tới bản Flash mới nhất của Google.',
       },
       {
         id: 'gemini-pro-latest',
         name: 'gemini-pro-latest',
         badge: 'Auto Pro',
-        badgeColor: 'bg-purple-500/20 text-purple-300 border-purple-500/40',
+        badgeColor: 'bg-accent-tint text-accent border-accent/40',
         desc: 'Luôn tự động trỏ tới bản Pro mới nhất của Google.',
       },
     ],
@@ -460,14 +460,14 @@ export default function SettingsPage() {
   };
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden text-xs text-slate-300">
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden text-xs text-text">
       {/* Vùng cuộn nội dung cấu hình */}
       <div className="flex-1 overflow-y-auto p-6 space-y-6">
         {/* Header */}
-      <div className="flex items-center justify-between rounded-2xl border border-slate-800 bg-slate-900/80 p-4">
+      <div className="flex items-center justify-between rounded-lg border border-border bg-surface p-4">
         <div>
           <h2 className="text-sm font-bold text-white">Cấu hình Hệ thống & Dịch vụ AI</h2>
-          <p className="mt-0.5 text-slate-400">
+          <p className="mt-0.5 text-text-muted">
             Quản lý API Key, thư mục lưu trữ, cấu hình model Whisper ASR và dịch thuật Gemini
           </p>
         </div>
@@ -475,7 +475,7 @@ export default function SettingsPage() {
           type="button"
           disabled={isSaving}
           onClick={handleSaveSettings}
-          className="btn-vanh-gradient inline-flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-semibold cursor-pointer shadow-lg shadow-brand-indigo/20 disabled:opacity-50"
+          className="bg-accent text-white hover:bg-accent-hover inline-flex items-center gap-2 rounded-md px-4 py-2 text-xs font-semibold cursor-pointer disabled:opacity-50"
         >
           {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
           <span>{isSaving ? 'Đang lưu...' : 'Lưu cài đặt'}</span>
@@ -483,14 +483,14 @@ export default function SettingsPage() {
       </div>
 
       {savedMessage && (
-        <div className="flex items-center gap-2 rounded-2xl border border-emerald-500/40 bg-emerald-500/10 p-3 font-medium text-emerald-400">
+        <div className="flex items-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 p-3 font-medium text-emerald-400">
           <CheckCircle2 className="h-4 w-4" />
           <span>{savedMessage}</span>
         </div>
       )}
 
       {errorMessage && (
-        <div className="rounded-2xl border border-rose-500/40 bg-rose-500/10 p-3 text-rose-300">
+        <div className="rounded-lg border border-rose-500/40 bg-rose-500/10 p-3 text-rose-300">
           {errorMessage}
         </div>
       )}
@@ -503,10 +503,10 @@ export default function SettingsPage() {
 
       <div className="grid gap-6 lg:grid-cols-2">
         {/* Khối 1: Gemini API Key */}
-        <div className="flex flex-col gap-4 rounded-3xl border border-slate-800 bg-slate-900/60 p-5">
-          <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+        <div className="flex flex-col gap-4 rounded-lg border border-border bg-surface p-5">
+          <div className="flex items-center justify-between border-b border-border pb-3">
             <div className="flex items-center gap-2 text-sm font-bold text-white">
-              <Key className="h-4 w-4 text-brand-cyan" />
+              <Key className="h-4 w-4 text-accent" />
               <span>Gemini AI (Dịch thuật & Hiệu đính)</span>
             </div>
             {geminiSavedFlash && (
@@ -519,30 +519,30 @@ export default function SettingsPage() {
 
           <div className="space-y-4">
             <div>
-              <label className="mb-1 block font-medium text-slate-200">Gemini API Key</label>
+              <label className="mb-1 block font-medium text-text">Gemini API Key</label>
               <div className="flex gap-2">
                 <input
                   type={showApiKey ? 'text' : 'password'}
                   value={apiKey}
                   onChange={(e) => setApiKey(e.target.value)}
                   placeholder="AIzaSy..."
-                  className="flex-1 rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 font-mono text-xs text-white focus:border-brand-cyan focus:outline-none"
+                  className="flex-1 rounded-md border border-border bg-surface-2 px-3 py-2 font-mono text-xs text-white focus:border-accent/40 focus:outline-none"
                 />
                 <button
                   type="button"
                   onClick={() => setShowApiKey(!showApiKey)}
-                  className="rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 font-medium text-slate-300 hover:bg-slate-700 cursor-pointer"
+                  className="rounded-md border border-border bg-surface-2 px-3 py-2 font-medium text-text hover:bg-surface-3 cursor-pointer"
                 >
                   {showApiKey ? 'Ẩn' : 'Hiện'}
                 </button>
               </div>
-              <p className="mt-1 text-[11px] text-slate-400">
+              <p className="mt-1 text-[11px] text-text-muted">
                 Lấy API key miễn phí tại{' '}
                 <a
                   href="https://aistudio.google.com/"
                   target="_blank"
                   rel="noreferrer"
-                  className="text-brand-cyan underline hover:text-white font-medium"
+                  className="text-accent underline hover:text-white font-medium"
                 >
                   aistudio.google.com
                 </a>
@@ -551,17 +551,17 @@ export default function SettingsPage() {
             </div>
 
             {/* Chọn model Gemini */}
-            <div className="space-y-2 rounded-2xl border border-slate-800 bg-slate-950/60 p-3.5">
+            <div className="space-y-2 rounded-lg border border-border bg-bg p-3.5">
               <div className="flex items-center justify-between">
-                <label className="flex items-center gap-1.5 font-medium text-slate-200">
-                  <Sparkles className="h-3.5 w-3.5 text-brand-cyan" />
+                <label className="flex items-center gap-1.5 font-medium text-text">
+                  <Sparkles className="h-3.5 w-3.5 text-accent" />
                   <span>Mô hình Gemini (Model)</span>
                 </label>
                 {!showCustomModelInput && (
                   <button
                     type="button"
                     onClick={() => setShowCustomModelInput(true)}
-                    className="text-[11px] text-slate-400 hover:text-brand-cyan transition cursor-pointer"
+                    className="text-[11px] text-text-muted hover:text-accent transition cursor-pointer"
                   >
                     + Nhập model khác
                   </button>
@@ -579,13 +579,13 @@ export default function SettingsPage() {
                       onClick={() => handleSelectGeminiModel(m.id)}
                       className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-[11px] font-medium transition cursor-pointer ${
                         isActive
-                          ? 'border-brand-cyan bg-brand-cyan/20 text-white shadow-sm shadow-brand-cyan/20'
-                          : 'border-slate-800 bg-slate-900 text-slate-400 hover:border-slate-700 hover:text-slate-200'
+                          ? 'border-accent/40 bg-accent-tint text-white  '
+                          : 'border-border bg-surface text-text-muted hover:border-border hover:text-text'
                       }`}
                     >
                       <span>{m.name}</span>
                       {m.isRecommended && (
-                        <span className="rounded bg-brand-cyan/30 px-1 py-0.2 text-[9px] font-bold text-brand-cyan">
+                        <span className="rounded bg-accent/30 px-1 py-0.2 text-[9px] font-bold text-accent">
                           Khuyên dùng
                         </span>
                       )}
@@ -600,7 +600,7 @@ export default function SettingsPage() {
                   <select
                     value={geminiModel}
                     onChange={(e) => handleSelectGeminiModel(e.target.value)}
-                    className="w-full rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-white focus:border-brand-cyan focus:outline-none"
+                    className="w-full rounded-md border border-border bg-surface-2 px-3 py-2 text-xs text-white focus:border-accent/40 focus:outline-none"
                   >
                     {GEMINI_MODEL_GROUPS.map((grp) => (
                       <optgroup key={grp.group} label={grp.group}>
@@ -611,7 +611,7 @@ export default function SettingsPage() {
                         ))}
                       </optgroup>
                     ))}
-                    <option value="custom">✏️ Nhập model tùy chỉnh khác...</option>
+                    <option value="custom">Nhập model tùy chỉnh khác...</option>
                   </select>
                 </div>
               ) : (
@@ -631,12 +631,12 @@ export default function SettingsPage() {
                       }}
                       placeholder="gemini-2.5-flash"
                       spellCheck={false}
-                      className="flex-1 rounded-xl border border-brand-cyan/60 bg-slate-800 px-3 py-2 font-mono text-xs text-white focus:border-brand-cyan focus:outline-none"
+                      className="flex-1 rounded-md border border-accent/40 bg-surface-2 px-3 py-2 font-mono text-xs text-white focus:border-accent/40 focus:outline-none"
                     />
                     <button
                       type="button"
                       onClick={() => setShowCustomModelInput(false)}
-                      className="rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-slate-300 hover:bg-slate-700 cursor-pointer"
+                      className="rounded-md border border-border bg-surface-2 px-3 py-2 text-xs text-text hover:bg-surface-3 cursor-pointer"
                     >
                       Danh sách gợi ý
                     </button>
@@ -656,14 +656,14 @@ export default function SettingsPage() {
                 const current = ALL_PRESET_MODELS.find((m) => m.id === geminiModel);
                 if (current) {
                   return (
-                    <div className="mt-2 rounded-xl border border-slate-800/80 bg-slate-900/90 p-2.5 text-[11px] leading-relaxed">
+                    <div className="mt-2 rounded-md border border-border bg-surface p-2.5 text-[11px] leading-relaxed">
                       <div className="flex items-center justify-between gap-2">
-                        <span className="font-semibold text-slate-200">{current.name}</span>
+                        <span className="font-semibold text-text">{current.name}</span>
                         <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${current.badgeColor}`}>
                           {current.badge}
                         </span>
                       </div>
-                      <p className="mt-1 text-slate-400">{current.desc}</p>
+                      <p className="mt-1 text-text-muted">{current.desc}</p>
                     </div>
                   );
                 }
@@ -677,24 +677,24 @@ export default function SettingsPage() {
 
             <div className="grid grid-cols-2 gap-3 pt-1">
               <div>
-                <label className="mb-1 block font-medium text-slate-200">Batch Size Dịch</label>
+                <label className="mb-1 block font-medium text-text">Batch Size Dịch</label>
                 <input
                   type="number"
                   min={1}
                   max={50}
                   value={translateBatchSize}
                   onChange={(e) => setTranslateBatchSize(Number(e.target.value))}
-                  className="w-full rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 font-mono text-xs text-white focus:outline-none"
+                  className="w-full rounded-md border border-border bg-surface-2 px-3 py-2 font-mono text-xs text-white focus:outline-none"
                 />
-                <span className="text-[10px] text-slate-400">Số câu / 1 request API</span>
+                <span className="text-[10px] text-text-muted">Số câu / 1 request API</span>
               </div>
 
               <div>
-                <label className="mb-1 block font-medium text-slate-200">Ngôn ngữ đích mặc định</label>
+                <label className="mb-1 block font-medium text-text">Ngôn ngữ đích mặc định</label>
                 <select
                   value={targetLanguage}
                   onChange={(e) => setTargetLanguage(e.target.value)}
-                  className="w-full rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-white focus:outline-none"
+                  className="w-full rounded-md border border-border bg-surface-2 px-3 py-2 text-xs text-white focus:outline-none"
                 >
                   <option value="vi">Tiếng Việt</option>
                   <option value="en">English</option>
@@ -707,16 +707,16 @@ export default function SettingsPage() {
 
             <div className="grid grid-cols-2 gap-3 pt-1">
               <div>
-                <label className="mb-1 block font-medium text-slate-200">Số request dịch song song</label>
+                <label className="mb-1 block font-medium text-text">Số request dịch song song</label>
                 <input
                   type="number"
                   min={1}
                   max={8}
                   value={translateConcurrency}
                   onChange={(e) => setTranslateConcurrency(Number(e.target.value))}
-                  className="w-full rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 font-mono text-xs text-white focus:outline-none"
+                  className="w-full rounded-md border border-border bg-surface-2 px-3 py-2 font-mono text-xs text-white focus:outline-none"
                 />
-                <span className="text-[10px] text-slate-400">
+                <span className="text-[10px] text-text-muted">
                   1 = lần lượt (an toàn với rate limit) — tăng để dịch nhanh hơn
                 </span>
               </div>
@@ -728,18 +728,18 @@ export default function SettingsPage() {
                   type="checkbox"
                   checked={autoTranslateAfterAsr}
                   onChange={(e) => setAutoTranslateAfterAsr(e.target.checked)}
-                  className="h-4 w-4 rounded border-slate-700 bg-slate-800 text-brand-cyan focus:ring-0"
+                  className="h-4 w-4 rounded border-border bg-surface-2 text-accent focus:ring-0"
                 />
-                <span className="text-xs text-slate-200">Tự động dịch ngay sau khi phiên âm (ASR) hoàn tất</span>
+                <span className="text-xs text-text">Tự động dịch ngay sau khi phiên âm (ASR) hoàn tất</span>
               </label>
             </div>
 
             {/* Nút lưu cấu hình Gemini */}
-            <div className="flex justify-end pt-2 border-t border-slate-800/80">
+            <div className="flex justify-end pt-2 border-t border-border">
               <button
                 type="button"
                 onClick={handleSaveGeminiSettings}
-                className="inline-flex items-center gap-2 rounded-xl border border-brand-cyan/40 bg-brand-cyan/10 px-3.5 py-1.5 text-xs font-semibold text-brand-cyan hover:bg-brand-cyan/20 cursor-pointer transition shadow-sm"
+                className="inline-flex items-center gap-2 rounded-md border border-accent/40 bg-accent-tint px-3.5 py-1.5 text-xs font-semibold text-accent hover:bg-accent-tint cursor-pointer transition"
               >
                 <Save className="h-3.5 w-3.5" />
                 <span>Lưu cấu hình Gemini</span>
@@ -749,35 +749,35 @@ export default function SettingsPage() {
         </div>
 
         {/* Khối 2: Cấu hình Chung & Xuất file */}
-        <div className="flex flex-col gap-4 rounded-3xl border border-slate-800 bg-slate-900/60 p-5">
-          <div className="flex items-center gap-2 border-b border-slate-800 pb-3 text-sm font-bold text-white">
-            <Layers className="h-4 w-4 text-brand-indigo" />
+        <div className="flex flex-col gap-4 rounded-lg border border-border bg-surface p-5">
+          <div className="flex items-center gap-2 border-b border-border pb-3 text-sm font-bold text-white">
+            <Layers className="h-4 w-4 text-accent" />
             <span>Cấu hình Chung & Xuất file</span>
           </div>
 
           <div className="space-y-4">
             <div>
-              <label className="mb-1 block font-medium text-slate-200">Thư mục xuất video mặc định</label>
+              <label className="mb-1 block font-medium text-text">Thư mục xuất video mặc định</label>
               <div className="flex gap-2">
                 <input
                   type="text"
                   readOnly
                   value={exportDir || 'Lưu cùng thư mục với video gốc (Mặc định)'}
-                  className="flex-1 truncate rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 font-mono text-[11px] text-slate-300 focus:outline-none"
+                  className="flex-1 truncate rounded-md border border-border bg-surface-2 px-3 py-2 font-mono text-[11px] text-text focus:outline-none"
                 />
                 <button
                   type="button"
                   onClick={handleChooseExportDir}
-                  className="inline-flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 font-medium text-slate-200 hover:bg-slate-700 cursor-pointer"
+                  className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface-2 px-3 py-2 font-medium text-text hover:bg-surface-3 cursor-pointer"
                 >
-                  <FolderOpen className="h-3.5 w-3.5 text-brand-cyan" />
+                  <FolderOpen className="h-3.5 w-3.5 text-accent" />
                   <span>Chọn</span>
                 </button>
                 {exportDir && (
                   <button
                     type="button"
                     onClick={() => setExportDir('')}
-                    className="rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-slate-400 hover:text-white cursor-pointer"
+                    className="rounded-md border border-border bg-surface-2 px-3 py-2 text-text-muted hover:text-white cursor-pointer"
                     title="Đặt lại mặc định"
                   >
                     Mặc định
@@ -787,7 +787,7 @@ export default function SettingsPage() {
             </div>
 
             <div>
-              <label className="mb-1 block font-medium text-slate-200">Model Whisper ASR mặc định</label>
+              <label className="mb-1 block font-medium text-text">Model Whisper ASR mặc định</label>
               <select
                 value={asrModel}
                 onChange={(e) => {
@@ -795,7 +795,7 @@ export default function SettingsPage() {
                   setAsrModel(v);
                   void autoSaveSetting('asrModel', v);
                 }}
-                className="w-full rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-white focus:outline-none"
+                className="w-full rounded-md border border-border bg-surface-2 px-3 py-2 text-xs text-white focus:outline-none"
               >
                 <option value="tiny">tiny (75MB - Nhanh nhất, độ chính xác vừa)</option>
                 <option value="base">base (147MB - Cân bằng tốc độ & chính xác)</option>
@@ -804,7 +804,7 @@ export default function SettingsPage() {
                 <option value="large-v3-turbo">large-v3-turbo (1.6GB - Gần bằng large, nhanh gấp nhiều lần)</option>
                 <option value="large">large (2.9GB - Tối đa độ chính xác, rất chậm trên CPU)</option>
               </select>
-              <p className="mt-1 text-[11px] text-slate-400">
+              <p className="mt-1 text-[11px] text-text-muted">
                 Mặc định cho task mới — từng task vẫn chọn được model riêng ở tab Phụ đề &amp; ASR.
                 Model nào chưa có trên máy sẽ tự tải khi phiên âm đầu tiên (xem vị trí lưu ở khối bên dưới).
               </p>
@@ -813,8 +813,8 @@ export default function SettingsPage() {
         </div>
 
         {/* Khối Quản lý Bộ nhớ tạm & Dọn dẹp Ổ đĩa */}
-        <div className="flex flex-col gap-4 rounded-3xl border border-slate-800 bg-slate-900/60 p-5">
-          <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+        <div className="flex flex-col gap-4 rounded-lg border border-border bg-surface p-5">
+          <div className="flex items-center justify-between border-b border-border pb-3">
             <div className="flex items-center gap-2 text-sm font-bold text-white">
               <HardDrive className="h-4 w-4 text-amber-400" />
               <span>Bộ nhớ tạm &amp; Dọn dẹp Ổ đĩa (Storage GC)</span>
@@ -822,7 +822,7 @@ export default function SettingsPage() {
             <button
               type="button"
               onClick={loadTempStats}
-              className="rounded-lg p-1 text-slate-400 hover:bg-slate-800 hover:text-white transition cursor-pointer"
+              className="rounded-lg p-1 text-text-muted hover:bg-surface-2 hover:text-white transition cursor-pointer"
               title="Làm mới dung lượng"
             >
               <RefreshCw className="h-3.5 w-3.5" />
@@ -830,34 +830,34 @@ export default function SettingsPage() {
           </div>
 
           <div className="space-y-3">
-            <div className="flex items-center justify-between rounded-xl border border-slate-800 bg-slate-800/40 p-3">
+            <div className="flex items-center justify-between rounded-md border border-border bg-surface-2 p-3">
               <div>
-                <span className="block text-xs font-semibold text-slate-200">
+                <span className="block text-xs font-semibold text-text">
                   Dung lượng tạm đang chiếm dụng:
                 </span>
-                <span className="text-[11px] text-slate-400">
-                  Thư mục: <code className="font-mono text-slate-300 text-[10px]">{tempStats?.tempDir || '%TEMP%\\vanhsub_workflow'}</code>
+                <span className="text-[11px] text-text-muted">
+                  Thư mục: <code className="font-mono text-text text-[10px]">{tempStats?.tempDir || '%TEMP%\\vanhsub_workflow'}</code>
                 </span>
               </div>
               <div className="text-right">
                 <span className="text-base font-bold text-amber-400">
                   {tempStats ? `${tempStats.totalSizeMb} MB` : 'Đang tính...'}
                 </span>
-                <span className="block text-[10px] text-slate-400">
+                <span className="block text-[10px] text-text-muted">
                   {tempStats ? `${tempStats.folderCount} thư mục (${tempStats.fileCount} files)` : ''}
                 </span>
               </div>
             </div>
 
             <div className="flex items-center justify-between gap-3 pt-1">
-              <p className="text-[11px] text-slate-400">
+              <p className="text-[11px] text-text-muted">
                 Hệ thống tự động dọn dẹp các tệp tạm cũ hơn 24 giờ. Bạn cũng có thể dọn dẹp ngay để giải phóng dung lượng ổ cứng.
               </p>
               <button
                 type="button"
                 disabled={isCleaningTemp}
                 onClick={handleCleanTemp}
-                className="inline-flex items-center gap-1.5 shrink-0 rounded-xl border border-amber-500/40 bg-amber-500/15 px-3.5 py-2 text-xs font-semibold text-amber-300 hover:bg-amber-500/25 transition cursor-pointer disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 shrink-0 rounded-md border border-amber-500/40 bg-amber-500/15 px-3.5 py-2 text-xs font-semibold text-amber-300 hover:bg-amber-500/25 transition cursor-pointer disabled:opacity-50"
               >
                 {isCleaningTemp ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -877,8 +877,8 @@ export default function SettingsPage() {
         </div>
 
         {/* Khối 3: Quản lý Model Whisper trên đĩa */}
-        <div className="flex flex-col gap-4 rounded-3xl border border-slate-800 bg-slate-900/60 p-5">
-          <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+        <div className="flex flex-col gap-4 rounded-lg border border-border bg-surface p-5">
+          <div className="flex items-center justify-between border-b border-border pb-3">
             <div className="flex items-center gap-2 text-sm font-bold text-white">
               <HardDrive className="h-4 w-4 text-emerald-400" />
               <span>Model Whisper ASR trên đĩa</span>
@@ -886,19 +886,19 @@ export default function SettingsPage() {
             <button
               type="button"
               onClick={loadModelsList}
-              className="rounded-lg p-1 text-slate-400 hover:bg-slate-800 hover:text-white transition cursor-pointer"
+              className="rounded-lg p-1 text-text-muted hover:bg-surface-2 hover:text-white transition cursor-pointer"
               title="Làm mới"
             >
-              <RefreshCw className={`h-3.5 w-3.5 ${loadingModels ? 'animate-spin text-brand-cyan' : ''}`} />
+              <RefreshCw className={`h-3.5 w-3.5 ${loadingModels ? 'animate-spin text-accent' : ''}`} />
             </button>
           </div>
 
           {/* Model đang dùng mặc định + trạng thái tải */}
-          <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-brand-cyan/30 bg-brand-cyan/5 px-3.5 py-3">
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-accent/40 bg-accent/5 px-3.5 py-3">
             <div className="flex items-center gap-2.5">
-              <Cpu className="h-4 w-4 text-brand-cyan" />
+              <Cpu className="h-4 w-4 text-accent" />
               <div>
-                <div className="text-[10px] uppercase tracking-wider text-slate-500">
+                <div className="text-[10px] uppercase tracking-wider text-text-muted">
                   Model đang dùng mặc định (cho task mới)
                 </div>
                 <div className="font-mono text-sm font-semibold text-white">whisper {asrModel}</div>
@@ -918,22 +918,22 @@ export default function SettingsPage() {
 
           {/* Vị trí lưu model trên đĩa */}
           {modelsDir && (
-            <div className="rounded-2xl border border-slate-800 bg-slate-950 px-3.5 py-3">
+            <div className="rounded-lg border border-border bg-bg px-3.5 py-3">
               <div className="flex items-center justify-between gap-2">
-                <span className="text-[10px] uppercase tracking-wider text-slate-500">
+                <span className="text-[10px] uppercase tracking-wider text-text-muted">
                   Vị trí lưu model
                 </span>
                 <button
                   type="button"
                   onClick={() => window.vanhsub.dialog.showInFolder(modelsDir.path)}
-                  className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 text-[11px] font-medium text-slate-300 hover:bg-slate-800 hover:text-white transition cursor-pointer"
+                  className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-border bg-surface px-2 py-1 text-[11px] font-medium text-text hover:bg-surface-2 hover:text-white transition cursor-pointer"
                   title="Mở thư mục chứa model trong Explorer"
                 >
                   <FolderOpen className="h-3 w-3" />
                   <span>Mở thư mục</span>
                 </button>
               </div>
-              <p className="mt-1.5 break-all font-mono text-[11px] leading-relaxed text-slate-400" title={modelsDir.path}>
+              <p className="mt-1.5 break-all font-mono text-[11px] leading-relaxed text-text-muted" title={modelsDir.path}>
                 {modelsDir.path}
                 {!modelsDir.exists && (
                   <span className="text-amber-400"> — thư mục sẽ được tạo khi tải model đầu tiên</span>
@@ -943,7 +943,7 @@ export default function SettingsPage() {
           )}
 
           {modelsList.length === 0 ? (
-            <p className="py-4 text-center text-slate-500 text-xs">
+            <p className="py-4 text-center text-text-muted text-xs">
               Chưa tìm thấy model offline nào đã tải. Khi bạn bắt đầu phiên âm task đầu tiên, app sẽ tự động tải model base.
             </p>
           ) : (
@@ -953,12 +953,12 @@ export default function SettingsPage() {
                 return (
                   <div
                     key={m.fileName}
-                    className={`flex items-center justify-between rounded-xl border px-3 py-2.5 ${
-                      isCurrent ? 'border-emerald-500/40 bg-emerald-500/5' : 'border-slate-800 bg-slate-950'
+                    className={`flex items-center justify-between rounded-md border px-3 py-2.5 ${
+                      isCurrent ? 'border-emerald-500/40 bg-emerald-500/5' : 'border-border bg-bg'
                     }`}
                   >
                     <div className="flex items-center gap-2.5">
-                      <Cpu className={`h-4 w-4 ${isCurrent ? 'text-emerald-400' : 'text-brand-cyan'}`} />
+                      <Cpu className={`h-4 w-4 ${isCurrent ? 'text-emerald-400' : 'text-accent'}`} />
                       <div>
                         <div className="flex items-center gap-2 font-semibold text-white">
                           Model {m.name}
@@ -968,17 +968,17 @@ export default function SettingsPage() {
                             </span>
                           )}
                         </div>
-                        <div className="font-mono text-[10px] text-slate-500" title={m.filePath}>
+                        <div className="font-mono text-[10px] text-text-muted" title={m.filePath}>
                           {m.fileName}
                         </div>
                       </div>
                     </div>
                     <div className="flex items-center gap-3">
-                      <span className="font-mono text-xs font-medium text-slate-300">{m.size}</span>
+                      <span className="font-mono text-xs font-medium text-text">{m.size}</span>
                       <button
                         type="button"
                         onClick={() => handleDeleteModel(m.name)}
-                        className="rounded-lg p-1.5 text-slate-400 hover:bg-rose-500/20 hover:text-rose-400 transition cursor-pointer"
+                        className="rounded-lg p-1.5 text-text-muted hover:bg-rose-500/20 hover:text-rose-400 transition cursor-pointer"
                         title="Xoá model khỏi ổ đĩa"
                       >
                         <Trash2 className="h-3.5 w-3.5" />
@@ -992,26 +992,26 @@ export default function SettingsPage() {
         </div>
 
         {/* Khối 4: TikTok TTS — Engine Lồng tiếng (~80 giọng đa ngôn ngữ) */}
-        <div className="flex flex-col gap-4 rounded-3xl border border-slate-800 bg-slate-900/60 p-5">
-          <div className="flex items-center gap-2 border-b border-slate-800 pb-3 text-sm font-bold text-white">
-            <Mic className="h-4 w-4 text-brand-cyan" />
+        <div className="flex flex-col gap-4 rounded-lg border border-border bg-surface p-5">
+          <div className="flex items-center gap-2 border-b border-border pb-3 text-sm font-bold text-white">
+            <Mic className="h-4 w-4 text-accent" />
             <span>TikTok TTS — Engine Lồng tiếng (~80 giọng đa ngôn ngữ)</span>
           </div>
 
           <div className="space-y-4">
-            <p className="text-[11px] leading-relaxed text-slate-400">
-              Dùng API TTS nội bộ của TikTok với <strong className="text-slate-300">sessionid của chính bạn</strong> —
+            <p className="text-[11px] leading-relaxed text-text-muted">
+              Dùng API TTS nội bộ của TikTok với <strong className="text-text">sessionid của chính bạn</strong> —
               đăng nhập tiktok.com trên trình duyệt, dùng tiện ích Cookie-Editor copy giá trị cookie{' '}
-              <code className="rounded bg-slate-900 px-1 py-0.5 font-mono text-[10px] text-slate-300">sessionid</code>{' '}
+              <code className="rounded bg-surface px-1 py-0.5 font-mono text-[10px] text-text">sessionid</code>{' '}
               rồi dán vào đây. Session được mã hoá bằng safeStorage của hệ điều hành, không bao giờ hiển thị lại hay ghi
-              vào log. Đây là API <strong className="text-slate-300">không chính thức</strong> — TikTok có thể thay đổi
+              vào log. Đây là API <strong className="text-text">không chính thức</strong> — TikTok có thể thay đổi
               bất cứ lúc nào; khi có lỗi, mô tả bên dưới sẽ nói rõ nguyên nhân (session hết hạn, rate limit, API đổi…).
               Catalog có 2 giọng tiếng Việt: <code className="font-mono text-[10px]">BV074_streaming</code> (nữ),{' '}
               <code className="font-mono text-[10px]">BV075_streaming</code> (nam).
             </p>
 
             <div>
-              <label className="mb-1 block font-medium text-slate-200">Session TikTok (sessionid)</label>
+              <label className="mb-1 block font-medium text-text">Session TikTok (sessionid)</label>
               <div className="flex gap-2">
                 <input
                   type="password"
@@ -1026,13 +1026,13 @@ export default function SettingsPage() {
                       ? '•••••••••••••••• (đã lưu trên máy — nhập session mới để ghi đè)'
                       : 'Dán giá trị cookie sessionid vào đây'
                   }
-                  className="w-full rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 font-mono text-xs text-white placeholder:text-slate-500 focus:border-brand-cyan focus:outline-none"
+                  className="w-full rounded-md border border-border bg-surface-2 px-3 py-2 font-mono text-xs text-white placeholder:text-text-muted focus:border-accent/40 focus:outline-none"
                 />
                 <button
                   type="button"
                   onClick={handleTiktokSave}
                   disabled={tiktokBusy !== null}
-                  className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-brand-cyan/40 bg-brand-cyan/10 px-3 py-2 text-xs font-semibold text-brand-cyan hover:bg-brand-cyan/20 cursor-pointer disabled:opacity-50"
+                  className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-accent/40 bg-accent-tint px-3 py-2 text-xs font-semibold text-accent hover:bg-accent-tint cursor-pointer disabled:opacity-50"
                 >
                   {tiktokBusy === 'save' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
                   <span>Lưu</span>
@@ -1043,7 +1043,7 @@ export default function SettingsPage() {
                     onClick={handleTiktokRemove}
                     disabled={tiktokBusy !== null}
                     title="Xoá session khỏi máy"
-                    className="inline-flex shrink-0 items-center rounded-xl border border-slate-700 bg-slate-800 px-2.5 py-2 text-slate-400 hover:bg-rose-500/20 hover:text-rose-400 transition cursor-pointer disabled:opacity-50"
+                    className="inline-flex shrink-0 items-center rounded-md border border-border bg-surface-2 px-2.5 py-2 text-text-muted hover:bg-rose-500/20 hover:text-rose-400 transition cursor-pointer disabled:opacity-50"
                   >
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>
@@ -1055,7 +1055,7 @@ export default function SettingsPage() {
                   className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium ${
                     tiktokHasSession
                       ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400'
-                      : 'border-slate-700 bg-slate-800 text-slate-400'
+                      : 'border-border bg-surface-2 text-text-muted'
                   }`}
                 >
                   {tiktokHasSession ? 'Đã lưu session trên máy' : 'Chưa có session'}
@@ -1065,7 +1065,7 @@ export default function SettingsPage() {
                   onClick={handleTiktokValidate}
                   disabled={tiktokBusy !== null || !tiktokHasSession}
                   title="Gửi 1 request thử tới TikTok để xác nhận session còn hiệu lực"
-                  className="inline-flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs font-medium text-slate-200 hover:bg-slate-700 cursor-pointer disabled:opacity-50"
+                  className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface-2 px-3 py-1.5 text-xs font-medium text-text hover:bg-surface-3 cursor-pointer disabled:opacity-50"
                 >
                   {tiktokBusy === 'validate' ? (
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -1079,7 +1079,7 @@ export default function SettingsPage() {
 
             {tiktokStatusMsg && (
               <p
-                className={`rounded-xl border px-3 py-2 text-[11px] leading-relaxed ${
+                className={`rounded-md border px-3 py-2 text-[11px] leading-relaxed ${
                   tiktokStatusOk
                     ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
                     : 'border-rose-500/30 bg-rose-500/10 text-rose-300'
@@ -1095,7 +1095,7 @@ export default function SettingsPage() {
                 onClick={handleTiktokPreview}
                 disabled={tiktokBusy !== null}
                 title="Tạo 1 câu ngắn bằng giọng Việt nữ (BV074_streaming) và phát thử"
-                className="inline-flex items-center gap-1.5 rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-xs font-medium text-amber-400 hover:bg-amber-500/20 cursor-pointer disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-xs font-medium text-amber-400 hover:bg-amber-500/20 cursor-pointer disabled:opacity-50"
               >
                 {tiktokBusy === 'preview' ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -1104,7 +1104,7 @@ export default function SettingsPage() {
                 )}
                 <span>Nghe thử giọng Việt</span>
               </button>
-              <span className="text-[10px] text-slate-500">
+              <span className="text-[10px] text-text-muted">
                 Tích hợp vào pipeline lồng tiếng sẽ làm sau khi session của bạn chạy ổn.
               </span>
             </div>
@@ -1112,10 +1112,10 @@ export default function SettingsPage() {
         </div>
 
         {/* Khối Cấu hình Lồng tiếng mặc định (TTS) */}
-        <div className="flex flex-col gap-4 rounded-3xl border border-slate-800 bg-slate-900/60 p-5">
-          <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+        <div className="flex flex-col gap-4 rounded-lg border border-border bg-surface p-5">
+          <div className="flex items-center justify-between border-b border-border pb-3">
             <div className="flex items-center gap-2 text-sm font-bold text-white">
-              <Volume2 className="h-4 w-4 text-brand-cyan" />
+              <Volume2 className="h-4 w-4 text-accent" />
               <span>Cấu hình Lồng tiếng mặc định (TTS)</span>
             </div>
             {autoSavedFlash && (
@@ -1127,14 +1127,14 @@ export default function SettingsPage() {
           </div>
 
           <div className="space-y-4 text-xs">
-            <p className="text-[11px] text-slate-400">
+            <p className="text-[11px] text-text-muted">
               Cài đặt giọng đọc và tốc độ mặc định khi tạo mới hoặc chạy lồng tiếng tự động trong quy trình.
               Tự động lưu khi thay đổi.
             </p>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
-                <label className="mb-1 block font-medium text-slate-200">Giọng đọc mặc định</label>
+                <label className="mb-1 block font-medium text-text">Giọng đọc mặc định</label>
                 <select
                   value={ttsVoice}
                   onChange={(e) => {
@@ -1142,13 +1142,13 @@ export default function SettingsPage() {
                     setTtsVoice(v);
                     void autoSaveSetting('ttsVoice', v);
                   }}
-                  className="w-full rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-white focus:outline-none"
+                  className="w-full rounded-md border border-border bg-surface-2 px-3 py-2 text-xs text-white focus:outline-none"
                 >
-                  <optgroup label="⚡ Edge TTS (Miễn phí 100%, Giọng chuẩn Azure)">
+                  <optgroup label="Edge TTS (Miễn phí 100%, Giọng chuẩn Azure)">
                     <option value="vi-VN-HoaiMyNeural">Hoài My (Nữ - Truyền cảm, Tự nhiên)</option>
                     <option value="vi-VN-NamMinhNeural">Nam Minh (Nam - Trầm ấm, Phóng sự)</option>
                   </optgroup>
-                  <optgroup label="🎵 TikTok TTS">
+                  <optgroup label="TikTok TTS">
                     <option value="BV074_streaming">BV074 — Nữ Triển vọng (Tiếng Việt)</option>
                     <option value="BV075_streaming">BV075 — Nam Trầm ấm (Tiếng Việt)</option>
                   </optgroup>
@@ -1156,7 +1156,7 @@ export default function SettingsPage() {
               </div>
 
               <div>
-                <label className="mb-1 block font-medium text-slate-200">Tốc độ đọc mặc định</label>
+                <label className="mb-1 block font-medium text-text">Tốc độ đọc mặc định</label>
                 <select
                   value={ttsSpeed}
                   onChange={(e) => {
@@ -1164,7 +1164,7 @@ export default function SettingsPage() {
                     setTtsSpeed(v);
                     void autoSaveSetting('ttsSpeed', v);
                   }}
-                  className="w-full rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-white focus:outline-none"
+                  className="w-full rounded-md border border-border bg-surface-2 px-3 py-2 text-xs text-white focus:outline-none"
                 >
                   <option value={0.75}>0.75x — Chậm rãi</option>
                   <option value={0.9}>0.9x — Hơi chậm</option>
@@ -1173,7 +1173,7 @@ export default function SettingsPage() {
                   <option value={1.25}>1.25x — Nhanh</option>
                   <option value={1.5}>1.5x — Rất nhanh</option>
                 </select>
-                <span className="text-[10px] text-slate-500">
+                <span className="text-[10px] text-text-muted">
                   Áp dụng hiệu quả với Edge TTS; TikTok TTS hiện tại giữ tốc độ gốc
                 </span>
               </div>
@@ -1182,10 +1182,10 @@ export default function SettingsPage() {
         </div>
 
         {/* Khối 5: OCR — quét phụ đề cứng trong video */}
-        <div className="flex flex-col gap-4 rounded-3xl border border-slate-800 bg-slate-900/60 p-5">
-          <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+        <div className="flex flex-col gap-4 rounded-lg border border-border bg-surface p-5">
+          <div className="flex items-center justify-between border-b border-border pb-3">
             <div className="flex items-center gap-2 text-sm font-bold text-white">
-              <ScanText className="h-4 w-4 text-brand-cyan" />
+              <ScanText className="h-4 w-4 text-accent" />
               <span>Quét phụ đề cứng (OCR)</span>
             </div>
             {autoSavedFlash && (
@@ -1197,19 +1197,19 @@ export default function SettingsPage() {
           </div>
 
           <div className="space-y-4">
-            <p className="text-[11px] text-slate-400">
+            <p className="text-[11px] text-text-muted">
               Trích phụ đề đã ghẽ sẵn trong khung hình video thành file .srt bằng model
               PaddleOCR PP-OCRv5 (quét kèm Tesseract nếu bật đối chiếu). Cần python đã cài
-              gói <code className="rounded bg-slate-800 px-1 py-0.5 text-[10px] text-slate-300">rapidocr</code> (
-              <code className="rounded bg-slate-800 px-1 py-0.5 text-[10px] text-slate-300">pip install rapidocr onnxruntime opencv-python</code>).
+              gói <code className="rounded bg-surface-2 px-1 py-0.5 text-[10px] text-text">rapidocr</code> (
+              <code className="rounded bg-surface-2 px-1 py-0.5 text-[10px] text-text">pip install rapidocr onnxruntime opencv-python</code>).
               Lần quét đầu tải model (~30MB), sau đó lưu offline trong máy. Ngôn ngữ / vùng /
-              fps <strong className="text-slate-300">được lưu tự động khi đổi</strong> — áp
+              fps <strong className="text-text">được lưu tự động khi đổi</strong> — áp
               dụng cho lần quét kế tiếp, không cần bấm "Lưu cài đặt".
             </p>
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="mb-1 block font-medium text-slate-200">Ngôn ngữ quét</label>
+                <label className="mb-1 block font-medium text-text">Ngôn ngữ quét</label>
                 <select
                   value={ocrLanguage}
                   onChange={(e) => {
@@ -1217,7 +1217,7 @@ export default function SettingsPage() {
                     setOcrLanguage(v);
                     void autoSaveSetting('ocrLanguage', v);
                   }}
-                  className="w-full rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-white focus:outline-none"
+                  className="w-full rounded-md border border-border bg-surface-2 px-3 py-2 text-xs text-white focus:outline-none"
                 >
                   <option value="vie">Tiếng Việt</option>
                   <option value="eng">English</option>
@@ -1231,7 +1231,7 @@ export default function SettingsPage() {
               </div>
 
               <div>
-                <label className="mb-1 block font-medium text-slate-200">Số khung quét mỗi giây</label>
+                <label className="mb-1 block font-medium text-text">Số khung quét mỗi giây</label>
                 <input
                   type="number"
                   min={0.5}
@@ -1244,9 +1244,9 @@ export default function SettingsPage() {
                     // Chỉ tự lưu giá trị hợp lệ — gõ dở thì đợi giá trị đạt khoảng cho phép
                     if (v >= 0.5 && v <= 5) void autoSaveSetting('ocrFps', v);
                   }}
-                  className="w-full rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 font-mono text-xs text-white focus:outline-none"
+                  className="w-full rounded-md border border-border bg-surface-2 px-3 py-2 font-mono text-xs text-white focus:outline-none"
                 />
-                <span className="text-[10px] text-slate-400">
+                <span className="text-[10px] text-text-muted">
                   2 khung/giây là cân bằng tốc độ — độ chính xác (quét chậm hơn nhưng đỡ sót dòng)
                 </span>
               </div>
@@ -1254,7 +1254,7 @@ export default function SettingsPage() {
 
             {/* Chế độ OCR Mode */}
             <div>
-              <label className="mb-2 block font-medium text-slate-200">
+              <label className="mb-2 block font-medium text-text">
                 Chế độ quét (OCR Mode)
               </label>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
@@ -1264,7 +1264,7 @@ export default function SettingsPage() {
                     title: 'Auto',
                     desc: 'Tự tìm subtitle trên toàn màn hình (AI tracking & loại bỏ watermark)',
                     badge: 'Khuyên dùng',
-                    badgeColor: 'border-brand-cyan/40 bg-brand-cyan/15 text-brand-cyan',
+                    badgeColor: 'border-accent/40 bg-accent/15 text-accent',
                   },
                   {
                     id: 'bottom',
@@ -1281,7 +1281,7 @@ export default function SettingsPage() {
                     title: 'Custom',
                     desc: 'Người dùng kéo vùng cần OCR (chọn khi bấm Quét OCR ở tab Phụ đề & ASR)',
                     badge: 'Kéo vùng',
-                    badgeColor: 'border-purple-500/40 bg-purple-500/15 text-purple-300',
+                    badgeColor: 'border-accent/40 bg-accent-tint text-accent',
                   },
                 ].map((item) => {
                   const isSelected = ocrMode === item.id;
@@ -1295,14 +1295,14 @@ export default function SettingsPage() {
                         void autoSaveSetting('ocrMode', m);
                         void autoSaveSetting('ocrRegion', m === 'bottom' ? 'bottom' : 'full');
                       }}
-                      className={`relative flex items-start gap-2.5 rounded-xl border p-3 text-left transition cursor-pointer ${
+                      className={`relative flex items-start gap-2.5 rounded-md border p-3 text-left transition cursor-pointer ${
                         isSelected
-                          ? 'border-brand-cyan bg-brand-cyan/10 shadow-sm shadow-brand-cyan/20'
-                          : 'border-slate-800 bg-slate-900/80 hover:border-slate-700'
+                          ? 'border-accent/40 bg-accent-tint  '
+                          : 'border-border bg-surface hover:border-border'
                       }`}
                     >
-                      <div className="mt-0.5 flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full border border-slate-600 bg-slate-800">
-                        {isSelected && <div className="h-1.5 w-1.5 rounded-full bg-brand-cyan" />}
+                      <div className="mt-0.5 flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full border border-slate-600 bg-surface-2">
+                        {isSelected && <div className="h-1.5 w-1.5 rounded-full bg-accent" />}
                       </div>
                       <div className="flex-1">
                         <div className="flex items-center gap-1.5">
@@ -1313,7 +1313,7 @@ export default function SettingsPage() {
                             </span>
                           )}
                         </div>
-                        <p className="mt-1 text-[10.5px] leading-relaxed text-slate-400">{item.desc}</p>
+                        <p className="mt-1 text-[10.5px] leading-relaxed text-text-muted">{item.desc}</p>
                       </div>
                     </button>
                   );
@@ -1321,7 +1321,7 @@ export default function SettingsPage() {
               </div>
             </div>
 
-            <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-slate-700 bg-slate-800/60 p-3">
+            <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border bg-surface-2 p-3">
               <input
                 type="checkbox"
                 checked={ocrDualEngine}
@@ -1332,59 +1332,59 @@ export default function SettingsPage() {
                 className="mt-0.5 h-4 w-4 shrink-0 accent-emerald-500"
               />
               <span>
-                <span className="block text-xs font-medium text-slate-200">
+                <span className="block text-xs font-medium text-text">
                   Đối chiếu 2 engine (PaddleOCR + Tesseract)
                 </span>
-                <span className="mt-0.5 block text-[10px] text-slate-400">
+                <span className="mt-0.5 block text-[10px] text-text-muted">
                   Mỗi dòng chữ được 2 engine đọc riêng rồi so sánh — chính xác hơn rõ rệt với
                   phụ đề mờ/nền bận, đổi lại quét chậm hơn khoảng 30-40%.
                 </span>
               </span>
             </label>
 
-            <p className="flex items-start gap-1.5 text-[11px] text-slate-400">
-              <Languages className="mt-0.5 h-3.5 w-3.5 shrink-0 text-brand-cyan" />
+            <p className="flex items-start gap-1.5 text-[11px] text-text-muted">
+              <Languages className="mt-0.5 h-3.5 w-3.5 shrink-0 text-accent" />
               <span>
-                Nút <strong className="text-slate-300">Quét OCR</strong> nằm ở tab{' '}
-                <strong className="text-slate-300">Phụ đề &amp; ASR</strong>, cạnh nút Nhập SRT.
+                Nút <strong className="text-text">Quét OCR</strong> nằm ở tab{' '}
+                <strong className="text-text">Phụ đề &amp; ASR</strong>, cạnh nút Nhập SRT.
               </span>
             </p>
           </div>
         </div>
         {/* Khối 6: Nhất quán bản dịch (Glossary & Văn phong) */}
-        <div className="flex flex-col gap-4 rounded-3xl border border-slate-800 bg-slate-900/60 p-5">
-          <div className="flex items-center gap-2 border-b border-slate-800 pb-3 text-sm font-bold text-white">
+        <div className="flex flex-col gap-4 rounded-lg border border-border bg-surface p-5">
+          <div className="flex items-center gap-2 border-b border-border pb-3 text-sm font-bold text-white">
             <Languages className="h-4 w-4 text-brand-rose" />
             <span>Nhất quán bản dịch (Glossary &amp; Văn phong)</span>
           </div>
 
           <div className="space-y-4">
-            <p className="text-[11px] text-slate-400">
+            <p className="text-[11px] text-text-muted">
               Hai mục này được đưa thẳng vào prompt khi dịch bằng Gemini — áp dụng cho toàn bộ
               video, giữ tên riêng / thuật ngữ / cách xưng hô đồng nhất từ đầu đến cuối.
             </p>
 
             <div>
-              <label className="mb-1 block font-medium text-slate-200">
-                Bảng thuật ngữ — mỗi dòng: <code className="font-mono text-[10px] text-brand-cyan">gốc = bản dịch</code>
+              <label className="mb-1 block font-medium text-text">
+                Bảng thuật ngữ — mỗi dòng: <code className="font-mono text-[10px] text-accent">gốc = bản dịch</code>
               </label>
               <textarea
                 rows={5}
                 value={glossary}
                 onChange={(e) => setGlossary(e.target.value)}
                 placeholder={'Ví dụ:\nLý Bạch = Lý Bạch\nsword = kiếm\nTiên Đế = Thiên Đế\ngiemony = Zhen Mon'}
-                className="w-full rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 font-mono text-xs text-white placeholder:text-slate-600 focus:border-brand-cyan focus:outline-none"
+                className="w-full rounded-md border border-border bg-surface-2 px-3 py-2 font-mono text-xs text-white placeholder:text-text-faint focus:border-accent/40 focus:outline-none"
               />
             </div>
 
             <div>
-              <label className="mb-1 block font-medium text-slate-200">Văn phong &amp; xưng hô (tự do)</label>
+              <label className="mb-1 block font-medium text-text">Văn phong &amp; xưng hô (tự do)</label>
               <textarea
                 rows={4}
                 value={translationStyleGuide}
                 onChange={(e) => setTranslationStyleGuide(e.target.value)}
                 placeholder={'Ví dụ:\n- Văn phong cổ trang, trang trọng\n- Vua tự xưng "trẫm", kẻ dưới gọi vua là "bệ hạ"\n- Hai kẻ thù xưng hô "tao/mày", người quen xưng "tôi/cậu"'}
-                className="w-full rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-white placeholder:text-slate-600 focus:border-brand-cyan focus:outline-none"
+                className="w-full rounded-md border border-border bg-surface-2 px-3 py-2 text-xs text-white placeholder:text-text-faint focus:border-accent/40 focus:outline-none"
               />
             </div>
           </div>
@@ -1393,7 +1393,7 @@ export default function SettingsPage() {
     </div>
 
       {/* Thanh lưu cài đặt cố định ở đáy trang — liền mạch, không bị hở */}
-      <div className="shrink-0 flex flex-wrap items-center justify-between gap-3 border-t border-slate-800 bg-slate-900/95 px-6 py-3.5 backdrop-blur shadow-2xl">
+      <div className="shrink-0 flex flex-wrap items-center justify-between gap-3 border-t border-border bg-surface px-6 py-3.5">
         <div className="flex items-center gap-2">
           {savedMessage ? (
             <span className="flex items-center gap-1.5 text-xs font-medium text-emerald-400">
@@ -1410,8 +1410,8 @@ export default function SettingsPage() {
               Đã tự động lưu thay đổi vừa chọn!
             </span>
           ) : (
-            <span className="text-xs text-slate-400">
-              Nhấn <strong className="text-slate-200">"Lưu tất cả thay đổi"</strong> để cập nhật toàn bộ cấu hình vào hệ thống.
+            <span className="text-xs text-text-muted">
+              Nhấn <strong className="text-text">"Lưu tất cả thay đổi"</strong> để cập nhật toàn bộ cấu hình vào hệ thống.
             </span>
           )}
         </div>
@@ -1420,7 +1420,7 @@ export default function SettingsPage() {
             type="button"
             disabled={isSaving}
             onClick={handleSaveSettings}
-            className="btn-vanh-gradient inline-flex items-center gap-2 rounded-xl px-5 py-2.5 text-xs font-semibold cursor-pointer shadow-lg shadow-brand-indigo/30 hover:opacity-95 transition disabled:opacity-50"
+            className="bg-accent text-white hover:bg-accent-hover inline-flex items-center gap-2 rounded-md px-5 py-2.5 text-xs font-semibold cursor-pointer hover:opacity-95 transition disabled:opacity-50"
           >
             {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
             <span>{isSaving ? 'Đang lưu...' : 'Lưu tất cả thay đổi'}</span>

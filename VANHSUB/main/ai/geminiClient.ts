@@ -105,7 +105,7 @@ export async function translateSubtitleLine(payload: TranslateLinePayload): Prom
   const prompt = `Bạn là biên dịch viên phụ đề phim chuyên nghiệp.
 Nhiệm vụ: Dịch DUY NHẤT câu sau sang ngôn ngữ: "${targetLang}".
 Yêu cầu:
-- Giữ nguyên ngữ nghĩa, dịch tự nhiên theo văn nói phụ đề phim, ngắn gọn súc tích.
+- Giữ nguyên ngữ nghĩa, dịch tự nhiên theo văn nói phụ đề phim, ngắn gọn súc tích, tối đa 2 dòng hiển thị (dưới 70 ký tự).
 - Chỉ trả về DUY NHẤT câu đã dịch, không giải thích, không bọc ngoặc kép.`;
 
   try {
@@ -146,18 +146,22 @@ export interface AiGroupedSubtitle {
 export type AiGroupedOutput = AiGroupedSubtitle;
 
 export const MAX_SUBTITLE_GAP_MS = 1500;
+export const MAX_SUBTITLE_DURATION_MS = 7000;
+export const MAX_LINES_PER_GROUP = 4;
 
 /**
  * Ghép nối và tính toán timestamp tất định (deterministic) từ kết quả gộp của AI:
  * 1. startMs = original[min(sourceIndices)].startMs
  * 2. endMs = original[max(sourceIndices)].endMs
  * 3. Max Gap Guard: Tách cụm nếu khoảng lặng giữa 2 dòng liên tiếp > maxGapMs (mặc định 1500ms)
- * 4. Missing Index Recovery: Tự động khôi phục các dòng bị AI bỏ sót để bảo toàn 100% dữ liệu
+ * 4. Max Duration & Size Guard: Tách cụm nếu thời lượng > 7000ms hoặc quá 4 dòng để tránh lệch timeline video
+ * 5. Missing Index Recovery: Tự động khôi phục các dòng bị AI bỏ sót để bảo toàn 100% dữ liệu
  */
 export function resolveGroupedTimestamps(
   originalItems: CleanSubtitlesItem[],
   aiGroups: AiGroupedSubtitle[],
-  maxGapMs: number = MAX_SUBTITLE_GAP_MS
+  maxGapMs: number = MAX_SUBTITLE_GAP_MS,
+  maxDurationMs: number = MAX_SUBTITLE_DURATION_MS
 ): CleanSubtitlesItem[] {
   if (!originalItems || originalItems.length === 0) return [];
   if (originalItems.length === 1) {
@@ -206,7 +210,7 @@ export function resolveGroupedTimestamps(
         let idx = typeof rawIdx === 'number' ? rawIdx : parseInt(String(rawIdx), 10);
         if (isNaN(idx)) continue;
         if (isOneBased) idx -= 1;
-        if (idx >= 0 && idx < originalItems.length) {
+        if (idx >= 0 && idx < originalItems.length && !claimedIndices.has(idx)) {
           normalizedIndices.push(idx);
         }
       }
@@ -215,25 +219,39 @@ export function resolveGroupedTimestamps(
       const uniqueSorted = Array.from(new Set(normalizedIndices)).sort((a, b) => a - b);
       if (uniqueSorted.length === 0) continue;
 
-      // Áp dụng Max Gap Guard: tách nhóm nếu khoảng lặng giữa 2 dòng liên tiếp > maxGapMs
+      // Áp dụng Max Gap Guard & Max Duration Guard:
+      // Tách nhóm nếu:
+      // - khoảng lặng giữa 2 dòng liên tiếp > maxGapMs (1500ms)
+      // - hoặc tổng thời lượng cụm vượt quá maxDurationMs (7000ms theo chuẩn phụ đề)
+      // - hoặc số dòng gộp trong 1 cụm vượt quá MAX_LINES_PER_GROUP (4 dòng)
+      // - hoặc chỉ số không liên tiếp (curIdx !== prevIdx + 1) để tránh nuốt dòng thoại trung gian
       const clusters: number[][] = [[uniqueSorted[0]]];
       for (let k = 1; k < uniqueSorted.length; k++) {
         const prevIdx = uniqueSorted[k - 1];
         const curIdx = uniqueSorted[k];
         const gap = originalItems[curIdx].startMs - originalItems[prevIdx].endMs;
+        const currentCluster = clusters[clusters.length - 1];
+        const clusterStartMs = originalItems[currentCluster[0]].startMs;
+        const potentialEndMs = originalItems[curIdx].endMs;
+        const clusterDuration = potentialEndMs - clusterStartMs;
 
-        if (gap > maxGapMs) {
+        if (
+          gap > maxGapMs ||
+          clusterDuration > maxDurationMs ||
+          currentCluster.length >= MAX_LINES_PER_GROUP ||
+          curIdx !== prevIdx + 1
+        ) {
           clusters.push([curIdx]);
         } else {
-          clusters[clusters.length - 1].push(curIdx);
+          currentCluster.push(curIdx);
         }
       }
 
-      // Đánh dấu các chỉ số đã được gộp (bao gồm toàn bộ dải trung gian trong từng cụm)
+      // Đánh dấu CHÍNH XÁC các chỉ số đã được gộp trong từng cụm (không nuốt các dòng chưa được gộp)
       clusters.forEach((c) => {
-        for (let idx = c[0]; idx <= c[c.length - 1]; idx++) {
+        c.forEach((idx) => {
           claimedIndices.add(idx);
-        }
+        });
       });
 
       const rawText = typeof group.text === 'string' ? group.text.trim() : '';
@@ -251,10 +269,10 @@ export function resolveGroupedTimestamps(
         clusters.forEach((c, cIdx) => {
           const startMs = originalItems[c[0]].startMs;
           const endMs = Math.max(startMs + 100, originalItems[c[c.length - 1]].endMs);
-          let text = rawText;
+          let text = '';
           if (newlineParts.length === clusters.length) {
             text = newlineParts[cIdx];
-          } else if (!rawText) {
+          } else {
             text = c.map((i) => originalItems[i].text).join(' ').trim();
           }
           result.push({ startMs, endMs, text });
@@ -333,6 +351,8 @@ Nhiệm vụ:
    -> GỘP lại thành MỘT câu duy nhất, liệt kê tất cả các index của dòng gốc trong mảng sourceIndices.
 2. CÂU BỊ NGẮT VỤN:
    - Nếu 2-3 câu liên tiếp là các vế ngắt của cùng một câu trọn vẹn, hãy ghép lại thành câu hoàn chỉnh tự nhiên.
+   - TUYỆT ĐỐI KHÔNG gộp các câu độc lập có ý nghĩa tách biệt thành một khối kéo dài, làm lệch thời điểm xuất hiện trên video.
+   - Tôn trọng nhịp ngắt thoại của video: không gộp dồn quá nhiều câu vào một khối duy nhất (tối đa không quá 3-4 dòng liên tiếp cho cùng 1 câu).
 3. SỬA LỖI CHÍNH TẢ OCR:
    - Sửa các lỗi nhận diện quang học (nhầm lẫn l/1, 0/O, rn/m, sai dấu thanh tiếng Việt).
 4. GIỮ NGUYÊN Ý NGHĨA VÀ NGÔN NGỮ:
@@ -366,15 +386,36 @@ Không giải thích thêm, không bọc trong markdown.`;
       const raw = completion.choices[0]?.message?.content?.trim() || '[]';
       const cleanJson = raw.replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim();
 
-      let parsed: any[];
+      let parsed: any;
       try {
         parsed = JSON.parse(cleanJson);
       } catch {
         parsed = JSON.parse(jsonrepair(cleanJson));
       }
 
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        const resolved = resolveGroupedTimestamps(chunk, parsed, MAX_SUBTITLE_GAP_MS);
+      let groupsArray: any[] = [];
+      if (Array.isArray(parsed)) {
+        groupsArray = parsed;
+      } else if (parsed && typeof parsed === 'object') {
+        const arrayKeys = ['groups', 'subtitles', 'items', 'result', 'results', 'data', 'output'];
+        for (const k of arrayKeys) {
+          if (Array.isArray(parsed[k]) && parsed[k].length > 0) {
+            groupsArray = parsed[k];
+            break;
+          }
+        }
+        if (groupsArray.length === 0) {
+          for (const v of Object.values(parsed)) {
+            if (Array.isArray(v) && v.length > 0) {
+              groupsArray = v as any[];
+              break;
+            }
+          }
+        }
+      }
+
+      if (groupsArray.length > 0) {
+        const resolved = resolveGroupedTimestamps(chunk, groupsArray, MAX_SUBTITLE_GAP_MS, MAX_SUBTITLE_DURATION_MS);
         cleanedAll.push(...resolved);
       } else {
         cleanedAll.push(...chunk);

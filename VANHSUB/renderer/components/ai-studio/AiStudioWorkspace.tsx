@@ -102,15 +102,15 @@ export default function AiStudioWorkspace() {
   return (
     <div className="flex h-full w-full flex-col overflow-hidden bg-[#080D1A]">
       {/* Top Studio Control Bar */}
-      <header className="flex h-14 shrink-0 items-center justify-between border-b border-slate-800/80 bg-[#0B1120]/90 px-6 backdrop-blur-md z-20">
+      <header className="flex h-14 shrink-0 items-center justify-between border-b border-border bg-surface px-6 z-20">
         <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-tr from-brand-cyan/20 to-brand-indigo/30 border border-brand-cyan/30 text-brand-cyan shadow-sm">
+          <div className="flex h-9 w-9 items-center justify-center rounded-md bg-gradient-to-tr from-brand-cyan/20 to-brand-indigo/30 border border-accent/40 text-accent">
             <Sparkles className="h-4 w-4" />
           </div>
           <div>
             <h1 className="text-sm font-bold tracking-tight text-white flex items-center gap-2">
               AI Video Studio
-              <span className="rounded-full bg-gradient-to-r from-brand-cyan/20 to-brand-rose/20 px-2 py-0.5 text-[10px] font-bold text-brand-cyan border border-brand-cyan/30">
+              <span className="rounded-full bg-gradient-to-r from-brand-cyan/20 to-brand-rose/20 px-2 py-0.5 text-[10px] font-bold text-accent border border-accent/40">
                 PRO STUDIO
               </span>
             </h1>
@@ -123,20 +123,20 @@ export default function AiStudioWorkspace() {
             <button
               type="button"
               onClick={() => setIsProjectDropdownOpen((prev) => !prev)}
-              className="flex items-center gap-2 rounded-xl border border-slate-800 bg-[#0E1526] hover:bg-[#131C30] hover:border-slate-700 px-3.5 py-1.5 text-xs transition cursor-pointer shadow-sm"
+              className="flex items-center gap-2 rounded-md border border-border bg-[#0E1526] hover:bg-[#131C30] hover:border-border px-3.5 py-1.5 text-xs transition cursor-pointer"
               title="Bấm để chuyển nhanh dự án hoặc tạo dự án mới"
             >
-              <span className="text-slate-400">Project:</span>
+              <span className="text-text-muted">Project:</span>
               <span className="font-bold text-white truncate max-w-[200px]" title={currentProjectName}>
                 📁 {currentProjectName}
               </span>
-              <ChevronDown className={`h-3.5 w-3.5 text-slate-400 transition-transform duration-200 ${isProjectDropdownOpen ? 'rotate-180' : ''}`} />
+              <ChevronDown className={`h-3.5 w-3.5 text-text-muted transition-transform duration-200 ${isProjectDropdownOpen ? 'rotate-180' : ''}`} />
             </button>
 
             {/* Dropdown Menu */}
             {isProjectDropdownOpen && (
-              <div className="absolute top-full left-0 mt-1.5 w-64 rounded-2xl border border-slate-800 bg-[#0E1526] shadow-2xl p-2 space-y-1 z-50 animate-in fade-in zoom-in-95 duration-150 backdrop-blur-md">
-                <div className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+              <div className="absolute top-full left-0 mt-1.5 w-64 rounded-lg border border-border bg-[#0E1526] p-2 space-y-1 z-50 animate-in fade-in zoom-in-95 duration-150">
+                <div className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-text-muted">
                   Dự án đã lưu ({savedProjects.length})
                 </div>
 
@@ -153,23 +153,23 @@ export default function AiStudioWorkspace() {
                             await switchProject(p.id);
                           }
                         }}
-                        className={`w-full flex items-center justify-between rounded-xl px-2.5 py-2 text-xs text-left transition cursor-pointer ${
+                        className={`w-full flex items-center justify-between rounded-md px-2.5 py-2 text-xs text-left transition cursor-pointer ${
                           isActive
-                            ? 'bg-brand-cyan/15 text-brand-cyan font-bold border border-brand-cyan/30'
-                            : 'text-slate-300 hover:bg-slate-800/80 hover:text-white'
+                            ? 'bg-accent/15 text-accent font-bold border border-accent/40'
+                            : 'text-text hover:bg-surface-2 hover:text-white'
                         }`}
                       >
                         <div className="flex items-center gap-2 min-w-0">
                           <Folder className="h-3.5 w-3.5 text-amber-400 shrink-0" />
                           <span className="truncate">{p.name}</span>
                         </div>
-                        {isActive && <Check className="h-3.5 w-3.5 text-brand-cyan shrink-0" />}
+                        {isActive && <Check className="h-3.5 w-3.5 text-accent shrink-0" />}
                       </button>
                     );
                   })}
                 </div>
 
-                <div className="border-t border-slate-800/80 pt-1 mt-1 space-y-0.5">
+                <div className="border-t border-border pt-1 mt-1 space-y-0.5">
                   <button
                     type="button"
                     onClick={async () => {
@@ -177,7 +177,7 @@ export default function AiStudioWorkspace() {
                       await switchProject('');
                       setProjectEntered(false);
                     }}
-                    className="w-full flex items-center gap-2 rounded-xl px-2.5 py-2 text-xs text-slate-300 hover:bg-slate-800/80 hover:text-white transition cursor-pointer"
+                    className="w-full flex items-center gap-2 rounded-md px-2.5 py-2 text-xs text-text hover:bg-surface-2 hover:text-white transition cursor-pointer"
                   >
                     <Plus className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
                     <span>Tạo dự án mới...</span>
@@ -188,9 +188,9 @@ export default function AiStudioWorkspace() {
                       setIsProjectDropdownOpen(false);
                       setProjectEntered(false);
                     }}
-                    className="w-full flex items-center gap-2 rounded-xl px-2.5 py-2 text-xs text-slate-400 hover:bg-slate-800/80 hover:text-slate-200 transition cursor-pointer"
+                    className="w-full flex items-center gap-2 rounded-md px-2.5 py-2 text-xs text-text-muted hover:bg-surface-2 hover:text-text transition cursor-pointer"
                   >
-                    <Folder className="h-3.5 w-3.5 text-slate-500 shrink-0" />
+                    <Folder className="h-3.5 w-3.5 text-text-muted shrink-0" />
                     <span>Quản lý danh sách dự án</span>
                   </button>
                 </div>
@@ -205,7 +205,7 @@ export default function AiStudioWorkspace() {
           <button
             type="button"
             onClick={() => setIsChromeBridgeModalOpen(true)}
-            className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold transition cursor-pointer shadow-sm ${
+            className={`flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-semibold transition cursor-pointer  ${
               isChromeBridgeConnected
                 ? 'border-emerald-500/50 bg-emerald-950/40 text-emerald-400 hover:bg-emerald-900/50'
                 : 'border-blue-500/40 bg-blue-950/30 text-blue-400 hover:border-blue-500/70 hover:bg-blue-900/40 hover:text-blue-300'
@@ -224,10 +224,10 @@ export default function AiStudioWorkspace() {
           <button
             type="button"
             onClick={handleToggleFlowLobby}
-            className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold transition cursor-pointer shadow-sm ${
+            className={`flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-semibold transition cursor-pointer  ${
               isFlowLobbyOpen
                 ? 'border-amber-500/50 bg-amber-500/20 text-amber-300 hover:bg-amber-500/30'
-                : 'border-slate-800 bg-[#0F1626] text-slate-300 hover:border-slate-700 hover:text-white'
+                : 'border-border bg-[#0F1626] text-text hover:border-border hover:text-white'
             }`}
             title="Mở hoặc ẩn cửa sổ Sảnh Google Flow trên màn hình để kiểm tra session nội bộ"
           >
@@ -239,7 +239,7 @@ export default function AiStudioWorkspace() {
           <button
             type="button"
             onClick={() => setIsDiagnosticsModalOpen(true)}
-            className="flex items-center gap-1.5 rounded-xl border border-indigo-500/40 bg-indigo-950/30 text-indigo-300 hover:border-indigo-500/70 hover:bg-indigo-900/40 hover:text-white px-3 py-1.5 text-xs font-semibold transition cursor-pointer shadow-sm"
+            className="flex items-center gap-1.5 rounded-md border border-indigo-500/40 bg-indigo-950/30 text-indigo-300 hover:border-indigo-500/70 hover:bg-indigo-900/40 hover:text-white px-3 py-1.5 text-xs font-semibold transition cursor-pointer"
             title="Kiểm tra toàn diện 4 mắt xích hệ thống (Bridge, Sảnh, Quyền ghi ổ đĩa, AI) trong 3 giây"
           >
             <Cpu className="h-3.5 w-3.5 text-indigo-400" />
@@ -247,14 +247,14 @@ export default function AiStudioWorkspace() {
           </button>
 
           {/* Mode Switcher Buttons */}
-          <div className="flex items-center rounded-2xl border border-slate-800 bg-slate-950/80 p-1">
+          <div className="flex items-center rounded-lg border border-border bg-bg p-1">
             <button
               type="button"
               onClick={() => setActiveMode('auto')}
-              className={`flex items-center gap-2 rounded-xl px-4 py-1.5 text-xs font-semibold transition cursor-pointer ${
+              className={`flex items-center gap-2 rounded-md px-4 py-1.5 text-xs font-semibold transition cursor-pointer ${
                 activeMode === 'auto'
-                  ? 'bg-gradient-to-r from-brand-cyan to-brand-indigo text-white shadow-md'
-                  : 'text-slate-400 hover:text-white'
+                  ? 'bg-accent text-white '
+                  : 'text-text-muted hover:text-white'
               }`}
             >
               <Play className="h-3.5 w-3.5 fill-current" />
@@ -264,10 +264,10 @@ export default function AiStudioWorkspace() {
             <button
               type="button"
               onClick={() => setActiveMode('settings')}
-              className={`flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-medium transition cursor-pointer ${
+              className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition cursor-pointer ${
                 activeMode === 'settings'
-                  ? 'bg-slate-800 text-white'
-                  : 'text-slate-400 hover:text-white'
+                  ? 'bg-surface-2 text-white'
+                  : 'text-text-muted hover:text-white'
               }`}
               title="Cấu hình AI Studio"
             >
@@ -281,9 +281,9 @@ export default function AiStudioWorkspace() {
       {/* Main Studio Viewport */}
       <div className="flex-1 min-h-0 overflow-hidden relative">
         {isLoading && !hasLoaded ? (
-          <div className="flex h-full w-full items-center justify-center bg-[#080D1A] text-slate-400">
+          <div className="flex h-full w-full items-center justify-center bg-[#080D1A] text-text-muted">
             <div className="flex flex-col items-center gap-3">
-              <div className="h-7 w-7 animate-spin rounded-full border-2 border-brand-cyan border-t-transparent" />
+              <div className="h-7 w-7 animate-spin rounded-full border-2 border-accent/40 border-t-transparent" />
               <span className="text-xs font-medium">Đang tải cấu hình AI Studio...</span>
             </div>
           </div>

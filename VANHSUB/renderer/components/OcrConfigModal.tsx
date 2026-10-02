@@ -36,7 +36,7 @@ const OCR_MODES: Array<{
     label: 'Auto',
     desc: 'Tự tìm subtitle trên toàn màn hình (AI tracking & tự lọc bỏ logo/watermark)',
     badge: 'Khuyên dùng',
-    badgeColor: 'bg-brand-cyan/20 text-brand-cyan border-brand-cyan/40',
+    badgeColor: 'bg-accent-tint text-accent border-accent/40',
   },
   {
     id: 'bottom',
@@ -53,7 +53,7 @@ const OCR_MODES: Array<{
     label: 'Custom',
     desc: 'Người dùng kéo vùng cần OCR trực tiếp trên video',
     badge: 'Tuỳ chỉnh',
-    badgeColor: 'bg-purple-500/20 text-purple-300 border-purple-500/40',
+    badgeColor: 'bg-accent-tint text-accent border-accent/40',
   },
 ];
 
@@ -230,21 +230,21 @@ export default function OcrConfigModal({
   return (
     <Dialog.Root open={isOpen} onOpenChange={(open) => !open && !isSubmitting && onClose()}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm animate-fade-in" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[94vw] max-w-4xl -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-3xl border border-slate-800 bg-slate-900/95 p-6 text-xs text-slate-300 shadow-2xl backdrop-blur-xl animate-scale-in max-h-[92vh] flex flex-col">
+        <Dialog.Overlay className="fixed inset-0 z-50 bg-black/80 animate-fade-in" />
+        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[94vw] max-w-4xl -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-lg border border-border bg-surface p-6 text-xs text-text animate-scale-in max-h-[92vh] flex flex-col">
           {/* Header */}
-          <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+          <div className="flex items-center justify-between border-b border-border pb-4">
             <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-brand-cyan/10 border border-brand-cyan/30 text-brand-cyan shadow-sm">
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-accent-tint border border-accent/40 text-accent">
                 <ScanText className="h-5 w-5" />
               </div>
               <div>
                 <Dialog.Title className="text-sm font-bold text-white">
                   Cấu hình Quét Phụ Đề Cứng (OCR)
                 </Dialog.Title>
-                <Dialog.Description className="text-xs text-slate-400 mt-0.5">
+                <Dialog.Description className="text-xs text-text-muted mt-0.5">
                   Chọn chế độ quét phụ đề hardsub từ video bằng AI
-                  {task && <span className="text-slate-300 font-medium"> — {task.fileName}</span>}
+                  {task && <span className="text-text font-medium"> — {task.fileName}</span>}
                 </Dialog.Description>
               </div>
             </div>
@@ -252,7 +252,7 @@ export default function OcrConfigModal({
               <button
                 type="button"
                 disabled={isSubmitting}
-                className="rounded-xl p-2 text-slate-400 hover:bg-slate-800 hover:text-white transition cursor-pointer disabled:opacity-50"
+                className="rounded-md p-2 text-text-muted hover:bg-surface-2 hover:text-white transition cursor-pointer disabled:opacity-50"
               >
                 <X className="h-4 w-4" />
               </button>
@@ -263,7 +263,7 @@ export default function OcrConfigModal({
           <div className="flex-1 overflow-y-auto py-4 space-y-5 pr-1">
             {/* Lựa chọn 4 chế độ OCR */}
             <div>
-              <label className="mb-2 block font-semibold text-slate-200">
+              <label className="mb-2 block font-semibold text-text">
                 OCR Mode (Chế độ quét)
               </label>
               <div className="grid gap-2.5 sm:grid-cols-2">
@@ -274,14 +274,14 @@ export default function OcrConfigModal({
                       key={item.id}
                       type="button"
                       onClick={() => setMode(item.id)}
-                      className={`relative flex items-start gap-3 rounded-2xl border p-3.5 text-left transition cursor-pointer ${
+                      className={`relative flex items-start gap-3 rounded-lg border p-3.5 text-left transition cursor-pointer ${
                         isSelected
-                          ? 'border-brand-cyan bg-brand-cyan/10 shadow-sm shadow-brand-cyan/20'
-                          : 'border-slate-800 bg-slate-950/60 hover:border-slate-700 hover:bg-slate-800/40'
+                          ? 'border-accent/40 bg-accent-tint  '
+                          : 'border-border bg-bg hover:border-border hover:bg-surface-2'
                       }`}
                     >
-                      <div className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-slate-600 bg-slate-800">
-                        {isSelected && <div className="h-2 w-2 rounded-full bg-brand-cyan" />}
+                      <div className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-slate-600 bg-surface-2">
+                        {isSelected && <div className="h-2 w-2 rounded-full bg-accent" />}
                       </div>
                       <div className="flex-1">
                         <div className="flex items-center gap-2">
@@ -289,14 +289,14 @@ export default function OcrConfigModal({
                           {item.badge && (
                             <span
                               className={`rounded-full border px-2 py-0.5 text-[9px] font-bold ${
-                                item.badgeColor || 'border-slate-700 text-slate-300'
+                                item.badgeColor || 'border-border text-text'
                               }`}
                             >
                               {item.badge}
                             </span>
                           )}
                         </div>
-                        <p className="mt-1 text-[11px] leading-relaxed text-slate-400">
+                        <p className="mt-1 text-[11px] leading-relaxed text-text-muted">
                           {item.desc}
                         </p>
                       </div>
@@ -308,32 +308,32 @@ export default function OcrConfigModal({
 
             {/* Khung video preview khi chọn Custom */}
             {mode === 'custom' && (
-              <div className="rounded-2xl border border-slate-800 bg-slate-950 p-4 space-y-3">
+              <div className="rounded-lg border border-border bg-bg p-4 space-y-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex items-center gap-2 font-medium text-slate-200">
-                    <Crop className="h-4 w-4 text-purple-400" />
+                  <div className="flex items-center gap-2 font-medium text-text">
+                    <Crop className="h-4 w-4 text-accent" />
                     <span>Kéo thả chuột trên khung hình để chọn vùng quét</span>
                   </div>
                   <div className="flex items-center gap-1.5 text-[11px]">
-                    <span className="text-slate-400">Vùng mẫu:</span>
+                    <span className="text-text-muted">Vùng mẫu:</span>
                     <button
                       type="button"
                       onClick={() => setPresetRegion('bottom30')}
-                      className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 text-slate-300 hover:bg-slate-800 hover:text-white cursor-pointer"
+                      className="rounded-lg border border-border bg-surface px-2 py-1 text-text hover:bg-surface-2 hover:text-white cursor-pointer"
                     >
                       30% Đáy
                     </button>
                     <button
                       type="button"
                       onClick={() => setPresetRegion('bottom50')}
-                      className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 text-slate-300 hover:bg-slate-800 hover:text-white cursor-pointer"
+                      className="rounded-lg border border-border bg-surface px-2 py-1 text-text hover:bg-surface-2 hover:text-white cursor-pointer"
                     >
                       50% Dưới
                     </button>
                     <button
                       type="button"
                       onClick={() => setPresetRegion('full')}
-                      className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 text-slate-300 hover:bg-slate-800 hover:text-white cursor-pointer"
+                      className="rounded-lg border border-border bg-surface px-2 py-1 text-text hover:bg-surface-2 hover:text-white cursor-pointer"
                     >
                       Toàn khung
                     </button>
@@ -346,7 +346,7 @@ export default function OcrConfigModal({
                   onMouseDown={handleMouseDown}
                   onMouseMove={handleMouseMove}
                   onMouseUp={handleMouseUp}
-                  className="relative aspect-video w-full overflow-hidden rounded-xl border border-slate-800 bg-black cursor-crosshair select-none flex items-center justify-center"
+                  className="relative aspect-video w-full overflow-hidden rounded-md border border-border bg-black cursor-crosshair select-none flex items-center justify-center"
                 >
                   {videoSrc ? (
                     <video
@@ -357,12 +357,12 @@ export default function OcrConfigModal({
                       className="h-full w-full object-contain pointer-events-none"
                     />
                   ) : (
-                    <div className="text-slate-600">Không thể xem trước video</div>
+                    <div className="text-text-faint">Không thể xem trước video</div>
                   )}
 
                   {/* Vùng chọn Bounding Box */}
                   <div
-                    className="absolute pointer-events-none rounded border-2 border-brand-cyan bg-brand-cyan/20 shadow-lg shadow-brand-cyan/30 transition-all duration-75"
+                    className="absolute pointer-events-none rounded border-2 border-accent/40 bg-accent-tint transition-all duration-75"
                     style={{
                       left: `${customRegion.x * 100}%`,
                       top: `${customRegion.y * 100}%`,
@@ -370,7 +370,7 @@ export default function OcrConfigModal({
                       height: `${customRegion.h * 100}%`,
                     }}
                   >
-                    <div className="absolute -top-5 left-0 rounded bg-brand-cyan px-1.5 py-0.5 font-mono text-[9px] font-bold text-slate-950 shadow">
+                    <div className="absolute -top-5 left-0 rounded bg-accent px-1.5 py-0.5 font-mono text-[9px] font-bold text-slate-950 shadow">
                       Vùng quét OCR ({(customRegion.w * 100).toFixed(0)}% × {(customRegion.h * 100).toFixed(0)}%)
                     </div>
                   </div>
@@ -381,7 +381,7 @@ export default function OcrConfigModal({
                   <button
                     type="button"
                     onClick={togglePlay}
-                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-slate-700 bg-slate-900 text-slate-200 hover:bg-slate-800 cursor-pointer"
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border bg-surface text-text hover:bg-surface-2 cursor-pointer"
                   >
                     {isPlaying ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
                   </button>
@@ -393,27 +393,27 @@ export default function OcrConfigModal({
                     step={0.1}
                     value={currentTime}
                     onChange={handleSeek}
-                    className="flex-1 accent-brand-cyan h-1 bg-slate-800 rounded-lg cursor-pointer"
+                    className="flex-1 accent-brand-cyan h-1 bg-surface-2 rounded-lg cursor-pointer"
                   />
 
-                  <span className="font-mono text-[11px] text-slate-400 shrink-0">
+                  <span className="font-mono text-[11px] text-text-muted shrink-0">
                     {formatTime(currentTime)} / {formatTime(duration)}
                   </span>
                 </div>
 
                 {/* Toạ độ vùng chọn */}
-                <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-800/80 pt-2 font-mono text-[11px] text-slate-400">
+                <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-2 font-mono text-[11px] text-text-muted">
                   <span>
                     Toạ độ:{' '}
                     <strong className="text-white">
                       X: {(customRegion.x * 100).toFixed(1)}%, Y: {(customRegion.y * 100).toFixed(1)}%
                     </strong>{' '}
                     | Kích thước:{' '}
-                    <strong className="text-brand-cyan">
+                    <strong className="text-accent">
                       W: {(customRegion.w * 100).toFixed(1)}%, H: {(customRegion.h * 100).toFixed(1)}%
                     </strong>
                   </span>
-                  <span className="text-[10px] text-slate-500">
+                  <span className="text-[10px] text-text-muted">
                     Kéo chuột trên video bất kỳ lúc nào để vẽ lại
                   </span>
                 </div>
@@ -421,13 +421,13 @@ export default function OcrConfigModal({
             )}
 
             {/* Các tuỳ chọn nâng cao */}
-            <div className="grid gap-4 sm:grid-cols-2 rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
+            <div className="grid gap-4 sm:grid-cols-2 rounded-lg border border-border bg-bg p-4">
               <div>
-                <label className="mb-1.5 block font-medium text-slate-200">Ngôn ngữ quét (OCR)</label>
+                <label className="mb-1.5 block font-medium text-text">Ngôn ngữ quét (OCR)</label>
                 <select
                   value={language}
                   onChange={(e) => setLanguage(e.target.value)}
-                  className="w-full rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-white focus:outline-none"
+                  className="w-full rounded-md border border-border bg-surface-2 px-3 py-2 text-xs text-white focus:outline-none"
                 >
                   <option value="vie">Tiếng Việt</option>
                   <option value="eng">English</option>
@@ -441,11 +441,11 @@ export default function OcrConfigModal({
               </div>
 
               <div>
-                <label className="mb-1.5 block font-medium text-slate-200">Tốc độ quét (FPS)</label>
+                <label className="mb-1.5 block font-medium text-text">Tốc độ quét (FPS)</label>
                 <select
                   value={fps}
                   onChange={(e) => setFps(Number(e.target.value))}
-                  className="w-full rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-white focus:outline-none"
+                  className="w-full rounded-md border border-border bg-surface-2 px-3 py-2 text-xs text-white focus:outline-none"
                 >
                   <option value={1}>1 khung / giây (Nhanh nhất)</option>
                   <option value={2}>2 khung / giây (Chuẩn — khuyên dùng)</option>
@@ -454,7 +454,7 @@ export default function OcrConfigModal({
               </div>
 
               <div className="sm:col-span-2 pt-1">
-                <label className="flex cursor-pointer items-start gap-2.5 rounded-xl border border-slate-800 bg-slate-900/60 p-2.5">
+                <label className="flex cursor-pointer items-start gap-2.5 rounded-md border border-border bg-surface p-2.5">
                   <input
                     type="checkbox"
                     checked={dualEngine}
@@ -462,10 +462,10 @@ export default function OcrConfigModal({
                     className="mt-0.5 h-4 w-4 shrink-0 accent-emerald-500 rounded"
                   />
                   <div>
-                    <span className="font-semibold text-slate-200 block">
+                    <span className="font-semibold text-text block">
                       Đối chiếu 2 engine (PaddleOCR + Tesseract)
                     </span>
-                    <span className="text-[11px] text-slate-400 block mt-0.5">
+                    <span className="text-[11px] text-text-muted block mt-0.5">
                       So sánh kết quả của cả 2 engine trên cùng vùng chữ để tăng độ chính xác (khuyên dùng khi nền phim bận rộn).
                     </span>
                   </div>
@@ -475,12 +475,12 @@ export default function OcrConfigModal({
           </div>
 
           {/* Footer Actions */}
-          <div className="flex items-center justify-end gap-2 border-t border-slate-800 pt-4">
+          <div className="flex items-center justify-end gap-2 border-t border-border pt-4">
             <button
               type="button"
               disabled={isSubmitting}
               onClick={onClose}
-              className="rounded-xl border border-slate-700 bg-slate-800 px-4 py-2 text-xs font-semibold text-slate-300 hover:bg-slate-700 transition cursor-pointer disabled:opacity-50"
+              className="rounded-md border border-border bg-surface-2 px-4 py-2 text-xs font-semibold text-text hover:bg-surface-3 transition cursor-pointer disabled:opacity-50"
             >
               Huỷ
             </button>
@@ -488,7 +488,7 @@ export default function OcrConfigModal({
               type="button"
               disabled={isSubmitting}
               onClick={handleSubmit}
-              className="btn-vanh-gradient inline-flex items-center gap-2 rounded-xl px-5 py-2 text-xs font-semibold cursor-pointer shadow-lg shadow-brand-indigo/20 hover:opacity-95 transition disabled:opacity-50"
+              className="bg-accent text-white hover:bg-accent-hover inline-flex items-center gap-2 rounded-md px-5 py-2 text-xs font-semibold cursor-pointer hover:opacity-95 transition disabled:opacity-50"
             >
               {isSubmitting ? (
                 <Loader2 className="h-4 w-4 animate-spin" />

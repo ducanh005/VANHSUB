@@ -469,15 +469,15 @@ export const VideoPreviewCanvas: React.FC<VideoPreviewCanvasProps> = ({
   const getMaskStyleClass = (m: CustomMaskRegion) => {
     switch (m.mode) {
       case 'gaussian':
-        return 'backdrop-blur-xl bg-slate-900/40';
+        return ' bg-surface';
       case 'glass':
-        return 'backdrop-blur-md bg-white/10 border border-white/25 shadow-inner';
+        return ' bg-white/10 border border-white/25 shadow-inner';
       case 'pixelate':
-        return 'bg-slate-950/75 backdrop-grayscale contrast-125';
+        return 'bg-bg backdrop-grayscale contrast-125';
       case 'solid':
         return '';
       default:
-        return 'backdrop-blur-md bg-slate-900/35';
+        return ' bg-surface';
     }
   };
 
@@ -493,21 +493,21 @@ export const VideoPreviewCanvas: React.FC<VideoPreviewCanvasProps> = ({
       : 'none';
 
   return (
-    <div className="flex flex-col gap-3 rounded-2xl border border-slate-800 bg-slate-950/80 p-4 shadow-xl">
-      <div className="flex items-center justify-between border-b border-slate-800/80 pb-2.5">
+    <div className="flex flex-col gap-3 rounded-lg border border-border bg-bg p-4">
+      <div className="flex items-center justify-between border-b border-border pb-2.5">
         <div className="flex items-center gap-2">
           <div className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
-          <span className="text-xs font-semibold text-slate-200">
+          <span className="text-xs font-semibold text-text">
             Xem trước Video trực tiếp (Live Preview Mini CapCut)
           </span>
         </div>
-        <span className="rounded-full border border-slate-700 bg-slate-800/90 px-2 py-0.5 text-[10px] font-mono text-brand-cyan">
+        <span className="rounded-full border border-border bg-surface-2 px-2 py-0.5 text-[10px] font-mono text-accent">
           Tỉ lệ: {aspectRatio}
         </span>
       </div>
 
       {/* Video Container with Aspect Ratio */}
-      <div className="flex items-center justify-center overflow-hidden rounded-xl bg-slate-950 p-2 relative min-h-[260px] w-full">
+      <div className="flex items-center justify-center overflow-hidden rounded-md bg-bg p-2 relative min-h-[260px] w-full">
         <div
           ref={containerRef}
           style={{
@@ -517,7 +517,7 @@ export const VideoPreviewCanvas: React.FC<VideoPreviewCanvasProps> = ({
             width: `min(100%, calc(${maxPreviewH}px * ${targetRatio}))`,
             height: 'auto',
           }}
-          className="relative overflow-hidden rounded-lg bg-black select-none mx-auto shadow-md"
+          className="relative overflow-hidden rounded-lg bg-black select-none mx-auto"
         >
           {videoSrc ? (
             <video
@@ -552,7 +552,7 @@ export const VideoPreviewCanvas: React.FC<VideoPreviewCanvasProps> = ({
               }`}
             />
           ) : (
-            <div className="flex h-full w-full items-center justify-center text-xs text-slate-500">
+            <div className="flex h-full w-full items-center justify-center text-xs text-text-muted">
               Không có video nguồn
             </div>
           )}
@@ -565,7 +565,7 @@ export const VideoPreviewCanvas: React.FC<VideoPreviewCanvasProps> = ({
               } ${
                 classicMask.mode === 'solid'
                   ? 'bg-black'
-                  : 'backdrop-blur-md bg-slate-950/70 border-y border-slate-700/50'
+                  : ' bg-bg border-y border-border'
               }`}
               style={{
                 height: `${Math.min(50, Math.max(5, classicMask.heightPercent || 22))}%`,
@@ -614,14 +614,14 @@ export const VideoPreviewCanvas: React.FC<VideoPreviewCanvasProps> = ({
                   }}
                   className={`absolute flex items-center justify-center transition-[opacity] cursor-move select-none ${
                     isSelected
-                      ? 'border-2 border-brand-cyan shadow-[0_0_12px_rgba(6,182,212,0.6)] z-20'
+                      ? 'border-2 border-accent/40 shadow-[0_0_12px_rgba(6,182,212,0.6)] z-20'
                       : 'border border-dashed border-cyan-400/60 z-10 hover:border-cyan-300'
                   } ${getMaskStyleClass(m)}`}
                   title={`${m.name || `Vùng #${idx + 1}`} (Nhấp & kéo để dời, kéo góc để đổi cỡ)`}
                 >
                   {/* Badge tên vùng */}
-                  <div className="absolute top-1 left-1 flex items-center gap-1 rounded bg-black/80 px-1.5 py-0.5 text-[9px] font-mono text-cyan-300 pointer-events-none shadow">
-                    <ShieldAlert className="h-2.5 w-2.5 text-cyan-400" />
+                  <div className="absolute top-1 left-1 flex items-center gap-1 rounded bg-black/80 px-1.5 py-0.5 text-[9px] font-mono text-accent pointer-events-none shadow">
+                    <ShieldAlert className="h-2.5 w-2.5 text-accent" />
                     <span>
                       {m.name || `#${idx + 1}`} ({m.mode})
                     </span>
@@ -779,10 +779,10 @@ export const VideoPreviewCanvas: React.FC<VideoPreviewCanvasProps> = ({
                 <img
                   src={`vanhmedia://local/${encodeURIComponent(watermark.content)}`}
                   alt="Watermark"
-                  className="max-h-12 w-auto object-contain drop-shadow-md"
+                  className="max-h-12 w-auto object-contain drop-"
                 />
               ) : (
-                <span className="font-semibold text-white drop-shadow-md text-xs px-2 py-0.5 rounded bg-black/50 border border-white/20 whitespace-nowrap">
+                <span className="font-semibold text-white drop- text-xs px-2 py-0.5 rounded bg-black/50 border border-white/20 whitespace-nowrap">
                   {watermark.content}
                 </span>
               )}
@@ -946,7 +946,7 @@ export const VideoPreviewCanvas: React.FC<VideoPreviewCanvasProps> = ({
                           }),
                     }}
                     className={`text-center break-words max-w-full ${
-                      subDragState ? 'ring-2 ring-brand-cyan/80 rounded px-1 shadow-lg' : ''
+                      subDragState ? 'ring-2 ring-accent/30 rounded px-1 ' : ''
                     }`}
                   >
                     {activeLine.text}
@@ -999,16 +999,16 @@ export const VideoPreviewCanvas: React.FC<VideoPreviewCanvasProps> = ({
             step={0.1}
             value={activeTime}
             onChange={handleSeek}
-            className="flex-1 accent-cyan-400 cursor-pointer h-1.5 rounded-lg bg-slate-800"
+            className="flex-1 accent-accent cursor-pointer h-1.5 rounded-lg bg-surface-2"
           />
         </div>
 
-        <div className="flex items-center justify-between text-xs text-slate-400">
+        <div className="flex items-center justify-between text-xs text-text-muted">
           <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={togglePlay}
-              className="flex h-7 w-7 items-center justify-center rounded-lg bg-slate-800 text-slate-200 hover:bg-slate-700 transition cursor-pointer"
+              className="flex h-7 w-7 items-center justify-center rounded-lg bg-surface-2 text-text hover:bg-surface-3 transition cursor-pointer"
             >
               {isPlaying ? (
                 <Pause className="h-3.5 w-3.5 fill-current" />
@@ -1025,7 +1025,7 @@ export const VideoPreviewCanvas: React.FC<VideoPreviewCanvasProps> = ({
                   onTimeUpdate(0);
                 }
               }}
-              className="flex h-7 w-7 items-center justify-center rounded-lg bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white transition cursor-pointer"
+              className="flex h-7 w-7 items-center justify-center rounded-lg bg-surface-2 text-text-muted hover:bg-surface-3 hover:text-white transition cursor-pointer"
               title="Về đầu video"
             >
               <RotateCcw className="h-3 w-3" />
@@ -1034,16 +1034,16 @@ export const VideoPreviewCanvas: React.FC<VideoPreviewCanvasProps> = ({
             <button
               type="button"
               onClick={() => setIsMuted(!isMuted)}
-              className="flex h-7 w-7 items-center justify-center rounded-lg bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white transition cursor-pointer"
+              className="flex h-7 w-7 items-center justify-center rounded-lg bg-surface-2 text-text-muted hover:bg-surface-3 hover:text-white transition cursor-pointer"
               title={isMuted ? 'Bật âm thanh' : 'Tắt tiếng'}
             >
               {isMuted ? <VolumeX className="h-3.5 w-3.5" /> : <Volume2 className="h-3.5 w-3.5" />}
             </button>
           </div>
 
-          <div className="font-mono text-[11px] text-slate-300">
+          <div className="font-mono text-[11px] text-text">
             <span>{formatMs(activeTime * 1000).split(',')[0]}</span>
-            <span className="text-slate-500 mx-1">/</span>
+            <span className="text-text-muted mx-1">/</span>
             <span>{formatMs(duration * 1000).split(',')[0]}</span>
           </div>
         </div>

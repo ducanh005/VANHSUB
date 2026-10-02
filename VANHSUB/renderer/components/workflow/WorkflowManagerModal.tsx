@@ -86,36 +86,36 @@ export default function WorkflowManagerModal({ isOpen, onClose }: WorkflowManage
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-150">
-      <div className="relative w-full max-w-2xl bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl flex flex-col max-h-[85vh] overflow-hidden text-slate-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 animate-in fade-in duration-150">
+      <div className="relative w-full max-w-2xl bg-surface border border-border rounded-lg flex flex-col max-h-[85vh] overflow-hidden text-text">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 shrink-0">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border shrink-0">
           <div className="flex items-center gap-2.5">
-            <div className="p-2 rounded-xl bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+            <div className="p-2 rounded-md bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
               <FolderKanban className="w-5 h-5" />
             </div>
             <div>
               <h2 className="text-base font-bold text-white">Quản Lý Workflow Đã Lưu</h2>
-              <p className="text-xs text-slate-400">Danh sách workflow và khu vực thùng rác khôi phục</p>
+              <p className="text-xs text-text-muted">Danh sách workflow và khu vực thùng rác khôi phục</p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+            className="p-1.5 rounded-lg text-text-muted hover:text-white hover:bg-surface-2 transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Tab Selector & Search */}
-        <div className="flex items-center justify-between px-6 py-3 border-b border-slate-800/80 bg-slate-950/40 gap-3">
-          <div className="flex items-center gap-1.5 p-1 bg-slate-950 rounded-xl border border-slate-800">
+        <div className="flex items-center justify-between px-6 py-3 border-b border-border bg-bg gap-3">
+          <div className="flex items-center gap-1.5 p-1 bg-bg rounded-md border border-border">
             <button
               onClick={() => setActiveTab('active')}
               className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer flex items-center gap-1.5 ${
                 activeTab === 'active'
-                  ? 'bg-indigo-600 text-white shadow-md shadow-indigo-950/50'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
+                  ? 'bg-indigo-600 text-white  '
+                  : 'text-text-muted hover:text-text hover:bg-surface'
               }`}
             >
               <Layers className="w-3.5 h-3.5" />
@@ -125,8 +125,8 @@ export default function WorkflowManagerModal({ isOpen, onClose }: WorkflowManage
               onClick={() => setActiveTab('trash')}
               className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer flex items-center gap-1.5 ${
                 activeTab === 'trash'
-                  ? 'bg-rose-600 text-white shadow-md shadow-rose-950/50'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
+                  ? 'bg-rose-600 text-white  '
+                  : 'text-text-muted hover:text-text hover:bg-surface'
               }`}
             >
               <Trash2 className="w-3.5 h-3.5" />
@@ -135,13 +135,13 @@ export default function WorkflowManagerModal({ isOpen, onClose }: WorkflowManage
           </div>
 
           <div className="relative flex-1 max-w-xs">
-            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+            <Search className="w-3.5 h-3.5 text-text-muted absolute left-2.5 top-1/2 -translate-y-1/2" />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Tìm kiếm workflow..."
-              className="w-full text-xs pl-8 pr-3 py-1.5 rounded-lg bg-slate-900 border border-slate-800 text-slate-200 focus:outline-none focus:border-indigo-500 placeholder:text-slate-500"
+              className="w-full text-xs pl-8 pr-3 py-1.5 rounded-lg bg-surface border border-border text-text focus:outline-none focus:border-indigo-500 placeholder:text-text-muted"
             />
           </div>
 
@@ -161,7 +161,7 @@ export default function WorkflowManagerModal({ isOpen, onClose }: WorkflowManage
           {activeTab === 'active' && (
             <>
               {filteredActive.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-12 text-slate-500 space-y-2">
+                <div className="flex flex-col items-center justify-center py-12 text-text-muted space-y-2">
                   <FolderKanban className="w-10 h-10 stroke-1" />
                   <p className="text-xs">
                     {searchQuery ? 'Không tìm thấy workflow phù hợp.' : 'Chưa có workflow nào được lưu.'}
@@ -173,10 +173,10 @@ export default function WorkflowManagerModal({ isOpen, onClose }: WorkflowManage
                   return (
                     <div
                       key={item.id}
-                      className={`p-3.5 rounded-xl border flex items-center justify-between gap-3 transition-colors ${
+                      className={`p-3.5 rounded-md border flex items-center justify-between gap-3 transition-colors ${
                         isCurrent
                           ? 'bg-indigo-950/20 border-indigo-800/80'
-                          : 'bg-slate-950/60 border-slate-800/80 hover:border-slate-700'
+                          : 'bg-bg border-border hover:border-border'
                       }`}
                     >
                       <div className="flex items-center gap-3 min-w-0">
@@ -184,7 +184,7 @@ export default function WorkflowManagerModal({ isOpen, onClose }: WorkflowManage
                           className={`p-2 rounded-lg shrink-0 ${
                             isCurrent
                               ? 'bg-indigo-600/20 text-indigo-400 border border-indigo-500/30'
-                              : 'bg-slate-800 text-slate-400'
+                              : 'bg-surface-2 text-text-muted'
                           }`}
                         >
                           <Layers className="w-4 h-4" />
@@ -198,11 +198,11 @@ export default function WorkflowManagerModal({ isOpen, onClose }: WorkflowManage
                               </span>
                             )}
                           </div>
-                          <div className="flex items-center gap-3 text-[11px] text-slate-400 mt-0.5">
+                          <div className="flex items-center gap-3 text-[11px] text-text-muted mt-0.5">
                             <span>{item.nodesCount || item.graph?.nodes?.length || 0} nodes</span>
                             <span>•</span>
                             <span className="flex items-center gap-1">
-                              <Clock className="w-3 h-3 text-slate-500" />
+                              <Clock className="w-3 h-3 text-text-muted" />
                               {new Date(item.updatedAt).toLocaleDateString('vi-VN')} {new Date(item.updatedAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}
                             </span>
                           </div>
@@ -212,7 +212,7 @@ export default function WorkflowManagerModal({ isOpen, onClose }: WorkflowManage
                       <div className="flex items-center gap-2 shrink-0">
                         <button
                           onClick={() => handleOpenWorkflow(item.id)}
-                          className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-sm transition-colors cursor-pointer"
+                          className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition-colors cursor-pointer"
                         >
                           <ExternalLink className="w-3.5 h-3.5" />
                           <span>Mở</span>
@@ -220,7 +220,7 @@ export default function WorkflowManagerModal({ isOpen, onClose }: WorkflowManage
 
                         <button
                           onClick={() => setConfirmDeleteId(item.id)}
-                          className="p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-rose-950/40 border border-transparent hover:border-rose-900/50 transition-colors cursor-pointer"
+                          className="p-1.5 rounded-lg text-text-muted hover:text-rose-400 hover:bg-rose-950/40 border border-transparent hover:border-rose-900/50 transition-colors cursor-pointer"
                           title="Xoá workflow vào Thùng rác"
                         >
                           <Trash2 className="w-4 h-4" />
@@ -236,7 +236,7 @@ export default function WorkflowManagerModal({ isOpen, onClose }: WorkflowManage
           {activeTab === 'trash' && (
             <>
               {filteredTrash.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-12 text-slate-500 space-y-2">
+                <div className="flex flex-col items-center justify-center py-12 text-text-muted space-y-2">
                   <Trash2 className="w-10 h-10 stroke-1" />
                   <p className="text-xs">
                     {searchQuery ? 'Không tìm thấy workflow trong thùng rác.' : 'Thùng rác trống.'}
@@ -248,7 +248,7 @@ export default function WorkflowManagerModal({ isOpen, onClose }: WorkflowManage
                   return (
                     <div
                       key={item.id}
-                      className="p-3.5 rounded-xl border border-rose-900/40 bg-rose-950/10 flex items-center justify-between gap-3"
+                      className="p-3.5 rounded-md border border-rose-900/40 bg-rose-950/10 flex items-center justify-between gap-3"
                     >
                       <div className="flex items-center gap-3 min-w-0">
                         <div className="p-2 rounded-lg bg-rose-900/20 text-rose-400 border border-rose-800/30 shrink-0">
@@ -256,14 +256,14 @@ export default function WorkflowManagerModal({ isOpen, onClose }: WorkflowManage
                         </div>
                         <div className="min-w-0">
                           <div className="flex items-center gap-2">
-                            <span className="text-sm font-semibold text-slate-200 line-through truncate opacity-80">
+                            <span className="text-sm font-semibold text-text line-through truncate opacity-80">
                               {item.name}
                             </span>
                             <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 border border-amber-500/40 text-amber-300 font-medium shrink-0">
                               Còn {daysLeft} ngày
                             </span>
                           </div>
-                          <div className="flex items-center gap-3 text-[11px] text-slate-400 mt-0.5">
+                          <div className="flex items-center gap-3 text-[11px] text-text-muted mt-0.5">
                             <span>Đã xoá: {item.deletedAt ? new Date(item.deletedAt).toLocaleDateString('vi-VN') : 'Gần đây'}</span>
                             <span>•</span>
                             <span>{item.nodesCount || item.graph?.nodes?.length || 0} nodes</span>
@@ -301,11 +301,11 @@ export default function WorkflowManagerModal({ isOpen, onClose }: WorkflowManage
         </div>
 
         {/* Footer Note */}
-        <div className="px-6 py-3 border-t border-slate-800 text-[11px] text-slate-500 bg-slate-950 flex items-center justify-between shrink-0">
+        <div className="px-6 py-3 border-t border-border text-[11px] text-text-muted bg-bg flex items-center justify-between shrink-0">
           <span>Workflow trong Thùng rác sẽ tự động dọn dẹp sau 30 ngày.</span>
           <button
             onClick={onClose}
-            className="px-3 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs transition-colors cursor-pointer"
+            className="px-3 py-1 rounded-lg bg-surface-2 hover:bg-surface-3 text-text text-xs transition-colors cursor-pointer"
           >
             Đóng
           </button>
@@ -314,29 +314,29 @@ export default function WorkflowManagerModal({ isOpen, onClose }: WorkflowManage
 
       {/* Confirmation Dialog: Soft Delete */}
       {confirmDeleteId && (
-        <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-100">
-          <div className="max-w-md w-full p-5 rounded-2xl bg-slate-900 border border-slate-800 shadow-2xl space-y-4">
+        <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-black/80 animate-in fade-in duration-100">
+          <div className="max-w-md w-full p-5 rounded-lg bg-surface border border-border space-y-4">
             <div className="flex items-start gap-3">
-              <div className="p-2 rounded-xl bg-amber-500/10 text-amber-400 border border-amber-500/20 shrink-0">
+              <div className="p-2 rounded-md bg-amber-500/10 text-amber-400 border border-amber-500/20 shrink-0">
                 <AlertTriangle className="w-5 h-5" />
               </div>
               <div>
                 <h3 className="text-sm font-bold text-white">Xác nhận chuyển vào Thùng rác?</h3>
-                <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+                <p className="text-xs text-text-muted mt-1 leading-relaxed">
                   Workflow này sẽ được chuyển vào Thùng rác và được lưu giữ trong vòng <b>30 ngày</b>. Bạn có thể khôi phục lại bất kỳ lúc nào trước khi hết hạn.
                 </p>
               </div>
             </div>
-            <div className="flex justify-end gap-2 pt-2 border-t border-slate-800">
+            <div className="flex justify-end gap-2 pt-2 border-t border-border">
               <button
                 onClick={() => setConfirmDeleteId(null)}
-                className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold transition-colors cursor-pointer"
+                className="px-3 py-1.5 rounded-lg bg-surface-2 hover:bg-surface-3 text-text text-xs font-semibold transition-colors cursor-pointer"
               >
                 Hủy
               </button>
               <button
                 onClick={handleConfirmSoftDelete}
-                className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold shadow-md shadow-rose-950/50 transition-colors cursor-pointer"
+                className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold transition-colors cursor-pointer"
               >
                 Chuyển vào Thùng rác
               </button>
@@ -347,10 +347,10 @@ export default function WorkflowManagerModal({ isOpen, onClose }: WorkflowManage
 
       {/* Confirmation Dialog: Permanent Delete */}
       {confirmPermanentId && (
-        <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-100">
-          <div className="max-w-md w-full p-5 rounded-2xl bg-slate-900 border border-rose-900/60 shadow-2xl space-y-4">
+        <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-black/80 animate-in fade-in duration-100">
+          <div className="max-w-md w-full p-5 rounded-lg bg-surface border border-rose-900/60 space-y-4">
             <div className="flex items-start gap-3">
-              <div className="p-2 rounded-xl bg-rose-500/10 text-rose-400 border border-rose-500/20 shrink-0">
+              <div className="p-2 rounded-md bg-rose-500/10 text-rose-400 border border-rose-500/20 shrink-0">
                 <AlertTriangle className="w-5 h-5" />
               </div>
               <div>
@@ -360,16 +360,16 @@ export default function WorkflowManagerModal({ isOpen, onClose }: WorkflowManage
                 </p>
               </div>
             </div>
-            <div className="flex justify-end gap-2 pt-2 border-t border-slate-800">
+            <div className="flex justify-end gap-2 pt-2 border-t border-border">
               <button
                 onClick={() => setConfirmPermanentId(null)}
-                className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold transition-colors cursor-pointer"
+                className="px-3 py-1.5 rounded-lg bg-surface-2 hover:bg-surface-3 text-text text-xs font-semibold transition-colors cursor-pointer"
               >
                 Hủy
               </button>
               <button
                 onClick={handleConfirmPermanentDelete}
-                className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold shadow-md shadow-rose-950/50 transition-colors cursor-pointer"
+                className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold transition-colors cursor-pointer"
               >
                 Xoá vĩnh viễn
               </button>
@@ -380,10 +380,10 @@ export default function WorkflowManagerModal({ isOpen, onClose }: WorkflowManage
 
       {/* Confirmation Dialog: Empty Trash */}
       {showEmptyTrashConfirm && (
-        <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-100">
-          <div className="max-w-md w-full p-5 rounded-2xl bg-slate-900 border border-rose-900/60 shadow-2xl space-y-4">
+        <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-black/80 animate-in fade-in duration-100">
+          <div className="max-w-md w-full p-5 rounded-lg bg-surface border border-rose-900/60 space-y-4">
             <div className="flex items-start gap-3">
-              <div className="p-2 rounded-xl bg-rose-500/10 text-rose-400 border border-rose-500/20 shrink-0">
+              <div className="p-2 rounded-md bg-rose-500/10 text-rose-400 border border-rose-500/20 shrink-0">
                 <AlertTriangle className="w-5 h-5" />
               </div>
               <div>
@@ -393,16 +393,16 @@ export default function WorkflowManagerModal({ isOpen, onClose }: WorkflowManage
                 </p>
               </div>
             </div>
-            <div className="flex justify-end gap-2 pt-2 border-t border-slate-800">
+            <div className="flex justify-end gap-2 pt-2 border-t border-border">
               <button
                 onClick={() => setShowEmptyTrashConfirm(false)}
-                className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold transition-colors cursor-pointer"
+                className="px-3 py-1.5 rounded-lg bg-surface-2 hover:bg-surface-3 text-text text-xs font-semibold transition-colors cursor-pointer"
               >
                 Hủy
               </button>
               <button
                 onClick={handleConfirmEmptyTrash}
-                className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold shadow-md shadow-rose-950/50 transition-colors cursor-pointer"
+                className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold transition-colors cursor-pointer"
               >
                 Dọn sạch ngay
               </button>

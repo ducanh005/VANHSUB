@@ -94,10 +94,10 @@ const POSITION_PRESETS: Array<{
   marginH: number;
   isVertical: boolean;
 }> = [
-  { name: '⬇️ Đáy chuẩn', alignment: 2, marginV: 25, marginH: 20, isVertical: false },
-  { name: '⬅️ Nhạc dọc mép trái', alignment: 4, marginV: 25, marginH: 35, isVertical: true },
-  { name: '➡️ Nhạc dọc mép phải', alignment: 6, marginV: 25, marginH: 35, isVertical: true },
-  { name: '⬆️ Đỉnh giữa', alignment: 8, marginV: 30, marginH: 20, isVertical: false },
+  { name: 'Đáy chuẩn', alignment: 2, marginV: 25, marginH: 20, isVertical: false },
+  { name: 'Nhạc dọc mép trái', alignment: 4, marginV: 25, marginH: 35, isVertical: true },
+  { name: 'Nhạc dọc mép phải', alignment: 6, marginV: 25, marginH: 35, isVertical: true },
+  { name: 'Đỉnh giữa', alignment: 8, marginV: 30, marginH: 20, isVertical: false },
   { name: '⏺ Chính giữa tâm', alignment: 5, marginV: 25, marginH: 20, isVertical: false },
 ];
 
@@ -483,9 +483,9 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
   return (
     <div className="flex flex-1 flex-col gap-4 overflow-hidden p-6">
       {/* Thanh công cụ */}
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-800 bg-slate-900/80 p-4">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-surface p-4">
         <div className="flex flex-wrap items-center gap-3">
-          <label className="text-xs font-semibold text-slate-300">Tác vụ:</label>
+          <label className="text-xs font-semibold text-text">Tác vụ:</label>
           <select
             value={selectedTaskId || ''}
             onChange={(e) => {
@@ -493,7 +493,7 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
               setMessage('');
               setIsError(false);
             }}
-            className="rounded-xl border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs text-slate-200 focus:outline-none"
+            className="rounded-md border border-border bg-surface-2 px-3 py-1.5 text-xs text-text focus:outline-none"
           >
             <option value="">-- Chọn tác vụ --</option>
             {editorTasks.map((t) => (
@@ -504,7 +504,7 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
           </select>
 
           {message && (
-            <span className={`max-w-[380px] truncate text-xs font-mono ${isError ? 'text-rose-400' : 'text-brand-cyan'}`} title={message}>
+            <span className={`max-w-[380px] truncate text-xs font-mono ${isError ? 'text-rose-400' : 'text-accent'}`} title={message}>
               {message}
             </span>
           )}
@@ -513,8 +513,8 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
 
       {/* Nội dung chính */}
       {!selectedTask ? (
-        <div className="flex flex-1 flex-col items-center justify-center rounded-3xl border border-dashed border-slate-800 bg-slate-900/40 p-12 text-center text-slate-500 text-xs">
-          <Layers className="h-10 w-10 text-slate-600 mb-3 animate-pulse" />
+        <div className="flex flex-1 flex-col items-center justify-center rounded-lg border border-dashed border-border bg-surface p-12 text-center text-text-muted text-xs">
+          <Layers className="h-10 w-10 text-text-faint mb-3 animate-pulse" />
           <span>Chọn một tác vụ đã có phụ đề để xuất video (Hardsub, Softsub, Lồng tiếng hoặc Tách nhạc nền).</span>
         </div>
       ) : (
@@ -530,29 +530,29 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
                   onClick={() => setMode(m.id)}
                   disabled={isExporting}
                   className={[
-                    'flex flex-col gap-2 rounded-2xl border p-4 text-left transition',
+                    'flex flex-col gap-2 rounded-lg border p-4 text-left transition',
                     active
-                      ? 'border-brand-cyan/70 bg-brand-cyan/10 ring-1 ring-brand-cyan/40'
-                      : 'border-slate-800 bg-slate-900/70 hover:border-brand-indigo/50',
+                      ? 'border-accent/40 bg-accent-tint ring-1 ring-accent/30'
+                      : 'border-border bg-surface hover:border-accent/40',
                     isExporting ? 'cursor-not-allowed opacity-60' : 'cursor-pointer',
                   ].join(' ')}
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2 text-sm font-semibold text-white">
                       {m.id === 'dub' ? (
-                        <Mic className={`h-4 w-4 ${active ? 'text-brand-cyan' : 'text-slate-400'}`} />
+                        <Mic className={`h-4 w-4 ${active ? 'text-accent' : 'text-text-muted'}`} />
                       ) : m.id === 'stems' ? (
-                        <AudioLines className={`h-4 w-4 ${active ? 'text-brand-cyan' : 'text-slate-400'}`} />
+                        <AudioLines className={`h-4 w-4 ${active ? 'text-accent' : 'text-text-muted'}`} />
                       ) : (
-                        <Film className={`h-4 w-4 ${active ? 'text-brand-cyan' : 'text-slate-400'}`} />
+                        <Film className={`h-4 w-4 ${active ? 'text-accent' : 'text-text-muted'}`} />
                       )}
                       {m.title}
                     </div>
-                    <span className="rounded-full border border-slate-700/80 bg-slate-800/80 px-2 py-0.5 text-[10px] font-medium text-slate-300">
+                    <span className="rounded-full border border-border bg-surface-2 px-2 py-0.5 text-[10px] font-medium text-text">
                       {m.tag}
                     </span>
                   </div>
-                  <p className="text-xs leading-relaxed text-slate-400">{m.description}</p>
+                  <p className="text-xs leading-relaxed text-text-muted">{m.description}</p>
                 </button>
               );
             })}
@@ -590,14 +590,14 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
               )}
 
               {/* Tab navigation */}
-              <div className="flex flex-wrap border-b border-slate-800 bg-slate-900/50 p-1.5 rounded-xl gap-2">
+              <div className="flex flex-wrap border-b border-border bg-surface p-1.5 rounded-md gap-2">
                 <button
                   type="button"
                   onClick={() => setHardsubTab('global')}
                   className={`flex items-center gap-2 rounded-lg px-3.5 py-2 text-xs font-medium transition cursor-pointer ${
                     hardsubTab === 'global'
-                      ? 'bg-brand-cyan/20 text-brand-cyan shadow-sm ring-1 ring-brand-cyan/40'
-                      : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+                      ? 'bg-accent-tint text-accent  ring-1 ring-accent/30'
+                      : 'text-text-muted hover:text-white hover:bg-surface-2'
                   }`}
                 >
                   <Sliders className="h-4 w-4" />
@@ -608,14 +608,14 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
                   onClick={() => setHardsubTab('lines')}
                   className={`flex items-center gap-2 rounded-lg px-3.5 py-2 text-xs font-medium transition cursor-pointer ${
                     hardsubTab === 'lines'
-                      ? 'bg-brand-cyan/20 text-brand-cyan shadow-sm ring-1 ring-brand-cyan/40'
-                      : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+                      ? 'bg-accent-tint text-accent  ring-1 ring-accent/30'
+                      : 'text-text-muted hover:text-white hover:bg-surface-2'
                   }`}
                 >
                   <Palette className="h-4 w-4" />
                   <span>2. Style từng câu thoại</span>
                   {Object.keys(perLineStyles).length > 0 && (
-                    <span className="rounded-full bg-brand-cyan/30 px-1.5 py-0.5 text-[10px] text-brand-cyan">
+                    <span className="rounded-full bg-accent/30 px-1.5 py-0.5 text-[10px] text-accent">
                       {Object.keys(perLineStyles).length}
                     </span>
                   )}
@@ -625,14 +625,14 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
                   onClick={() => setHardsubTab('layers')}
                   className={`flex items-center gap-2 rounded-lg px-3.5 py-2 text-xs font-medium transition cursor-pointer ${
                     hardsubTab === 'layers'
-                      ? 'bg-brand-cyan/20 text-brand-cyan shadow-sm ring-1 ring-brand-cyan/40'
-                      : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+                      ? 'bg-accent-tint text-accent  ring-1 ring-accent/30'
+                      : 'text-text-muted hover:text-white hover:bg-surface-2'
                   }`}
                 >
                   <ShieldAlert className="h-4 w-4" />
                   <span>3. Che mờ & Watermark</span>
                   {(customMaskEnabled || watermarkEnabled || maskEnabled) && (
-                    <span className="h-2 w-2 rounded-full bg-brand-cyan" />
+                    <span className="h-2 w-2 rounded-full bg-accent" />
                   )}
                 </button>
                 <button
@@ -640,8 +640,8 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
                   onClick={() => setHardsubTab('format')}
                   className={`flex items-center gap-2 rounded-lg px-3.5 py-2 text-xs font-medium transition cursor-pointer ${
                     hardsubTab === 'format'
-                      ? 'bg-brand-cyan/20 text-brand-cyan shadow-sm ring-1 ring-brand-cyan/40'
-                      : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+                      ? 'bg-accent-tint text-accent  ring-1 ring-accent/30'
+                      : 'text-text-muted hover:text-white hover:bg-surface-2'
                   }`}
                 >
                   <Film className="h-4 w-4" />
@@ -649,7 +649,7 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
                   {((formatOptions.aspectRatio && formatOptions.aspectRatio !== 'original') ||
                     formatOptions.mirrorHorizontal ||
                     (typeof formatOptions.speed === 'number' && formatOptions.speed !== 1.0)) && (
-                    <span className="rounded-full bg-brand-cyan/30 px-1.5 py-0.5 text-[10px] text-brand-cyan">
+                    <span className="rounded-full bg-accent/30 px-1.5 py-0.5 text-[10px] text-accent">
                       {formatOptions.aspectRatio !== 'original' ? formatOptions.aspectRatio : ''}
                       {formatOptions.mirrorHorizontal ? (formatOptions.aspectRatio !== 'original' ? ' • Lật gương' : 'Lật gương') : ''}
                       {formatOptions.speed && formatOptions.speed !== 1.0 ? ` • ${formatOptions.speed}x` : ''}
@@ -660,17 +660,17 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
 
               {/* 1. Style phụ đề chung & Bố cục vị trí */}
               {hardsubTab === 'global' && (
-                <div className="flex flex-col gap-4 rounded-2xl border border-slate-800 bg-slate-900/70 p-4">
+                <div className="flex flex-col gap-4 rounded-lg border border-border bg-surface p-4">
                   {/* Milestone 3: Viral Kinetic Typography Presets */}
-                  <div className="flex flex-col gap-3 rounded-xl border border-cyan-500/30 bg-gradient-to-br from-cyan-950/20 via-slate-950/40 to-slate-900/60 p-3.5 shadow-sm">
+                  <div className="flex flex-col gap-3 rounded-md border border-accent/40 bg-surface-2 p-3.5">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
-                        <Sparkles className="h-4 w-4 text-cyan-400" />
+                        <Sparkles className="h-4 w-4 text-accent" />
                         <span className="text-xs font-bold text-white tracking-wide">
                           Bộ Tạo Phụ Đề Động Kinetic & Shorts (Kinetic Presets):
                         </span>
                       </div>
-                      <span className="rounded-full bg-cyan-500/10 px-2 py-0.5 text-[10px] font-semibold text-cyan-300 border border-cyan-500/30">
+                      <span className="rounded-full bg-accent/10 px-2 py-0.5 text-[10px] font-semibold text-accent border border-accent/40">
                         TikTok / Reels / Shorts Viral
                       </span>
                     </div>
@@ -680,17 +680,17 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
                       <button
                         type="button"
                         onClick={() => setKineticConfig((c) => ({ ...c, preset: 'none' }))}
-                        className={`flex flex-col gap-1 rounded-xl border p-3 text-left transition cursor-pointer ${
+                        className={`flex flex-col gap-1 rounded-md border p-3 text-left transition cursor-pointer ${
                           kineticConfig.preset === 'none'
-                            ? 'border-brand-cyan/80 bg-brand-cyan/15 ring-1 ring-brand-cyan/50 text-white'
-                            : 'border-slate-800 bg-slate-900/80 text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                            ? 'border-accent/40 bg-accent/15 ring-1 ring-accent/30 text-white'
+                            : 'border-border bg-surface text-text-muted hover:bg-surface-2 hover:text-text'
                         }`}
                       >
-                        <div className="flex items-center gap-1.5 font-semibold text-xs text-slate-200">
-                          <span>📄</span>
+                        <div className="flex items-center gap-1.5 font-semibold text-xs text-text">
+                          
                           <span>Cổ điển (Tĩnh)</span>
                         </div>
-                        <span className="text-[10px] text-slate-400 leading-tight">
+                        <span className="text-[10px] text-text-muted leading-tight">
                           Phụ đề tiêu chuẩn không hiệu ứng động, hiển thị đồng nhất.
                         </span>
                       </button>
@@ -705,17 +705,17 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
                             activeColor: c.activeColor || '#FFE500',
                           }))
                         }
-                        className={`flex flex-col gap-1 rounded-xl border p-3 text-left transition cursor-pointer ${
+                        className={`flex flex-col gap-1 rounded-md border p-3 text-left transition cursor-pointer ${
                           kineticConfig.preset === 'hormozi'
                             ? 'border-amber-400/80 bg-amber-500/15 ring-1 ring-amber-400/50 text-white'
-                            : 'border-slate-800 bg-slate-900/80 text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                            : 'border-border bg-surface text-text-muted hover:bg-surface-2 hover:text-text'
                         }`}
                       >
                         <div className="flex items-center gap-1.5 font-semibold text-xs text-amber-300">
-                          <span>⚡</span>
+                          
                           <span>Hormozi Highlight</span>
                         </div>
-                        <span className="text-[10px] text-slate-400 leading-tight">
+                        <span className="text-[10px] text-text-muted leading-tight">
                           Highlight từ khóa đổi màu vàng/xanh neon phát sáng theo nhịp nói (\k & \t).
                         </span>
                       </button>
@@ -730,17 +730,17 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
                             activeColor: c.activeColor || '#00FF66',
                           }))
                         }
-                        className={`flex flex-col gap-1 rounded-xl border p-3 text-left transition cursor-pointer ${
+                        className={`flex flex-col gap-1 rounded-md border p-3 text-left transition cursor-pointer ${
                           kineticConfig.preset === 'mrbeast'
                             ? 'border-emerald-400/80 bg-emerald-500/15 ring-1 ring-emerald-400/50 text-white'
-                            : 'border-slate-800 bg-slate-900/80 text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                            : 'border-border bg-surface text-text-muted hover:bg-surface-2 hover:text-text'
                         }`}
                       >
                         <div className="flex items-center gap-1.5 font-semibold text-xs text-emerald-300">
-                          <span>💥</span>
+                          
                           <span>MrBeast Pop-in</span>
                         </div>
-                        <span className="text-[10px] text-slate-400 leading-tight">
+                        <span className="text-[10px] text-text-muted leading-tight">
                           Chữ nảy tung bùng nổ (\fscx bounce), tự nhận diện từ khóa chèn emoji (💰🔥😱).
                         </span>
                       </button>
@@ -755,17 +755,17 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
                             activeColor: c.activeColor || '#00F5FF',
                           }))
                         }
-                        className={`flex flex-col gap-1 rounded-xl border p-3 text-left transition cursor-pointer ${
+                        className={`flex flex-col gap-1 rounded-md border p-3 text-left transition cursor-pointer ${
                           kineticConfig.preset === 'minimalist_glow'
-                            ? 'border-cyan-400/80 bg-cyan-500/15 ring-1 ring-cyan-400/50 text-white'
-                            : 'border-slate-800 bg-slate-900/80 text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                            ? 'border-cyan-400/80 bg-accent/15 ring-1 ring-cyan-400/50 text-white'
+                            : 'border-border bg-surface text-text-muted hover:bg-surface-2 hover:text-text'
                         }`}
                       >
-                        <div className="flex items-center gap-1.5 font-semibold text-xs text-cyan-300">
-                          <span>✨</span>
+                        <div className="flex items-center gap-1.5 font-semibold text-xs text-accent">
+                          
                           <span>Minimalist Glow</span>
                         </div>
-                        <span className="text-[10px] text-slate-400 leading-tight">
+                        <span className="text-[10px] text-text-muted leading-tight">
                           Viền hào quang tán xạ dịu (\blur4), thanh tiến trình đọc chạy dưới chân (\p1).
                         </span>
                       </button>
@@ -773,10 +773,10 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
 
                     {/* Tùy chỉnh chi tiết cho từng Preset Kinetic */}
                     {kineticConfig.preset !== 'none' && (
-                      <div className="flex flex-wrap items-center gap-4 pt-2.5 border-t border-slate-800/80 text-xs">
+                      <div className="flex flex-wrap items-center gap-4 pt-2.5 border-t border-border text-xs">
                         {kineticConfig.preset === 'hormozi' && (
                           <div className="flex flex-wrap items-center gap-3">
-                            <span className="text-slate-300 font-medium">Màu Highlight Karaoke:</span>
+                            <span className="text-text font-medium">Màu Highlight Karaoke:</span>
                             <div className="flex items-center gap-2">
                               {['#FFE500', '#00FF66', '#00E5FF', '#FF3366', '#FF9900'].map((color) => (
                                 <button
@@ -784,7 +784,7 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
                                   type="button"
                                   onClick={() => setKineticConfig((c) => ({ ...c, activeColor: color }))}
                                   className={`h-6 w-6 rounded-full border-2 transition ${
-                                    kineticConfig.activeColor === color ? 'border-white scale-110 shadow-md' : 'border-transparent opacity-80 hover:opacity-100'
+                                    kineticConfig.activeColor === color ? 'border-white scale-110 ' : 'border-transparent opacity-80 hover:opacity-100'
                                   }`}
                                   style={{ backgroundColor: color }}
                                   title={color}
@@ -794,11 +794,11 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
                                 type="color"
                                 value={kineticConfig.activeColor || '#FFE500'}
                                 onChange={(e) => setKineticConfig((c) => ({ ...c, activeColor: e.target.value }))}
-                                className="h-6 w-8 cursor-pointer rounded border border-slate-700 bg-slate-800"
+                                className="h-6 w-8 cursor-pointer rounded border border-border bg-surface-2"
                                 title="Màu tùy chọn"
                               />
                             </div>
-                            <span className="text-[11px] text-slate-400">
+                            <span className="text-[11px] text-text-muted">
                               (Chữ to, in hoa toàn bộ, viền đen dày, từ khóa phát sáng theo âm thanh)
                             </span>
                           </div>
@@ -806,23 +806,23 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
 
                         {kineticConfig.preset === 'mrbeast' && (
                           <div className="flex flex-wrap items-center gap-4">
-                            <label className="flex items-center gap-2 text-slate-300 cursor-pointer">
+                            <label className="flex items-center gap-2 text-text cursor-pointer">
                               <input
                                 type="checkbox"
                                 checked={kineticConfig.enableEmoji !== false}
                                 onChange={(e) => setKineticConfig((c) => ({ ...c, enableEmoji: e.target.checked }))}
-                                className="h-4 w-4 rounded border-slate-700 bg-slate-800 text-cyan-400 focus:ring-0 cursor-pointer"
+                                className="h-4 w-4 rounded border-border bg-surface-2 text-accent focus:ring-0 cursor-pointer"
                               />
                               <span>Tự động nhận diện cảm xúc & chèn Emoji (💰, 🔥, 😱, ⚠️...)</span>
                             </label>
 
                             {kineticConfig.enableEmoji !== false && (
                               <div className="flex items-center gap-2">
-                                <span className="text-slate-400">Mật độ:</span>
+                                <span className="text-text-muted">Mật độ:</span>
                                 <select
                                   value={kineticConfig.emojiFrequency || 'medium'}
                                   onChange={(e) => setKineticConfig((c) => ({ ...c, emojiFrequency: e.target.value as any }))}
-                                  className="rounded-lg border border-slate-700 bg-slate-800 px-2 py-1 text-slate-200 text-xs focus:outline-none"
+                                  className="rounded-lg border border-border bg-surface-2 px-2 py-1 text-text text-xs focus:outline-none"
                                 >
                                   <option value="high">Dày đặc (Mọi câu khớp từ khóa)</option>
                                   <option value="medium">Vừa phải (Cách 2 câu / 4s)</option>
@@ -832,12 +832,12 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
                             )}
 
                             <div className="flex items-center gap-2">
-                              <span className="text-slate-400">Màu từ khóa:</span>
+                              <span className="text-text-muted">Màu từ khóa:</span>
                               <input
                                 type="color"
                                 value={kineticConfig.activeColor || '#00FF66'}
                                 onChange={(e) => setKineticConfig((c) => ({ ...c, activeColor: e.target.value }))}
-                                className="h-6 w-8 cursor-pointer rounded border border-slate-700 bg-slate-800"
+                                className="h-6 w-8 cursor-pointer rounded border border-border bg-surface-2"
                               />
                             </div>
                           </div>
@@ -845,36 +845,36 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
 
                         {kineticConfig.preset === 'minimalist_glow' && (
                           <div className="flex flex-wrap items-center gap-4">
-                            <label className="flex items-center gap-2 text-slate-300 cursor-pointer">
+                            <label className="flex items-center gap-2 text-text cursor-pointer">
                               <input
                                 type="checkbox"
                                 checked={kineticConfig.enableProgressBar !== false}
                                 onChange={(e) => setKineticConfig((c) => ({ ...c, enableProgressBar: e.target.checked }))}
-                                className="h-4 w-4 rounded border-slate-700 bg-slate-800 text-cyan-400 focus:ring-0 cursor-pointer"
+                                className="h-4 w-4 rounded border-border bg-surface-2 text-accent focus:ring-0 cursor-pointer"
                               />
                               <span>Thanh tiến trình đọc dưới chân chữ (Vector Progress Bar \p1)</span>
                             </label>
 
                             <div className="flex items-center gap-2">
-                              <span className="text-slate-400">Độ mờ hào quang:</span>
+                              <span className="text-text-muted">Độ mờ hào quang:</span>
                               <input
                                 type="range"
                                 min={1}
                                 max={8}
                                 value={kineticConfig.glowBlur || 4}
                                 onChange={(e) => setKineticConfig((c) => ({ ...c, glowBlur: Number(e.target.value) }))}
-                                className="w-24 accent-cyan-400 cursor-pointer"
+                                className="w-24 accent-accent cursor-pointer"
                               />
-                              <span className="font-mono text-cyan-300 text-xs">{kineticConfig.glowBlur || 4}px</span>
+                              <span className="font-mono text-accent text-xs">{kineticConfig.glowBlur || 4}px</span>
                             </div>
 
                             <div className="flex items-center gap-2">
-                              <span className="text-slate-400">Màu phát sáng:</span>
+                              <span className="text-text-muted">Màu phát sáng:</span>
                               <input
                                 type="color"
                                 value={kineticConfig.activeColor || '#00F5FF'}
                                 onChange={(e) => setKineticConfig((c) => ({ ...c, activeColor: e.target.value }))}
-                                className="h-6 w-8 cursor-pointer rounded border border-slate-700 bg-slate-800"
+                                className="h-6 w-8 cursor-pointer rounded border border-border bg-surface-2"
                               />
                             </div>
                           </div>
@@ -883,16 +883,16 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
                     )}
                   </div>
                   {/* Preset Vị trí & Bố cục */}
-                  <div className="flex flex-col gap-2 rounded-xl border border-slate-800/90 bg-slate-950/60 p-3">
+                  <div className="flex flex-col gap-2 rounded-md border border-border bg-bg p-3">
                     <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-200">
+                      <div className="flex items-center gap-1.5 text-xs font-semibold text-text">
                         <Sparkles className="h-3.5 w-3.5 text-amber-400" />
                         <span>Mẫu vị trí nhanh (1-Click Presets):</span>
                       </div>
                       {style.posPercent && (
                         <div className="flex items-center gap-2">
-                          <span className="rounded bg-brand-cyan/10 px-2 py-0.5 text-[10px] font-mono text-brand-cyan border border-brand-cyan/30">
-                            📍 Đang dùng tọa độ tự do Canvas (X: {style.posPercent.x}%, Y: {style.posPercent.y}%)
+                          <span className="rounded bg-accent-tint px-2 py-0.5 text-[10px] font-mono text-accent border border-accent/40">
+                            Đang dùng tọa độ tự do Canvas (X: {style.posPercent.x}%, Y: {style.posPercent.y}%)
                           </span>
                           <button
                             type="button"
@@ -921,12 +921,12 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
                             }))
                           }
                           disabled={isExporting}
-                          className={`rounded-xl border px-3 py-1.5 text-xs font-medium transition cursor-pointer disabled:opacity-50 ${
+                          className={`rounded-md border px-3 py-1.5 text-xs font-medium transition cursor-pointer disabled:opacity-50 ${
                             !style.posPercent &&
                             style.alignment === p.alignment &&
                             style.isVertical === p.isVertical
-                              ? 'border-brand-cyan/60 bg-brand-cyan/15 text-brand-cyan font-semibold shadow-sm'
-                              : 'border-slate-800 bg-slate-900/90 text-slate-300 hover:bg-slate-800 hover:text-white'
+                              ? 'border-accent/40 bg-accent/15 text-accent font-semibold '
+                              : 'border-border bg-surface text-text hover:bg-surface-2 hover:text-white'
                           }`}
                         >
                           {p.name}
@@ -936,14 +936,14 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
                   </div>
 
                   {/* Lưới 9 Vị trí & Căn lề */}
-                  <div className="grid gap-4 lg:grid-cols-12 rounded-xl border border-slate-800 bg-slate-950/40 p-3.5">
+                  <div className="grid gap-4 lg:grid-cols-12 rounded-md border border-border bg-bg p-3.5">
                     {/* Lưới 3x3 căn lề Numpad */}
                     <div className="flex flex-col gap-2 lg:col-span-5">
                       <div className="flex items-center justify-between">
-                        <span className="text-xs font-semibold text-slate-300">
+                        <span className="text-xs font-semibold text-text">
                           Bộ chọn vị trí 9 điểm:
                         </span>
-                        <span className="font-mono text-brand-cyan text-[11px]">
+                        <span className="font-mono text-accent text-[11px]">
                           {style.alignment === 7 ? 'Đỉnh trái' :
                            style.alignment === 8 ? 'Đỉnh giữa' :
                            style.alignment === 9 ? 'Đỉnh phải' :
@@ -956,7 +956,7 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
                       </div>
 
                       <div className="flex items-center gap-3">
-                        <div className="grid grid-cols-3 gap-1 rounded-xl border border-slate-700 bg-slate-900 p-2 shrink-0">
+                        <div className="grid grid-cols-3 gap-1 rounded-md border border-border bg-surface p-2 shrink-0">
                           {[
                             { id: 7, label: '↖', title: 'Đỉnh - Trái' },
                             { id: 8, label: '⬆', title: 'Đỉnh - Giữa' },
@@ -982,8 +982,8 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
                                 }
                                 className={`flex h-8 w-8 items-center justify-center rounded-lg text-sm font-mono transition cursor-pointer ${
                                   isCurrent
-                                    ? 'bg-brand-cyan text-black font-bold shadow-md shadow-brand-cyan/40'
-                                    : 'bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-white'
+                                    ? 'bg-accent text-black font-bold  '
+                                    : 'bg-surface-2 text-text hover:bg-surface-3 hover:text-white'
                                 }`}
                                 title={btn.title}
                               >
@@ -998,35 +998,35 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
                           <button
                             type="button"
                             onClick={() => setStyle((s) => ({ ...s, isVertical: !s.isVertical }))}
-                            className={`flex flex-col items-start gap-1 rounded-xl border p-2.5 transition cursor-pointer text-left ${
+                            className={`flex flex-col items-start gap-1 rounded-md border p-2.5 transition cursor-pointer text-left ${
                               style.isVertical
-                                ? 'border-purple-500/60 bg-purple-500/15 text-purple-200 ring-1 ring-purple-500/40'
-                                : 'border-slate-800 bg-slate-900 text-slate-400 hover:border-slate-700 hover:text-slate-200'
+                                ? 'border-accent/40 bg-accent-tint text-accent ring-1 ring-purple-500/40'
+                                : 'border-border bg-surface text-text-muted hover:border-border hover:text-text'
                             }`}
                           >
-                            <span className="text-xs font-semibold flex items-center gap-1.5 text-purple-300">
-                              <span>🔤 Chữ xếp dọc</span>
-                              <span className="rounded bg-purple-500/30 px-1 py-0.2 text-[9px] font-mono">
+                            <span className="text-xs font-semibold flex items-center gap-1.5 text-accent">
+                              <span>Chữ xếp dọc</span>
+                              <span className="rounded bg-accent-tint px-1 py-0.2 text-[9px] font-mono">
                                 {style.isVertical ? 'BẬT' : 'TẮT'}
                               </span>
                             </span>
-                            <span className="text-[10px] leading-tight text-slate-400">
+                            <span className="text-[10px] leading-tight text-text-muted">
                               Ngắt ký tự rơi thẳng đứng dọc mép video (chuẩn Douyin / TikTok Lyric).
                             </span>
                           </button>
-                          <span className="text-[10px] text-slate-500 italic">
-                            💡 Gợi ý: Bạn cũng có thể click trực tiếp vào phụ đề trên khung xem trước phía trên để kéo rê vị trí tự do.
+                          <span className="text-[10px] text-text-muted italic">
+                            Gợi ý: Bạn cũng có thể click trực tiếp vào phụ đề trên khung xem trước phía trên để kéo rê vị trí tự do.
                           </span>
                         </div>
                       </div>
                     </div>
 
                     {/* Điều khiển Khoảng cách lề */}
-                    <div className="flex flex-col justify-center gap-3 lg:col-span-7 border-l border-slate-800/80 pl-4">
+                    <div className="flex flex-col justify-center gap-3 lg:col-span-7 border-l border-border pl-4">
                       <div>
-                        <div className="flex justify-between text-xs text-slate-300 mb-1">
+                        <div className="flex justify-between text-xs text-text mb-1">
                           <span className="font-medium">Khoảng cách mép dọc (Margin V):</span>
-                          <span className="font-mono text-brand-cyan">{style.marginV ?? 25}px</span>
+                          <span className="font-mono text-accent">{style.marginV ?? 25}px</span>
                         </div>
                         <input
                           type="range"
@@ -1035,17 +1035,17 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
                           value={style.marginV ?? 25}
                           onChange={(e) => setStyle((s) => ({ ...s, marginV: Number(e.target.value) }))}
                           disabled={isExporting}
-                          className="w-full accent-cyan-400"
+                          className="w-full accent-accent"
                         />
-                        <span className="text-[10px] text-slate-500">
+                        <span className="text-[10px] text-text-muted">
                           Khoảng cách từ mép dưới (hoặc mép trên) vào trong màn hình.
                         </span>
                       </div>
 
                       <div>
-                        <div className="flex justify-between text-xs text-slate-300 mb-1">
+                        <div className="flex justify-between text-xs text-text mb-1">
                           <span className="font-medium">Khoảng cách mép ngang (Margin H):</span>
-                          <span className="font-mono text-brand-cyan">{style.marginH ?? 20}px</span>
+                          <span className="font-mono text-accent">{style.marginH ?? 20}px</span>
                         </div>
                         <input
                           type="range"
@@ -1054,9 +1054,9 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
                           value={style.marginH ?? 20}
                           onChange={(e) => setStyle((s) => ({ ...s, marginH: Number(e.target.value) }))}
                           disabled={isExporting}
-                          className="w-full accent-cyan-400"
+                          className="w-full accent-accent"
                         />
-                        <span className="text-[10px] text-slate-500">
+                        <span className="text-[10px] text-text-muted">
                           Khoảng cách từ mép trái (hoặc mép phải) vào trong màn hình.
                         </span>
                       </div>
@@ -1065,7 +1065,7 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
 
                   {/* Cấu hình Bố cục Song ngữ (Dual Subtitles / Lời bài hát kép) */}
                   {hasBothSrt && (
-                    <div className="rounded-xl border border-indigo-500/30 bg-indigo-950/20 p-3.5 flex flex-col gap-2.5">
+                    <div className="rounded-md border border-indigo-500/30 bg-indigo-950/20 p-3.5 flex flex-col gap-2.5">
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                           <span className="flex h-2 w-2 rounded-full bg-indigo-400 animate-pulse" />
@@ -1078,7 +1078,7 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
                             type="checkbox"
                             checked={dualSubtitlesEnabled}
                             onChange={(e) => setDualSubtitlesEnabled(e.target.checked)}
-                            className="h-4 w-4 rounded border-indigo-500/50 bg-slate-900 text-brand-cyan focus:ring-0 cursor-pointer"
+                            className="h-4 w-4 rounded border-indigo-500/50 bg-surface text-accent focus:ring-0 cursor-pointer"
                           />
                           <span>Bật hiển thị đồng thời cả 2 bản phụ đề</span>
                         </label>
@@ -1086,23 +1086,23 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
 
                       {dualSubtitlesEnabled && (
                         <div className="flex flex-col gap-2 pt-2 border-t border-indigo-500/20 text-xs">
-                          <span className="text-[11px] text-slate-300">
+                          <span className="text-[11px] text-text">
                             Chọn kiểu kết hợp 2 vị trí:
                           </span>
                           <div className="grid gap-2 sm:grid-cols-2">
                             <button
                               type="button"
                               onClick={() => setDualLayoutPreset('douyin_music_left')}
-                              className={`flex flex-col gap-1 rounded-xl border p-3 text-left transition cursor-pointer ${
+                              className={`flex flex-col gap-1 rounded-md border p-3 text-left transition cursor-pointer ${
                                 dualLayoutPreset === 'douyin_music_left'
-                                  ? 'border-brand-cyan/80 bg-brand-cyan/15 ring-1 ring-brand-cyan/50 text-white'
-                                  : 'border-slate-800 bg-slate-900/80 text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                                  ? 'border-accent/40 bg-accent/15 ring-1 ring-accent/30 text-white'
+                                  : 'border-border bg-surface text-text-muted hover:bg-surface-2 hover:text-text'
                               }`}
                             >
-                              <span className="font-semibold text-brand-cyan flex items-center gap-1.5">
-                                <span>🎵 Douyin Music Layout (Khuyên dùng)</span>
+                              <span className="font-semibold text-accent flex items-center gap-1.5">
+                                <span>Douyin Music Layout (Khuyên dùng)</span>
                               </span>
-                              <span className="text-[11px] text-slate-300 leading-relaxed">
+                              <span className="text-[11px] text-text leading-relaxed">
                                 • <strong>Lời bài hát gốc</strong>: Xếp dọc chạy dài ở mép bên trái màn hình.
                                 <br />• <strong>Lời dịch tiếng Việt</strong>: Hiển thị ngang ở dưới đáy.
                               </span>
@@ -1111,16 +1111,16 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
                             <button
                               type="button"
                               onClick={() => setDualLayoutPreset('top_bottom_bilingual')}
-                              className={`flex flex-col gap-1 rounded-xl border p-3 text-left transition cursor-pointer ${
+                              className={`flex flex-col gap-1 rounded-md border p-3 text-left transition cursor-pointer ${
                                 dualLayoutPreset === 'top_bottom_bilingual'
-                                  ? 'border-brand-cyan/80 bg-brand-cyan/15 ring-1 ring-brand-cyan/50 text-white'
-                                  : 'border-slate-800 bg-slate-900/80 text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                                  ? 'border-accent/40 bg-accent/15 ring-1 ring-accent/30 text-white'
+                                  : 'border-border bg-surface text-text-muted hover:bg-surface-2 hover:text-text'
                               }`}
                             >
-                              <span className="font-semibold text-slate-200 flex items-center gap-1.5">
-                                <span>🎬 Song ngữ Trên - Dưới (Chiếu rạp)</span>
+                              <span className="font-semibold text-text flex items-center gap-1.5">
+                                <span>Song ngữ Trên - Dưới (Chiếu rạp)</span>
                               </span>
-                              <span className="text-[11px] text-slate-300 leading-relaxed">
+                              <span className="text-[11px] text-text leading-relaxed">
                                 • <strong>Lời gốc</strong>: Hiển thị ngang ở đỉnh màn hình.
                                 <br />• <strong>Lời dịch</strong>: Hiển thị ngang ở đáy màn hình.
                               </span>
@@ -1132,14 +1132,14 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
                   )}
 
                   {/* Kiểu chữ, Màu sắc & Cỡ chữ */}
-                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 pt-2 border-t border-slate-800/80">
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 pt-2 border-t border-border">
                     <div>
-                      <label className="mb-1 block text-[11px] font-medium text-slate-400">Font chữ</label>
+                      <label className="mb-1 block text-[11px] font-medium text-text-muted">Font chữ</label>
                       <select
                         value={style.fontName}
                         onChange={(e) => setStyle((s) => ({ ...s, fontName: e.target.value }))}
                         disabled={isExporting}
-                        className="w-full rounded-xl border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs text-slate-200 focus:outline-none"
+                        className="w-full rounded-md border border-border bg-surface-2 px-3 py-1.5 text-xs text-text focus:outline-none"
                       >
                         {FONT_OPTIONS.map((f) => (
                           <option key={f} value={f}>
@@ -1150,8 +1150,8 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
                     </div>
 
                     <div>
-                      <label className="mb-1 block text-[11px] font-medium text-slate-400">
-                        Cỡ chữ: <span className="font-mono text-brand-cyan">{style.fontSize}px</span>
+                      <label className="mb-1 block text-[11px] font-medium text-text-muted">
+                        Cỡ chữ: <span className="font-mono text-accent">{style.fontSize}px</span>
                       </label>
                       <input
                         type="range"
@@ -1160,20 +1160,20 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
                         value={style.fontSize}
                         onChange={(e) => setStyle((s) => ({ ...s, fontSize: Number(e.target.value) }))}
                         disabled={isExporting}
-                        className="w-full accent-cyan-400"
+                        className="w-full accent-accent"
                       />
                     </div>
 
                     <div className="flex items-center gap-2 pt-4">
-                      <label className="text-[11px] font-medium text-slate-400">Màu chữ:</label>
+                      <label className="text-[11px] font-medium text-text-muted">Màu chữ:</label>
                       <input
                         type="color"
                         value={style.primaryColour}
                         onChange={(e) => setStyle((s) => ({ ...s, primaryColour: e.target.value }))}
                         disabled={isExporting}
-                        className="h-7 w-10 cursor-pointer rounded border border-slate-700 bg-slate-800"
+                        className="h-7 w-10 cursor-pointer rounded border border-border bg-surface-2"
                       />
-                      <label className="ml-2 text-[11px] font-medium text-slate-400">
+                      <label className="ml-2 text-[11px] font-medium text-text-muted">
                         {style.borderStyle === 3 ? 'Nền box:' : 'Viền:'}
                       </label>
                       <input
@@ -1181,22 +1181,22 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
                         value={style.outlineColour}
                         onChange={(e) => setStyle((s) => ({ ...s, outlineColour: e.target.value }))}
                         disabled={isExporting}
-                        className="h-7 w-10 cursor-pointer rounded border border-slate-700 bg-slate-800"
+                        className="h-7 w-10 cursor-pointer rounded border border-border bg-surface-2"
                       />
-                      <label className="ml-2 flex items-center gap-1.5 text-[11px] text-slate-300 cursor-pointer">
+                      <label className="ml-2 flex items-center gap-1.5 text-[11px] text-text cursor-pointer">
                         <input
                           type="checkbox"
                           checked={style.bold}
                           onChange={(e) => setStyle((s) => ({ ...s, bold: e.target.checked }))}
                           disabled={isExporting}
-                          className="h-3.5 w-3.5 border-slate-700 bg-slate-800 text-brand-cyan focus:ring-0"
+                          className="h-3.5 w-3.5 border-border bg-surface-2 text-accent focus:ring-0"
                         />
                         Đậm
                       </label>
                     </div>
 
                     <div className="flex flex-wrap items-center gap-3">
-                      <label className="flex items-center gap-2 text-[11px] font-medium text-slate-400">
+                      <label className="flex items-center gap-2 text-[11px] font-medium text-text-muted">
                         Độ mờ chữ:
                         <input
                           type="range"
@@ -1205,11 +1205,11 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
                           value={style.opacity}
                           onChange={(e) => setStyle((s) => ({ ...s, opacity: Number(e.target.value) }))}
                           disabled={isExporting}
-                          className="w-24 accent-cyan-400"
+                          className="w-24 accent-accent"
                         />
-                        <span className="w-8 font-mono text-brand-cyan">{style.opacity}%</span>
+                        <span className="w-8 font-mono text-accent">{style.opacity}%</span>
                       </label>
-                      <label className="flex items-center gap-2 text-[11px] font-medium text-slate-400">
+                      <label className="flex items-center gap-2 text-[11px] font-medium text-text-muted">
                         {style.borderStyle === 3 ? 'Lề box:' : 'Độ dày viền:'}
                         <input
                           type="range"
@@ -1218,11 +1218,11 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
                           value={style.outline}
                           onChange={(e) => setStyle((s) => ({ ...s, outline: Number(e.target.value) }))}
                           disabled={isExporting}
-                          className="w-20 accent-cyan-400"
+                          className="w-20 accent-accent"
                         />
-                        <span className="w-4 font-mono text-brand-cyan">{style.outline}</span>
+                        <span className="w-4 font-mono text-accent">{style.outline}</span>
                       </label>
-                      <label className="flex items-center gap-2 text-[11px] font-medium text-slate-400">
+                      <label className="flex items-center gap-2 text-[11px] font-medium text-text-muted">
                         Bóng đổ:
                         <input
                           type="range"
@@ -1231,14 +1231,14 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
                           value={style.shadow}
                           onChange={(e) => setStyle((s) => ({ ...s, shadow: Number(e.target.value) }))}
                           disabled={isExporting}
-                          className="w-20 accent-cyan-400"
+                          className="w-20 accent-accent"
                         />
-                        <span className="w-4 font-mono text-brand-cyan">{style.shadow}</span>
+                        <span className="w-4 font-mono text-accent">{style.shadow}</span>
                       </label>
                     </div>
 
                     <div className="flex items-center gap-2">
-                      <span className="text-[11px] font-medium text-slate-400">Kiểu hiển thị:</span>
+                      <span className="text-[11px] font-medium text-text-muted">Kiểu hiển thị:</span>
                       <select
                         value={style.borderStyle}
                         onChange={(e) => {
@@ -1251,7 +1251,7 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
                           }));
                         }}
                         disabled={isExporting}
-                        className="rounded-xl border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs text-slate-200 focus:outline-none"
+                        className="rounded-md border border-border bg-surface-2 px-3 py-1.5 text-xs text-text focus:outline-none"
                       >
                         <option value={1}>Viền nét + bóng đổ (Chuẩn)</option>
                         <option value={3}>Nền hộp màu đặc (Box)</option>
@@ -1297,29 +1297,29 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
                   />
 
                   {/* Che dải phụ đề cố định (Classic Bar Mask) */}
-                  <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4">
-                    <label className="flex items-center gap-2 text-xs font-semibold text-slate-200 cursor-pointer">
+                  <div className="rounded-lg border border-border bg-surface p-4">
+                    <label className="flex items-center gap-2 text-xs font-semibold text-text cursor-pointer">
                       <input
                         type="checkbox"
                         checked={maskEnabled}
                         onChange={(e) => setMaskEnabled(e.target.checked)}
                         disabled={isExporting}
-                        className="h-4 w-4 rounded border-slate-700 bg-slate-800 text-brand-cyan focus:ring-0"
+                        className="h-4 w-4 rounded border-border bg-surface-2 text-accent focus:ring-0"
                       />
                       <span>Dải che phụ đề cũ kiểu đơn giản (ngang toàn màn hình ở đáy / đỉnh)</span>
                     </label>
 
                     {maskEnabled && (
-                      <div className="mt-3 flex flex-wrap items-center gap-4 border-t border-slate-800/80 pt-3">
+                      <div className="mt-3 flex flex-wrap items-center gap-4 border-t border-border pt-3">
                         <div className="flex items-center gap-2">
-                          <span className="text-xs text-slate-400">Vị trí:</span>
+                          <span className="text-xs text-text-muted">Vị trí:</span>
                           <select
                             value={mask.position}
                             onChange={(e) =>
                               setMask((m) => ({ ...m, position: e.target.value as 'bottom' | 'top' }))
                             }
                             disabled={isExporting}
-                            className="rounded-xl border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs text-slate-200 focus:outline-none"
+                            className="rounded-md border border-border bg-surface-2 px-3 py-1.5 text-xs text-text focus:outline-none"
                           >
                             <option value="bottom">Đáy khung hình</option>
                             <option value="top">Đầu khung hình</option>
@@ -1327,7 +1327,7 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
                         </div>
 
                         <div className="flex items-center gap-2">
-                          <span className="text-xs text-slate-400">Độ cao dải che:</span>
+                          <span className="text-xs text-text-muted">Độ cao dải che:</span>
                           <input
                             type="range"
                             min={5}
@@ -1336,18 +1336,18 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
                             value={mask.heightPercent}
                             onChange={(e) => setMask((m) => ({ ...m, heightPercent: Number(e.target.value) }))}
                             disabled={isExporting}
-                            className="w-36 accent-cyan-400"
+                            className="w-36 accent-accent"
                           />
-                          <span className="w-10 font-mono text-xs text-brand-cyan">{mask.heightPercent}%</span>
+                          <span className="w-10 font-mono text-xs text-accent">{mask.heightPercent}%</span>
                         </div>
 
                         <div className="flex items-center gap-2">
-                          <span className="text-xs text-slate-400">Kiểu che:</span>
+                          <span className="text-xs text-text-muted">Kiểu che:</span>
                           <select
                             value={mask.mode}
                             onChange={(e) => setMask((m) => ({ ...m, mode: e.target.value as 'solid' | 'blur' }))}
                             disabled={isExporting}
-                            className="rounded-xl border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs text-slate-200 focus:outline-none"
+                            className="rounded-md border border-border bg-surface-2 px-3 py-1.5 text-xs text-text focus:outline-none"
                           >
                             <option value="blur">Làm mờ (giữ mờ khung hình)</option>
                             <option value="solid">Tô đen hoàn toàn</option>
@@ -1374,7 +1374,7 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
 
           {/* Tùy chọn lồng tiếng (chỉ dùng cho chế độ Dub) */}
           {mode === 'dub' && (
-            <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4">
+            <div className="rounded-lg border border-border bg-surface p-4">
               {!hasTtsAudio ? (
                 <p className="text-xs leading-relaxed text-amber-400">
                   Tác vụ này chưa có audio lồng tiếng. Hãy vào tab{' '}
@@ -1384,38 +1384,38 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
               ) : (
                 <div className="space-y-3">
                   <div className="flex flex-wrap items-center gap-3">
-                    <span className="text-xs font-semibold text-slate-200">Audio:</span>
-                    <label className="flex items-center gap-1.5 text-xs text-slate-300 cursor-pointer">
+                    <span className="text-xs font-semibold text-text">Audio:</span>
+                    <label className="flex items-center gap-1.5 text-xs text-text cursor-pointer">
                       <input
                         type="radio"
                         checked={replaceAudio}
                         onChange={() => setReplaceAudio(true)}
                         disabled={isExporting}
-                        className="h-3.5 w-3.5 border-slate-700 bg-slate-800 text-brand-cyan focus:ring-0"
+                        className="h-3.5 w-3.5 border-border bg-surface-2 text-accent focus:ring-0"
                       />
                       Thay giọng gốc (mono)
                     </label>
-                    <label className="flex items-center gap-1.5 text-xs text-slate-300 cursor-pointer">
+                    <label className="flex items-center gap-1.5 text-xs text-text cursor-pointer">
                       <input
                         type="radio"
                         checked={!replaceAudio}
                         onChange={() => setReplaceAudio(false)}
                         disabled={isExporting}
-                        className="h-3.5 w-3.5 border-slate-700 bg-slate-800 text-brand-cyan focus:ring-0"
+                        className="h-3.5 w-3.5 border-border bg-surface-2 text-accent focus:ring-0"
                       />
                       Song ngữ (giữ track gốc)
                     </label>
                   </div>
 
                   <div className="flex flex-wrap items-center gap-3">
-                    <span className="text-xs font-semibold text-slate-200">Đồng bộ:</span>
+                    <span className="text-xs font-semibold text-text">Đồng bộ:</span>
                     <select
                       value={syncMode}
                       onChange={(e) =>
                         setSyncMode(e.target.value as 'strict' | 'flexible' | 'video-stretch')
                       }
                       disabled={isExporting}
-                      className="rounded-xl border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs text-slate-200 focus:outline-none"
+                      className="rounded-md border border-border bg-surface-2 px-3 py-1.5 text-xs text-text focus:outline-none"
                     >
                       <option value="strict">Strict — nén theo timeline SRT</option>
                       <option value="flexible">Flexible — tràn vào khoảng lặng (tối đa 3s)</option>
@@ -1424,39 +1424,39 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
                   </div>
 
                   {replaceAudio && (
-                    <label className="flex items-center gap-2 text-xs font-medium text-slate-200 cursor-pointer">
+                    <label className="flex items-center gap-2 text-xs font-medium text-text cursor-pointer">
                       <input
                         type="checkbox"
                         checked={vocalSeparation}
                         onChange={(e) => setVocalSeparation(e.target.checked)}
                         disabled={isExporting}
-                        className="h-4 w-4 rounded border-slate-700 bg-slate-800 text-brand-cyan focus:ring-0"
+                        className="h-4 w-4 rounded border-border bg-surface-2 text-accent focus:ring-0"
                       />
                       <span>
                         Tách lời thoại bằng AI (kiểu CapCut) —{' '}
-                        <span className="text-slate-400">
+                        <span className="text-text-muted">
                           loại giọng người gốc, giữ nguyên nhạc nền/SFX thay vì mix nhỏ 0.22
                         </span>
                       </span>
                     </label>
                   )}
                   {!replaceAudio && (
-                    <label className="flex items-center gap-2 text-xs font-medium text-slate-200 cursor-pointer">
+                    <label className="flex items-center gap-2 text-xs font-medium text-text cursor-pointer">
                       <input
                         type="checkbox"
                         checked={mixOriginalAudio}
                         onChange={(e) => setMixOriginalAudio(e.target.checked)}
                         disabled={isExporting}
-                        className="h-4 w-4 rounded border-slate-700 bg-slate-800 text-brand-cyan focus:ring-0"
+                        className="h-4 w-4 rounded border-border bg-surface-2 text-accent focus:ring-0"
                       />
-                      <span className="text-slate-400">
+                      <span className="text-text-muted">
                         Mix nhỏ nhạc nền gốc (0.22) dưới lời thoại
                       </span>
                     </label>
                   )}
 
                   {vocalSeparation && (
-                    <p className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] leading-relaxed text-amber-300">
+                    <p className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] leading-relaxed text-amber-300">
                       AI tách lời (Demucs) chạy trên CPU — thời gian xử lý xấp xỉ thời lượng video.
                       Lần đầu cần <code className="font-mono">python -m pip install demucs</code> và
                       tải model ~80MB (đã kiểm tra: máy này sẵn sàng).
@@ -1469,31 +1469,31 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
 
           {/* Tùy chọn tách nhạc nền (chỉ dùng cho chế độ Stems) */}
           {mode === 'stems' && (
-            <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4">
-              <p className="text-xs leading-relaxed text-slate-400">
+            <div className="rounded-lg border border-border bg-surface p-4">
+              <p className="text-xs leading-relaxed text-text-muted">
                 AI Demucs sẽ tách âm thanh của{' '}
-                <span className="font-mono text-slate-200">{selectedTask.fileName}</span> thành 2 file MP3
+                <span className="font-mono text-text">{selectedTask.fileName}</span> thành 2 file MP3
                 (320kbps) lưu cạnh video gốc:
               </p>
               <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                <div className="rounded-xl border border-brand-cyan/30 bg-brand-cyan/5 p-2.5">
-                  <p className="font-mono text-[11px] text-brand-cyan">
+                <div className="rounded-md border border-accent/40 bg-accent/5 p-2.5">
+                  <p className="font-mono text-[11px] text-accent">
                     {selectedTask.fileName.replace(/\.[^.]+$/, '')}.nhacnen.mp3
                   </p>
-                  <p className="mt-0.5 text-[11px] text-slate-400">
-                    Nhạc nền/SFX <strong className="text-slate-300">không lời</strong> — dùng làm BGM
+                  <p className="mt-0.5 text-[11px] text-text-muted">
+                    Nhạc nền/SFX <strong className="text-text">không lời</strong> — dùng làm BGM
                   </p>
                 </div>
-                <div className="rounded-xl border border-brand-rose/30 bg-brand-rose/5 p-2.5">
+                <div className="rounded-md border border-brand-rose/30 bg-brand-rose/5 p-2.5">
                   <p className="font-mono text-[11px] text-brand-rose">
                     {selectedTask.fileName.replace(/\.[^.]+$/, '')}.giong.mp3
                   </p>
-                  <p className="mt-0.5 text-[11px] text-slate-400">
-                    Giọng hát/thoại <strong className="text-slate-300">đã tách riêng</strong>
+                  <p className="mt-0.5 text-[11px] text-text-muted">
+                    Giọng hát/thoại <strong className="text-text">đã tách riêng</strong>
                   </p>
                 </div>
               </div>
-              <p className="mt-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] leading-relaxed text-amber-300">
+              <p className="mt-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] leading-relaxed text-amber-300">
                 Demucs chạy trên CPU — thời gian xử lý xấp xỉ thời lượng video. Lần đầu cần{' '}
                 <code className="font-mono">python -m pip install demucs</code> và tải model ~80MB
                 (máy này đã kiểm tra sẵn sàng). File video/audio mono cho kết quả tách kém hơn stereo.
@@ -1502,19 +1502,19 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
           )}
 
           {/* Thông tin xuất + nút */}
-          <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4">
-            <div className="mb-3 space-y-1.5 text-xs text-slate-400">
+          <div className="rounded-lg border border-border bg-surface p-4">
+            <div className="mb-3 space-y-1.5 text-xs text-text-muted">
               <p>
                 • Nguồn phụ đề:{' '}
                 {mode === 'stems' ? (
-                  <span className="text-slate-500">không cần (chế độ tách audio)</span>
+                  <span className="text-text-muted">không cần (chế độ tách audio)</span>
                 ) : (
                   <>
-                    <span className="font-mono text-slate-200">
+                    <span className="font-mono text-text">
                       {(selectedTask.translatedSrtPath || selectedTask.srtPath || '').split(/[/\\]/).pop()}
                     </span>
                     {selectedTask.translatedSrtPath && (
-                      <span className="ml-1.5 rounded-full border border-brand-indigo/30 bg-brand-indigo/10 px-2 py-0.5 text-[10px] font-semibold text-brand-cyan">
+                      <span className="ml-1.5 rounded-full border border-accent/40 bg-accent-tint px-2 py-0.5 text-[10px] font-semibold text-accent">
                         dùng bản đã dịch
                       </span>
                     )}
@@ -1522,13 +1522,13 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
                 )}
               </p>
               {mode !== 'stems' && mode !== 'dub' && (
-                <p className="text-slate-500">
+                <p className="text-text-muted">
                   (Chế độ này cần phụ đề — vào tab Hiệu đính hoặc Lồng tiếng nếu chưa có.)
                 </p>
               )}
               {mode === 'dub' && (
                 <p>
-                  • Giọng lồng: <span className="font-mono text-slate-200">{selectedTask.ttsVoice || 'mặc định'}</span>
+                  • Giọng lồng: <span className="font-mono text-text">{selectedTask.ttsVoice || 'mặc định'}</span>
                   {selectedTask.ttsEngine === 'tiktok' && (
                     <span className="ml-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold text-amber-400">
                       TikTok TTS
@@ -1537,10 +1537,10 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
                 </p>
               )}
               <p>
-                • Video gốc: <span className="font-mono text-slate-200">{selectedTask.filePath}</span>
+                • Video gốc: <span className="font-mono text-text">{selectedTask.filePath}</span>
               </p>
               <p>• File kết quả lưu cạnh video gốc (hoặc thư mục đã đặt trong Cài đặt):</p>
-              <p className="rounded-lg bg-slate-950 px-2.5 py-1.5 font-mono text-[11px] text-brand-cyan">
+              <p className="rounded-lg bg-bg px-2.5 py-1.5 font-mono text-[11px] text-accent">
                 {resultFileName}
               </p>
             </div>
@@ -1550,7 +1550,7 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
                 type="button"
                 onClick={handleExport}
                 disabled={isExporting || startingDub || separatingStems || (mode === 'dub' && !hasTtsAudio)}
-                className="btn-vanh-gradient inline-flex items-center gap-2 rounded-xl px-5 py-2.5 text-xs font-semibold cursor-pointer disabled:opacity-50"
+                className="bg-accent text-white hover:bg-accent-hover inline-flex items-center gap-2 rounded-md px-5 py-2.5 text-xs font-semibold cursor-pointer disabled:opacity-50"
               >
                 {isExporting || startingDub || separatingStems ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -1573,9 +1573,9 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
                   <button
                     type="button"
                     onClick={handleShowOutput}
-                    className="inline-flex items-center gap-2 rounded-xl border border-cyan-500/40 bg-cyan-500/10 px-4 py-2 text-xs font-semibold text-cyan-300 transition hover:bg-cyan-500/20 cursor-pointer shadow-sm"
+                    className="inline-flex items-center gap-2 rounded-md border border-accent/40 bg-accent/10 px-4 py-2 text-xs font-semibold text-accent transition hover:bg-accent/20 cursor-pointer"
                   >
-                    <FolderOpen className="h-3.5 w-3.5 text-cyan-400" />
+                    <FolderOpen className="h-3.5 w-3.5 text-accent" />
                     <span>Mở thư mục dự án</span>
                   </button>
                   {outputPath && (
@@ -1591,14 +1591,14 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
 
           {/* Tiến trình */}
           {(isExporting || (selectedTask.progress > 0 && selectedTask.progress < 100 && selectedTask.status !== 'done')) && (
-            <div className="rounded-2xl border border-brand-indigo/40 bg-brand-indigo/10 p-4">
+            <div className="rounded-lg border border-accent/40 bg-accent-tint p-4">
               <div className="mb-2 flex items-center justify-between text-xs">
-                <span className="font-medium text-brand-cyan">{selectedTask.stageDescription || 'Đang xử lý...'}</span>
-                <span className="font-mono text-slate-300">{selectedTask.progress}%</span>
+                <span className="font-medium text-accent">{selectedTask.stageDescription || 'Đang xử lý...'}</span>
+                <span className="font-mono text-text">{selectedTask.progress}%</span>
               </div>
-              <div className="h-1.5 overflow-hidden rounded-full bg-slate-800">
+              <div className="h-1.5 overflow-hidden rounded-full bg-surface-2">
                 <div
-                  className="h-full rounded-full bg-gradient-to-r from-brand-cyan to-brand-indigo transition-all duration-300"
+                  className="h-full rounded-full bg-accent transition-all duration-300"
                   style={{ width: `${selectedTask.progress}%` }}
                 />
               </div>
@@ -1606,7 +1606,7 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
           )}
 
           {selectedTask.status === 'error' && selectedTask.errorMessage && (
-            <div className="rounded-2xl border border-rose-500/40 bg-rose-500/10 p-4 text-xs text-rose-300">
+            <div className="rounded-lg border border-rose-500/40 bg-rose-500/10 p-4 text-xs text-rose-300">
               <strong className="font-semibold">Lỗi xuất video:</strong> {selectedTask.errorMessage}
             </div>
           )}

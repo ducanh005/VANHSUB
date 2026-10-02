@@ -25,9 +25,9 @@ function pushEntry(entry: LogEntry) {
 }
 
 const LEVEL_STYLE: Record<string, string> = {
-  info: 'text-slate-300',
-  warn: 'text-amber-400',
-  error: 'text-rose-400',
+  info: 'text-text-muted',
+  warn: 'text-warning',
+  error: 'text-danger',
 };
 
 function formatTime(ts: number): string {
@@ -139,30 +139,30 @@ export default function TerminalPanel() {
   };
 
   return (
-    <div className={`pointer-events-auto border-t border-slate-800 bg-slate-950/95 transition-all duration-75 relative select-none ${isDragging ? 'cursor-ns-resize select-none' : ''}`}>
+    <div className={`pointer-events-auto border-t border-border bg-surface transition-all duration-75 relative select-none ${isDragging ? 'cursor-ns-resize select-none' : ''}`}>
       {/* Resizable Drag Handle Bar ở mép trên cùng */}
       {expanded && (
         <div
           onMouseDown={handleMouseDown}
           title="Kéo chuột lên/xuống để chỉnh độ cao Terminal"
-          className="group absolute -top-1 left-0 right-0 h-2.5 flex items-center justify-center cursor-ns-resize z-30 hover:bg-brand-cyan/20 transition-colors"
+          className="group absolute -top-1 left-0 right-0 h-2.5 flex items-center justify-center cursor-ns-resize z-30 hover:bg-accent/10 transition-colors"
         >
-          <div className="w-16 h-1 rounded-full bg-slate-700/60 group-hover:bg-brand-cyan group-hover:w-24 transition-all" />
+          <div className="w-12 h-1 rounded-full bg-border-strong group-hover:bg-accent transition-all" />
         </div>
       )}
 
       {/* Header bar */}
-      <div className="flex items-center justify-between px-4 py-1.5 border-b border-slate-800/60">
+      <div className="flex items-center justify-between px-4 py-1.5 border-b border-border bg-surface">
         <button
           type="button"
           onClick={toggle}
-          className="inline-flex items-center gap-2 text-xs font-semibold text-slate-300 hover:text-white cursor-pointer"
+          className="inline-flex items-center gap-2 text-xs font-medium text-text-muted hover:text-text cursor-pointer"
         >
           {expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronUp className="h-3.5 w-3.5" />}
-          <Terminal className="h-3.5 w-3.5 text-brand-cyan" />
-          <span>Terminal Log</span>
+          <Terminal className="h-3.5 w-3.5 text-accent" />
+          <span className="font-medium text-text">Terminal Log</span>
           {!expanded && unseen > 0 && (
-            <span className="rounded-full bg-brand-cyan/20 px-1.5 py-0.5 text-[10px] font-bold text-brand-cyan">
+            <span className="rounded-md bg-accent-tint border border-accent/20 px-1.5 py-0.5 text-[10px] font-bold text-accent">
               {unseen}
             </span>
           )}
@@ -170,7 +170,7 @@ export default function TerminalPanel() {
 
         {expanded && (
           <div className="flex items-center gap-2">
-            <span className="text-[10px] font-mono text-slate-500 hidden sm:inline">
+            <span className="text-[10px] font-mono text-text-faint hidden sm:inline">
               {height}px (kéo mép trên để chỉnh)
             </span>
 
@@ -179,7 +179,7 @@ export default function TerminalPanel() {
               type="button"
               onClick={toggleMaximize}
               title={isMaximized ? 'Thu nhỏ chiều cao Terminal' : 'Phóng to chiều cao Terminal'}
-              className="p-1 rounded text-slate-400 hover:bg-slate-800 hover:text-slate-200 transition cursor-pointer"
+              className="p-1 rounded-md text-text-muted hover:bg-surface-2 hover:text-text transition cursor-pointer"
             >
               {isMaximized ? <Minimize2 className="h-3 w-3" /> : <Maximize2 className="h-3 w-3" />}
             </button>
@@ -192,7 +192,7 @@ export default function TerminalPanel() {
                 setLogs([]);
               }}
               title="Xoá toàn bộ log"
-              className="inline-flex items-center gap-1 rounded-lg border border-slate-700 bg-slate-900 px-2 py-0.5 text-[11px] text-slate-400 hover:bg-slate-800 hover:text-slate-200 cursor-pointer"
+              className="inline-flex items-center gap-1 rounded-md border border-border bg-surface-2 px-2 py-0.5 text-[11px] text-text-muted hover:bg-surface-3 hover:text-text cursor-pointer transition"
             >
               <Trash2 className="h-3 w-3" />
               <span>Xoá</span>
@@ -207,14 +207,14 @@ export default function TerminalPanel() {
           ref={scrollRef}
           onScroll={handleScroll}
           style={{ height: `${height}px` }}
-          className="overflow-y-auto bg-black/75 px-4 py-2 font-mono text-[11px] leading-relaxed custom-scrollbar"
+          className="overflow-y-auto bg-bg px-4 py-2 font-mono text-[11px] leading-relaxed custom-scrollbar"
         >
           {logs.length === 0 ? (
-            <p className="text-slate-600 italic">Chưa có log — bắt đầu phiên âm/dịch/lồng tiếng để xem tiến trình thời gian thực.</p>
+            <p className="text-text-faint italic">Chưa có log — bắt đầu phiên âm/dịch/lồng tiếng để xem tiến trình thời gian thực.</p>
           ) : (
             logs.map((entry, i) => (
-              <p key={`${entry.ts}-${i}`} className={LEVEL_STYLE[entry.level] || 'text-slate-300'}>
-                <span className="text-slate-600">[{formatTime(entry.ts)}]</span> {entry.text}
+              <p key={`${entry.ts}-${i}`} className={LEVEL_STYLE[entry.level] || 'text-text-muted'}>
+                <span className="text-text-faint">[{formatTime(entry.ts)}]</span> {entry.text}
               </p>
             ))
           )}

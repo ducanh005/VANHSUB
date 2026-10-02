@@ -169,12 +169,12 @@ export default function SceneBibleModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-      <div className="relative w-full max-w-3xl bg-[#0f172a] border border-slate-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 animate-in fade-in duration-200">
+      <div className="relative w-full max-w-3xl bg-[#0f172a] border border-border rounded-lg overflow-hidden flex flex-col max-h-[85vh]">
         {/* Header */}
-        <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between bg-slate-900/60">
+        <div className="px-6 py-4 border-b border-border flex items-center justify-between bg-surface">
           <div className="flex items-center gap-2.5">
-            <div className="p-2 rounded-xl bg-indigo-950/80 border border-indigo-800/60 text-indigo-400">
+            <div className="p-2 rounded-md bg-indigo-950/80 border border-indigo-800/60 text-indigo-400">
               <Layers className="w-5 h-5" />
             </div>
             <div>
@@ -184,7 +184,7 @@ export default function SceneBibleModal({
                   Environment Continuity
                 </span>
               </h2>
-              <p className="text-xs text-slate-400">
+              <p className="text-xs text-text-muted">
                 Đồng bộ ánh sáng, bảng màu điện ảnh và môi trường giữa các phân cảnh
               </p>
             </div>
@@ -194,7 +194,7 @@ export default function SceneBibleModal({
             {!isEditing && (
               <button
                 onClick={handleOpenAdd}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-lg shadow-indigo-900/30 transition-all"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition-all"
               >
                 <Plus className="w-3.5 h-3.5" />
                 <span>Thêm bối cảnh</span>
@@ -202,7 +202,7 @@ export default function SceneBibleModal({
             )}
             <button
               onClick={onClose}
-              className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors"
+              className="p-1.5 text-text-muted hover:text-white rounded-lg hover:bg-surface-2 transition-colors"
             >
               <X className="w-5 h-5" />
             </button>
@@ -214,21 +214,21 @@ export default function SceneBibleModal({
           {isEditing ? (
             /* Form thêm / sửa bối cảnh */
             <form onSubmit={handleSave} className="space-y-4 max-w-xl mx-auto">
-              <div className="flex items-center justify-between pb-2 border-b border-slate-800">
-                <h3 className="text-sm font-bold text-slate-200">
+              <div className="flex items-center justify-between pb-2 border-b border-border">
+                <h3 className="text-sm font-bold text-text">
                   {editId ? 'Chỉnh sửa Bối cảnh' : 'Thêm Bối cảnh mới'}
                 </h3>
                 <button
                   type="button"
                   onClick={() => setIsEditing(false)}
-                  className="text-xs text-slate-400 hover:text-slate-200"
+                  className="text-xs text-text-muted hover:text-text"
                 >
                   Quay lại danh sách
                 </button>
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                <label className="block text-xs font-semibold text-text mb-1">
                   Tên bối cảnh *
                 </label>
                 <input
@@ -237,19 +237,19 @@ export default function SceneBibleModal({
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   placeholder="Ví dụ: Phố cổ Hà Nội, Phòng Lab Lượng tử..."
-                  className="w-full text-xs rounded-lg bg-slate-950 border border-slate-800 px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
+                  className="w-full text-xs rounded-lg bg-bg border border-border px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  <label className="block text-xs font-semibold text-text mb-1">
                     Môi trường
                   </label>
                   <select
                     value={environment}
                     onChange={(e) => setEnvironment(e.target.value as any)}
-                    className="w-full text-xs rounded-lg bg-slate-950 border border-slate-800 px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
+                    className="w-full text-xs rounded-lg bg-bg border border-border px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
                   >
                     <option value="indoor">Trong nhà (Indoor)</option>
                     <option value="outdoor">Ngoài trời (Outdoor)</option>
@@ -257,13 +257,13 @@ export default function SceneBibleModal({
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  <label className="block text-xs font-semibold text-text mb-1">
                     Bảng màu chủ đạo
                   </label>
                   <select
                     value={colorPalette}
                     onChange={(e) => setColorPalette(e.target.value)}
-                    className="w-full text-xs rounded-lg bg-slate-950 border border-slate-800 px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
+                    className="w-full text-xs rounded-lg bg-bg border border-border px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
                   >
                     <option value="teal_orange">Teal & Orange (Hollywood)</option>
                     <option value="cyberpunk">Cyberpunk Neon (Xanh/Hồng)</option>
@@ -274,7 +274,7 @@ export default function SceneBibleModal({
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                <label className="block text-xs font-semibold text-text mb-1">
                   Mô tả không gian & kiến trúc
                 </label>
                 <textarea
@@ -282,12 +282,12 @@ export default function SceneBibleModal({
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   placeholder="Mô tả bối cảnh xung quanh để AI bảo toàn tính liên tục..."
-                  className="w-full text-xs rounded-lg bg-slate-950 border border-slate-800 p-2.5 text-white focus:outline-none focus:border-indigo-500 leading-relaxed"
+                  className="w-full text-xs rounded-lg bg-bg border border-border p-2.5 text-white focus:outline-none focus:border-indigo-500 leading-relaxed"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1 flex items-center gap-1">
+                <label className="block text-xs font-semibold text-text mb-1 flex items-center gap-1">
                   <Sun className="w-3 h-3 text-amber-400" />
                   <span>Ánh sáng & Tâm trạng (Lighting Mood)</span>
                 </label>
@@ -296,21 +296,21 @@ export default function SceneBibleModal({
                   value={lightingMood}
                   onChange={(e) => setLightingMood(e.target.value)}
                   placeholder="Ví dụ: Hoàng hôn rực rỡ, ánh đèn neon sương mù mờ ảo..."
-                  className="w-full text-xs rounded-lg bg-slate-950 border border-slate-800 px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
+                  className="w-full text-xs rounded-lg bg-bg border border-border px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
                 />
               </div>
 
-              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-800">
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-border">
                 <button
                   type="button"
                   onClick={() => setIsEditing(false)}
-                  className="px-4 py-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-medium text-slate-300"
+                  className="px-4 py-2 rounded-lg bg-surface hover:bg-surface-2 text-xs font-medium text-text"
                 >
                   Hủy
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold shadow-lg shadow-indigo-900/30"
+                  className="px-5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold"
                 >
                   Lưu Bối cảnh
                 </button>
@@ -322,12 +322,12 @@ export default function SceneBibleModal({
               {scenes.map((scene) => (
                 <div
                   key={scene.id}
-                  className="rounded-xl border border-slate-800 bg-slate-900/40 p-4 hover:border-indigo-500/50 transition-all flex flex-col justify-between group relative overflow-hidden"
+                  className="rounded-md border border-border bg-surface p-4 hover:border-indigo-500/50 transition-all flex flex-col justify-between group relative overflow-hidden"
                 >
                   <div className="space-y-2">
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex items-center gap-2.5">
-                        <div className="w-10 h-10 rounded-xl bg-indigo-950 border border-indigo-800/80 flex items-center justify-center text-indigo-400 shrink-0">
+                        <div className="w-10 h-10 rounded-md bg-indigo-950 border border-indigo-800/80 flex items-center justify-center text-indigo-400 shrink-0">
                           {scene.environment === 'indoor' ? (
                             <Building className="w-5 h-5" />
                           ) : (
@@ -338,7 +338,7 @@ export default function SceneBibleModal({
                           <h4 className="text-sm font-bold text-white tracking-wide">
                             {scene.name}
                           </h4>
-                          <div className="flex items-center gap-2 text-[11px] text-slate-400 font-mono">
+                          <div className="flex items-center gap-2 text-[11px] text-text-muted font-mono">
                             <span>{scene.environment === 'indoor' ? 'Trong nhà' : 'Ngoài trời'}</span>
                             <span>•</span>
                             <span className="capitalize">{scene.colorPalette || 'Standard'}</span>
@@ -349,14 +349,14 @@ export default function SceneBibleModal({
                       <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                         <button
                           onClick={() => handleOpenEdit(scene)}
-                          className="p-1.5 text-slate-400 hover:text-white rounded hover:bg-slate-800"
+                          className="p-1.5 text-text-muted hover:text-white rounded hover:bg-surface-2"
                           title="Chỉnh sửa"
                         >
                           <Edit2 className="w-3.5 h-3.5" />
                         </button>
                         <button
                           onClick={() => handleDelete(scene.id, scene.name)}
-                          className="p-1.5 text-slate-400 hover:text-rose-400 rounded hover:bg-rose-950/40"
+                          className="p-1.5 text-text-muted hover:text-rose-400 rounded hover:bg-rose-950/40"
                           title="Xóa"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
@@ -364,7 +364,7 @@ export default function SceneBibleModal({
                       </div>
                     </div>
 
-                    <p className="text-xs text-slate-300 line-clamp-2 leading-relaxed">
+                    <p className="text-xs text-text line-clamp-2 leading-relaxed">
                       {scene.description || 'Chưa có mô tả chi tiết.'}
                     </p>
 
@@ -379,7 +379,7 @@ export default function SceneBibleModal({
                         onSelectScene(scene);
                         onClose();
                       }}
-                      className="mt-3 w-full py-1.5 rounded-lg bg-slate-800 hover:bg-indigo-600 text-slate-200 hover:text-white text-xs font-semibold transition-colors flex items-center justify-center gap-1"
+                      className="mt-3 w-full py-1.5 rounded-lg bg-surface-2 hover:bg-indigo-600 text-text hover:text-white text-xs font-semibold transition-colors flex items-center justify-center gap-1"
                     >
                       <Check className="w-3 h-3" />
                       <span>Chọn cho Node hiện tại</span>

@@ -342,18 +342,18 @@ export default function ScriptWorkspaceView({
     'Một câu chuyện kỳ bí mở ra những bí mật chấn động chưa từng được tiết lộ.';
 
   return (
-    <div className="flex flex-col h-full bg-[#070B14] text-slate-200 overflow-hidden">
+    <div className="flex flex-col h-full bg-[#070B14] text-text overflow-hidden">
       
       {/* 1. Top Sub-Navigation Tabs matching Revo Studio */}
-      <div className="flex items-center justify-between px-5 pt-3 pb-2 border-b border-slate-800/80 bg-[#090E1A] shrink-0">
+      <div className="flex items-center justify-between px-5 pt-3 pb-2 border-b border-border bg-[#090E1A] shrink-0">
         <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={() => onSwitchTab?.('script')}
-            className={`rounded-xl px-4 py-1.5 text-xs font-bold transition cursor-pointer ${
+            className={`rounded-md px-4 py-1.5 text-xs font-bold transition cursor-pointer ${
               activeCenterTab === 'script'
-                ? 'bg-[#1C263A] text-white border border-slate-700 shadow-sm'
-                : 'text-slate-400 hover:text-white'
+                ? 'bg-[#1C263A] text-white border border-border '
+                : 'text-text-muted hover:text-white'
             }`}
           >
             Kịch bản &amp; Giọng
@@ -361,10 +361,10 @@ export default function ScriptWorkspaceView({
           <button
             type="button"
             onClick={() => onSwitchTab?.('visual')}
-            className={`rounded-xl px-4 py-1.5 text-xs font-semibold transition cursor-pointer ${
+            className={`rounded-md px-4 py-1.5 text-xs font-semibold transition cursor-pointer ${
               activeCenterTab === 'visual'
-                ? 'bg-[#1C263A] text-white border border-slate-700 shadow-sm'
-                : 'text-slate-400 hover:text-white'
+                ? 'bg-[#1C263A] text-white border border-border '
+                : 'text-text-muted hover:text-white'
             }`}
           >
             Phân cảnh Visual
@@ -372,10 +372,10 @@ export default function ScriptWorkspaceView({
           <button
             type="button"
             onClick={() => onSwitchTab?.('character')}
-            className={`rounded-xl px-4 py-1.5 text-xs font-semibold transition cursor-pointer ${
+            className={`rounded-md px-4 py-1.5 text-xs font-semibold transition cursor-pointer ${
               activeCenterTab === 'character'
-                ? 'bg-[#1C263A] text-white border border-slate-700 shadow-sm'
-                : 'text-slate-400 hover:text-white'
+                ? 'bg-[#1C263A] text-white border border-border '
+                : 'text-text-muted hover:text-white'
             }`}
           >
             Nhân vật
@@ -391,7 +391,7 @@ export default function ScriptWorkspaceView({
       <div className="flex-1 overflow-y-auto custom-scrollbar p-5 space-y-4">
         
         {/* Status Line */}
-        <div className="text-xs text-slate-400">
+        <div className="text-xs text-text-muted">
           Trạng thái:{' '}
           <span className="text-amber-400 font-mono font-bold">
             {session.status === 'awaiting_approval' ? 'paused' : session.status}
@@ -409,13 +409,13 @@ export default function ScriptWorkspaceView({
         </div>
 
         {/* 2. Box: Điểm Kịch Bản (Script Evaluation Box) */}
-        <div className="rounded-2xl border border-slate-800/90 bg-[#0B101E] p-4 space-y-3.5 shadow-md">
+        <div className="rounded-lg border border-border bg-[#0B101E] p-4 space-y-3.5">
           {/* Header row */}
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-3">
-              <span className="flex items-center gap-1.5 text-xs font-bold text-slate-300 uppercase tracking-wider">
-                <span className="text-rose-400">🎯</span> Điểm kịch bản
-                <HelpCircle className="h-3.5 w-3.5 text-slate-500 cursor-help" />
+              <span className="flex items-center gap-1.5 text-xs font-bold text-text uppercase tracking-wider">
+                Điểm kịch bản
+                <HelpCircle className="h-3.5 w-3.5 text-text-muted cursor-help" />
               </span>
 
               {evaluation && (
@@ -423,7 +423,7 @@ export default function ScriptWorkspaceView({
                   <span className="text-base font-extrabold text-white">
                     {evaluation.overallScore}/100
                   </span>
-                  <span className="text-[11px] text-slate-400">
+                  <span className="text-[11px] text-text-muted">
                     Thấp nhất {evaluation.lowestScore}/10
                   </span>
                   {evaluation.failedCriteria.length > 0 && (
@@ -441,10 +441,10 @@ export default function ScriptWorkspaceView({
                 type="button"
                 onClick={handleEvaluate}
                 disabled={isEvaluating}
-                className="flex items-center gap-1 rounded-lg border border-slate-800 bg-[#0F1626] px-2.5 py-1 text-[11px] text-slate-300 hover:text-white transition cursor-pointer"
+                className="flex items-center gap-1 rounded-lg border border-border bg-[#0F1626] px-2.5 py-1 text-[11px] text-text hover:text-white transition cursor-pointer"
                 title="Chấm lại điểm bằng AI"
               >
-                <RotateCcw className={`h-3 w-3 ${isEvaluating ? 'animate-spin text-brand-cyan' : ''}`} />
+                <RotateCcw className={`h-3 w-3 ${isEvaluating ? 'animate-spin text-accent' : ''}`} />
                 <span>{isEvaluating ? 'Đang chấm...' : 'Chấm lại điểm'}</span>
               </button>
 
@@ -452,7 +452,7 @@ export default function ScriptWorkspaceView({
                 <button
                   type="button"
                   onClick={handleUndo}
-                  className="flex items-center gap-1 rounded-lg border border-slate-800 bg-[#0F1626] px-2.5 py-1 text-[11px] text-slate-300 hover:text-white transition cursor-pointer"
+                  className="flex items-center gap-1 rounded-lg border border-border bg-[#0F1626] px-2.5 py-1 text-[11px] text-text hover:text-white transition cursor-pointer"
                 >
                   <RotateCcw className="h-3 w-3" />
                   <span>Hoàn tác lượt sửa</span>
@@ -486,7 +486,7 @@ export default function ScriptWorkspaceView({
                   );
                 })}
               </div>
-              <p className="text-[11px] text-slate-500 italic">
+              <p className="text-[11px] text-text-muted italic">
                 Thang 0-10 mỗi tiêu chí — Đạt = MỌI tiêu chí &ge; 8
               </p>
             </div>
@@ -494,15 +494,15 @@ export default function ScriptWorkspaceView({
 
           {/* Critique text */}
           {evaluation?.critique && (
-            <p className="text-xs text-slate-300 leading-relaxed">
+            <p className="text-xs text-text leading-relaxed">
               {evaluation.critique}
             </p>
           )}
 
           {/* Notice banner for Web Automation mode */}
           {evaluation?.notice && (
-            <div className="rounded-xl border border-amber-500/30 bg-amber-950/20 px-3 py-2 text-[11px] text-amber-200/90 leading-relaxed flex items-start gap-2">
-              <span className="text-amber-400 shrink-0">💡</span>
+            <div className="rounded-md border border-amber-500/30 bg-amber-950/20 px-3 py-2 text-[11px] text-amber-200/90 leading-relaxed flex items-start gap-2">
+              
               <span>{evaluation.notice}</span>
             </div>
           )}
@@ -513,7 +513,7 @@ export default function ScriptWorkspaceView({
               type="button"
               onClick={handleImproveScore}
               disabled={isRefining}
-              className="inline-flex items-center gap-1.5 rounded-xl bg-teal-600/90 hover:bg-teal-500 px-3.5 py-1.5 text-xs font-bold text-white shadow transition active:scale-95 disabled:opacity-50 cursor-pointer"
+              className="inline-flex items-center gap-1.5 rounded-md bg-teal-600/90 hover:bg-teal-500 px-3.5 py-1.5 text-xs font-bold text-white shadow transition active:scale-95 disabled:opacity-50 cursor-pointer"
             >
               {isRefining ? (
                 <>
@@ -532,30 +532,30 @@ export default function ScriptWorkspaceView({
               type="button"
               onClick={() => setCustomPromptModalOpen(true)}
               disabled={isRefining}
-              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-900/80 hover:bg-slate-800 px-3.5 py-1.5 text-xs font-semibold text-slate-200 transition active:scale-95 disabled:opacity-50 cursor-pointer"
+              className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface hover:bg-surface-2 px-3.5 py-1.5 text-xs font-semibold text-text transition active:scale-95 disabled:opacity-50 cursor-pointer"
             >
-              <span>✍️ Yêu cầu của tôi</span>
+              <span>Yêu cầu của tôi</span>
             </button>
           </div>
         </div>
 
         {/* 3. Box: Kịch Bản (Script Lines & Direct Inline Editing) */}
-        <div className="rounded-2xl border border-slate-800/90 bg-[#0B101E] p-4 space-y-3 shadow-md">
+        <div className="rounded-lg border border-border bg-[#0B101E] p-4 space-y-3">
           {/* Header row */}
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-2.5">
               <span className="text-xs font-bold text-white flex items-center gap-1.5">
-                <FileText className="h-3.5 w-3.5 text-brand-cyan" />
+                <FileText className="h-3.5 w-3.5 text-accent" />
                 Kịch bản
               </span>
-              <span className="text-[11px] font-mono text-slate-400">
+              <span className="text-[11px] font-mono text-text-muted">
                 {stats.count} câu &bull; {stats.words} từ &bull; {stats.duration}
               </span>
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
               {/* Quick height buttons */}
-              <div className="flex items-center rounded-lg border border-slate-800 bg-[#090E1A] p-0.5 text-[10px]">
+              <div className="flex items-center rounded-lg border border-border bg-[#090E1A] p-0.5 text-[10px]">
                 <button
                   type="button"
                   onClick={() => {
@@ -564,12 +564,12 @@ export default function ScriptWorkspaceView({
                   }}
                   className={`px-2 py-0.5 rounded transition cursor-pointer ${
                     !isScriptExpanded && scriptHeight <= 220
-                      ? 'bg-brand-cyan/20 text-brand-cyan font-bold'
-                      : 'text-slate-400 hover:text-white'
+                      ? 'bg-accent-tint text-accent font-bold'
+                      : 'text-text-muted hover:text-white'
                   }`}
                   title="Thu ngắn danh sách câu kịch bản còn 200px để dễ nhìn thông tin ý tưởng"
                 >
-                  📐 Thu ngắn (200px)
+                  Thu ngắn (200px)
                 </button>
                 <button
                   type="button"
@@ -579,20 +579,20 @@ export default function ScriptWorkspaceView({
                   }}
                   className={`px-2 py-0.5 rounded transition cursor-pointer ${
                     !isScriptExpanded && scriptHeight > 220 && scriptHeight <= 450
-                      ? 'bg-brand-cyan/20 text-brand-cyan font-bold'
-                      : 'text-slate-400 hover:text-white'
+                      ? 'bg-accent-tint text-accent font-bold'
+                      : 'text-text-muted hover:text-white'
                   }`}
                   title="Độ cao vừa phải (360px)"
                 >
-                  📏 Vừa (360px)
+                  Vừa (360px)
                 </button>
                 <button
                   type="button"
                   onClick={() => setIsScriptExpanded((prev) => !prev)}
                   className={`px-2 py-0.5 rounded transition cursor-pointer ${
                     isScriptExpanded
-                      ? 'bg-brand-cyan/20 text-brand-cyan font-bold'
-                      : 'text-slate-400 hover:text-white'
+                      ? 'bg-accent-tint text-accent font-bold'
+                      : 'text-text-muted hover:text-white'
                   }`}
                   title={isScriptExpanded ? 'Thu lại độ cao mặc định' : 'Mở rộng hiển thị toàn bộ kịch bản'}
                 >
@@ -604,18 +604,18 @@ export default function ScriptWorkspaceView({
                 <button
                   type="button"
                   onClick={handleFocusIdeaSection}
-                  className="inline-flex items-center gap-1 rounded-lg border border-amber-500/40 bg-amber-950/25 px-2.5 py-1 text-[11px] font-medium text-amber-300 hover:bg-amber-900/40 hover:text-amber-100 transition cursor-pointer shadow-sm"
+                  className="inline-flex items-center gap-1 rounded-lg border border-amber-500/40 bg-amber-950/25 px-2.5 py-1 text-[11px] font-medium text-amber-300 hover:bg-amber-900/40 hover:text-amber-100 transition cursor-pointer"
                   title="Thu gọn kịch bản và cuộn tới Thông tin ý tưởng & nhân vật"
                 >
                   <Lightbulb className="h-3 w-3 text-amber-400" />
-                  <span>💡 Xem thông tin ý tưởng</span>
+                  <span>Xem thông tin ý tưởng</span>
                 </button>
               )}
 
               <button
                 type="button"
                 onClick={handleCopyScript}
-                className="inline-flex items-center gap-1 rounded-lg border border-slate-800 bg-[#0F1626] px-2.5 py-1 text-[11px] text-slate-300 hover:text-white transition cursor-pointer"
+                className="inline-flex items-center gap-1 rounded-lg border border-border bg-[#0F1626] px-2.5 py-1 text-[11px] text-text hover:text-white transition cursor-pointer"
               >
                 <Copy className="h-3 w-3" />
                 <span>Sao chép</span>
@@ -624,7 +624,7 @@ export default function ScriptWorkspaceView({
               <button
                 type="button"
                 onClick={() => handleStartEditLine(0)}
-                className="inline-flex items-center gap-1 rounded-lg border border-slate-800 bg-[#0F1626] px-2.5 py-1 text-[11px] text-slate-300 hover:text-white transition cursor-pointer"
+                className="inline-flex items-center gap-1 rounded-lg border border-border bg-[#0F1626] px-2.5 py-1 text-[11px] text-text hover:text-white transition cursor-pointer"
               >
                 <Edit3 className="h-3 w-3" />
                 <span>Sửa kịch bản</span>
@@ -658,15 +658,15 @@ export default function ScriptWorkspaceView({
                   key={line.id || idx}
                   className={`pt-2.5 flex items-start gap-3 rounded-lg p-2 transition ${
                     isEditing
-                      ? 'bg-slate-900/90 ring-1 ring-brand-cyan/50'
-                      : 'hover:bg-slate-900/40 cursor-text'
+                      ? 'bg-surface ring-1 ring-accent/30'
+                      : 'hover:bg-surface cursor-text'
                   }`}
                   onClick={() => {
                     if (!isEditing) handleStartEditLine(idx);
                   }}
                 >
                   {/* Timestamp */}
-                  <span className="font-mono text-xs text-slate-500 shrink-0 select-none pt-0.5 w-10">
+                  <span className="font-mono text-xs text-text-muted shrink-0 select-none pt-0.5 w-10">
                     {timeLabel}
                   </span>
 
@@ -679,7 +679,7 @@ export default function ScriptWorkspaceView({
                           onChange={(e) => setEditingText(e.target.value)}
                           rows={3}
                           autoFocus
-                          className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white focus:border-brand-cyan focus:outline-none"
+                          className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-xs text-white focus:border-accent/40 focus:outline-none"
                           onKeyDown={(e) => {
                             if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
                               handleSaveInlineEdit(idx);
@@ -692,14 +692,14 @@ export default function ScriptWorkspaceView({
                           <button
                             type="button"
                             onClick={() => setEditingLineIndex(null)}
-                            className="rounded px-2.5 py-1 text-[11px] text-slate-400 hover:text-white"
+                            className="rounded px-2.5 py-1 text-[11px] text-text-muted hover:text-white"
                           >
                             Hủy
                           </button>
                           <button
                             type="button"
                             onClick={() => handleSaveInlineEdit(idx)}
-                            className="inline-flex items-center gap-1 rounded bg-brand-cyan hover:bg-cyan-400 px-3 py-1 text-[11px] font-bold text-slate-950"
+                            className="inline-flex items-center gap-1 rounded bg-accent hover:bg-cyan-400 px-3 py-1 text-[11px] font-bold text-slate-950"
                           >
                             <Check className="h-3 w-3" />
                             <span>Lưu câu thoại</span>
@@ -707,7 +707,7 @@ export default function ScriptWorkspaceView({
                         </div>
                       </div>
                     ) : (
-                      <p className="text-xs text-slate-200 leading-relaxed font-normal">
+                      <p className="text-xs text-text leading-relaxed font-normal">
                         {line.text}
                       </p>
                     )}
@@ -723,8 +723,8 @@ export default function ScriptWorkspaceView({
             onDoubleClick={() => setIsScriptExpanded((prev) => !prev)}
             className={`w-full py-1.5 flex items-center justify-center gap-2 rounded-lg border border-dashed transition select-none cursor-row-resize ${
               isResizingScript
-                ? 'border-brand-cyan bg-brand-cyan/10 text-brand-cyan'
-                : 'border-slate-800/80 bg-slate-900/40 text-slate-500 hover:border-slate-700 hover:bg-slate-900/80 hover:text-slate-300'
+                ? 'border-accent/40 bg-accent-tint text-accent'
+                : 'border-border bg-surface text-text-muted hover:border-border hover:bg-surface hover:text-text'
             }`}
             title="Kéo lên/xuống để chỉnh độ dài kịch bản • Nhấp đúp để mở rộng toàn bộ"
           >
@@ -741,18 +741,18 @@ export default function ScriptWorkspaceView({
         {blueprint && (
           <div
             ref={ideaSectionRef}
-            className="rounded-2xl border border-amber-500/40 bg-[#0B101E] overflow-hidden shadow-md"
+            className="rounded-lg border border-amber-500/40 bg-[#0B101E] overflow-hidden"
           >
             <button
               type="button"
               onClick={() => setIsIdeaAccordionOpen((prev) => !prev)}
-              className="w-full flex items-center justify-between p-3.5 text-xs font-bold text-white hover:bg-slate-900/60 transition cursor-pointer"
+              className="w-full flex items-center justify-between p-3.5 text-xs font-bold text-white hover:bg-surface transition cursor-pointer"
             >
               <div className="flex items-center gap-2">
                 <Lightbulb className="h-4 w-4 text-amber-400" />
                 <span>Thông tin ý tưởng &amp; Thiết lập nhân vật</span>
                 {blueprint.thumbnailPrompt && (
-                  <span className="rounded bg-brand-cyan/10 border border-brand-cyan/30 px-2 py-0.5 text-[10px] font-mono text-brand-cyan">
+                  <span className="rounded bg-accent-tint border border-accent/40 px-2 py-0.5 text-[10px] font-mono text-accent">
                     Có Thumbnail AI Prompt
                   </span>
                 )}
@@ -770,11 +770,11 @@ export default function ScriptWorkspaceView({
             </button>
 
             {isIdeaAccordionOpen && (
-              <div className="p-4 pt-2 border-t border-slate-800/80 space-y-4 text-xs">
+              <div className="p-4 pt-2 border-t border-border space-y-4 text-xs">
                 
                 {/* 1. Host / Character details card */}
                 {(config.channelProfile?.hostName || config.channelProfile?.hostDescription || (config.channelProfile?.channelCharacters && config.channelProfile.channelCharacters.length > 0)) && (
-                  <div className="rounded-xl border border-pink-500/30 bg-pink-950/15 p-3 space-y-2">
+                  <div className="rounded-md border border-pink-500/30 bg-pink-950/15 p-3 space-y-2">
                     <div className="flex items-center justify-between">
                       <span className="flex items-center gap-1.5 font-bold text-pink-300 text-xs">
                         <User className="h-3.5 w-3.5 text-pink-400" />
@@ -803,11 +803,11 @@ export default function ScriptWorkspaceView({
                           <span className="font-bold text-white text-xs">
                             {config.channelProfile?.hostName || 'Nhân vật chính'}
                           </span>
-                          <span className="text-[10px] text-slate-400 font-mono">
+                          <span className="text-[10px] text-text-muted font-mono">
                             (Host đại diện)
                           </span>
                         </div>
-                        <p className="text-[11px] text-slate-300 leading-relaxed">
+                        <p className="text-[11px] text-text leading-relaxed">
                           {config.channelProfile?.hostDescription || 'Chưa thiết lập mô tả diện mạo chi tiết.'}
                         </p>
                       </div>
@@ -826,7 +826,7 @@ export default function ScriptWorkspaceView({
                               className="rounded-lg bg-black/30 border border-pink-500/20 p-2 text-[11px] space-y-0.5"
                             >
                               <span className="font-bold text-white">{char.name}</span>
-                              <p className="text-slate-400 text-[10px] line-clamp-2">{char.descriptionEn}</p>
+                              <p className="text-text-muted text-[10px] line-clamp-2">{char.descriptionEn}</p>
                             </div>
                           ))}
                         </div>
@@ -836,7 +836,7 @@ export default function ScriptWorkspaceView({
                 )}
 
                 {/* 2. Thumbnail Concept & Prompt card */}
-                <div className="rounded-xl border border-indigo-500/30 bg-indigo-950/20 p-3 space-y-2.5">
+                <div className="rounded-md border border-indigo-500/30 bg-indigo-950/20 p-3 space-y-2.5">
                   <div className="flex items-center justify-between">
                     <span className="flex items-center gap-1.5 font-bold text-indigo-300 text-xs">
                       <ImageIcon className="h-3.5 w-3.5 text-indigo-400" />
@@ -846,7 +846,7 @@ export default function ScriptWorkspaceView({
                       <button
                         type="button"
                         onClick={() => handleCopyThumbPrompt(blueprint.thumbnailPrompt || '')}
-                        className="inline-flex items-center gap-1 rounded border border-indigo-500/40 bg-indigo-900/40 px-2.5 py-1 text-[10px] font-bold text-indigo-200 hover:bg-indigo-800 transition cursor-pointer shadow-sm"
+                        className="inline-flex items-center gap-1 rounded border border-indigo-500/40 bg-indigo-900/40 px-2.5 py-1 text-[10px] font-bold text-indigo-200 hover:bg-indigo-800 transition cursor-pointer"
                       >
                         <Copy className="h-3 w-3" />
                         <span>{copiedThumbPrompt ? '✓ Đã sao chép prompt!' : 'Sao chép Prompt AI'}</span>
@@ -856,10 +856,10 @@ export default function ScriptWorkspaceView({
 
                   {blueprint.thumbnailConcept && (
                     <div className="space-y-1">
-                      <span className="text-[11px] font-medium text-slate-400">
+                      <span className="text-[11px] font-medium text-text-muted">
                         Ý tưởng thị giác (Thumbnail Concept):
                       </span>
-                      <p className="text-slate-200 text-xs leading-relaxed bg-black/30 p-2.5 rounded-lg border border-indigo-500/20">
+                      <p className="text-text text-xs leading-relaxed bg-black/30 p-2.5 rounded-lg border border-indigo-500/20">
                         {blueprint.thumbnailConcept}
                       </p>
                     </div>
@@ -871,13 +871,13 @@ export default function ScriptWorkspaceView({
                         <span>Prompt tạo ảnh AI (Tiếng Anh - chuẩn Midjourney / Flux / DALL-E 3):</span>
                       </span>
                       <div className="relative group">
-                        <pre className="font-mono text-[11px] text-slate-300 leading-relaxed bg-[#060913] p-2.5 rounded-lg border border-slate-800 whitespace-pre-wrap break-words max-h-36 overflow-y-auto custom-scrollbar">
+                        <pre className="font-mono text-[11px] text-text leading-relaxed bg-[#060913] p-2.5 rounded-lg border border-border whitespace-pre-wrap break-words max-h-36 overflow-y-auto custom-scrollbar">
                           {blueprint.thumbnailPrompt}
                         </pre>
                       </div>
                     </div>
                   ) : (
-                    <p className="text-[11px] text-slate-500 italic">
+                    <p className="text-[11px] text-text-muted italic">
                       Chưa có prompt ảnh tiếng Anh.
                     </p>
                   )}
@@ -886,23 +886,23 @@ export default function ScriptWorkspaceView({
                 {/* 3. Narrative, Format & Outline */}
                 <div className="space-y-2.5 pt-1">
                   <div className="grid grid-cols-12 gap-3">
-                    <span className="col-span-3 text-slate-400 font-medium">Góc nhìn</span>
-                    <span className="col-span-9 text-slate-200 leading-relaxed">
+                    <span className="col-span-3 text-text-muted font-medium">Góc nhìn</span>
+                    <span className="col-span-9 text-text leading-relaxed">
                       {blueprint.narrativeAngle || 'Chưa có thông tin'}
                     </span>
                   </div>
 
                   <div className="grid grid-cols-12 gap-3">
-                    <span className="col-span-3 text-slate-400 font-medium">Định dạng</span>
-                    <span className="col-span-9 text-slate-200 font-mono">
+                    <span className="col-span-3 text-text-muted font-medium">Định dạng</span>
+                    <span className="col-span-9 text-text font-mono">
                       {blueprint.aspectRatio === '9:16' ? 'Shorts (9:16)' : 'Video dài (16:9)'}
                     </span>
                   </div>
 
                   {blueprint.outline && blueprint.outline.length > 0 && (
                     <div className="grid grid-cols-12 gap-3">
-                      <span className="col-span-3 text-slate-400 font-medium">Dàn ý phân đoạn</span>
-                      <div className="col-span-9 space-y-1 text-slate-300">
+                      <span className="col-span-3 text-text-muted font-medium">Dàn ý phân đoạn</span>
+                      <div className="col-span-9 space-y-1 text-text">
                         {blueprint.outline.map((beat, bIdx) => (
                           <div key={bIdx} className="leading-relaxed">
                             &bull; {beat}
@@ -913,16 +913,16 @@ export default function ScriptWorkspaceView({
                   )}
 
                   <div className="grid grid-cols-12 gap-3">
-                    <span className="col-span-3 text-slate-400 font-medium">Thời lượng ước tính</span>
-                    <span className="col-span-9 text-slate-200 font-mono">
+                    <span className="col-span-3 text-text-muted font-medium">Thời lượng ước tính</span>
+                    <span className="col-span-9 text-text font-mono">
                       {blueprint.estimatedDurationSec || 600} giây ({Math.round((blueprint.estimatedDurationSec || 600) / 60)} phút)
                     </span>
                   </div>
 
                   {blueprint.targetAudience && (
                     <div className="grid grid-cols-12 gap-3">
-                      <span className="col-span-3 text-slate-400 font-medium">Khán giả mục tiêu</span>
-                      <span className="col-span-9 text-slate-200">
+                      <span className="col-span-3 text-text-muted font-medium">Khán giả mục tiêu</span>
+                      <span className="col-span-9 text-text">
                         {blueprint.targetAudience}
                       </span>
                     </div>
@@ -937,14 +937,14 @@ export default function ScriptWorkspaceView({
       </div>
 
       {/* 5. Bottom Action Bar matching Revo Studio */}
-      <div className="p-3.5 border-t border-slate-800/80 bg-[#080C14] flex flex-wrap items-center justify-between gap-3 shrink-0">
+      <div className="p-3.5 border-t border-border bg-[#080C14] flex flex-wrap items-center justify-between gap-3 shrink-0">
         <div className="flex flex-wrap items-center gap-2">
           {/* Nút Tiếp tục: Duyệt kịch bản & Lồng tiếng */}
           <button
             type="button"
             onClick={onProceedToVoice}
             disabled={isRunning}
-            className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:brightness-110 px-4 py-2 text-xs font-bold text-white shadow-md active:scale-95 transition cursor-pointer disabled:opacity-50"
+            className="inline-flex items-center gap-2 rounded-md bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:brightness-110 px-4 py-2 text-xs font-bold text-white active:scale-95 transition cursor-pointer disabled:opacity-50"
             title="Duyệt kịch bản hiện tại và tiếp tục sang bước Lồng tiếng"
           >
             <Mic className="h-3.5 w-3.5" />
@@ -956,7 +956,7 @@ export default function ScriptWorkspaceView({
             <button
               type="button"
               onClick={onCancelProcess}
-              className="inline-flex items-center gap-1.5 rounded-xl border border-rose-800/80 bg-rose-950/60 hover:bg-rose-900/80 px-3.5 py-2 text-xs font-bold text-rose-200 transition active:scale-95 cursor-pointer shadow-sm shadow-rose-950/40"
+              className="inline-flex items-center gap-1.5 rounded-md border border-rose-800/80 bg-rose-950/60 hover:bg-rose-900/80 px-3.5 py-2 text-xs font-bold text-rose-200 transition active:scale-95 cursor-pointer"
               title="Dừng / Hủy tiến trình đang chạy (giữ nguyên dữ liệu kịch bản)"
             >
               <Square className="h-3 w-3 fill-rose-400 text-rose-400" />
@@ -969,9 +969,9 @@ export default function ScriptWorkspaceView({
             type="button"
             onClick={onRegenerateScript}
             disabled={isRunning}
-            className="inline-flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-900/90 hover:bg-slate-800 px-3.5 py-2 text-xs font-semibold text-slate-200 transition active:scale-95 cursor-pointer disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface hover:bg-surface-2 px-3.5 py-2 text-xs font-semibold text-text transition active:scale-95 cursor-pointer disabled:opacity-50"
           >
-            <RotateCcw className="h-3.5 w-3.5 text-brand-cyan" />
+            <RotateCcw className="h-3.5 w-3.5 text-accent" />
             <span>Tạo lại kịch bản</span>
           </button>
 
@@ -979,7 +979,7 @@ export default function ScriptWorkspaceView({
           <button
             type="button"
             onClick={onBackToIdeas}
-            className="inline-flex items-center gap-1.5 rounded-xl border border-slate-800 bg-slate-900/50 hover:bg-slate-800 px-3.5 py-2 text-xs font-semibold text-slate-400 hover:text-white transition active:scale-95 cursor-pointer"
+            className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface hover:bg-surface-2 px-3.5 py-2 text-xs font-semibold text-text-muted hover:text-white transition active:scale-95 cursor-pointer"
           >
             <ArrowLeft className="h-3.5 w-3.5" />
             <span>Quay lại Ý Tưởng</span>
@@ -991,7 +991,7 @@ export default function ScriptWorkspaceView({
             <button
               type="button"
               onClick={onDeleteVideo}
-              className="inline-flex items-center gap-1 text-slate-500 hover:text-rose-400 text-xs transition cursor-pointer px-2 py-1"
+              className="inline-flex items-center gap-1 text-text-muted hover:text-rose-400 text-xs transition cursor-pointer px-2 py-1"
               title="Xoá video khỏi phiên làm việc"
             >
               <Trash2 className="h-3.5 w-3.5" />
@@ -999,7 +999,7 @@ export default function ScriptWorkspaceView({
             </button>
           )}
 
-          <span className="text-[11px] font-mono text-slate-500 bg-slate-900/80 px-2 py-1 rounded">
+          <span className="text-[11px] font-mono text-text-muted bg-surface px-2 py-1 rounded">
             video {session.sessionId ? session.sessionId.slice(0, 8) : '00000000'}
           </span>
         </div>
@@ -1007,22 +1007,22 @@ export default function ScriptWorkspaceView({
 
       {/* Modal Yêu cầu của tôi (Custom Refinement Prompt) */}
       {customPromptModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-          <div className="w-full max-w-md rounded-2xl border border-slate-800 bg-[#0B1120] p-5 space-y-4 shadow-2xl animate-in zoom-in-95">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+          <div className="w-full max-w-md rounded-lg border border-border bg-[#0B1120] p-5 space-y-4 animate-in zoom-in-95">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                <span>✍️</span> Yêu cầu chỉnh sửa kịch bản
+                Yêu cầu chỉnh sửa kịch bản
               </h3>
               <button
                 type="button"
                 onClick={() => setCustomPromptModalOpen(false)}
-                className="text-slate-500 hover:text-white text-xs"
+                className="text-text-muted hover:text-white text-xs"
               >
                 ✕
               </button>
             </div>
 
-            <p className="text-xs text-slate-400 leading-relaxed">
+            <p className="text-xs text-text-muted leading-relaxed">
               Nhập chỉ dẫn cho AI (VD: &ldquo;Viết đoạn mở đầu giật gân hơn&rdquo;, &ldquo;Rút ngắn câu từ dưới 800 từ&rdquo;, &ldquo;Thêm số liệu khảo cổ&rdquo;):
             </p>
 
@@ -1032,14 +1032,14 @@ export default function ScriptWorkspaceView({
               placeholder="VD: Hãy làm cho câu Hook 6 giây đầu dồn dập hơn và bổ sung mốc thời gian cụ thể..."
               rows={4}
               autoFocus
-              className="w-full rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-white focus:border-brand-cyan focus:outline-none"
+              className="w-full rounded-md border border-border bg-surface px-3 py-2 text-xs text-white focus:border-accent/40 focus:outline-none"
             />
 
             <div className="flex justify-end gap-2">
               <button
                 type="button"
                 onClick={() => setCustomPromptModalOpen(false)}
-                className="rounded-lg px-3 py-1.5 text-xs text-slate-400 hover:text-white"
+                className="rounded-lg px-3 py-1.5 text-xs text-text-muted hover:text-white"
               >
                 Hủy
               </button>
@@ -1047,7 +1047,7 @@ export default function ScriptWorkspaceView({
                 type="button"
                 onClick={handleCustomPromptSubmit}
                 disabled={!customPromptText.trim()}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-brand-cyan hover:bg-cyan-400 px-4 py-1.5 text-xs font-bold text-slate-950 transition disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 rounded-lg bg-accent hover:bg-cyan-400 px-4 py-1.5 text-xs font-bold text-slate-950 transition disabled:opacity-50"
               >
                 <Send className="h-3 w-3" />
                 <span>Gửi yêu cầu</span>

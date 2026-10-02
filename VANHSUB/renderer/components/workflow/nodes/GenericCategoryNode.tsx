@@ -129,7 +129,7 @@ function GenericCategoryNodeComponent({ id, data, selected }: NodeProps<Workflow
   const IconComponent = CATEGORY_ICONS[category] || Layers;
 
   // Trạng thái viền node (theo mục 4.2 đặc tả: xám -> vàng nhấp nháy -> xanh -> đỏ)
-  let borderStatusClass = 'border-slate-800 hover:border-slate-600';
+  let borderStatusClass = 'border-border hover:border-border-strong';
   let statusBadge = null;
 
   if (runtime.status === 'running') {
@@ -211,14 +211,14 @@ function GenericCategoryNodeComponent({ id, data, selected }: NodeProps<Workflow
 
   return (
     <div
-      className={`min-w-[260px] max-w-[340px] rounded-xl bg-[#111827]/95 backdrop-blur-md border-2 transition-all duration-200 text-slate-100 shadow-2xl relative ${borderStatusClass}`}
+      className={`min-w-[260px] max-w-[340px] rounded-md bg-[#111827]/95  border-2 transition-all duration-200 text-text  relative ${borderStatusClass}`}
       style={{
         boxShadow: selected ? `0 0 25px ${catStyle.glowColor}` : undefined,
       }}
     >
       {/* Node Header */}
       <div
-        className={`px-3 py-2.5 rounded-t-[10px] bg-gradient-to-r ${catStyle.headerBg} border-b border-slate-800/80 flex items-center justify-between gap-2`}
+        className={`px-3 py-2.5 rounded-t-[10px] bg-gradient-to-r ${catStyle.headerBg} border-b border-border flex items-center justify-between gap-2`}
       >
         <div className="flex items-center gap-2 overflow-hidden">
           <div className="p-1 rounded-md bg-black/40 border border-white/10 text-white">
@@ -228,7 +228,7 @@ function GenericCategoryNodeComponent({ id, data, selected }: NodeProps<Workflow
             <div className="text-xs font-semibold text-white tracking-wide truncate">
               {nodeData.label || def?.label || nodeData.nodeType}
             </div>
-            <div className="text-[10px] text-slate-400 flex items-center gap-1.5 font-mono">
+            <div className="text-[10px] text-text-muted flex items-center gap-1.5 font-mono">
               <span className={`px-1.5 py-0.2 rounded ${catStyle.badgeBg} ${catStyle.badgeText} text-[9px] font-sans font-medium`}>
                 {catStyle.label.split(' ')[0]}
               </span>
@@ -247,10 +247,10 @@ function GenericCategoryNodeComponent({ id, data, selected }: NodeProps<Workflow
             }}
             disabled={runtime.status === 'running'}
             title="Chạy riêng node này (Run node)"
-            className={`p-1 rounded-md transition-all flex items-center justify-center cursor-pointer shadow-sm ${
+            className={`p-1 rounded-md transition-all flex items-center justify-center cursor-pointer  ${
               runtime.status === 'running'
                 ? 'text-amber-400 bg-amber-950/80 border border-amber-500/40 animate-pulse'
-                : 'text-indigo-200 hover:text-white hover:bg-indigo-600/80 bg-slate-900/80 border border-indigo-500/30 hover:border-indigo-400'
+                : 'text-indigo-200 hover:text-white hover:bg-indigo-600/80 bg-surface border border-indigo-500/30 hover:border-indigo-400'
             }`}
           >
             {runtime.status === 'running' ? (
@@ -265,7 +265,7 @@ function GenericCategoryNodeComponent({ id, data, selected }: NodeProps<Workflow
               removeNode(id);
             }}
             title="Xóa Node"
-            className="p-1 text-slate-400 hover:text-rose-400 hover:bg-rose-950/40 rounded transition-colors"
+            className="p-1 text-text-muted hover:text-rose-400 hover:bg-rose-950/40 rounded transition-colors"
           >
             <X className="w-3.5 h-3.5" />
           </button>
@@ -298,7 +298,7 @@ function GenericCategoryNodeComponent({ id, data, selected }: NodeProps<Workflow
                       className="w-2 h-2 rounded-full shrink-0"
                       style={{ backgroundColor: pStyle.color }}
                     />
-                    <span className="text-[11px] text-slate-300 font-medium truncate" title={port.description || port.label}>
+                    <span className="text-[11px] text-text font-medium truncate" title={port.description || port.label}>
                       {port.label}
                     </span>
                   </div>
@@ -312,7 +312,7 @@ function GenericCategoryNodeComponent({ id, data, selected }: NodeProps<Workflow
                 const pStyle = PORT_STYLES[port.dataType as PortDataType] || PORT_STYLES.any;
                 return (
                   <div key={port.id} className="relative flex items-center justify-end gap-2 w-full group">
-                    <span className="text-[11px] text-slate-300 font-medium truncate" title={port.description || port.label}>
+                    <span className="text-[11px] text-text font-medium truncate" title={port.description || port.label}>
                       {port.label}
                     </span>
                     <div
@@ -338,10 +338,10 @@ function GenericCategoryNodeComponent({ id, data, selected }: NodeProps<Workflow
         )}
 
         {/* Quick Preview of Parameters */}
-        <div className="pt-2 border-t border-slate-800/80 space-y-1.5 text-[11px] text-slate-400">
+        <div className="pt-2 border-t border-border space-y-1.5 text-[11px] text-text-muted">
           {(config.prompt || config.stylePrompt || config.description) && (
             <div
-              className="bg-slate-900/80 p-2 rounded border border-slate-800/60 font-mono text-[10px] text-slate-300 line-clamp-3 leading-relaxed"
+              className="bg-surface p-2 rounded border border-border font-mono text-[10px] text-text line-clamp-3 leading-relaxed"
               title={config.prompt || config.stylePrompt || config.description}
             >
               "{config.prompt || config.stylePrompt || config.description}"
@@ -359,7 +359,7 @@ function GenericCategoryNodeComponent({ id, data, selected }: NodeProps<Workflow
             {creditEst.credits > 0 ? (
               <span
                 title={`Ước tính tiêu tốn: ~${creditEst.credits} Credits (~$${creditEst.costUsd} USD) cho ${creditEst.detail}`}
-                className="px-1.5 py-0.5 rounded bg-amber-950/70 border border-amber-700/70 text-[10px] text-amber-300 font-mono font-bold flex items-center gap-1 shadow-sm"
+                className="px-1.5 py-0.5 rounded bg-amber-950/70 border border-amber-700/70 text-[10px] text-amber-300 font-mono font-bold flex items-center gap-1"
               >
                 <Coins className="w-2.5 h-2.5 text-amber-400" />
                 <span>~{creditEst.credits} Cr</span>
@@ -367,26 +367,26 @@ function GenericCategoryNodeComponent({ id, data, selected }: NodeProps<Workflow
             ) : nodeData.nodeType === 'google-imagen' ? (
               <span
                 title="Tạo ảnh Keyframe bằng Google Imagen 3 hoàn toàn miễn phí (0 Credit)"
-                className="px-1.5 py-0.5 rounded bg-emerald-950/70 border border-emerald-700/70 text-[10px] text-emerald-300 font-mono font-bold flex items-center gap-1 shadow-sm"
+                className="px-1.5 py-0.5 rounded bg-emerald-950/70 border border-emerald-700/70 text-[10px] text-emerald-300 font-mono font-bold flex items-center gap-1"
               >
-                <span>✨ 0 Cr (Free)</span>
+                <span>0 Cr (Free)</span>
               </span>
             ) : null}
             {config.colorPalette && (
               <span className="px-1.5 py-0.5 rounded bg-pink-950/60 border border-pink-800/50 text-[10px] text-pink-300 truncate max-w-[140px]">
-                🎨 {config.colorPalette}
+                {config.colorPalette}
               </span>
             )}
             {config.lensType && (
-              <span className="px-1.5 py-0.5 rounded bg-cyan-950/60 border border-cyan-800/50 text-[10px] text-cyan-300 truncate max-w-[140px]">
-                🔍 {config.lensType}
+              <span className="px-1.5 py-0.5 rounded bg-surface-2 border border-cyan-800/50 text-[10px] text-accent truncate max-w-[140px]">
+                {config.lensType}
               </span>
             )}
             {config.qualityPreset && (
               <span
                 className={`px-1.5 py-0.5 rounded border text-[10px] uppercase font-mono font-semibold ${
                   config.qualityPreset === 'quality'
-                    ? 'bg-purple-950/60 border-purple-800/50 text-purple-300'
+                    ? 'bg-purple-950/60 border-purple-800/50 text-accent'
                     : 'bg-emerald-950/60 border-emerald-800/50 text-emerald-300'
                 }`}
               >
@@ -394,33 +394,33 @@ function GenericCategoryNodeComponent({ id, data, selected }: NodeProps<Workflow
               </span>
             )}
             {config.durationSeconds && (
-              <span className="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800 text-[10px] text-slate-300">
+              <span className="px-1.5 py-0.5 rounded bg-surface border border-border text-[10px] text-text">
                 ⏱ {config.durationSeconds}s
               </span>
             )}
             {config.aspectRatio && (
-              <span className="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800 text-[10px] text-slate-300">
-                📐 {config.aspectRatio}
+              <span className="px-1.5 py-0.5 rounded bg-surface border border-border text-[10px] text-text">
+                {config.aspectRatio}
               </span>
             )}
             {config.fps && (
-              <span className="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800 text-[10px] text-slate-300">
-                🎬 {config.fps} fps
+              <span className="px-1.5 py-0.5 rounded bg-surface border border-border text-[10px] text-text">
+                {config.fps} fps
               </span>
             )}
             {config.modelVariant && (
               <span className="px-1.5 py-0.5 rounded bg-indigo-950/60 border border-indigo-800/50 text-[10px] text-indigo-300 truncate max-w-[140px]">
-                ⚡ {config.modelVariant}
+                {config.modelVariant}
               </span>
             )}
             {config.characterName && (
               <span className="px-1.5 py-0.5 rounded bg-rose-950/60 border border-rose-800/50 text-[10px] text-rose-300 truncate max-w-[140px]">
-                👤 {config.characterName}
+                {config.characterName}
               </span>
             )}
             {config.fileName && (
               <span className="px-1.5 py-0.5 rounded bg-yellow-950/60 border border-yellow-800/50 text-[10px] text-yellow-300 truncate max-w-[140px]">
-                💾 {config.fileName}
+                {config.fileName}
               </span>
             )}
           </div>
@@ -442,8 +442,8 @@ function GenericCategoryNodeComponent({ id, data, selected }: NodeProps<Workflow
           const displayImageUrl = base64Thumb || formatMediaUrl(rawImage);
 
           return (
-            <div className="pt-2 border-t border-slate-800/80">
-              <div className="relative w-full h-36 rounded-lg bg-black/70 border border-slate-800/90 overflow-hidden group nodrag">
+            <div className="pt-2 border-t border-border">
+              <div className="relative w-full h-36 rounded-lg bg-black/70 border border-border overflow-hidden group nodrag">
                 {hasVideo ? (
                   <div className="relative w-full h-full flex items-center justify-center bg-black">
                     <video
@@ -472,15 +472,15 @@ function GenericCategoryNodeComponent({ id, data, selected }: NodeProps<Workflow
                         isPlaying ? 'opacity-0 hover:opacity-100' : 'opacity-100'
                       }`}
                     >
-                      <div className="p-2.5 rounded-full bg-indigo-600/90 hover:bg-indigo-500 text-white shadow-xl backdrop-blur-sm transform group-hover:scale-110 transition-transform">
+                      <div className="p-2.5 rounded-full bg-indigo-600/90 hover:bg-indigo-500 text-white transform group-hover:scale-110 transition-transform">
                         {isPlaying ? <Pause className="w-5 h-5 fill-white" /> : <Play className="w-5 h-5 fill-white ml-0.5" />}
                       </div>
                     </button>
 
                     {/* Video Top Badges */}
                     <div className="absolute top-1.5 left-1.5 flex items-center gap-1 z-10 pointer-events-none">
-                      <span className="px-1.5 py-0.5 rounded bg-black/75 border border-white/10 text-[9px] font-mono font-semibold text-purple-300 flex items-center gap-1 backdrop-blur-sm shadow">
-                        <Film className="w-2.5 h-2.5 text-purple-400" />
+                      <span className="px-1.5 py-0.5 rounded bg-black/75 border border-white/10 text-[9px] font-mono font-semibold text-accent flex items-center gap-1 shadow">
+                        <Film className="w-2.5 h-2.5 text-accent" />
                         <span>Video</span>
                       </span>
                     </div>
@@ -494,7 +494,7 @@ function GenericCategoryNodeComponent({ id, data, selected }: NodeProps<Workflow
                           setIsMuted(!isMuted);
                         }}
                         title={isMuted ? 'Bật âm thanh' : 'Tắt tiếng'}
-                        className="p-1 rounded bg-black/75 hover:bg-slate-800 text-slate-300 hover:text-white border border-white/10 transition-colors cursor-pointer"
+                        className="p-1 rounded bg-black/75 hover:bg-surface-2 text-text hover:text-white border border-white/10 transition-colors cursor-pointer"
                       >
                         {isMuted ? <VolumeX className="w-3 h-3" /> : <Volume2 className="w-3 h-3" />}
                       </button>
@@ -505,7 +505,7 @@ function GenericCategoryNodeComponent({ id, data, selected }: NodeProps<Workflow
                           setShowModal(true);
                         }}
                         title="Phóng to video"
-                        className="p-1 rounded bg-black/75 hover:bg-slate-800 text-slate-300 hover:text-white border border-white/10 transition-colors cursor-pointer"
+                        className="p-1 rounded bg-black/75 hover:bg-surface-2 text-text hover:text-white border border-white/10 transition-colors cursor-pointer"
                       >
                         <Maximize2 className="w-3 h-3" />
                       </button>
@@ -517,7 +517,7 @@ function GenericCategoryNodeComponent({ id, data, selected }: NodeProps<Workflow
                             handleNodeFilePick('video');
                           }}
                           title="Đổi video khác từ máy tính"
-                          className="p-1 rounded bg-black/75 hover:bg-purple-900/80 text-purple-300 hover:text-white border border-purple-500/30 transition-colors cursor-pointer"
+                          className="p-1 rounded bg-black/75 hover:bg-purple-900/80 text-accent hover:text-white border border-accent/40 transition-colors cursor-pointer"
                         >
                           <FileVideo className="w-3 h-3" />
                         </button>
@@ -532,7 +532,7 @@ function GenericCategoryNodeComponent({ id, data, selected }: NodeProps<Workflow
                             }
                           }}
                           title="Mở thư mục chứa video"
-                          className="p-1 rounded bg-black/75 hover:bg-slate-800 text-slate-300 hover:text-white border border-white/10 transition-colors cursor-pointer"
+                          className="p-1 rounded bg-black/75 hover:bg-surface-2 text-text hover:text-white border border-white/10 transition-colors cursor-pointer"
                         >
                           <FolderOpen className="w-3 h-3" />
                         </button>
@@ -564,7 +564,7 @@ function GenericCategoryNodeComponent({ id, data, selected }: NodeProps<Workflow
                     />
                     {/* Image Top Badges */}
                     <div className="absolute top-1.5 left-1.5 flex items-center gap-1 z-10 pointer-events-none">
-                      <span className="px-1.5 py-0.5 rounded bg-black/75 border border-white/10 text-[9px] font-mono font-semibold text-emerald-300 flex items-center gap-1 backdrop-blur-sm shadow">
+                      <span className="px-1.5 py-0.5 rounded bg-black/75 border border-white/10 text-[9px] font-mono font-semibold text-emerald-300 flex items-center gap-1 shadow">
                         <ImageIcon className="w-2.5 h-2.5 text-emerald-400" />
                         <span>Ảnh</span>
                       </span>
@@ -592,7 +592,7 @@ function GenericCategoryNodeComponent({ id, data, selected }: NodeProps<Workflow
                           setShowModal(true);
                         }}
                         title="Phóng to ảnh"
-                        className="p-1 rounded bg-black/75 hover:bg-slate-800 text-slate-300 hover:text-white border border-white/10 transition-colors cursor-pointer"
+                        className="p-1 rounded bg-black/75 hover:bg-surface-2 text-text hover:text-white border border-white/10 transition-colors cursor-pointer"
                       >
                         <Maximize2 className="w-3 h-3" />
                       </button>
@@ -606,7 +606,7 @@ function GenericCategoryNodeComponent({ id, data, selected }: NodeProps<Workflow
                             }
                           }}
                           title="Mở thư mục chứa ảnh"
-                          className="p-1 rounded bg-black/75 hover:bg-slate-800 text-slate-300 hover:text-white border border-white/10 transition-colors cursor-pointer"
+                          className="p-1 rounded bg-black/75 hover:bg-surface-2 text-text hover:text-white border border-white/10 transition-colors cursor-pointer"
                         >
                           <FolderOpen className="w-3 h-3" />
                         </button>
@@ -614,7 +614,7 @@ function GenericCategoryNodeComponent({ id, data, selected }: NodeProps<Workflow
                     </div>
 
                     <div className="absolute inset-0 flex items-center justify-center bg-black/25 opacity-0 group-hover/img:opacity-100 transition-opacity pointer-events-none">
-                      <span className="text-[10px] font-medium text-white px-2 py-1 rounded bg-black/70 backdrop-blur-sm border border-white/10 flex items-center gap-1">
+                      <span className="text-[10px] font-medium text-white px-2 py-1 rounded bg-black/70 border border-white/10 flex items-center gap-1">
                         <Maximize2 className="w-2.5 h-2.5" />
                         <span>Click phóng to</span>
                       </span>
@@ -627,7 +627,7 @@ function GenericCategoryNodeComponent({ id, data, selected }: NodeProps<Workflow
                       <div className="text-[11px] font-semibold text-amber-300">Đang render media...</div>
                       <div className="text-[9px] text-amber-400/80 font-mono mt-0.5">{runtime.progress || 0}% hoàn thành</div>
                     </div>
-                    <div className="w-32 h-1 bg-slate-800 rounded-full overflow-hidden">
+                    <div className="w-32 h-1 bg-surface-2 rounded-full overflow-hidden">
                       <div
                         className="h-full bg-gradient-to-r from-amber-500 to-emerald-400 transition-all duration-300"
                         style={{ width: `${Math.max(5, runtime.progress || 0)}%` }}
@@ -636,14 +636,14 @@ function GenericCategoryNodeComponent({ id, data, selected }: NodeProps<Workflow
                   </div>
                 ) : nodeData.nodeType === 'character-ref' ? (
                   <div className="w-full h-full flex flex-col items-center justify-center gap-1.5 bg-gradient-to-b from-rose-950/30 to-slate-950 p-3 text-center">
-                    <div className="w-10 h-10 rounded-full bg-rose-950/80 border-2 border-rose-500/50 flex items-center justify-center text-rose-300 font-bold text-sm shadow-md shadow-rose-950/50">
+                    <div className="w-10 h-10 rounded-full bg-rose-950/80 border-2 border-rose-500/50 flex items-center justify-center text-rose-300 font-bold text-sm">
                       {config.characterName ? config.characterName.charAt(0).toUpperCase() : '👤'}
                     </div>
                     <div className="leading-tight">
                       <div className="text-xs font-bold text-rose-200 truncate max-w-[200px]">
                         {config.characterName || 'Chưa đặt tên'}
                       </div>
-                      <div className="text-[10px] text-slate-400 font-mono mt-0.5">
+                      <div className="text-[10px] text-text-muted font-mono mt-0.5">
                         {config.gender === 'female' ? 'Nữ' : config.gender === 'other' ? 'Khác' : 'Nam'}
                         {config.ageGroup ? ` • ${config.ageGroup}` : ''}
                       </div>
@@ -655,14 +655,14 @@ function GenericCategoryNodeComponent({ id, data, selected }: NodeProps<Workflow
                   </div>
                 ) : nodeData.nodeType === 'scene-ref' ? (
                   <div className="w-full h-full flex flex-col items-center justify-center gap-1.5 bg-gradient-to-b from-indigo-950/30 to-slate-950 p-3 text-center">
-                    <div className="w-10 h-10 rounded-full bg-indigo-950/80 border-2 border-indigo-500/50 flex items-center justify-center text-indigo-300 font-bold text-sm shadow-md shadow-indigo-950/50">
+                    <div className="w-10 h-10 rounded-full bg-indigo-950/80 border-2 border-indigo-500/50 flex items-center justify-center text-indigo-300 font-bold text-sm">
                       🏛️
                     </div>
                     <div className="leading-tight">
                       <div className="text-xs font-bold text-indigo-200 truncate max-w-[200px]">
                         {config.sceneName || 'Bối cảnh'}
                       </div>
-                      <div className="text-[10px] text-slate-400 font-mono mt-0.5">
+                      <div className="text-[10px] text-text-muted font-mono mt-0.5">
                         {config.environment === 'indoor' ? 'Trong nhà' : 'Ngoài trời'}
                         {config.lightingMood ? ` • ${config.lightingMood}` : ''}
                       </div>
@@ -674,16 +674,16 @@ function GenericCategoryNodeComponent({ id, data, selected }: NodeProps<Workflow
                       e.stopPropagation();
                       handleNodeFilePick('image');
                     }}
-                    className="w-full h-full flex flex-col items-center justify-center gap-1.5 p-3 text-center cursor-pointer hover:bg-slate-900/90 transition-all border-2 border-dashed border-slate-700 hover:border-emerald-500/80 rounded-lg group/picker"
+                    className="w-full h-full flex flex-col items-center justify-center gap-1.5 p-3 text-center cursor-pointer hover:bg-surface transition-all border-2 border-dashed border-border hover:border-emerald-500/80 rounded-lg group/picker"
                   >
-                    <div className="p-2 rounded-full bg-emerald-950/80 text-emerald-400 group-hover/picker:scale-110 group-hover/picker:bg-emerald-600 group-hover/picker:text-white transition-all shadow-md">
+                    <div className="p-2 rounded-full bg-emerald-950/80 text-emerald-400 group-hover/picker:scale-110 group-hover/picker:bg-emerald-600 group-hover/picker:text-white transition-all">
                       <FolderOpen className="w-5 h-5" />
                     </div>
                     <div>
-                      <span className="text-xs font-semibold text-slate-200 block group-hover/picker:text-emerald-300">
+                      <span className="text-xs font-semibold text-text block group-hover/picker:text-emerald-300">
                         Chọn ảnh từ máy tính
                       </span>
-                      <span className="text-[10px] text-slate-400 block mt-0.5">
+                      <span className="text-[10px] text-text-muted block mt-0.5">
                         PNG, JPG, WEBP hoặc dán URL
                       </span>
                     </div>
@@ -694,24 +694,24 @@ function GenericCategoryNodeComponent({ id, data, selected }: NodeProps<Workflow
                       e.stopPropagation();
                       handleNodeFilePick('video');
                     }}
-                    className="w-full h-full flex flex-col items-center justify-center gap-1.5 p-3 text-center cursor-pointer hover:bg-slate-900/90 transition-all border-2 border-dashed border-slate-700 hover:border-purple-500/80 rounded-lg group/picker"
+                    className="w-full h-full flex flex-col items-center justify-center gap-1.5 p-3 text-center cursor-pointer hover:bg-surface transition-all border-2 border-dashed border-border hover:border-accent/40 rounded-lg group/picker"
                   >
-                    <div className="p-2 rounded-full bg-purple-950/80 text-purple-400 group-hover/picker:scale-110 group-hover/picker:bg-purple-600 group-hover/picker:text-white transition-all shadow-md">
+                    <div className="p-2 rounded-full bg-purple-950/80 text-accent group-hover/picker:scale-110 group-hover/picker:bg-purple-600 group-hover/picker:text-white transition-all">
                       <FileVideo className="w-5 h-5" />
                     </div>
                     <div>
-                      <span className="text-xs font-semibold text-slate-200 block group-hover/picker:text-purple-300">
+                      <span className="text-xs font-semibold text-text block group-hover/picker:text-accent">
                         Chọn video từ máy tính
                       </span>
-                      <span className="text-[10px] text-slate-400 block mt-0.5">
+                      <span className="text-[10px] text-text-muted block mt-0.5">
                         MP4, MKV, MOV, WEBM
                       </span>
                     </div>
                   </div>
                 ) : (
-                  <div className="w-full h-full flex flex-col items-center justify-center gap-1 text-slate-600 px-3">
-                    <Film className="w-5 h-5 text-slate-600" />
-                    <span className="text-[10px] text-slate-500 text-center">Chờ chạy workflow để xem preview</span>
+                  <div className="w-full h-full flex flex-col items-center justify-center gap-1 text-text-faint px-3">
+                    <Film className="w-5 h-5 text-text-faint" />
+                    <span className="text-[10px] text-text-muted text-center">Chờ chạy workflow để xem preview</span>
                   </div>
                 )}
               </div>
@@ -719,27 +719,27 @@ function GenericCategoryNodeComponent({ id, data, selected }: NodeProps<Workflow
               {/* Lightbox / Fullscreen Modal (Portaled) */}
               {showModal && typeof document !== 'undefined' && createPortal(
                 <div
-                  className="fixed inset-0 z-[99999] flex items-center justify-center bg-black/85 backdrop-blur-md p-4 animate-in fade-in duration-150 nodrag nopan"
+                  className="fixed inset-0 z-[99999] flex items-center justify-center bg-black/85 p-4 animate-in fade-in duration-150 nodrag nopan"
                   onClick={(e) => {
                     e.stopPropagation();
                     setShowModal(false);
                   }}
                 >
                   <div
-                    className="relative max-w-4xl max-h-[90vh] w-full bg-[#111827] border border-slate-700 rounded-2xl shadow-2xl overflow-hidden flex flex-col"
+                    className="relative max-w-4xl max-h-[90vh] w-full bg-[#111827] border border-border rounded-lg overflow-hidden flex flex-col"
                     onClick={(e) => e.stopPropagation()}
                   >
                     {/* Modal Header */}
-                    <div className="flex items-center justify-between px-4 py-3 border-b border-slate-800 bg-slate-900/90">
+                    <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-surface">
                       <div className="flex items-center gap-2.5 overflow-hidden mr-4">
-                        <div className="p-1.5 rounded-lg bg-black/40 text-purple-400 border border-white/10 shrink-0">
+                        <div className="p-1.5 rounded-lg bg-black/40 text-accent border border-white/10 shrink-0">
                           {hasVideo ? <Film className="w-4 h-4" /> : <ImageIcon className="w-4 h-4" />}
                         </div>
                         <div className="truncate">
                           <div className="text-sm font-semibold text-white truncate">
                             {nodeData.label || def?.label || 'Chi tiết Media'}
                           </div>
-                          <div className="text-[11px] text-slate-400 font-mono truncate">
+                          <div className="text-[11px] text-text-muted font-mono truncate">
                             {rawVideo || rawImage}
                           </div>
                         </div>
@@ -754,7 +754,7 @@ function GenericCategoryNodeComponent({ id, data, selected }: NodeProps<Workflow
                                 window.vanhsub.dialog.showInFolder(rawVideo || rawImage);
                               }
                             }}
-                            className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-medium text-slate-200 flex items-center gap-1.5 border border-slate-700 transition cursor-pointer"
+                            className="px-3 py-1.5 rounded-lg bg-surface-2 hover:bg-surface-3 text-xs font-medium text-text flex items-center gap-1.5 border border-border transition cursor-pointer"
                           >
                             <FolderOpen className="w-3.5 h-3.5" />
                             <span>Mở thư mục</span>
@@ -763,7 +763,7 @@ function GenericCategoryNodeComponent({ id, data, selected }: NodeProps<Workflow
                         <button
                           type="button"
                           onClick={() => setShowModal(false)}
-                          className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition cursor-pointer"
+                          className="p-1.5 rounded-lg hover:bg-surface-2 text-text-muted hover:text-white transition cursor-pointer"
                         >
                           <X className="w-5 h-5" />
                         </button>
@@ -778,13 +778,13 @@ function GenericCategoryNodeComponent({ id, data, selected }: NodeProps<Workflow
                           controls
                           autoPlay
                           loop
-                          className="max-w-full max-h-[75vh] rounded-lg shadow-2xl object-contain"
+                          className="max-w-full max-h-[75vh] rounded-lg object-contain"
                         />
                       ) : (
                         <img
                           src={displayImageUrl}
                           alt="Full Preview"
-                          className="max-w-full max-h-[75vh] object-contain rounded-lg shadow-2xl"
+                          className="max-w-full max-h-[75vh] object-contain rounded-lg"
                         />
                       )}
                     </div>

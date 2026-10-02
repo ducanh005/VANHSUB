@@ -29,12 +29,12 @@ import OcrConfigModal from './OcrConfigModal';
  */
 
 const STATUS_STYLE: Record<TaskStatus, { label: string; cls: string }> = {
-  queued: { label: 'Chờ xử lý', cls: 'border-slate-700 bg-slate-800 text-slate-400' },
-  transcribing: { label: 'Đang phiên âm', cls: 'border-brand-cyan/40 bg-brand-cyan/10 text-brand-cyan' },
-  ocr: { label: 'Đang quét OCR', cls: 'border-brand-cyan/40 bg-brand-cyan/10 text-brand-cyan' },
-  translating: { label: 'Đang dịch', cls: 'border-brand-indigo/40 bg-brand-indigo/10 text-brand-indigo' },
-  exporting: { label: 'Đang xuất', cls: 'border-brand-indigo/40 bg-brand-indigo/10 text-brand-indigo' },
-  dubbing: { label: 'Đang lồng tiếng', cls: 'border-brand-indigo/40 bg-brand-indigo/10 text-brand-indigo' },
+  queued: { label: 'Chờ xử lý', cls: 'border-border bg-surface-2 text-text-muted' },
+  transcribing: { label: 'Đang phiên âm', cls: 'border-accent/40 bg-accent-tint text-accent' },
+  ocr: { label: 'Đang quét OCR', cls: 'border-accent/40 bg-accent-tint text-accent' },
+  translating: { label: 'Đang dịch', cls: 'border-accent/40 bg-accent-tint text-accent' },
+  exporting: { label: 'Đang xuất', cls: 'border-accent/40 bg-accent-tint text-accent' },
+  dubbing: { label: 'Đang lồng tiếng', cls: 'border-accent/40 bg-accent-tint text-accent' },
   done: { label: 'Hoàn tất', cls: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400' },
   error: { label: 'Lỗi', cls: 'border-rose-500/30 bg-rose-500/10 text-rose-400' },
   cancelled: { label: 'Đã huỷ', cls: 'border-amber-500/30 bg-amber-500/10 text-amber-400' },
@@ -319,19 +319,19 @@ export default function ASRWorkspace({ tasks, selectedTaskId: propSelectedTaskId
   return (
     <div className="flex flex-1 flex-col gap-4 overflow-hidden p-6">
       {/* Thanh tiêu đề */}
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-800 bg-slate-900/80 p-4">
-        <div className="flex items-center gap-2 text-xs font-semibold text-slate-200">
-          <AudioLines className="h-4 w-4 text-brand-cyan" />
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-surface p-4">
+        <div className="flex items-center gap-2 text-xs font-semibold text-text">
+          <AudioLines className="h-4 w-4 text-accent" />
           <span>Phiên âm & Quản lý phụ đề</span>
           {selectedTask && (
-            <span className="ml-2 max-w-[280px] truncate text-slate-400" title={selectedTask.fileName}>
+            <span className="ml-2 max-w-[280px] truncate text-text-muted" title={selectedTask.fileName}>
               {selectedTask.fileName}
             </span>
           )}
         </div>
         {message && (
           <span
-            className={`max-w-[420px] truncate text-xs font-mono ${isError ? 'text-rose-400' : 'text-brand-cyan'}`}
+            className={`max-w-[420px] truncate text-xs font-mono ${isError ? 'text-rose-400' : 'text-accent'}`}
             title={message}
           >
             {message}
@@ -341,13 +341,13 @@ export default function ASRWorkspace({ tasks, selectedTaskId: propSelectedTaskId
 
       <div className="grid min-h-0 flex-1 grid-cols-[300px_minmax(0,1fr)] gap-4 overflow-hidden">
         {/* Danh sách tác vụ */}
-        <div className="flex min-h-0 flex-col overflow-hidden rounded-2xl border border-slate-800 bg-slate-900/80">
-          <div className="border-b border-slate-800/80 px-4 py-2.5 text-xs font-semibold text-slate-200">
+        <div className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-border bg-surface">
+          <div className="border-b border-border px-4 py-2.5 text-xs font-semibold text-text">
             Tác vụ ({tasks.length})
           </div>
           <div className="flex-1 space-y-1.5 overflow-y-auto p-2.5">
             {tasks.length === 0 && (
-              <p className="py-6 text-center text-xs text-slate-500">
+              <p className="py-6 text-center text-xs text-text-muted">
                 Chưa có tác vụ — thêm video ở Trang chủ.
               </p>
             )}
@@ -356,21 +356,21 @@ export default function ASRWorkspace({ tasks, selectedTaskId: propSelectedTaskId
                 (t.status as string) === 'hybrid' ||
                 Boolean(t.stageDescription?.includes('[Hybrid]') && (t.status === 'transcribing' || t.status === 'ocr'));
               const st = isTaskHybrid
-                ? { label: 'Đang kết hợp', cls: 'border-purple-500/40 bg-purple-500/10 text-purple-300' }
-                : STATUS_STYLE[t.status] || { label: t.status, cls: 'border-slate-700 bg-slate-800 text-slate-400' };
+                ? { label: 'Đang kết hợp', cls: 'border-accent/40 bg-accent-tint text-accent' }
+                : STATUS_STYLE[t.status] || { label: t.status, cls: 'border-border bg-surface-2 text-text-muted' };
               return (
                 <button
                   key={t.id}
                   type="button"
                   onClick={() => setSelectedTaskId(t.id)}
                   className={[
-                    'w-full rounded-xl border p-2.5 text-left text-xs transition cursor-pointer',
+                    'w-full rounded-md border p-2.5 text-left text-xs transition cursor-pointer',
                     t.id === selectedTaskId
-                      ? 'border-brand-cyan/50 bg-brand-cyan/5'
-                      : 'border-slate-800/80 bg-slate-900/60 hover:bg-slate-900',
+                      ? 'border-accent/40 bg-accent/5'
+                      : 'border-border bg-surface hover:bg-surface',
                   ].join(' ')}
                 >
-                  <p className="truncate font-medium text-slate-200" title={t.fileName}>
+                  <p className="truncate font-medium text-text" title={t.fileName}>
                     {t.fileName}
                   </p>
                   <div className="mt-1.5 flex items-center gap-1.5">
@@ -379,7 +379,7 @@ export default function ASRWorkspace({ tasks, selectedTaskId: propSelectedTaskId
                     >
                       {st.label}
                     </span>
-                    <span className="rounded bg-slate-800 px-1.5 py-0.5 font-mono text-[10px] text-slate-400">
+                    <span className="rounded bg-surface-2 px-1.5 py-0.5 font-mono text-[10px] text-text-muted">
                       {t.asrModel || 'base'}
                     </span>
                     {t.srtPath && (
@@ -393,9 +393,9 @@ export default function ASRWorkspace({ tasks, selectedTaskId: propSelectedTaskId
         </div>
 
         {/* Chi tiết tác vụ */}
-        <div className="flex min-h-0 flex-col gap-4 overflow-y-auto rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
+        <div className="flex min-h-0 flex-col gap-4 overflow-y-auto rounded-lg border border-border bg-surface p-4">
           {!selectedTask ? (
-            <div className="flex flex-1 items-center justify-center text-xs text-slate-500">
+            <div className="flex flex-1 items-center justify-center text-xs text-text-muted">
               Chọn một tác vụ để phiên âm hoặc xem phụ đề.
             </div>
           ) : (
@@ -406,7 +406,7 @@ export default function ASRWorkspace({ tasks, selectedTaskId: propSelectedTaskId
                   type="button"
                   onClick={() => handleStart(hasSrt)}
                   disabled={isBusy}
-                  className="btn-vanh-gradient inline-flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-semibold cursor-pointer disabled:opacity-50"
+                  className="bg-accent text-white hover:bg-accent-hover inline-flex items-center gap-2 rounded-md px-4 py-2 text-xs font-semibold cursor-pointer disabled:opacity-50"
                 >
                   {isTranscribing ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
@@ -427,7 +427,7 @@ export default function ASRWorkspace({ tasks, selectedTaskId: propSelectedTaskId
                   <button
                     type="button"
                     onClick={handleCancelTranscribe}
-                    className="inline-flex items-center gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 px-3.5 py-2 text-xs font-medium text-amber-400 hover:bg-amber-500/20 cursor-pointer"
+                    className="inline-flex items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3.5 py-2 text-xs font-medium text-amber-400 hover:bg-amber-500/20 cursor-pointer"
                   >
                     <Square className="h-3 w-3 fill-amber-400" />
                     <span>Huỷ phiên âm</span>
@@ -438,7 +438,7 @@ export default function ASRWorkspace({ tasks, selectedTaskId: propSelectedTaskId
                     type="button"
                     disabled
                     title="OCR chỉ hỗ trợ file video có phụ đề ghẽ trong khung hình"
-                    className="inline-flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-900 px-3.5 py-2 text-xs font-medium text-slate-500 disabled:opacity-60"
+                    className="inline-flex items-center gap-2 rounded-md border border-border bg-surface px-3.5 py-2 text-xs font-medium text-text-muted disabled:opacity-60"
                   >
                     <ScanText className="h-3.5 w-3.5" />
                     <span>Quét OCR</span>
@@ -447,7 +447,7 @@ export default function ASRWorkspace({ tasks, selectedTaskId: propSelectedTaskId
                   <button
                     type="button"
                     onClick={handleCancelOcr}
-                    className="inline-flex items-center gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 px-3.5 py-2 text-xs font-medium text-amber-400 hover:bg-amber-500/20 cursor-pointer"
+                    className="inline-flex items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3.5 py-2 text-xs font-medium text-amber-400 hover:bg-amber-500/20 cursor-pointer"
                   >
                     <Square className="h-3 w-3 fill-amber-400" />
                     <span>Huỷ quét OCR</span>
@@ -458,7 +458,7 @@ export default function ASRWorkspace({ tasks, selectedTaskId: propSelectedTaskId
                     onClick={handleStartOcr}
                     disabled={isBusy}
                     title="Video có phụ đề ghẽ sẵn trong khung hình? Quét bằng OCR để tạo phụ đề — không cần phiên âm"
-                    className="inline-flex items-center gap-2 rounded-xl border border-brand-cyan/40 bg-brand-cyan/10 px-3.5 py-2 text-xs font-semibold text-brand-cyan hover:bg-brand-cyan/20 cursor-pointer disabled:opacity-50"
+                    className="inline-flex items-center gap-2 rounded-md border border-accent/40 bg-accent-tint px-3.5 py-2 text-xs font-semibold text-accent hover:bg-accent-tint cursor-pointer disabled:opacity-50"
                   >
                     <ScanText className="h-3.5 w-3.5" />
                     <span>Quét OCR</span>
@@ -470,7 +470,7 @@ export default function ASRWorkspace({ tasks, selectedTaskId: propSelectedTaskId
                     type="button"
                     disabled
                     title="Chế độ Kết hợp Whisper + OCR yêu cầu file video (cần hình ảnh để quét chữ)"
-                    className="inline-flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-900 px-3.5 py-2 text-xs font-medium text-slate-500 disabled:opacity-60"
+                    className="inline-flex items-center gap-2 rounded-md border border-border bg-surface px-3.5 py-2 text-xs font-medium text-text-muted disabled:opacity-60"
                   >
                     <Sparkles className="h-3.5 w-3.5" />
                     <span>Kết hợp Whisper + OCR</span>
@@ -479,7 +479,7 @@ export default function ASRWorkspace({ tasks, selectedTaskId: propSelectedTaskId
                   <button
                     type="button"
                     onClick={handleCancelHybrid}
-                    className="inline-flex items-center gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 px-3.5 py-2 text-xs font-medium text-amber-400 hover:bg-amber-500/20 cursor-pointer"
+                    className="inline-flex items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3.5 py-2 text-xs font-medium text-amber-400 hover:bg-amber-500/20 cursor-pointer"
                   >
                     <Square className="h-3 w-3 fill-amber-400" />
                     <span>Huỷ kết hợp</span>
@@ -490,9 +490,9 @@ export default function ASRWorkspace({ tasks, selectedTaskId: propSelectedTaskId
                     onClick={handleStartHybrid}
                     disabled={isBusy}
                     title="Chạy đồng thời Whisper ASR và Quét OCR: Neo mốc thời gian theo khung hình video và dùng giọng nói để sửa lỗi chữ"
-                    className="inline-flex items-center gap-2 rounded-xl border border-purple-500/50 bg-gradient-to-r from-purple-500/20 to-brand-cyan/20 px-3.5 py-2 text-xs font-semibold text-purple-200 hover:from-purple-500/30 hover:to-brand-cyan/30 cursor-pointer disabled:opacity-50"
+                    className="inline-flex items-center gap-2 rounded-md border border-accent/40 bg-accent-tint px-3.5 py-2 text-xs font-semibold text-accent hover:bg-accent/20 cursor-pointer disabled:opacity-50"
                   >
-                    <Sparkles className="h-3.5 w-3.5 text-purple-400" />
+                    <Sparkles className="h-3.5 w-3.5 text-accent" />
                     <span>Kết hợp Whisper + OCR</span>
                   </button>
                 )}
@@ -501,7 +501,7 @@ export default function ASRWorkspace({ tasks, selectedTaskId: propSelectedTaskId
                   onClick={handleImportSrt}
                   disabled={isBusy}
                   title="Video đã có sẵn phụ đề .srt? Nhập vào để bỏ qua phiên âm"
-                  className="inline-flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-800 px-3.5 py-2 text-xs font-medium text-slate-200 hover:bg-slate-700 cursor-pointer disabled:opacity-50"
+                  className="inline-flex items-center gap-2 rounded-md border border-border bg-surface-2 px-3.5 py-2 text-xs font-medium text-text hover:bg-surface-3 cursor-pointer disabled:opacity-50"
                 >
                   <FileUp className="h-3.5 w-3.5" />
                   <span>Nhập SRT</span>
@@ -511,7 +511,7 @@ export default function ASRWorkspace({ tasks, selectedTaskId: propSelectedTaskId
                     <button
                       type="button"
                       onClick={handleCopy}
-                      className="inline-flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-800 px-3.5 py-2 text-xs font-medium text-slate-200 hover:bg-slate-700 cursor-pointer"
+                      className="inline-flex items-center gap-2 rounded-md border border-border bg-surface-2 px-3.5 py-2 text-xs font-medium text-text hover:bg-surface-3 cursor-pointer"
                     >
                       <Copy className="h-3.5 w-3.5" />
                       <span>Copy phụ đề</span>
@@ -519,7 +519,7 @@ export default function ASRWorkspace({ tasks, selectedTaskId: propSelectedTaskId
                     <button
                       type="button"
                       onClick={handleOpenFolder}
-                      className="inline-flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-800 px-3.5 py-2 text-xs font-medium text-slate-200 hover:bg-slate-700 cursor-pointer"
+                      className="inline-flex items-center gap-2 rounded-md border border-border bg-surface-2 px-3.5 py-2 text-xs font-medium text-text hover:bg-surface-3 cursor-pointer"
                     >
                       <FolderOpen className="h-3.5 w-3.5" />
                       <span>Mở thư mục</span>
@@ -530,17 +530,17 @@ export default function ASRWorkspace({ tasks, selectedTaskId: propSelectedTaskId
 
               {/* Hiển thị tiến trình chi tiết khi tác vụ đang chạy */}
               {selectedTask && isBusy && (
-                <div className="flex flex-col gap-1.5 rounded-xl border border-slate-800 bg-slate-950/70 p-3 text-xs">
-                  <div className="flex items-center justify-between text-slate-300">
+                <div className="flex flex-col gap-1.5 rounded-md border border-border bg-bg p-3 text-xs">
+                  <div className="flex items-center justify-between text-text">
                     <div className="flex items-center gap-2">
-                      <Loader2 className="h-3.5 w-3.5 animate-spin text-purple-400" />
+                      <Loader2 className="h-3.5 w-3.5 animate-spin text-accent" />
                       <span className="font-medium">{selectedTask.stageDescription || 'Đang xử lý tác vụ...'}</span>
                     </div>
-                    <span className="font-mono text-[11px] text-brand-cyan">{selectedTask.progress || 0}%</span>
+                    <span className="font-mono text-[11px] text-accent">{selectedTask.progress || 0}%</span>
                   </div>
-                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-800">
+                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-surface-2">
                     <div
-                      className="h-full bg-gradient-to-r from-purple-500 to-brand-cyan transition-all duration-300"
+                      className="h-full bg-accent-tint transition-all duration-300"
                       style={{ width: `${selectedTask.progress || 0}%` }}
                     />
                   </div>
@@ -548,11 +548,11 @@ export default function ASRWorkspace({ tasks, selectedTaskId: propSelectedTaskId
               )}
 
               {/* Cấu hình Động cơ ASR & Phân tách người nói */}
-              <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4 space-y-3">
+              <div className="rounded-lg border border-border bg-surface p-4 space-y-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <Zap className="h-4 w-4 text-brand-cyan" />
-                    <span className="text-xs font-semibold text-slate-200">Động cơ nhận diện giọng nói (ASR Engine)</span>
+                    <Zap className="h-4 w-4 text-accent" />
+                    <span className="text-xs font-semibold text-text">Động cơ nhận diện giọng nói (ASR Engine)</span>
                   </div>
                   {fwStatus && asrEngine === 'faster-whisper' && (
                     <span
@@ -578,18 +578,18 @@ export default function ASRWorkspace({ tasks, selectedTaskId: propSelectedTaskId
                   <button
                     type="button"
                     onClick={() => handleEngineChange('faster-whisper')}
-                    className={`flex flex-col text-left p-2.5 rounded-xl border transition cursor-pointer ${
+                    className={`flex flex-col text-left p-2.5 rounded-md border transition cursor-pointer ${
                       asrEngine === 'faster-whisper'
-                        ? 'border-brand-cyan/60 bg-brand-cyan/10 text-white'
-                        : 'border-slate-800 bg-slate-950/40 text-slate-400 hover:border-slate-700'
+                        ? 'border-accent/40 bg-accent-tint text-white'
+                        : 'border-border bg-bg text-text-muted hover:border-border'
                     }`}
                   >
                     <div className="flex items-center gap-1.5 font-medium text-xs">
-                      <Zap className="h-3.5 w-3.5 text-brand-cyan" />
+                      <Zap className="h-3.5 w-3.5 text-accent" />
                       <span>Faster-Whisper</span>
-                      <span className="text-[10px] px-1.5 py-0.2 rounded bg-brand-cyan/20 text-brand-cyan font-mono">Nhanh 3-4x</span>
+                      <span className="text-[10px] px-1.5 py-0.2 rounded bg-accent-tint text-accent font-mono">Nhanh 3-4x</span>
                     </div>
-                    <p className="mt-1 text-[11px] text-slate-400">
+                    <p className="mt-1 text-[11px] text-text-muted">
                       CTranslate2, timestamps theo từ, hỗ trợ phân tách người nói. Tự fallback nếu thiếu module.
                     </p>
                   </button>
@@ -597,48 +597,48 @@ export default function ASRWorkspace({ tasks, selectedTaskId: propSelectedTaskId
                   <button
                     type="button"
                     onClick={() => handleEngineChange('whisper-cpp')}
-                    className={`flex flex-col text-left p-2.5 rounded-xl border transition cursor-pointer ${
+                    className={`flex flex-col text-left p-2.5 rounded-md border transition cursor-pointer ${
                       asrEngine === 'whisper-cpp'
-                        ? 'border-brand-indigo/60 bg-brand-indigo/10 text-white'
-                        : 'border-slate-800 bg-slate-950/40 text-slate-400 hover:border-slate-700'
+                        ? 'border-accent/40 bg-accent-tint text-white'
+                        : 'border-border bg-bg text-text-muted hover:border-border'
                     }`}
                   >
                     <div className="flex items-center gap-1.5 font-medium text-xs">
-                      <Cpu className="h-3.5 w-3.5 text-brand-indigo" />
+                      <Cpu className="h-3.5 w-3.5 text-accent" />
                       <span>Whisper.cpp</span>
-                      <span className="text-[10px] px-1.5 py-0.2 rounded bg-slate-800 text-slate-400 font-mono">Native C++</span>
+                      <span className="text-[10px] px-1.5 py-0.2 rounded bg-surface-2 text-text-muted font-mono">Native C++</span>
                     </div>
-                    <p className="mt-1 text-[11px] text-slate-400">
+                    <p className="mt-1 text-[11px] text-text-muted">
                       Chạy trực tiếp binary C++, không phụ thuộc môi trường Python. Ổn định và độc lập.
                     </p>
                   </button>
                 </div>
 
                 {/* Speaker Diarization Controls */}
-                <div className="pt-2 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-3">
+                <div className="pt-2 border-t border-border flex flex-wrap items-center justify-between gap-3">
                   <label className="flex items-center gap-2 cursor-pointer select-none">
                     <input
                       type="checkbox"
                       checked={enableDiarization}
                       onChange={(e) => handleDiarizationToggle(e.target.checked)}
-                      className="h-4 w-4 rounded border-slate-700 bg-slate-800 text-brand-cyan focus:ring-brand-cyan/20"
+                      className="h-4 w-4 rounded border-border bg-surface-2 text-accent focus:ring-accent/30"
                     />
-                    <div className="flex items-center gap-1.5 text-xs text-slate-200">
-                      <Users className="h-3.5 w-3.5 text-purple-400" />
+                    <div className="flex items-center gap-1.5 text-xs text-text">
+                      <Users className="h-3.5 w-3.5 text-accent" />
                       <span>Phân tách người nói (Speaker Diarization)</span>
                     </div>
                   </label>
 
                   {enableDiarization && (
-                    <div className="flex items-center gap-2 text-xs text-slate-300">
-                      <span className="text-[11px] text-slate-400">Số người nói dự kiến:</span>
+                    <div className="flex items-center gap-2 text-xs text-text">
+                      <span className="text-[11px] text-text-muted">Số người nói dự kiến:</span>
                       <input
                         type="number"
                         min={1}
                         max={10}
                         value={speakerCount}
                         onChange={(e) => handleSpeakerCountChange(Math.max(1, parseInt(e.target.value) || 2))}
-                        className="w-14 rounded-lg border border-slate-700 bg-slate-950 px-2 py-1 text-center font-mono text-xs text-white focus:border-brand-cyan focus:outline-none"
+                        className="w-14 rounded-lg border border-border bg-bg px-2 py-1 text-center font-mono text-xs text-white focus:border-accent/40 focus:outline-none"
                       />
                     </div>
                   )}
@@ -649,34 +649,34 @@ export default function ASRWorkspace({ tasks, selectedTaskId: propSelectedTaskId
               <ASRModelSelector currentModel={model} onModelChange={handleModelChange} />
 
               {/* Xem nhanh phụ đề */}
-              <div className="flex min-h-[200px] flex-1 flex-col overflow-hidden rounded-2xl border border-slate-800 bg-slate-900/80">
-                <div className="flex items-center justify-between border-b border-slate-800/80 px-4 py-2.5 text-xs font-semibold text-slate-200">
+              <div className="flex min-h-[200px] flex-1 flex-col overflow-hidden rounded-lg border border-border bg-surface">
+                <div className="flex items-center justify-between border-b border-border px-4 py-2.5 text-xs font-semibold text-text">
                   <span>
                     Phụ đề{' '}
-                    {hasSrt && <span className="font-mono text-[11px] text-slate-500">({lineCount} dòng)</span>}
+                    {hasSrt && <span className="font-mono text-[11px] text-text-muted">({lineCount} dòng)</span>}
                   </span>
                   {selectedTask?.speakers && selectedTask.speakers.length > 0 && (
-                    <div className="flex items-center gap-1.5 text-[11px] font-normal text-purple-300">
+                    <div className="flex items-center gap-1.5 text-[11px] font-normal text-accent">
                       <Users className="h-3.5 w-3.5" />
                       <span>{selectedTask.speakers.length} người nói ({selectedTask.speakers.join(', ')})</span>
                     </div>
                   )}
                 </div>
                 {selectedTask?.ocrStats && (
-                  <div className="flex flex-wrap items-center gap-2 border-b border-slate-800/80 bg-slate-950/60 px-4 py-1.5 text-[11px] text-slate-300">
-                    <Sparkles className="h-3.5 w-3.5 text-brand-cyan" />
+                  <div className="flex flex-wrap items-center gap-2 border-b border-border bg-bg px-4 py-1.5 text-[11px] text-text">
+                    <Sparkles className="h-3.5 w-3.5 text-accent" />
                     <span>OCR detected: <strong className="text-white">{selectedTask.ocrStats.finalEvents}</strong> events</span>
-                    <span className="text-slate-600">•</span>
+                    <span className="text-text-faint">•</span>
                     <span>High conf: <strong className="text-emerald-400">{selectedTask.ocrStats.highConfidence}</strong></span>
-                    <span className="text-slate-600">•</span>
+                    <span className="text-text-faint">•</span>
                     <span>Review: <strong className="text-amber-400">{selectedTask.ocrStats.needsReview}</strong></span>
-                    <span className="text-slate-600">•</span>
-                    <span>Deduped: <strong className="text-purple-300">{selectedTask.ocrStats.duplicatesRemoved}</strong></span>
+                    <span className="text-text-faint">•</span>
+                    <span>Deduped: <strong className="text-accent">{selectedTask.ocrStats.duplicatesRemoved}</strong></span>
                   </div>
                 )}
                 <div className="min-h-0 flex-1 overflow-y-auto p-3 font-mono text-[11px] leading-relaxed">
                   {!hasSrt ? (
-                    <p className="py-8 text-center text-slate-500">
+                    <p className="py-8 text-center text-text-muted">
                       {isHybridRunning
                         ? 'Đang kết hợp Whisper + OCR — phụ đề sẽ xuất hiện ở đây khi xong...'
                         : isOcrRunning
@@ -686,9 +686,9 @@ export default function ASRWorkspace({ tasks, selectedTaskId: propSelectedTaskId
                             : 'Tác vụ chưa có phụ đề — bấm "Bắt đầu phiên âm", "Quét OCR", "Kết hợp Whisper + OCR" hoặc "Nhập SRT".'}
                     </p>
                   ) : srtContent === null ? (
-                    <p className="py-8 text-center text-slate-500">Đang tải phụ đề...</p>
+                    <p className="py-8 text-center text-text-muted">Đang tải phụ đề...</p>
                   ) : (
-                    <pre className="whitespace-pre-wrap text-slate-300">{srtContent}</pre>
+                    <pre className="whitespace-pre-wrap text-text">{srtContent}</pre>
                   )}
                 </div>
               </div>
