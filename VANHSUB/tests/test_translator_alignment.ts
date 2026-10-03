@@ -502,10 +502,13 @@ async function runAdversarialSuite() {
     }
 
     const items: Array<{ i: string; text: string }> = payload.items || [];
-    const translatedItems = items.map((item) => ({
-      i: item.i,
-      text: mockTranslateSentence(item.text),
-    }));
+    const translatedItems = items.map((item) => {
+      const trans = mockTranslateSentence(item.text);
+      return {
+        i: item.i,
+        text: trans !== item.text ? trans : `[Dịch] ${item.text}`,
+      };
+    });
 
     return {
       id: `chatcmpl-${apiCallCount}`,

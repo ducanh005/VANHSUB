@@ -6,6 +6,9 @@ import { SettingsStore } from '../store/settingsStore';
 import { parseSrt, serializeSrt, SrtLine } from '../lib/srt';
 import { CancelledError } from '../lib/cancel';
 import { breakVietnameseLines } from '../lib/nlpSegmenter';
+import { isLineUntranslated } from '../lib/subtitleSanitizer';
+
+export { isLineUntranslated };
 
 interface BatchItem {
   i: string;
@@ -76,12 +79,9 @@ export function loadCheckpoint(
         const targetTrim = entry.target.trim();
         const sourceTrim = entry.source.trim();
         if (!targetTrim) continue;
-        // Loại bỏ dữ liệu rác/lỗi từ lần chạy trước: nếu target giống hệt source (kể cả câu ngắn như "Hello", "Thanks", "No", "Hi", chữ Hán/Nhật/Hàn)
-        if (targetTrim.toLowerCase() === sourceTrim.toLowerCase() && /[\p{L}\u4e00-\u9fa5\u3040-\u30ff\uac00-\ud7af]/u.test(sourceTrim)) {
-          // Ngoại trừ các ký hiệu ngắn toàn cầu như "OK" hoặc "O.K."
-          if (sourceTrim.toUpperCase() !== 'OK' && sourceTrim.toUpperCase() !== 'O.K.') {
-            continue;
-          }
+        // Loại bỏ dữ liệu rác/lỗi từ lần chạy trước nếu chưa thực sự dịch
+        if (isLineUntranslated(sourceTrim, targetTrim, SettingsStore.get('glossary'))) {
+          continue;
         }
         result.set(id, JSON.stringify([entry.source, entry.target]));
       }
@@ -144,7 +144,9 @@ QUY TẮC BẮT BUỘC:
 2. ĐỊNH DẠNG ĐẦU RA:
    - Trả về DUY NHẤT một chuỗi JSON mảng các đối tượng: [{"i": "id", "text": "bản dịch"}].
    - Tuyệt đối không thêm markdown block (\`\`\`json), không giải thích thêm, không kèm văn bản nào khác.
-3. TOÀN VẸN 100% (RẤT QUAN TRỌNG):
+3. TOÀN VẸN 100% VÀ BẮT BUỘC DỊCH SANG NGÔN NGỮ ĐÍCH (RẤT QUAN TRỌNG):
+   - MỌI câu trả về PHẢI được dịch thực sự sang ngôn ngữ đích: "${targetLanguage}".
+   - TUYỆT ĐỐI KHÔNG sao chép hoặc lặp lại nguyên văn bản gốc chưa dịch (không reproduce verbatim source text).
    - BẮT BUỘC dịch đầy đủ 100% tất cả các câu từ đầu đến cuối danh sách (tỷ lệ sót dòng = 0%).
    - Các câu ngắn ("Ồ!", "Dạ.", "Vâng!", "Hả?"), câu ngắt quãng hay câu đầu file/giữa file đều PHẢI dịch chính xác sang ngôn ngữ đích, tuyệt đối không bỏ qua hoặc giữ nguyên câu gốc chưa dịch.
 4. BẢO TOÀN ID:
@@ -162,16 +164,18 @@ QUY TẮC BẮT BUỘC:
 
 /** Prompt dự phòng chặt chẽ dùng khi retry batch bị thiếu dòng hoặc sai định dạng */
 export function buildRetrySystemPrompt(targetLanguage: string, expectedCount: number): string {
-  return `Bạn là hệ thống dịch thuật máy tự động chính xác cao cho phụ đề video.
+  const base = `Bạn là hệ thống dịch thuật máy tự động chính xác cao cho phụ đề video.
 Nhiệm vụ: Dịch TOÀN BỘ danh sách câu sau sang ngôn ngữ đích: "${targetLanguage}".
 
-QUY TẮC CỰC KỲ NGHIÊM NGẶT:
-1. Danh sách có chính xác ${expectedCount} câu. Bạn PHẢI trả về đúng mảng JSON gồm chính xác ${expectedCount} phần tử.
-2. Định dạng trả về: DUY NHẤT chuỗi JSON thuần:
+QUY TẮC CỰC KỲ NGHIÊM NGẶT (CẢNH BÁO LỖI LẦN TRƯỚC):
+1. BẮT BUỘC DỊCH THỰC SỰ SANG "${targetLanguage}": TUYỆT ĐỐI KHÔNG lặp lại hoặc sao chép nguyên văn bản gốc (không reproduce verbatim source text). Mọi câu trả về PHẢI là câu đã dịch sang ngôn ngữ đích "${targetLanguage}".
+2. Danh sách có chính xác ${expectedCount} câu. Bạn PHẢI trả về đúng mảng JSON gồm chính xác ${expectedCount} phần tử (tỷ lệ sót dòng = 0%).
+3. Định dạng trả về: DUY NHẤT chuỗi JSON thuần:
 [{"i": "id_gốc", "text": "bản_dịch"}]
-3. Giữ NGUYÊN 100% trường "i" của từng câu giống hệt đầu vào. Không bỏ sót bất kỳ câu nào dù ngắn hay dài.
-4. Mỗi câu dịch phải ngắn gọn, súc tích, tối đa 2 dòng hiển thị (dưới 70 ký tự toàn câu, mỗi dòng <= 37-40 ký tự).
-5. Không giải thích, không bọc trong markdown.`;
+4. Giữ NGUYÊN 100% trường "i" của từng câu giống hệt đầu vào. Không bỏ sót bất kỳ câu nào dù ngắn hay dài.
+5. Mỗi câu dịch phải ngắn gọn, súc tích, tối đa 2 dòng hiển thị (dưới 70 ký tự toàn câu, mỗi dòng <= 37-40 ký tự).
+6. Không giải thích, không bọc trong markdown.`;
+  return base + buildGlossaryPrompt() + buildStyleGuidePrompt();
 }
 
 /**
@@ -693,6 +697,7 @@ export async function translateSrtFile(
    */
   const translateBatch = async (b: number): Promise<SrtLine[]> => {
     const batchLines = lines.slice(b * batchSize, (b + 1) * batchSize);
+    const glossary = SettingsStore.get('glossary') || '';
 
     // Dòng nào đã có trong cache (text gốc trùng khớp) hoặc trùng text với dòng đã dịch thì dùng lại.
     // Dòng nào rỗng/khoảng trắng hoặc chỉ chứa dấu câu/ký hiệu (không có chữ cái hay chữ số) thì ghi nhận luôn để không gửi lên mô hình AI.
@@ -703,7 +708,11 @@ export async function translateSrtFile(
       }
       if (cachedTarget.has(l.id)) continue;
       for (const [_, entry] of Object.entries(checkpointData)) {
-        if (entry.source === l.text && entry.target) {
+        if (
+          entry.source === l.text &&
+          entry.target &&
+          !isLineUntranslated(l.text, entry.target, glossary)
+        ) {
           cachedTarget.set(l.id, entry.target);
           break;
         }
@@ -717,17 +726,40 @@ export async function translateSrtFile(
     let resultMap = new Map<string, string>();
 
     if (itemsToTranslate.length > 0) {
-      const prevLines = b > 0 ? lines.slice((b - 1) * batchSize, b * batchSize) : [];
-      const prevTranslated = b > 0 ? batchResults[b - 1] : undefined;
-      const previousContext = prevLines.slice(-2).map((orig, idx) => ({
-        original: orig.text,
-        translated:
-          prevTranslated?.[prevTranslated.length - 2 + idx]?.text ||
-          cachedTarget.get(orig.id) ||
-          orig.text,
-      }));
+      let previousContext: { original: string; translated: string }[] = [];
+      if (b > 0) {
+        const prevLines = lines.slice((b - 1) * batchSize, b * batchSize);
+        const prevTranslated = batchResults[b - 1];
+        const validContextItems: { original: string; translated: string }[] = [];
 
-      // Nếu không có ngữ cảnh (như batch 0 đầu file), không gửi field context rỗng để tránh làm model bối rối
+        for (let idx = 0; idx < prevLines.length; idx++) {
+          const orig = prevLines[idx];
+          const transCandidate =
+            prevTranslated?.[idx]?.text ||
+            cachedTarget.get(orig.id);
+
+          // R2: CHỈ đưa vào context nếu thực sự đã có bản dịch và không phải text gốc chưa dịch.
+          // Tuyệt đối không dùng orig.text thay thế khi batch trước còn đang pending!
+          // Không đưa vào context các dòng mà bản dịch trùng hệt văn bản gốc (tránh mớm context gây model nhại lại)
+          if (
+            transCandidate &&
+            transCandidate.trim() &&
+            !isLineUntranslated(orig.text, transCandidate, glossary) &&
+            transCandidate.trim().toLowerCase() !== orig.text.trim().toLowerCase()
+          ) {
+            validContextItems.push({
+              original: orig.text,
+              translated: transCandidate,
+            });
+          }
+        }
+
+        // Lấy tối đa 2 dòng hợp lệ gần nhất
+        previousContext = validContextItems.slice(-2);
+      }
+
+      // Nếu không có ngữ cảnh (như batch 0 đầu file hoặc batch trước đang pending khi chạy song song),
+      // không gửi field context rỗng để tránh làm model bối rối
       const baseUserPayload =
         previousContext.length > 0
           ? { context: previousContext, items: itemsToTranslate }
@@ -736,64 +768,101 @@ export async function translateSrtFile(
       let attempts = 0;
       let success = false;
       let lastError: any = null;
+      const isGemini3 = /gemini-3|gemini-flash-latest/i.test(model);
+      const confirmedTranslations = new Map<string, string>();
 
       while (attempts < 3 && !success) {
         try {
           attempts++;
 
-          // Lần thử đầu dùng system prompt chuẩn; các lần retry sau dùng prompt dự phòng chặt chẽ
+          // Xác định danh sách dòng còn thiếu hoặc chưa dịch
+          const itemsToRetry = itemsToTranslate.filter((item) => !confirmedTranslations.has(item.i));
+
+          // Lần thử đầu dùng system prompt chuẩn; các lần retry sau dùng prompt dự phòng leo thang chặt chẽ
           const activeSystemPrompt =
             attempts === 1
               ? systemPrompt
-              : buildRetrySystemPrompt(targetLanguage, itemsToTranslate.length);
+              : buildRetrySystemPrompt(targetLanguage, itemsToRetry.length);
 
           const activePayload =
             attempts === 1
               ? baseUserPayload
-              : { items: itemsToTranslate };
+              : { items: itemsToRetry };
 
-          const response = await client.chat.completions.create({
+          const completionParams: any = {
             model,
-            temperature: attempts === 1 ? 0.3 : 0.1,
             messages: [
               { role: 'system', content: activeSystemPrompt },
               { role: 'user', content: JSON.stringify(activePayload) },
             ],
-          });
+          };
+
+          // R3: Thiết lập tham số suy luận Gemini 3.x
+          if (isGemini3) {
+            completionParams.reasoning_effort = 'low';
+            completionParams.temperature = 1.0;
+          } else {
+            completionParams.temperature = attempts === 1 ? 0.3 : 0.1;
+          }
+
+          const response = await client.chat.completions.create(completionParams);
 
           const rawContent = response.choices[0]?.message?.content?.trim() || '';
           if (!rawContent) {
             throw new Error('Mô hình trả về phản hồi rỗng.');
           }
 
-          resultMap = extractAndNormalizeTranslationBatch(rawContent, itemsToTranslate);
+          // Trích xuất các dòng trả về (khớp linh hoạt cả với itemsToRetry lẫn itemsToTranslate)
+          const extractedMap = extractAndNormalizeTranslationBatch(
+            rawContent,
+            attempts === 1 ? itemsToTranslate : (itemsToRetry.length > 0 ? itemsToRetry : itemsToTranslate)
+          );
+
+          // Nếu model trả về cả các ID khác trong batch, thử trích xuất thêm với itemsToTranslate
+          if (attempts > 1 && extractedMap.size < itemsToTranslate.length) {
+            const fullExtracted = extractAndNormalizeTranslationBatch(rawContent, itemsToTranslate);
+            for (const [id, trans] of fullExtracted) {
+              if (!extractedMap.has(id)) extractedMap.set(id, trans);
+            }
+          }
 
           // Đồng bộ bản dịch cho các dòng có text trùng lặp với dòng đã dịch trong batch trước khi kiểm tra toàn vẹn
           for (const item of itemsToTranslate) {
-            if (!resultMap.has(item.i)) {
-              const match = itemsToTranslate.find(
-                (other) => other.text === item.text && resultMap.has(other.i)
-              );
+            const currentTrans = extractedMap.get(item.i) ?? confirmedTranslations.get(item.i);
+            if (!currentTrans || isLineUntranslated(item.text, currentTrans, glossary)) {
+              const match = itemsToTranslate.find((other) => {
+                if (other.text !== item.text) return false;
+                const trans = extractedMap.get(other.i) ?? confirmedTranslations.get(other.i);
+                return !!trans && !isLineUntranslated(other.text, trans, glossary);
+              });
               if (match) {
-                const trans = resultMap.get(match.i);
-                if (trans) resultMap.set(item.i, trans);
+                const trans = extractedMap.get(match.i) ?? confirmedTranslations.get(match.i);
+                if (trans) extractedMap.set(item.i, trans);
               }
             }
           }
 
-          // Kiểm tra tính toàn vẹn (Integrity Verification):
-          // Phải dịch đủ 100% các dòng trong itemsToTranslate, không được thiếu bất kỳ dòng nào!
-          const missingItems = itemsToTranslate.filter((item) => {
-            const trans = resultMap.get(item.i);
-            return !trans || typeof trans !== 'string' || !trans.trim();
-          });
+          // R1: Kiểm tra tính toàn vẹn (Untranslated Line Detection)
+          // Bất kỳ dòng nào mà target === source (không thuộc diện miễn trừ) thì bị coi là chưa dịch
+          for (const item of itemsToTranslate) {
+            const trans = extractedMap.get(item.i);
+            if (trans && typeof trans === 'string' && trans.trim()) {
+              if (!isLineUntranslated(item.text, trans, glossary)) {
+                confirmedTranslations.set(item.i, trans.trim());
+              }
+            }
+          }
 
-          if (missingItems.length > 0) {
+          // Kiểm tra xem còn dòng nào trong itemsToTranslate chưa có bản dịch hợp lệ không
+          const unfulfilledItems = itemsToTranslate.filter((item) => !confirmedTranslations.has(item.i));
+
+          if (unfulfilledItems.length > 0) {
             throw new Error(
-              `Batch phản hồi thiếu ${missingItems.length}/${itemsToTranslate.length} dòng dịch (${missingItems.map((m) => m.i).join(', ')}).`
+              `Batch phản hồi thiếu hoặc chưa dịch ${unfulfilledItems.length}/${itemsToTranslate.length} dòng (${unfulfilledItems.map((m) => m.i).join(', ')}).`
             );
           }
 
+          resultMap = confirmedTranslations;
           success = true;
         } catch (err: any) {
           lastError = err;
@@ -828,7 +897,7 @@ export async function translateSrtFile(
         );
         if (match) {
           const trans = resultMap.get(match.id) ?? cachedTarget.get(match.id);
-          if (trans) resultMap.set(line.id, trans);
+          if (trans && !isLineUntranslated(line.text, trans, glossary)) resultMap.set(line.id, trans);
         }
       }
     }
@@ -836,15 +905,16 @@ export async function translateSrtFile(
     // Lưu vào cache + ghi checkpoint NGAY sau mỗi batch (chỉ các dòng mới dịch)
     for (const line of batchLines) {
       const target = resultMap.get(line.id) ?? cachedTarget.get(line.id);
-      if (target !== undefined && target.trim()) {
+      if (target !== undefined && target.trim() && !isLineUntranslated(line.text, target, glossary)) {
         checkpointData[line.id] = { source: line.text, target };
+        cachedTarget.set(line.id, target);
       }
     }
     saveCheckpoint(srtPath, targetLanguage, checkpointData, lines.length);
 
     return batchLines.map((line) => {
       const transText = resultMap.get(line.id) ?? cachedTarget.get(line.id);
-      if (line.text.trim() && (!transText || !transText.trim())) {
+      if (line.text.trim() && (!transText || !transText.trim() || isLineUntranslated(line.text, transText, glossary))) {
         throw new Error(
           `Dòng phụ đề ${line.id} ("${line.text}") không có bản dịch hợp lệ sau khi gọi mô hình.`
         );

@@ -26,7 +26,7 @@ import {
 import type { Task } from '../types/task';
 import { formatMs, parseSrt, parseTimecode, serializeSrt, type SrtLine } from '../lib/srt';
 import { calculateCps, breakVietnameseLines, splitLineSmart } from '../lib/nlpSegmenter';
-import { sanitizeSubtitles, isOcrGarbageLine } from '../lib/subtitleSanitizer';
+import { sanitizeSubtitles, isOcrGarbageLine, isLineUntranslated } from '../lib/subtitleSanitizer';
 
 type Props = {
   tasks: Task[];
@@ -170,6 +170,7 @@ export default function SubtitleEditor({
   const [targetLanguage, setTargetLanguage] = useState('vi');
   const [showBilingual, setShowBilingual] = useState(true);
   const [originalLines, setOriginalLines] = useState<SrtLine[]>([]);
+  const [glossary, setGlossary] = useState('');
 
   // Trình xem trước video
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -213,6 +214,26 @@ export default function SubtitleEditor({
     if (lines.length === 0) return 0;
     return lines.filter((l) => isOcrGarbageLine(l)).length;
   }, [lines]);
+
+  // R4: Phát hiện danh sách các dòng chưa được dịch (trùng nội dung câu gốc) khi xem bản dịch
+  const untranslatedIndices = useMemo(() => {
+    if (srtSource !== 'translated' || lines.length === 0 || originalLines.length === 0) {
+      return [];
+    }
+    const list: number[] = [];
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const orig =
+        originalLines.find((o) => o.id === line.id)?.text ??
+        originalLines[i]?.text ??
+        originalLines.find((o) => Math.abs(o.startMs - line.startMs) < 1000)?.text;
+      if (!orig || !orig.trim() || !line.text || !line.text.trim()) continue;
+      if (isLineUntranslated(orig, line.text, glossary)) {
+        list.push(i);
+      }
+    }
+    return list;
+  }, [srtSource, lines, originalLines, glossary]);
 
   // File SRT đang mở: bản dịch nếu đang chọn và đã có, ngược lại bản gốc
   const activeSrtPath = useMemo(() => {
@@ -295,6 +316,13 @@ export default function SubtitleEditor({
       .get('targetLanguage')
       .then((v: string) => {
         if (v) setTargetLanguage(v);
+      })
+      .catch(() => {});
+
+    window.vanhsub.settings
+      .get('glossary')
+      .then((g: string) => {
+        if (g) setGlossary(g);
       })
       .catch(() => {});
   }, []);
@@ -748,14 +776,44 @@ export default function SubtitleEditor({
     setAiBusyIndex(index);
     setAiActionType('translate');
     try {
+      const origText =
+        srtSource === 'translated'
+          ? originalLines.find((o) => o.id === lines[index].id)?.text ||
+            originalLines[index]?.text ||
+            originalLines.find((o) => Math.abs(o.startMs - lines[index].startMs) < 1000)?.text ||
+            lines[index].text
+          : lines[index].text;
+
+      // R2: Cách ly ngữ cảnh — chỉ truyền câu trước nếu câu đó thực sự đã được dịch
+      let prevContextText: string | undefined;
+      if (index > 0) {
+        const prevCandidate = lines[index - 1]?.text;
+        const origPrev =
+          originalLines.find((o) => o.id === lines[index - 1]?.id)?.text ||
+          originalLines[index - 1]?.text;
+        if (
+          prevCandidate &&
+          prevCandidate.trim() &&
+          (!origPrev || !isLineUntranslated(origPrev, prevCandidate, glossary))
+        ) {
+          prevContextText = prevCandidate;
+        }
+      }
+
       const translated = await window.vanhsub.ai.translateLine({
-        text: lines[index].text,
+        text: origText,
         targetLanguage,
-        prev: lines[index - 1]?.text,
-        next: lines[index + 1]?.text,
+        prev: prevContextText,
+        next: undefined,
       });
-      updateLine(index, { text: translated });
-      setStatusMessage(`Đã dịch câu #${index + 1} sang ${targetLabel} — nhớ bấm "Lưu thay đổi".`);
+
+      if (translated && isLineUntranslated(origText, translated, glossary)) {
+        setStatusError(true);
+        setStatusMessage(`Cảnh báo: Mô hình trả về câu chưa dịch ("${translated}"). Vui lòng thử lại.`);
+      } else {
+        updateLine(index, { text: translated });
+        setStatusMessage(`Đã dịch câu #${index + 1} sang ${targetLabel} — nhớ bấm "Lưu thay đổi".`);
+      }
     } catch (err: any) {
       const message: string = err?.message || String(err);
       setStatusError(true);
@@ -764,6 +822,104 @@ export default function SubtitleEditor({
     } finally {
       setAiBusyIndex(null);
       setAiActionType(null);
+    }
+  };
+
+  const [isTranslatingRemaining, setIsTranslatingRemaining] = useState(false);
+  const [translatingRemainingProgress, setTranslatingRemainingProgress] = useState(0);
+
+  // R4: Dịch 1-click tất cả các câu chưa dịch (Safety Net Recovery)
+  const handleTranslateRemainingLines = async () => {
+    if (untranslatedIndices.length === 0 || isTranslatingRemaining || loading) return;
+    if (!hasApiKey) {
+      setShowKeyInput(true);
+      setStatusError(true);
+      setStatusMessage('Cần có Gemini API Key để dịch các câu còn lại — vui lòng nhập key.');
+      return;
+    }
+
+    setIsTranslatingRemaining(true);
+    setTranslatingRemainingProgress(0);
+    setStatusError(false);
+    const targetLabel = TARGET_LANGUAGES.find((l) => l.code === targetLanguage)?.label || targetLanguage;
+    setStatusMessage(`Đang dịch ${untranslatedIndices.length} câu chưa dịch sang ${targetLabel}...`);
+
+    let translatedCount = 0;
+    const updatedLines = [...lines];
+    pushUndo(lines, true);
+
+    try {
+      for (let step = 0; step < untranslatedIndices.length; step++) {
+        const idx = untranslatedIndices[step];
+        const line = updatedLines[idx];
+        const origText =
+          originalLines.find((o) => o.id === line.id)?.text ||
+          originalLines[idx]?.text ||
+          originalLines.find((o) => Math.abs(o.startMs - line.startMs) < 1000)?.text ||
+          line.text;
+
+        setTranslatingRemainingProgress(step + 1);
+        setStatusMessage(`Đang dịch câu #${idx + 1} (${step + 1}/${untranslatedIndices.length})...`);
+
+        // R2: Cách ly ngữ cảnh — chỉ truyền câu trước nếu câu đó thực sự đã được dịch
+        let prevContextText: string | undefined;
+        if (idx > 0) {
+          const prevCandidate = updatedLines[idx - 1]?.text;
+          const origPrev =
+            originalLines.find((o) => o.id === updatedLines[idx - 1]?.id)?.text ||
+            originalLines[idx - 1]?.text;
+          if (
+            prevCandidate &&
+            prevCandidate.trim() &&
+            (!origPrev || !isLineUntranslated(origPrev, prevCandidate, glossary))
+          ) {
+            prevContextText = prevCandidate;
+          }
+        }
+
+        try {
+          const translated = await window.vanhsub.ai.translateLine({
+            text: origText,
+            targetLanguage,
+            prev: prevContextText,
+            next: undefined,
+          });
+
+          if (
+            translated &&
+            translated.trim() &&
+            !isLineUntranslated(origText, translated, glossary)
+          ) {
+            updatedLines[idx] = { ...line, text: translated.trim() };
+            translatedCount++;
+            setLines([...updatedLines]);
+            setDirty(true);
+          } else {
+            console.warn(`Câu #${idx + 1} vẫn chưa được dịch thực sự:`, translated);
+          }
+        } catch (itemErr: any) {
+          console.warn(`Lỗi khi dịch câu #${idx + 1}:`, itemErr);
+        }
+      }
+
+      if (translatedCount > 0) {
+        setLines(updatedLines);
+        setDirty(true);
+        setStatusMessage(
+          `Đã hoàn tất dịch ${translatedCount}/${untranslatedIndices.length} câu sang ${targetLabel}! Nhớ bấm "Lưu thay đổi".`
+        );
+      } else {
+        setStatusError(true);
+        setStatusMessage(
+          `Không thể dịch tự động ${untranslatedIndices.length} câu sót (mô hình vẫn giữ nguyên nội dung gốc). Bạn có thể chỉnh sửa thủ công.`
+        );
+      }
+    } catch (err: any) {
+      setStatusError(true);
+      setStatusMessage('Lỗi khi dịch các câu sót: ' + (err?.message || err));
+    } finally {
+      setIsTranslatingRemaining(false);
+      setTranslatingRemainingProgress(0);
     }
   };
 
@@ -1017,6 +1173,38 @@ export default function SubtitleEditor({
             </span>
           )}
 
+          {/* R4: Chỉ báo trạng thái câu chưa dịch & Nút 1-click dịch câu sót (Recovery Safety Net) */}
+          {selectedTaskId && srtSource === 'translated' && untranslatedIndices.length > 0 && (
+            <div className="flex items-center gap-1.5">
+              <span
+                title={`Phát hiện ${untranslatedIndices.length} câu chưa được dịch sang ngôn ngữ đích (nội dung trùng với câu gốc).`}
+                className="inline-flex items-center gap-1 rounded-full border border-amber-500/40 bg-amber-500/10 px-2.5 py-1 text-[10px] font-semibold text-amber-300"
+              >
+                <AlertCircle className="h-3 w-3 text-amber-400" />
+                Chưa dịch ({untranslatedIndices.length})
+              </span>
+
+              <button
+                type="button"
+                onClick={handleTranslateRemainingLines}
+                disabled={loading || isTranslatingRemaining || isTranslating}
+                title={`Dịch tự động ${untranslatedIndices.length} câu chưa dịch còn lại bằng Gemini`}
+                className="inline-flex items-center gap-1.5 rounded-md border border-amber-500/40 bg-amber-500/20 px-2.5 py-1 text-xs font-semibold text-amber-200 hover:bg-amber-500/30 cursor-pointer disabled:opacity-50 transition"
+              >
+                {isTranslatingRemaining ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin text-amber-300" />
+                ) : (
+                  <Sparkles className="h-3.5 w-3.5 text-amber-300" />
+                )}
+                <span>
+                  {isTranslatingRemaining
+                    ? `Đang dịch (${translatingRemainingProgress}/${untranslatedIndices.length})...`
+                    : `Dịch ${untranslatedIndices.length} câu sót`}
+                </span>
+              </button>
+            </div>
+          )}
+
           {/* Nút Ngắt dòng hiển thị (\n) */}
           {lines.length > 0 && (
             <button
@@ -1255,6 +1443,7 @@ export default function SubtitleEditor({
                   const isDragging = draggedIndex === index;
                   const isDragOver = dragOverIndex === index && draggedIndex !== index;
                   const isNewlyAdded = item.id === newlyAddedId;
+                  const isUntranslatedItem = srtSource === 'translated' && untranslatedIndices.includes(index);
 
                   return (
                     <div
@@ -1277,6 +1466,8 @@ export default function SubtitleEditor({
                           ? 'border-accent/40 ring-1 ring-accent/30  '
                           : isNewlyAdded
                           ? 'border-emerald-500/60 ring-1 ring-emerald-500/30'
+                          : isUntranslatedItem
+                          ? 'border-amber-500/50 bg-amber-500/5 ring-1 ring-amber-500/20'
                           : 'border-border hover:border-accent/40',
                       ].filter(Boolean).join(' ')}
                     >
@@ -1300,6 +1491,12 @@ export default function SubtitleEditor({
                           {isNewlyAdded && (
                             <span className="inline-flex items-center gap-1 rounded bg-emerald-500/20 px-1.5 py-0.5 text-[9px] font-semibold text-emerald-400 border border-emerald-500/30">
                               Mới thêm • Kéo ⠿ để dời
+                            </span>
+                          )}
+                          {isUntranslatedItem && (
+                            <span className="inline-flex items-center gap-1 rounded bg-amber-500/20 px-1.5 py-0.5 text-[9px] font-semibold text-amber-300 border border-amber-500/40">
+                              <AlertCircle className="h-2.5 w-2.5 text-amber-400" />
+                              Chưa dịch
                             </span>
                           )}
                           {item.needsReview && (
@@ -1431,7 +1628,8 @@ export default function SubtitleEditor({
                             <span>Bản gốc đối chiếu:</span>
                           </div>
                           <p className="font-normal text-text leading-relaxed whitespace-pre-line">
-                            {originalLines[index]?.text ||
+                            {originalLines.find((o) => o.id === item.id)?.text ||
+                              originalLines[index]?.text ||
                               originalLines.find((o) => Math.abs(o.startMs - item.startMs) < 1000)?.text ||
                               '—'}
                           </p>

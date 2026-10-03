@@ -151,3 +151,89 @@ export function sanitizeSubtitles(lines: SrtLine[], options?: SanitizeOptions): 
     removedItems,
   };
 }
+
+/**
+ * Kiểm tra xem một dòng phụ đề có bị coi là chưa dịch hay không (R1: Untranslated Line Detection).
+ * Trả về true nếu bản dịch giống hệt câu gốc (target === source) và KHÔNG thuộc diện miễn trừ.
+ * Các trường hợp miễn trừ (exempted tokens):
+ * 1. Dòng rỗng hoặc chỉ chứa dấu câu, ký hiệu, nốt nhạc (không có chữ cái \p{L} hay chữ số \p{N}).
+ * 2. Dòng chỉ chứa chữ số và ký tự số (ví dụ: "123", "2024", "$100", "50%").
+ * 3. Từ mượn / viết tắt ngắn toàn cầu (ví dụ: "OK", "O.K.").
+ * 4. Khớp chính xác với bảng thuật ngữ bắt buộc (glossary) quy định giữ nguyên dạng.
+ */
+export function isLineUntranslated(
+  source: string,
+  target: string,
+  glossary?: string
+): boolean {
+  const sourceTrim = (source || '').trim();
+  const targetTrim = (target || '').trim();
+
+  // Nếu target rỗng -> chưa dịch
+  if (!targetTrim) return true;
+
+  // Loại bỏ các thẻ định dạng phụ đề (HTML tags <i>, <b>, <u>, <font...>, hoặc ASS override {\...})
+  // trước khi trích xuất ký tự chữ/số để tránh việc mô hình chỉ thêm/bớt thẻ định dạng mà giữ nguyên câu gốc
+  const stripSubtitleTags = (s: string) => s.replace(/<[^>]+>|\{[^}]+\}/gu, '');
+  const sourceClean = stripSubtitleTags(sourceTrim);
+  const targetClean = stripSubtitleTags(targetTrim);
+
+  // Chuẩn hóa loại bỏ toàn bộ dấu câu và ký tự phân cách để so sánh cốt lõi chữ/số
+  const sourceAlpha = (sourceClean || sourceTrim).toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+  const targetAlpha = (targetClean || targetTrim).toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+
+  const isExactOrAlphaMatch =
+    targetTrim.toLowerCase() === sourceTrim.toLowerCase() ||
+    (sourceClean && targetClean && targetClean.toLowerCase() === sourceClean.toLowerCase()) ||
+    (sourceAlpha.length > 0 && sourceAlpha === targetAlpha);
+
+  // Nếu target khác source cả về chuỗi thô lẫn sau khi chuẩn hóa chữ/số -> đã được dịch
+  if (!isExactOrAlphaMatch) {
+    return false;
+  }
+
+  // target trùng khớp source: kiểm tra các ngoại lệ (exempted tokens)
+  // 1. Không có chữ cái (\p{L}) hoặc chữ số (\p{N}) -> dấu câu, nốt nhạc, ký hiệu -> Miễn trừ
+  if (!/[\p{L}\p{N}]/u.test(sourceClean || sourceTrim)) {
+    return false;
+  }
+
+  // 2. Không chứa bất kỳ chữ cái nào (chỉ có số, ký hiệu tiền tệ, phần trăm, thời gian...) -> Miễn trừ
+  if (!/\p{L}/u.test(sourceClean || sourceTrim)) {
+    return false;
+  }
+
+  // 3. Từ mượn / viết tắt / từ cảm thán toàn cầu ("OK", "O.K.", "Okay", "SOS")
+  // Chuẩn hóa loại bỏ toàn bộ dấu câu và ký hiệu bao quanh (ví dụ: "OK.", "OK!", "(OK)", "O.K.!")
+  const alphaUpper = (sourceClean || sourceTrim).toUpperCase().replace(/[^\p{L}\p{N}]/gu, '');
+  if (alphaUpper === 'OK' || alphaUpper === 'OKAY' || alphaUpper === 'SOS') {
+    return false;
+  }
+
+  // 4. Khớp thuật ngữ glossary (hỗ trợ cả dấu phân cách = và :, cùng dấu câu kèm theo như "VANHSUB!")
+  if (glossary) {
+    const rawLines = glossary.split('\n').map((l) => l.trim().replace(/^[-•*]\s*/, '')).filter(Boolean);
+    const sourceCleanNorm = sourceAlpha;
+    const targetCleanNorm = targetAlpha;
+
+    for (const gLine of rawLines) {
+      const match = gLine.match(/^(.+?)[=:](.+)$/);
+      if (match) {
+        const src = match[1].trim().toLowerCase();
+        const tgt = match[2].trim().toLowerCase();
+        if (
+          (src === sourceTrim.toLowerCase() && tgt === targetTrim.toLowerCase()) ||
+          (stripSubtitleTags(src).toLowerCase() === sourceClean.toLowerCase() &&
+           stripSubtitleTags(tgt).toLowerCase() === targetClean.toLowerCase()) ||
+          (src.replace(/[^\p{L}\p{N}]/gu, '') === sourceCleanNorm &&
+           tgt.replace(/[^\p{L}\p{N}]/gu, '') === targetCleanNorm)
+        ) {
+          return false;
+        }
+      }
+    }
+  }
+
+  return true;
+}
+

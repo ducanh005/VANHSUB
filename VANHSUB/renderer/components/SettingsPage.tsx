@@ -47,12 +47,19 @@ export const GEMINI_MODEL_GROUPS: GeminiModelGroup[] = [
     group: 'Model Free khuyên dùng & Tốc độ cao',
     models: [
       {
+        id: 'gemini-3.8-flash',
+        name: 'Gemini 3.8 Flash',
+        badge: 'Khuyên dùng • Thế hệ mới',
+        badgeColor: 'bg-accent-tint text-accent border-accent/40',
+        desc: 'Model thế hệ 3.8 Flash mới nhất, ngữ cảnh 1M token, tốc độ cao, dịch thuật và lý luận phụ đề tối ưu.',
+        isRecommended: true,
+      },
+      {
         id: 'gemini-2.5-flash',
         name: 'Gemini 2.5 Flash',
-        badge: 'Khuyên dùng • Free',
-        badgeColor: 'bg-accent-tint text-accent border-accent/40',
-        desc: 'Model thế hệ mới nhất, tốc độ cực nhanh, dịch thuật & hiệu đính chuẩn xác. Miễn phí (15 RPM / 1M TPM).',
-        isRecommended: true,
+        badge: 'Phổ biến • Free',
+        badgeColor: 'bg-blue-500/20 text-blue-400 border-blue-500/40',
+        desc: 'Model ổn định, tốc độ nhanh, dịch thuật & hiệu đính chuẩn xác. Miễn phí (15 RPM / 1M TPM).',
       },
       {
         id: 'gemini-2.5-flash-lite',

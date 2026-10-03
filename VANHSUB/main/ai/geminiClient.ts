@@ -1,6 +1,7 @@
 import OpenAI from 'openai';
 import { jsonrepair } from 'jsonrepair';
 import { SettingsStore } from '../store/settingsStore';
+import { isLineUntranslated } from '../lib/subtitleSanitizer';
 
 // Gemini tương thích endpoint OpenAI — dùng lại SDK openai theo quyết định kỹ thuật đã chốt.
 const GEMINI_OPENAI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/openai/';
@@ -30,11 +31,11 @@ export function createGeminiClient(): { client: OpenAI; model: string } {
       'Chưa cấu hình Gemini API key. Vào Cài đặt (hoặc bấm nút "Gemini API" ở màn hình hiệu đính) để nhập key — lấy miễn phí tại aistudio.google.com.'
     );
   }
-  const model = SettingsStore.get('geminiModel') || 'gemini-flash-latest';
+  const model = SettingsStore.get('geminiModel') || 'gemini-3.8-flash';
   const client = new OpenAI({
     apiKey,
     baseURL: GEMINI_OPENAI_BASE_URL,
-    timeout: 60_000,
+    timeout: 120_000, // Tăng request timeout lên 120s (2 phút) để multi-item batches và reasoning hoàn tất tin cậy
     maxRetries: 0, // retry tự quản lý ở từng module (translator cần kiểm soát backoff riêng)
   });
   return { client, model };
@@ -63,9 +64,9 @@ export async function polishSubtitleLine(payload: PolishLinePayload): Promise<st
   if (payload.next?.trim()) contextParts.push(`Câu sau đó (chỉ để tham khảo ngữ cảnh): "${payload.next.trim()}"`);
 
   try {
-    const completion = await client.chat.completions.create({
+    const isGemini3 = /gemini-3|gemini-flash-latest/i.test(model);
+    const completionParams: any = {
       model,
-      temperature: 0.3,
       messages: [
         { role: 'system', content: POLISH_SYSTEM_PROMPT },
         {
@@ -75,7 +76,15 @@ export async function polishSubtitleLine(payload: PolishLinePayload): Promise<st
             .join('\n'),
         },
       ],
-    });
+    };
+    if (isGemini3) {
+      completionParams.reasoning_effort = 'low';
+      completionParams.temperature = 1.0;
+    } else {
+      completionParams.temperature = 0.3;
+    }
+
+    const completion = await client.chat.completions.create(completionParams);
 
     const result = completion.choices[0]?.message?.content?.trim();
     if (!result) throw new Error('Gemini trả về kết quả rỗng, thử lại nhé.');
@@ -94,6 +103,23 @@ export interface TranslateLinePayload {
   next?: string;
 }
 
+function buildGlossaryPrompt(): string {
+  const raw = (SettingsStore.get('glossary') || '').trim();
+  if (!raw) return '';
+  const lines = raw
+    .split('\n')
+    .map((l) => l.trim().replace(/^[-•*]\s*/, ''))
+    .filter(Boolean);
+  if (lines.length === 0) return '';
+  return `\nBẢNG THUẬT NGỮ BẮT BUỘC:\n${lines.map((l) => `- ${l}`).join('\n')}`;
+}
+
+function buildStyleGuidePrompt(): string {
+  const raw = (SettingsStore.get('translationStyleGuide') || '').trim();
+  if (!raw) return '';
+  return `\nVĂN PHONG & QUY TẮC XƯNG HÔ:\n${raw}`;
+}
+
 export async function translateSubtitleLine(payload: TranslateLinePayload): Promise<string> {
   const { client, model } = createGeminiClient();
   const targetLang = payload.targetLanguage || SettingsStore.get('targetLanguage') || 'vi';
@@ -102,16 +128,20 @@ export async function translateSubtitleLine(payload: TranslateLinePayload): Prom
   if (payload.prev?.trim()) contextParts.push(`Ngữ cảnh câu trước: "${payload.prev.trim()}"`);
   if (payload.next?.trim()) contextParts.push(`Ngữ cảnh câu sau: "${payload.next.trim()}"`);
 
-  const prompt = `Bạn là biên dịch viên phụ đề phim chuyên nghiệp.
+  const prompt =
+    `Bạn là biên dịch viên phụ đề phim chuyên nghiệp.
 Nhiệm vụ: Dịch DUY NHẤT câu sau sang ngôn ngữ: "${targetLang}".
 Yêu cầu:
+- BẮT BUỘC dịch thực sự sang ngôn ngữ đích "${targetLang}", tuyệt đối không sao chép hoặc giữ nguyên văn bản gốc chưa dịch.
 - Giữ nguyên ngữ nghĩa, dịch tự nhiên theo văn nói phụ đề phim, ngắn gọn súc tích, tối đa 2 dòng hiển thị (dưới 70 ký tự).
-- Chỉ trả về DUY NHẤT câu đã dịch, không giải thích, không bọc ngoặc kép.`;
+- Chỉ trả về DUY NHẤT câu đã dịch, không giải thích, không bọc ngoặc kép.` +
+    buildGlossaryPrompt() +
+    buildStyleGuidePrompt();
 
   try {
-    const completion = await client.chat.completions.create({
+    const isGemini3 = /gemini-3|gemini-flash-latest/i.test(model);
+    const completionParams: any = {
       model,
-      temperature: 0.3,
       messages: [
         { role: 'system', content: prompt },
         {
@@ -121,12 +151,49 @@ Yêu cầu:
             .join('\n'),
         },
       ],
-    });
+    };
+    if (isGemini3) {
+      completionParams.reasoning_effort = 'low';
+      completionParams.temperature = 1.0;
+    } else {
+      completionParams.temperature = 0.3;
+    }
+
+    const completion = await client.chat.completions.create(completionParams);
 
     const result = completion.choices[0]?.message?.content?.trim();
     if (!result) throw new Error('Gemini trả về kết quả rỗng, thử lại nhé.');
 
-    return result.replace(/^["“']+|["”']+$/g, '').trim();
+    let cleaned = result.replace(/^["“']+|["”']+$/g, '').trim();
+
+    // R1: Nếu model trả về câu chưa dịch (trùng câu gốc không thuộc diện miễn trừ), thử lại 1 lần với prompt leo thang
+    const glossary = SettingsStore.get('glossary') || '';
+    if (isLineUntranslated(payload.text, cleaned, glossary)) {
+      const retryPrompt =
+        `Bạn là hệ thống dịch thuật máy tự động chính xác cao.
+CẢNH BÁO: Lần dịch trước đã trả về câu chưa dịch giống hệt câu gốc.
+Nhiệm vụ: BẮT BUỘC dịch thực sự câu sau sang ngôn ngữ đích: "${targetLang}".
+Yêu cầu:
+- TUYỆT ĐỐI KHÔNG lặp lại hoặc sao chép nguyên văn bản gốc ("${payload.text}").
+- Trả về DUY NHẤT câu đã dịch sang "${targetLang}", không giải thích, không bọc trong ngoặc kép.` +
+        buildGlossaryPrompt() +
+        buildStyleGuidePrompt();
+
+      const retryCompletion = await client.chat.completions.create({
+        ...completionParams,
+        messages: [
+          { role: 'system', content: retryPrompt },
+          { role: 'user', content: `Câu cần dịch: "${payload.text}"` },
+        ],
+      });
+
+      const retryResult = retryCompletion.choices[0]?.message?.content?.trim();
+      if (retryResult) {
+        cleaned = retryResult.replace(/^["“']+|["”']+$/g, '').trim();
+      }
+    }
+
+    return cleaned;
   } catch (err: any) {
     throw new Error(friendlyGeminiError(err));
   }
@@ -374,14 +441,22 @@ Trả về DUY NHẤT một chuỗi JSON mảng các đối tượng:
 Không giải thích thêm, không bọc trong markdown.`;
 
     try {
-      const completion = await client.chat.completions.create({
+      const isGemini3 = /gemini-3|gemini-flash-latest/i.test(model);
+      const completionParams: any = {
         model,
-        temperature: 0.2,
         messages: [
           { role: 'system', content: 'Bạn là chuyên gia biên tập phụ đề video. Luôn trả về định dạng JSON thuần.' },
           { role: 'user', content: prompt },
         ],
-      });
+      };
+      if (isGemini3) {
+        completionParams.reasoning_effort = 'low';
+        completionParams.temperature = 1.0;
+      } else {
+        completionParams.temperature = 0.2;
+      }
+
+      const completion = await client.chat.completions.create(completionParams);
 
       const raw = completion.choices[0]?.message?.content?.trim() || '[]';
       const cleanJson = raw.replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim();

@@ -119,7 +119,7 @@ function getStore(): Store<AppSettings> {
       ...(cwd ? { cwd } : {}),
       defaults: {
         geminiApiKey: '',
-        geminiModel: 'gemini-flash-latest',
+        geminiModel: 'gemini-3.8-flash',
         targetLanguage: 'vi',
         asrModel: 'base',
         asrEngine: 'faster-whisper',
@@ -191,6 +191,9 @@ export const SettingsStore = {
   /** get() tự động giải mã các secret (geminiApiKey, veoSessionCookie, veoSessionAuthToken) */
   get<K extends keyof AppSettings>(key: K): AppSettings[K] {
     const raw = getStore().get(key);
+    if (key === 'geminiModel' && (raw === 'gemini-flash-latest' || !raw)) {
+      return 'gemini-3.8-flash' as AppSettings[K];
+    }
     if (ENCRYPTED_KEYS.has(key)) {
       return decryptSecret(String(raw ?? '')) as AppSettings[K];
     }

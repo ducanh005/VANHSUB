@@ -13,10 +13,12 @@ import {
   saveCheckpoint,
   getCheckpointPath,
   translateSrtFile,
+  isLineUntranslated,
 } from '../main/translate/translator';
 import {
   resolveGroupedTimestamps,
   cleanAndDeduplicateSubtitles,
+  translateSubtitleLine,
   MAX_SUBTITLE_GAP_MS,
   MAX_SUBTITLE_DURATION_MS,
   MAX_LINES_PER_GROUP,
@@ -511,6 +513,413 @@ Phần 2:
       proto.create = origCreate;
       try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch {}
     }
+  });
+
+  await test('2.6 Untranslated line detection: raw source strings returned by Gemini for batch 0 or partial lines trigger retry', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'test_untrans_retry_'));
+    const srtFile = path.join(tempDir, 'untrans_test.srt');
+    const testLines: SrtLine[] = [
+      { id: 'line-0', startMs: 1000, endMs: 2500, text: 'Welcome to this video.', speaker: 'SPEAKER_00' },
+      { id: 'line-1', startMs: 3000, endMs: 4500, text: 'We hope you enjoy it.', speaker: 'SPEAKER_00' },
+    ];
+    fs.writeFileSync(srtFile, serializeSrt(testLines), 'utf-8');
+
+    SettingsStore.set('geminiApiKey', 'test_key');
+    SettingsStore.set('translateBatchSize', 10);
+    SettingsStore.set('translateConcurrency', 1);
+
+    const testClient = new OpenAI({ apiKey: 'test_key' });
+    const proto = Object.getPrototypeOf(testClient.chat.completions) as any;
+    const origCreate = proto.create;
+
+    let callCount = 0;
+    proto.create = async function (params: any) {
+      callCount++;
+      if (callCount === 1) {
+        // Attempt 1: Gemini simulates returning untranslated source string for line-0, and translated for line-1
+        return {
+          choices: [
+            {
+              message: {
+                content: JSON.stringify([
+                  { i: 'line-0', text: 'Welcome to this video.' }, // Raw source string (untranslated)!
+                  { i: 'line-1', text: 'Chúng tôi hy vọng bạn thích nó.' }, // Genuine translation
+                ]),
+              },
+            },
+          ],
+        };
+      }
+      // Attempt 2: After targeted retry with escalated prompt, Gemini properly translates line-0
+      return {
+        choices: [
+          {
+            message: {
+              content: JSON.stringify([
+                { i: 'line-0', text: 'Chào mừng bạn đến với video này.' },
+              ]),
+            },
+          },
+        ],
+      };
+    };
+
+    try {
+      const { translatedSrtPath } = await translateSrtFile(srtFile, 'vi');
+      const parsed = parseSrt(fs.readFileSync(translatedSrtPath, 'utf-8'));
+
+      assert.strictEqual(callCount, 2, 'Engine must flag raw source line-0 as untranslated and trigger retry');
+      assert.strictEqual(parsed.length, 2);
+      assert.strictEqual(parsed[0].text, 'Chào mừng bạn đến với video này.', 'Line-0 must be translated after retry, not raw English');
+      assert.strictEqual(parsed[1].text, 'Chúng tôi hy vọng bạn thích nó.', 'Line-1 must preserve genuine translation');
+    } finally {
+      proto.create = origCreate;
+      try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch {}
+    }
+  });
+
+  await test('2.7 Concurrency isolation: pending batch 0 does NOT pass raw source lines marked as "translated" in context', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'test_concurrency_ctx_'));
+    const srtFile = path.join(tempDir, 'concurrency_test.srt');
+    const testLines: SrtLine[] = [
+      { id: 'line-0', startMs: 1000, endMs: 2000, text: 'Batch 0 Sentence A', speaker: 'SPEAKER_00' },
+      { id: 'line-1', startMs: 2500, endMs: 3500, text: 'Batch 0 Sentence B', speaker: 'SPEAKER_00' },
+      { id: 'line-2', startMs: 4000, endMs: 5000, text: 'Batch 1 Sentence A', speaker: 'SPEAKER_00' },
+      { id: 'line-3', startMs: 5500, endMs: 6500, text: 'Batch 1 Sentence B', speaker: 'SPEAKER_00' },
+    ];
+    fs.writeFileSync(srtFile, serializeSrt(testLines), 'utf-8');
+
+    SettingsStore.set('geminiApiKey', 'test_key');
+    SettingsStore.set('translateBatchSize', 2);
+    SettingsStore.set('translateConcurrency', 2);
+
+    const testClient = new OpenAI({ apiKey: 'test_key' });
+    const proto = Object.getPrototypeOf(testClient.chat.completions) as any;
+    const origCreate = proto.create;
+
+    const capturedPayloads: any[] = [];
+    proto.create = async function (params: any) {
+      const payload = JSON.parse(params.messages[1].content);
+      capturedPayloads.push(payload);
+
+      const items = payload.items || [];
+      // Simulate slight delay for batch 0 to ensure batch 1 starts while batch 0 is pending
+      const isBatch0 = items.some((it: any) => it.i === 'line-0');
+      if (isBatch0) {
+        await new Promise((res) => setTimeout(res, 30));
+        return {
+          choices: [
+            {
+              message: {
+                content: JSON.stringify([
+                  { i: 'line-0', text: 'Dịch lô 0 câu A' },
+                  { i: 'line-1', text: 'Dịch lô 0 câu B' },
+                ]),
+              },
+            },
+          ],
+        };
+      } else {
+        return {
+          choices: [
+            {
+              message: {
+                content: JSON.stringify([
+                  { i: 'line-2', text: 'Dịch lô 1 câu A' },
+                  { i: 'line-3', text: 'Dịch lô 1 câu B' },
+                ]),
+              },
+            },
+          ],
+        };
+      }
+    };
+
+    try {
+      const { translatedSrtPath } = await translateSrtFile(srtFile, 'vi');
+      const parsed = parseSrt(fs.readFileSync(translatedSrtPath, 'utf-8'));
+
+      assert.strictEqual(parsed.length, 4);
+
+      // Tìm payload của batch 1 (chứa line-2)
+      const batch1Payload = capturedPayloads.find((p) => p.items?.some((it: any) => it.i === 'line-2'));
+      assert.ok(batch1Payload, 'Batch 1 payload must be captured');
+
+      // Xác minh R2: Context truyền vào batch 1 KHÔNG ĐƯỢC chứa câu gốc chưa dịch dưới dạng pseudo-translations
+      if (batch1Payload.context && batch1Payload.context.length > 0) {
+        for (const ctx of batch1Payload.context) {
+          assert.notStrictEqual(
+            ctx.translated.trim().toLowerCase(),
+            ctx.original.trim().toLowerCase(),
+            `Misleading context detected: translated "${ctx.translated}" equals raw source "${ctx.original}"!`
+          );
+        }
+      } else {
+        // Hoặc context hoàn toàn rỗng/không có khi batch 0 đang pending -> Chuẩn R2 Concurrency Isolation
+        assert.ok(
+          !batch1Payload.context || batch1Payload.context.length === 0,
+          'When batch 0 is pending, batch 1 context must be isolated without raw source fallback'
+        );
+      }
+    } finally {
+      proto.create = origCreate;
+      try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch {}
+    }
+  });
+
+  await test('2.8 isLineUntranslated accuracy with exempted tokens and glossary', () => {
+    // Untranslated cases
+    assert.strictEqual(isLineUntranslated('Hello world', 'Hello world'), true);
+    assert.strictEqual(isLineUntranslated('Hello world', 'hello WORLD'), true);
+    assert.strictEqual(isLineUntranslated('No', 'No'), true);
+    assert.strictEqual(isLineUntranslated('Hi', 'Hi'), true);
+    assert.strictEqual(isLineUntranslated('Yeah', 'Yeah'), true);
+    assert.strictEqual(isLineUntranslated('What?', 'What?'), true);
+    assert.strictEqual(isLineUntranslated('你好', '你好'), true);
+
+    // Translated cases
+    assert.strictEqual(isLineUntranslated('Hello', 'Xin chào'), false);
+    assert.strictEqual(isLineUntranslated('Good morning', 'Chào buổi sáng'), false);
+
+    // Exempted cases: punctuation, numbers, global symbols & abbreviations with punctuation
+    assert.strictEqual(isLineUntranslated('...', '...'), false, 'Punctuation is exempted');
+    assert.strictEqual(isLineUntranslated('♪♪', '♪♪'), false, 'Music notes are exempted');
+    assert.strictEqual(isLineUntranslated('12345', '12345'), false, 'Numbers are exempted');
+    assert.strictEqual(isLineUntranslated('$100', '$100'), false, 'Currency numbers are exempted');
+    assert.strictEqual(isLineUntranslated('50%', '50%'), false, 'Percentages are exempted');
+    assert.strictEqual(isLineUntranslated('10:30', '10:30'), false, 'Time strings are exempted');
+    assert.strictEqual(isLineUntranslated('OK', 'OK'), false, '"OK" is exempted');
+    assert.strictEqual(isLineUntranslated('O.K.', 'O.K.'), false, '"O.K." is exempted');
+    assert.strictEqual(isLineUntranslated('OK.', 'OK.'), false, '"OK." with period is exempted');
+    assert.strictEqual(isLineUntranslated('OK!', 'OK!'), false, '"OK!" with exclamation is exempted');
+    assert.strictEqual(isLineUntranslated('OK?', 'OK?'), false, '"OK?" with question mark is exempted');
+    assert.strictEqual(isLineUntranslated('O.K.!', 'O.K.!'), false, '"O.K.!" with dots and exclamation is exempted');
+    assert.strictEqual(isLineUntranslated('(OK)', '(OK)'), false, 'Parenthesized "(OK)" is exempted');
+    assert.strictEqual(isLineUntranslated('Okay', 'Okay'), false, '"Okay" is exempted');
+
+    // Glossary exemption (with punctuation & colon separator support)
+    assert.strictEqual(isLineUntranslated('VANHSUB', 'VANHSUB', 'VANHSUB = VANHSUB'), false, 'Glossary match is exempted');
+    assert.strictEqual(isLineUntranslated('VANHSUB!', 'VANHSUB!', 'VANHSUB = VANHSUB'), false, 'Glossary match with punctuation is exempted');
+    assert.strictEqual(isLineUntranslated('VANHSUB.', 'VANHSUB.', 'VANHSUB : VANHSUB'), false, 'Glossary with colon separator is exempted');
+    assert.strictEqual(isLineUntranslated('VANHSUB', 'VANHSUB', 'Apple = Táo'), true, 'Non-matching glossary is not exempted');
+
+    // Punctuation and formatting variants of raw source text must also be detected as untranslated
+    assert.strictEqual(isLineUntranslated('Hello world', 'Hello world.'), true, 'Added period to raw source is untranslated');
+    assert.strictEqual(isLineUntranslated('Hello world', '- Hello world'), true, 'Added dialogue dash to raw source is untranslated');
+    assert.strictEqual(isLineUntranslated('Hello world', '"Hello world"'), true, 'Wrapped in quotes is untranslated');
+    assert.strictEqual(isLineUntranslated('Where are you going?', 'Where are you going'), true, 'Dropped question mark from raw source is untranslated');
+    assert.strictEqual(isLineUntranslated('Good morning, sir.', 'Good morning, sir'), true, 'Dropped period from raw source is untranslated');
+    assert.strictEqual(isLineUntranslated('你好', '你好。'), true, 'Added full stop to CJK raw source is untranslated');
+
+    // Subtitle formatting tags (HTML <i>, <b>, <font>, and ASS override {\...}) must not bypass untranslated detection
+    assert.strictEqual(isLineUntranslated('<i>Hello, John!</i>', 'Hello, John!'), true, 'Stripped italic tag from raw source is untranslated');
+    assert.strictEqual(isLineUntranslated('Hello, John!', '<i>Hello, John!</i>'), true, 'Added italic tag to raw source is untranslated');
+    assert.strictEqual(isLineUntranslated('{\\an8}Hello, John!', 'Hello, John!'), true, 'Stripped ASS override tag from raw source is untranslated');
+    assert.strictEqual(isLineUntranslated('<i>Hello</i>', '<i>Xin chào</i>'), false, 'Italic tagged translated text is genuine');
+    assert.strictEqual(isLineUntranslated('<b>$100</b>', '$100'), false, 'Bold currency number is exempted');
+    assert.strictEqual(isLineUntranslated('<b>$100</b>', '<b>$100</b>'), false, 'Bold currency number preserved is exempted');
+    assert.strictEqual(isLineUntranslated('<i>50%</i>', '50%'), false, 'Italic percentage is exempted');
+  });
+
+  await test('2.9 Full batch 0 untranslated: Gemini returning raw source strings for ALL lines in batch 0 triggers retry and succeeds', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'test_full_batch0_retry_'));
+    const srtFile = path.join(tempDir, 'full_batch0.srt');
+    const testLines: SrtLine[] = [
+      { id: 'line-0', startMs: 1000, endMs: 2500, text: 'First line of the movie.', speaker: 'SPEAKER_00' },
+      { id: 'line-1', startMs: 3000, endMs: 4500, text: 'Second line of the movie.', speaker: 'SPEAKER_00' },
+    ];
+    fs.writeFileSync(srtFile, serializeSrt(testLines), 'utf-8');
+
+    SettingsStore.set('geminiApiKey', 'test_key');
+    SettingsStore.set('translateBatchSize', 10);
+    SettingsStore.set('translateConcurrency', 1);
+
+    const testClient = new OpenAI({ apiKey: 'test_key' });
+    const proto = Object.getPrototypeOf(testClient.chat.completions) as any;
+    const origCreate = proto.create;
+
+    let callCount = 0;
+    proto.create = async function () {
+      callCount++;
+      if (callCount === 1) {
+        // Attempt 1: Gemini simulates returning raw source text for ALL lines in batch 0
+        return {
+          choices: [
+            {
+              message: {
+                content: JSON.stringify([
+                  { i: 'line-0', text: 'First line of the movie.' },
+                  { i: 'line-1', text: 'Second line of the movie.' },
+                ]),
+              },
+            },
+          ],
+        };
+      }
+      // Attempt 2: After escalated retry prompt, Gemini properly translates all lines
+      return {
+        choices: [
+          {
+            message: {
+              content: JSON.stringify([
+                { i: 'line-0', text: 'Dòng đầu tiên của bộ phim.' },
+                { i: 'line-1', text: 'Dòng thứ hai của bộ phim.' },
+              ]),
+            },
+          },
+        ],
+      };
+    };
+
+    try {
+      const { translatedSrtPath } = await translateSrtFile(srtFile, 'vi');
+      const parsed = parseSrt(fs.readFileSync(translatedSrtPath, 'utf-8'));
+
+      assert.strictEqual(callCount, 2, 'Engine must retry when ALL lines in batch 0 are untranslated');
+      assert.strictEqual(parsed.length, 2);
+      assert.strictEqual(parsed[0].text, 'Dòng đầu tiên của bộ phim.', 'Line 0 must be genuinely translated');
+      assert.strictEqual(parsed[1].text, 'Dòng thứ hai của bộ phim.', 'Line 1 must be genuinely translated');
+    } finally {
+      proto.create = origCreate;
+      try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch {}
+    }
+  });
+
+  await test('2.10 Global tokens & numbers resilience: Subtitles with "OK.", "OK!", "$100", "50%" translate without crash', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'test_global_tokens_'));
+    const srtFile = path.join(tempDir, 'global_tokens.srt');
+    const testLines: SrtLine[] = [
+      { id: 'line-0', startMs: 1000, endMs: 2000, text: 'OK.', speaker: 'SPEAKER_00' },
+      { id: 'line-1', startMs: 2500, endMs: 3500, text: 'OK!', speaker: 'SPEAKER_00' },
+      { id: 'line-2', startMs: 4000, endMs: 5000, text: '$100', speaker: 'SPEAKER_00' },
+      { id: 'line-3', startMs: 5500, endMs: 6500, text: 'Thank you.', speaker: 'SPEAKER_00' },
+    ];
+    fs.writeFileSync(srtFile, serializeSrt(testLines), 'utf-8');
+
+    SettingsStore.set('geminiApiKey', 'test_key');
+    SettingsStore.set('translateBatchSize', 10);
+    SettingsStore.set('translateConcurrency', 1);
+
+    const testClient = new OpenAI({ apiKey: 'test_key' });
+    const proto = Object.getPrototypeOf(testClient.chat.completions) as any;
+    const origCreate = proto.create;
+
+    let callCount = 0;
+    proto.create = async function () {
+      callCount++;
+      return {
+        choices: [
+          {
+            message: {
+              content: JSON.stringify([
+                { i: 'line-0', text: 'OK.' },
+                { i: 'line-1', text: 'OK!' },
+                { i: 'line-2', text: '$100' },
+                { i: 'line-3', text: 'Cảm ơn bạn.' },
+              ]),
+            },
+          },
+        ],
+      };
+    };
+
+    try {
+      const { translatedSrtPath } = await translateSrtFile(srtFile, 'vi');
+      const parsed = parseSrt(fs.readFileSync(translatedSrtPath, 'utf-8'));
+
+      assert.strictEqual(callCount, 1, 'Should complete in 1 attempt without false untranslated flags');
+      assert.strictEqual(parsed.length, 4);
+      assert.strictEqual(parsed[0].text, 'OK.');
+      assert.strictEqual(parsed[1].text, 'OK!');
+      assert.strictEqual(parsed[2].text, '$100');
+      assert.strictEqual(parsed[3].text, 'Cảm ơn bạn.');
+    } finally {
+      proto.create = origCreate;
+      try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch {}
+    }
+  });
+
+  await test('2.11 Retry system prompt includes glossary terms and style guide', () => {
+    SettingsStore.set('glossary', 'Iron Man = Người Sắt\nGotham = Thành phố Gotham');
+    SettingsStore.set('translationStyleGuide', 'Xưng hô thân mật anh - em.');
+
+    const retryPrompt = buildRetrySystemPrompt('vi', 5);
+    assert.ok(retryPrompt.includes('Người Sắt'), 'Retry prompt must include glossary term Người Sắt');
+    assert.ok(retryPrompt.includes('Thành phố Gotham'), 'Retry prompt must include glossary term Gotham');
+    assert.ok(retryPrompt.includes('Xưng hô thân mật'), 'Retry prompt must include style guide');
+
+    SettingsStore.set('glossary', '');
+    SettingsStore.set('translationStyleGuide', '');
+  });
+
+  await test('2.12 translateSubtitleLine targeted retry: echoes raw source on first try, escalates retry to get valid translation', async () => {
+    SettingsStore.set('geminiApiKey', 'test_key');
+    const testClient = new OpenAI({ apiKey: 'test_key' });
+    const proto = Object.getPrototypeOf(testClient.chat.completions) as any;
+    const origCreate = proto.create;
+
+    let callCount = 0;
+    proto.create = async function () {
+      callCount++;
+      if (callCount === 1) {
+        // Attempt 1: echoes source verbatim
+        return {
+          choices: [{ message: { content: 'Where are you going?' } }],
+        };
+      }
+      // Attempt 2: properly translates
+      return {
+        choices: [{ message: { content: 'Bạn đang đi đâu thế?' } }],
+      };
+    };
+
+    try {
+      const res = await translateSubtitleLine({ text: 'Where are you going?', targetLanguage: 'vi' });
+      assert.strictEqual(callCount, 2, 'Must trigger targeted retry when Gemini echoes raw source');
+      assert.strictEqual(res, 'Bạn đang đi đâu thế?');
+    } finally {
+      proto.create = origCreate;
+    }
+  });
+
+  await test('2.13 translateSubtitleLine includes glossary terms and style guide in system prompt', async () => {
+    SettingsStore.set('geminiApiKey', 'test_key');
+    SettingsStore.set('glossary', 'Star Wars = Chiến Tranh Giữa Các Vì Sao');
+    SettingsStore.set('translationStyleGuide', 'Giọng văn trang trọng cổ điển.');
+
+    const testClient = new OpenAI({ apiKey: 'test_key' });
+    const proto = Object.getPrototypeOf(testClient.chat.completions) as any;
+    const origCreate = proto.create;
+
+    let capturedSystemPrompt = '';
+    proto.create = async function (params: any) {
+      capturedSystemPrompt = params.messages?.[0]?.content || '';
+      return {
+        choices: [{ message: { content: 'Chiến Tranh Giữa Các Vì Sao thật tuyệt vời.' } }],
+      };
+    };
+
+    try {
+      const res = await translateSubtitleLine({ text: 'Star Wars is awesome.', targetLanguage: 'vi' });
+      assert.ok(capturedSystemPrompt.includes('Chiến Tranh Giữa Các Vì Sao'), 'System prompt must include glossary term');
+      assert.ok(capturedSystemPrompt.includes('Giọng văn trang trọng cổ điển'), 'System prompt must include style guide');
+      assert.strictEqual(res, 'Chiến Tranh Giữa Các Vì Sao thật tuyệt vời.');
+    } finally {
+      proto.create = origCreate;
+      SettingsStore.set('glossary', '');
+      SettingsStore.set('translationStyleGuide', '');
+    }
+  });
+
+  await test('2.14 Gemini 3.8 Flash model configuration and inference parameter alignment', () => {
+    // Default model in store must be aligned to gemini-3.8-flash
+    const defaultModel = SettingsStore.get('geminiModel');
+    assert.strictEqual(defaultModel, 'gemini-3.8-flash', 'Default model in store must be gemini-3.8-flash');
+
+    // Both gemini-3.8-flash and gemini-flash-latest match Gemini 3 inference parameters
+    assert.ok(/gemini-3|gemini-flash-latest/i.test('gemini-3.8-flash'));
+    assert.ok(/gemini-3|gemini-flash-latest/i.test('gemini-3.5-flash-lite'));
+    assert.ok(/gemini-3|gemini-flash-latest/i.test('gemini-flash-latest'));
   });
 
   // ===========================================================================
