@@ -37,9 +37,20 @@ export interface Task {
   /** Danh sách nhãn người nói tìm được (SPEAKER_00, SPEAKER_01...) */
   speakers?: string[];
   srtPath?: string;
+  srtStale?: boolean;
   translatedSrtPath?: string;
   audioPath?: string;
   outputPath?: string;
+  dubbedPath?: string;
+  dubbedStretchFactor?: number;
+  hardsubPath?: string;
+  softsubPath?: string;
+  translationStale?: boolean;
+  translationSourceHash?: string;
+  translationConfigHash?: string;
+  ttsStale?: boolean;
+  dubbedStale?: boolean;
+  ttsSourceHash?: string;
   /** Thư mục dự án gom toàn bộ file liên quan đến video này (sub, audio, export) */
   projectDir?: string;
   errorMessage?: string;
@@ -109,18 +120,43 @@ function getStore(): Store<StoreSchema> {
   return _store;
 }
 
+let cachedTasks: Task[] | undefined;
+let taskIndex = new Map<string, Task>();
+let flushTimer: NodeJS.Timeout | undefined;
+function readTasks(): Task[] {
+  if (!cachedTasks) {
+    cachedTasks = getStore().get('tasks', []);
+    taskIndex = new Map(cachedTasks.map((task) => [task.id, task]));
+  }
+  return cachedTasks;
+}
+export function flushTaskStore(): void {
+  if (flushTimer) clearTimeout(flushTimer);
+  flushTimer = undefined;
+  if (cachedTasks) getStore().set('tasks', cachedTasks);
+}
+function persistTasks(progressOnly = false): void {
+  if (!progressOnly) { flushTaskStore(); return; }
+  if (!flushTimer) {
+    flushTimer = setTimeout(flushTaskStore, 250);
+    flushTimer.unref();
+  }
+}
+process.once('exit', () => { if (flushTimer) flushTaskStore(); });
+
 export const TaskStore = {
   getAll(): Task[] {
-    return getStore().get('tasks', []);
+    return structuredClone(readTasks());
   },
 
   getById(id: string): Task | undefined {
-    const tasks = getStore().get('tasks', []);
-    return tasks.find((t) => t.id === id);
+    readTasks();
+    const task = taskIndex.get(id);
+    return task ? structuredClone(task) : undefined;
   },
 
   create(input: CreateTaskInput): Task {
-    const tasks = getStore().get('tasks', []);
+    const tasks = readTasks();
     const now = new Date().toISOString();
     const newTask: Task = {
       id: uuidv4(),
@@ -135,52 +171,66 @@ export const TaskStore = {
       sourceLanguage: input.sourceLanguage || 'vi',
       targetLanguage: input.targetLanguage,
       asrModel: input.asrModel || 'base',
+      asrEngine: input.asrEngine,
+      enableDiarization: input.enableDiarization,
+      speakerCount: input.speakerCount,
+      speakers: input.speakers,
       srtPath: input.srtPath,
+      srtStale: input.srtStale,
       translatedSrtPath: input.translatedSrtPath,
       audioPath: input.audioPath,
       outputPath: input.outputPath,
+      dubbedPath: input.dubbedPath,
+      dubbedStretchFactor: input.dubbedStretchFactor,
+      hardsubPath: input.hardsubPath,
+      softsubPath: input.softsubPath,
+      translationStale: input.translationStale,
+      translationSourceHash: input.translationSourceHash,
+      translationConfigHash: input.translationConfigHash,
+      ttsStale: input.ttsStale,
+      dubbedStale: input.dubbedStale,
+      ttsSourceHash: input.ttsSourceHash,
       projectDir: input.projectDir,
       errorMessage: input.errorMessage,
       ttsVoice: input.ttsVoice,
       ttsSpeed: input.ttsSpeed,
       ttsEngine: input.ttsEngine,
       ttsAudioDir: input.ttsAudioDir,
+      ttsMergedAudioPath: input.ttsMergedAudioPath,
       ttsVoiceOverrides: input.ttsVoiceOverrides,
       createdAt: now,
       updatedAt: now,
     };
 
     tasks.unshift(newTask);
-    getStore().set('tasks', tasks);
-    return newTask;
+    taskIndex.set(newTask.id, newTask);
+    persistTasks();
+    return structuredClone(newTask);
   },
 
   update(id: string, updates: Partial<Task>): Task | undefined {
-    const tasks = getStore().get('tasks', []);
-    const index = tasks.findIndex((t) => t.id === id);
-    if (index === -1) return undefined;
-
-    const updatedTask: Task = {
-      ...tasks[index],
-      ...updates,
-      updatedAt: new Date().toISOString(),
-    };
-
-    tasks[index] = updatedTask;
-    getStore().set('tasks', tasks);
-    return updatedTask;
+    readTasks();
+    const task = taskIndex.get(id);
+    if (!task) return undefined;
+    Object.assign(task, updates, { updatedAt: new Date().toISOString() });
+    persistTasks(Object.keys(updates).every((key) => key === 'progress' || key === 'stageDescription'));
+    return structuredClone(task);
   },
 
   delete(id: string): boolean {
-    const tasks = getStore().get('tasks', []);
+    const tasks = readTasks();
     const filtered = tasks.filter((t) => t.id !== id);
     if (filtered.length === tasks.length) return false;
-    getStore().set('tasks', filtered);
+    cachedTasks = filtered;
+    taskIndex.delete(id);
+    persistTasks();
     return true;
   },
 
   clear(): void {
-    getStore().set('tasks', []);
+    cachedTasks = [];
+    taskIndex.clear();
+    persistTasks();
   },
 
   /**
@@ -192,7 +242,7 @@ export const TaskStore = {
    */
   resetStaleRunning(): Task[] {
     const RUNNING_STATUSES: TaskStatus[] = ['transcribing', 'ocr', 'translating', 'exporting', 'dubbing'];
-    const tasks = getStore().get('tasks', []);
+    const tasks = readTasks();
     const now = new Date().toISOString();
     const fixedIds = new Set<string>();
     const fixed = tasks.map((t) => {
@@ -207,7 +257,11 @@ export const TaskStore = {
         updatedAt: now,
       };
     });
-    if (fixedIds.size > 0) getStore().set('tasks', fixed);
+    if (fixedIds.size > 0) {
+      cachedTasks = fixed;
+      taskIndex = new Map(fixed.map((task) => [task.id, task]));
+      persistTasks();
+    }
     return fixed.filter((t) => fixedIds.has(t.id));
   },
 };

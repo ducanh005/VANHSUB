@@ -20,9 +20,20 @@ export interface Task {
   speakerCount?: number;
   speakers?: string[];
   srtPath?: string;
+  srtStale?: boolean;
   translatedSrtPath?: string;
   audioPath?: string;
   outputPath?: string;
+  dubbedPath?: string;
+  dubbedStretchFactor?: number;
+  hardsubPath?: string;
+  softsubPath?: string;
+  translationStale?: boolean;
+  translationSourceHash?: string;
+  translationConfigHash?: string;
+  ttsStale?: boolean;
+  dubbedStale?: boolean;
+  ttsSourceHash?: string;
   /** Thư mục dự án gom toàn bộ file liên quan đến video này */
   projectDir?: string;
   errorMessage?: string;
