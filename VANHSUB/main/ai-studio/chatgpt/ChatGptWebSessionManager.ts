@@ -12,6 +12,7 @@
 import { BrowserWindow, session, type WebContents } from 'electron';
 import crypto from 'crypto';
 import type { ScriptBeatLine, IdeaBlueprint, ChannelProfileConfig } from '../types';
+import { ChatGptTurnTracker, readChatGptTurnSnapshot, isChatGptSessionCookie, type ChatGptTurnSnapshot } from './ChatGptWebTurnState';
 
 const CHATGPT_HOME_URL = 'https://chatgpt.com';
 const CHROME_DESKTOP_UA =
@@ -279,6 +280,18 @@ export function buildScriptPromptForWeb(
   const projectName = channelProfile?.projectName || channelProfile?.channelNiche || 'Kênh Kể Chuyện AI';
   const orientation = channelProfile?.channelOrientation || preset || 'Kịch tính, sâu sắc, lôi cuốn, tư liệu thực tế';
 
+  const masterPrompt = channelProfile?.masterPrompt?.trim();
+  if (masterPrompt && masterPrompt.length >= 40) {
+    const source = `${title}\n${blueprint?.hookConcept || ''}\n${blueprint?.narrativeAngle || ''}\n${(blueprint?.outline || []).join('\n')}`;
+    const filledPrompt = masterPrompt
+      .replace(/\{\{\s*CHANNEL_NAME\s*\}\}/gi, () => projectName)
+      .replace(/\{\{\s*SOURCE_MATERIAL\s*\}\}/gi, () => source);
+    return {
+      prompt: `${filledPrompt}\n\nYÊU CẦU XUẤT CHO APP (ưu tiên định dạng này): Chỉ trả về từng câu thoại trên một dòng dạng CÂU X: ...; không xuất TITLE hay NARRATION DIRECTION. Độ dài mục tiêu ${metrics.targetMinutesText}, ${metrics.targetWordRange}, ${metrics.targetSentenceRange}.`,
+      metrics,
+    };
+  }
+
   let prompt = '';
 
   if (metrics.isShorts) {
@@ -406,14 +419,7 @@ export class ChatGptWebSessionManager {
         };
       }
       const cookies = await ses.cookies.get({});
-      const authCookie = cookies.find(
-        (c) =>
-          c.name.includes('session-token') ||
-          c.name.includes('jwt') ||
-          c.name.includes('auth') ||
-          c.name === '__Secure-next-auth.session-token' ||
-          c.name.includes('oai-nav-state')
-      );
+      const authCookie = cookies.find((c) => isChatGptSessionCookie(c));
 
       return {
         isLoggedIn: Boolean(authCookie),
@@ -532,8 +538,9 @@ export class ChatGptWebSessionManager {
     }
 
     return new Promise((resolve) => {
+      const startedAt = Date.now();
       const pollInterval = setInterval(async () => {
-        if (!this.browserWindow || this.browserWindow.isDestroyed()) {
+        if (Date.now() - startedAt > 180_000 || !this.browserWindow || this.browserWindow.isDestroyed()) {
           clearInterval(pollInterval);
           resolve(false);
           return;
@@ -633,6 +640,22 @@ export class ChatGptWebSessionManager {
       throw new Error('Cửa sổ phiên ChatGPT Web không khả dụng hoặc đã bị đóng.');
     }
 
+    // Wait for the SPA composer, rather than assuming loadURL + a fixed sleep is enough.
+    const readyAt = Date.now();
+    while (true) {
+      if (win.isDestroyed() || win.webContents.isDestroyed()) {
+        throw new Error('Cửa sổ ChatGPT Web đã bị đóng.');
+      }
+      const ready = await win.webContents.executeJavaScript(`Boolean(document.querySelector('#prompt-textarea'))`);
+      if (ready) break;
+      if (Date.now() - readyAt > 30_000) {
+        throw new Error('ChatGPT Web chưa sẵn sàng: kiểm tra đăng nhập hoặc thông báo xác minh trong cửa sổ ChatGPT.');
+      }
+      await new Promise((r) => setTimeout(r, 500));
+    }
+    const baseline: ChatGptTurnSnapshot = await win.webContents.executeJavaScript(`(${readChatGptTurnSnapshot.toString()})()`);
+    if (baseline.isStreaming) throw new Error('ChatGPT đang trả lời lượt trước. Vui lòng chờ hoàn tất.');
+
     const injected = await win.webContents.executeJavaScript(`
       (async () => {
         try {
@@ -640,29 +663,32 @@ export class ChatGptWebSessionManager {
                            document.querySelector('div[contenteditable="true"]') ||
                            document.querySelector('textarea');
           if (!textarea) return { success: false, error: 'Không tìm thấy ô nhập prompt trên ChatGPT Web' };
+          const draft = textarea.value || textarea.innerText || '';
+          if (draft.trim()) return { success: false, error: 'Ô nhập ChatGPT đang có nội dung chưa gửi. Vui lòng gửi hoặc xóa bản nháp trước.' };
 
           textarea.focus();
           if (textarea.tagName === 'DIV' || textarea.getAttribute('contenteditable') === 'true') {
             document.execCommand('selectAll', false, null);
             document.execCommand('insertText', false, ${JSON.stringify(prompt)});
           } else {
-            textarea.value = ${JSON.stringify(prompt)};
+            const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set;
+            setter.call(textarea, ${JSON.stringify(prompt)});
             textarea.dispatchEvent(new Event('input', { bubbles: true }));
           }
 
-          await new Promise(r => setTimeout(r, 600));
-
-          const sendBtn = document.querySelector('button[data-testid="send-button"]') ||
-                          document.querySelector('button[aria-label="Send prompt"]') ||
-                          document.querySelector('button[data-testid="fruitjuice-send-button"]');
-          if (sendBtn && !sendBtn.disabled) {
-            sendBtn.click();
-            return { success: true };
+          const deadline = Date.now() + 10000;
+          while (Date.now() < deadline) {
+            const sendBtn = document.querySelector('button[data-testid="send-button"]') ||
+                            document.querySelector('button[aria-label="Send prompt"]') ||
+                            document.querySelector('button[aria-label="Send message"]') ||
+                            document.querySelector('button[data-testid="fruitjuice-send-button"]');
+            if (sendBtn && !sendBtn.disabled) {
+              sendBtn.click();
+              return { success: true };
+            }
+            await new Promise(r => setTimeout(r, 250));
           }
-
-          const enterEvent = new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true });
-          textarea.dispatchEvent(enterEvent);
-          return { success: true };
+          return { success: false, error: 'Nút gửi ChatGPT không khả dụng; prompt chưa được gửi. Kiểm tra giới hạn sử dụng hoặc đăng nhập.' };
         } catch (err) {
           return { success: false, error: String(err) };
         }
@@ -674,7 +700,7 @@ export class ChatGptWebSessionManager {
     }
 
     onProgress?.('ChatGPT đang phản hồi...');
-    return this.waitForResponseCompletion(win.webContents, onProgress);
+    return this.waitForResponseCompletion(win.webContents, baseline, onProgress);
   }
 
   /**
@@ -708,11 +734,8 @@ export class ChatGptWebSessionManager {
       onProgress?.('Đang kết nối phiên ChatGPT Web...');
       const win = await this.ensureAutomationWindow(mode);
 
-      const currentUrl = win.webContents.getURL();
-      if (!currentUrl.includes('chatgpt.com')) {
-        await win.loadURL(CHATGPT_HOME_URL);
-        await new Promise((r) => setTimeout(r, 4000));
-      }
+      // Independent jobs start fresh; continuation turns below stay in this conversation.
+      await win.loadURL(CHATGPT_HOME_URL);
 
       const { prompt: turn1Prompt, metrics } = buildScriptPromptForWeb(topic, preset, blueprint, channelProfile);
       onProgress?.(`Đang yêu cầu AI viết kịch bản mục tiêu ${metrics.targetMinutesText} (${metrics.targetSentenceRange})...`);
@@ -791,11 +814,7 @@ CÂU X: [Nội dung câu thoại]`;
       onProgress?.('Đang kết nối phiên ChatGPT Web...');
       const win = await this.ensureAutomationWindow(mode);
 
-      const currentUrl = win.webContents.getURL();
-      if (!currentUrl.includes('chatgpt.com')) {
-        await win.loadURL(CHATGPT_HOME_URL);
-        await new Promise((r) => setTimeout(r, 4000));
-      }
+      await win.loadURL(CHATGPT_HOME_URL);
 
       return await this.sendPromptTurn(win, prompt, onProgress);
     } finally {
@@ -811,57 +830,30 @@ CÂU X: [Nội dung câu thoại]`;
    */
   private async waitForResponseCompletion(
     webContents: WebContents,
+    baseline: ChatGptTurnSnapshot,
     onProgress?: (msg: string) => void
   ): Promise<string> {
-    const maxWaitMs = 90000; // 90s timeout
+    const maxWaitMs = 240_000;
     const startTime = Date.now();
-
-    await new Promise((r) => setTimeout(r, 2000));
-
-    let lastLength = 0;
-    let stableCount = 0;
+    const tracker = new ChatGptTurnTracker(baseline);
 
     while (Date.now() - startTime < maxWaitMs) {
       if (webContents.isDestroyed()) {
         throw new Error('Phiên ChatGPT Web đã bị đóng trong lúc chờ phản hồi.');
       }
 
-      const state = await webContents.executeJavaScript(`
-        (() => {
-          try {
-            const stopBtn = document.querySelector('button[data-testid="stop-button"]');
-            const isStreaming = Boolean(stopBtn) || Boolean(document.querySelector('.result-streaming'));
-            
-            const assistantMessages = Array.from(document.querySelectorAll('[data-message-author-role="assistant"]'));
-            const lastMsg = assistantMessages[assistantMessages.length - 1];
-            const text = lastMsg ? (lastMsg.innerText || lastMsg.textContent || '') : '';
-
-            return { isStreaming, text, messageCount: assistantMessages.length };
-          } catch (err) {
-            return { isStreaming: false, text: '', messageCount: 0, error: String(err) };
-          }
-        })()
-      `);
-
-      if (state.isStreaming) {
-        onProgress?.(`AI đang viết kịch bản... (${state.text.length} ký tự)`);
-        stableCount = 0;
-      } else if (state.text && state.text.length > 30) {
-        if (state.text.length === lastLength) {
-          stableCount++;
-          if (stableCount >= 2) {
-            return state.text;
-          }
-        } else {
-          lastLength = state.text.length;
-          stableCount = 0;
-        }
+      const state: ChatGptTurnSnapshot = await webContents.executeJavaScript(`(${readChatGptTurnSnapshot.toString()})()`);
+      const response = tracker.observe(state, Date.now());
+      if (response !== null) return response;
+      onProgress?.(`Đang chờ phản hồi ChatGPT... (${state.text.length} ký tự)`);
+      if (state.userCount <= baseline.userCount && Date.now() - startTime > 20_000) {
+        throw new Error('ChatGPT chưa xác nhận nhận prompt. Kiểm tra cửa sổ ChatGPT trước khi thử lại để tránh gửi trùng.');
       }
 
       await new Promise((r) => setTimeout(r, 1200));
     }
 
-    throw new Error('Hết thời gian chờ phản hồi từ ChatGPT Web (Timeout 90s)');
+    throw new Error('Hết thời gian chờ phản hồi hoàn chỉnh từ ChatGPT Web (240s). Kiểm tra cửa sổ ChatGPT trước khi thử lại.');
   }
 
   /** Close active window if needed */
