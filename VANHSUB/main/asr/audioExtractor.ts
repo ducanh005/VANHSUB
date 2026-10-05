@@ -1,3 +1,5 @@
+import { withFfmpegCancellation } from '../lib/ffmpegCancellation';
+import { CancelledError } from '../lib/cancel';
 import path from 'path';
 import fs from 'fs';
 import { execFile } from 'child_process';
@@ -53,6 +55,7 @@ export function extractFullQualityAudio(
   inputPath: string,
   outputWavPath: string,
   onProgress?: (percent: number) => void,
+  shouldStop?: () => boolean,
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     if (!fs.existsSync(inputPath)) {
@@ -64,7 +67,7 @@ export function extractFullQualityAudio(
       fs.mkdirSync(outDir, { recursive: true });
     }
 
-    ffmpeg(inputPath)
+    withFfmpegCancellation(ffmpeg(inputPath), shouldStop)
       .noVideo()
       .audioFrequency(44100)
       .audioChannels(2)
@@ -76,8 +79,9 @@ export function extractFullQualityAudio(
           onProgress(Math.min(99, Math.round(progress.percent)));
         }
       })
-      .on('end', () => resolve())
+      .on('end', () => shouldStop?.() ? reject(new CancelledError()) : resolve())
       .on('error', (err) => {
+        if (shouldStop?.()) { reject(new CancelledError()); return; }
         reject(new Error(`Lỗi trích xuất audio gốc bằng ffmpeg: ${err.message}`));
       })
       .run();
@@ -92,6 +96,7 @@ export function extract16kHzWav(
   inputPath: string,
   outputWavPath?: string,
   onProgress?: (percent: number) => void,
+  shouldStop?: () => boolean,
 ): Promise<AudioExtractResult> {
   return new Promise((resolve, reject) => {
     if (!fs.existsSync(inputPath)) {
@@ -115,7 +120,7 @@ export function extract16kHzWav(
       fs.mkdirSync(outDir, { recursive: true });
     }
 
-    ffmpeg(inputPath)
+    withFfmpegCancellation(ffmpeg(inputPath), shouldStop)
       .noVideo()
       .audioFrequency(16000)
       .audioChannels(1)
@@ -128,9 +133,11 @@ export function extract16kHzWav(
         }
       })
       .on('end', () => {
-        resolve({ wavPath: targetPath });
+        if (shouldStop?.()) reject(new CancelledError());
+        else resolve({ wavPath: targetPath });
       })
       .on('error', (err) => {
+        if (shouldStop?.()) { reject(new CancelledError()); return; }
         reject(new Error(`Lỗi trích xuất audio bằng ffmpeg: ${err.message}`));
       })
       .run();

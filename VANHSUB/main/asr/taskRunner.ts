@@ -1,3 +1,6 @@
+import { nextAvailablePath } from '../lib/paths';
+import { invalidateTaskArtifacts } from '../lib/taskArtifacts';
+import { runTaskStage, withTaskContext, isTaskRunCancelled, throwIfTaskCancelled } from '../lib/taskExecution';
 import fs from 'fs';
 import { TaskStore, type Task } from '../store/taskStore';
 import { SettingsStore } from '../store/settingsStore';
@@ -49,29 +52,31 @@ export class TaskRunner {
   }
 
   static async runTask(taskId: string, onUpdate?: () => void): Promise<Task | undefined> {
-    const task = TaskStore.getById(taskId);
-    if (!task) throw new Error(`Không tìm thấy tác vụ ID: ${taskId}`);
+    return runTaskStage(taskId, 'asr', async () => {
+      const task = TaskStore.getById(taskId);
+      if (!task) throw new Error(`Không tìm thấy tác vụ ID: ${taskId}`);
 
-    if (this.runningTasks.has(taskId)) {
-      return task;
-    }
+      if (this.runningTasks.has(taskId)) {
+        return task;
+      }
 
-    if (this.isQueued(taskId)) {
-      return task;
-    }
+      if (this.isQueued(taskId)) {
+        return task;
+      }
 
-    if (this.runningTasks.size >= this.MAX_PARALLEL_ASR) {
-      return new Promise<Task | undefined>((resolve, reject) => {
-        this.queue.push({ taskId, onUpdate, resolve, reject });
-        TaskStore.update(taskId, {
-          status: 'queued',
-          stageDescription: `Đang chờ trong hàng đợi phiên âm (#${this.queue.length})...`,
+      if (this.runningTasks.size >= this.MAX_PARALLEL_ASR) {
+        return new Promise<Task | undefined>((resolve, reject) => {
+          this.queue.push({ taskId, onUpdate, resolve, reject });
+          TaskStore.update(taskId, {
+            status: 'queued',
+            stageDescription: `Đang chờ trong hàng đợi phiên âm (#${this.queue.length})...`,
+          });
+          onUpdate?.();
         });
-        onUpdate?.();
-      });
-    }
+      }
 
-    return this.executeTask(taskId, onUpdate);
+      return this.executeTask(taskId, onUpdate);
+    });
   }
 
   private static drainQueue(): void {
@@ -84,7 +89,7 @@ export class TaskRunner {
         });
         item.onUpdate?.();
       });
-      this.executeTask(next.taskId, next.onUpdate)
+      withTaskContext(next.taskId, () => this.executeTask(next.taskId, next.onUpdate))
         .then(next.resolve)
         .catch(next.reject);
     }
@@ -98,37 +103,34 @@ export class TaskRunner {
     this.cancelledTasks.delete(taskId);
 
     try {
-      const { projectDir, audioWavPath, rawSrtPath } = getProjectArtifactPaths(task);
+      const artifacts = getProjectArtifactPaths(task);
+      const projectDir = artifacts.projectDir;
+      const audioWavPath = nextAvailablePath(artifacts.audioWavPath);
+      const rawSrtPath = nextAvailablePath(artifacts.rawSrtPath);
 
       // Phase 2 State Invalidation: Xóa các artifact downstream cũ khi bắt đầu nhận diện lại
-      if (task.ttsAudioDir && fs.existsSync(task.ttsAudioDir)) {
-        try {
-          fs.rmSync(task.ttsAudioDir, { recursive: true, force: true });
-        } catch {}
-      }
-
       // Giai đoạn 1: Chuẩn bị & trích xuất audio 16kHz vào thư mục dự án
       TaskStore.update(taskId, {
         status: 'transcribing',
         progress: 10,
         projectDir,
         stageDescription: 'Đang trích xuất audio vào thư mục dự án...',
-        srtPath: undefined,
-        translatedSrtPath: undefined,
-        ttsAudioDir: undefined,
-        ttsMergedAudioPath: undefined,
-        outputPath: undefined,
-        ttsOverruns: undefined,
       });
       onUpdate?.();
 
-      const { wavPath } = await extract16kHzWav(task.filePath, audioWavPath, (percent) => {
-        TaskStore.update(taskId, {
-          progress: 10 + Math.round(percent * 0.2), // 10% -> 30%
-        });
-        onUpdate?.();
-      });
+      const { wavPath } = await extract16kHzWav(
+        task.filePath,
+        audioWavPath,
+        (percent) => {
+          TaskStore.update(taskId, {
+            progress: 10 + Math.round(percent * 0.2), // 10% -> 30%
+          });
+          onUpdate?.();
+        },
+        () => this.cancelledTasks.has(taskId) || isTaskRunCancelled(taskId)
+      );
 
+      throwIfTaskCancelled(taskId);
       // Giai đoạn 2: Nhận diện giọng nói bằng Whisper ASR
       // Audio dài sẽ được chia chunk trong whisperEngine — progress theo từng chunk
       TaskStore.update(taskId, {
@@ -140,13 +142,15 @@ export class TaskRunner {
 
       let lastAsrLog = -1;
       let lastProgress = 0;
-      const asrEngine = task.asrEngine || (SettingsStore.get('asrEngine') as 'faster-whisper' | 'whisper-cpp') || 'faster-whisper';
+      const asrEngine =
+        task.asrEngine || (SettingsStore.get('asrEngine') as 'faster-whisper' | 'whisper-cpp') || 'faster-whisper';
       const enableDiarization = task.enableDiarization ?? (SettingsStore.get('enableDiarization') as boolean);
       const hfToken = SettingsStore.get('hfToken') as string;
 
       const result = await transcribeUnified(wavPath, {
         model: task.asrModel || SettingsStore.get('asrModel') || 'base',
         asrEngine,
+        language: task.sourceLanguage && task.sourceLanguage !== 'auto' ? task.sourceLanguage : undefined,
         enableDiarization,
         speakerCount: task.speakerCount,
         hfToken,
@@ -158,10 +162,7 @@ export class TaskRunner {
           TaskStore.update(taskId, {
             progress: monotonicProgress,
             stageDescription:
-              stage ||
-              (percent < 100
-                ? `Đang phiên âm (${percent}%)...`
-                : 'Đang hoàn tất file phụ đề...'),
+              stage || (percent < 100 ? `Đang phiên âm (${percent}%)...` : 'Đang hoàn tất file phụ đề...'),
           });
           onUpdate?.();
 
@@ -170,9 +171,11 @@ export class TaskRunner {
             lastAsrLog = percent;
           }
         },
-        shouldStop: () => this.cancelledTasks.has(taskId),
+        shouldStop: () => this.cancelledTasks.has(taskId) || isTaskRunCancelled(taskId),
       });
 
+      throwIfTaskCancelled(taskId);
+      if (this.cancelledTasks.has(taskId)) throw new CancelledError();
       // Chuẩn hoá file phụ đề về [cleanBase].srt trong projectDir
       let finalSrt = result.srtPath;
       if (fs.existsSync(result.srtPath) && result.srtPath !== rawSrtPath) {
@@ -187,11 +190,13 @@ export class TaskRunner {
 
       console.log(`[ASR] Phiên âm hoàn tất! Đã lưu file phụ đề: ${finalSrt}`);
 
+      invalidateTaskArtifacts(taskId, 'source');
       // Giai đoạn 3: Hoàn thành tạo phụ đề .srt
       TaskStore.update(taskId, {
         status: 'done',
         progress: 100,
         srtPath: finalSrt,
+        srtStale: false,
         asrEngine: result.engineUsed,
         speakers: result.speakers,
         stageDescription: `Đã tạo xong phụ đề .srt (${result.engineUsed}${result.fallbackTriggered ? ' - fallback' : ''}${result.speakers?.length ? `, ${result.speakers.length} người nói` : ''})`,

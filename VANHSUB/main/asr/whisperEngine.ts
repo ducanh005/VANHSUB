@@ -24,6 +24,7 @@ export interface TranscribeOptions {
    * whisper.cpp hỗ trợ sẵn định dạng ggml đa ngôn ngữ chuẩn (bao gồm tiếng Việt).
    */
   modelName?: string;
+  language?: string;
 
   /**
    * Thư mục lưu model đã tải — để tách khỏi thư mục mặc định của package,
@@ -147,10 +148,8 @@ export interface ChunkTranscript {
  *
  * Vùng có thể trùng lặp giữa chunk trước và chunk này có bề rộng 2×overlap:
  * chunk trước được kéo dài thêm `overlap` giây ở đuôi, chunk này bắt đầu sớm
- * `overlap` giây ở đầu. Dòng của chunk này bắt đầu trong vùng đó sẽ bị bỏ nếu
- * chunk trước đang "có tiếng" lúc đó (dòng cuối của chunk trước kết thúc SAU
- * điểm bắt đầu dòng này) — tức là câu thoại kéo dài qua biên, chunk trước đã
- * ghi rồi. Ngược lại (chunk trước im lặng ở vùng đó) thì giữ nguyên dòng.
+ * `overlap` giây ở đầu. Chỉ gộp câu trùng nội dung, người nói và thời gian;
+ * giữ câu khác nội dung dù nằm trong vùng chồng lấp.
  */
 export function mergeChunkTranscripts(chunks: ChunkTranscript[], overlapMs: number): SrtLine[] {
   const merged: SrtLine[] = [];
@@ -165,11 +164,13 @@ export function mergeChunkTranscripts(chunks: ChunkTranscript[], overlapMs: numb
       const endMs = Math.max(chunk.offsetMs + line.endMs, startMs + 200);
 
       // Câu thoại kéo dài qua biên chunk — chunk trước đã ghi phần này rồi
+      const normalize = (text: string) => text.toLocaleLowerCase().replace(/[\p{P}\p{S}\s]+/gu, ' ').trim();
       if (chunkIndex > 0 && startMs < overlapEndAbs - 250 && lastKeptEndMs > startMs) {
-        continue;
+        const previous = merged.findLast((kept) => kept.endMs > startMs && kept.startMs < endMs && kept.speaker === line.speaker && normalize(kept.text) === normalize(line.text));
+        if (previous) { previous.endMs = Math.max(previous.endMs, endMs); lastKeptEndMs = Math.max(lastKeptEndMs, endMs); continue; }
       }
 
-      merged.push({ id: `line-${merged.length}`, startMs, endMs, text: line.text.trim() });
+      merged.push({ ...line, id: `line-${merged.length}`, startMs, endMs, text: line.text.trim() });
       lastKeptEndMs = endMs;
     }
   });
@@ -247,6 +248,7 @@ function runWhisperCli(
   modelName: string,
   modelRootPath: string | undefined,
   shouldStop?: () => boolean,
+  language = 'auto',
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     const cliPath = getWhisperCliPath();
@@ -266,7 +268,7 @@ function runWhisperCli(
 
     // Cờ khớp với cấu hình cũ của nodejs-whisper: -osrt (SRT) + -sow true
     // (split on word) + -l auto. Model/file dùng đường dẫn tuyệt đối.
-    const args = ['-osrt', '-sow', 'true', '-l', 'auto', '-m', modelFile, '-f', wavPath];
+    const args = ['-osrt', '-sow', 'true', '-l', language || 'auto', '-m', modelFile, '-f', wavPath];
 
     let stopped = false;
     let stderrTail = '';
@@ -335,7 +337,7 @@ async function whisperToSrt(
 
   try {
     await ensureModelDownloaded(modelName, options.modelRootPath);
-    await runWhisperCli(wavInput, modelName, options.modelRootPath, options.shouldStop);
+    await runWhisperCli(wavInput, modelName, options.modelRootPath, options.shouldStop, options.language);
 
     // whisper-cli tạo file SRT bằng cách nối ".srt" vào toàn bộ tên file:
     // video.wav -> video.wav.srt

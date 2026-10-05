@@ -1,3 +1,6 @@
+import { getOrCreateProjectDir } from '../utils/projectFolder';
+import { invalidateTaskArtifacts } from '../lib/taskArtifacts';
+import { runTaskStage, withTaskContext, isTaskRunCancelled, throwIfTaskCancelled } from '../lib/taskExecution';
 import path from 'path';
 import fs from 'fs';
 import { app } from 'electron';
@@ -8,30 +11,15 @@ import { CancelledError, isCancelledError } from '../lib/cancel';
 import { nextAvailablePath } from '../lib/paths';
 import { TranslateRunner } from '../translate/translateRunner';
 import { OcrPool, MIN_LINE_CONFIDENCE } from './ocrEngine';
-import {
-  extractFrames,
-  cleanupFrames,
-  type OcrMode,
-  type OcrCustomRegion,
-} from './frameExtractor';
+import { extractFrames, cleanupFrames, type OcrMode, type OcrCustomRegion } from './frameExtractor';
 import {
   buildSubtitleSegments,
   buildSubtitleSegmentsWithStats,
   filterPersistentTopLines,
   segmentsToSrt,
 } from './subtitleBuilder';
-import {
-  checkRapidOcr,
-  mapRecLangNames,
-  runPaddleOcr,
-  type PaddleOcrFrame,
-} from './paddleEngine';
-import {
-  mergeOcrResults,
-  mergedToFrameResults,
-  type CropOcrResult,
-  type MergedOcrFrame,
-} from './resultMerge';
+import { checkRapidOcr, mapRecLangNames, runPaddleOcr, type PaddleOcrFrame } from './paddleEngine';
+import { mergeOcrResults, mergedToFrameResults, type CropOcrResult, type MergedOcrFrame } from './resultMerge';
 
 /** File audio thuần không có khung hình — OCR chỉ áp dụng cho video */
 const AUDIO_EXTENSIONS = new Set(['.mp3', '.wav', '.m4a', '.flac', '.aac', '.ogg', '.opus', '.wma']);
@@ -106,45 +94,43 @@ export class OcrRunner {
     const nextItem = this.queue.shift();
     if (!nextItem) return;
 
-    this.executeOcr(nextItem.taskId, nextItem.options, nextItem.onUpdate)
+    withTaskContext(nextItem.taskId, () => this.executeOcr(nextItem.taskId, nextItem.options, nextItem.onUpdate))
       .then(nextItem.resolve)
       .catch(nextItem.reject);
   }
 
-  static async runOcr(
-    taskId: string,
-    options?: OcrRunOptions,
-    onUpdate?: () => void,
-  ): Promise<Task | undefined> {
-    const task = TaskStore.getById(taskId);
-    if (!task) throw new Error(`Không tìm thấy tác vụ ID: ${taskId}`);
+  static async runOcr(taskId: string, options?: OcrRunOptions, onUpdate?: () => void): Promise<Task | undefined> {
+    return runTaskStage(taskId, 'ocr', async () => {
+      const task = TaskStore.getById(taskId);
+      if (!task) throw new Error(`Không tìm thấy tác vụ ID: ${taskId}`);
 
-    if (this.runningTasks.has(taskId)) {
-      return task;
-    }
+      if (this.runningTasks.has(taskId)) {
+        return task;
+      }
 
-    if (this.isQueued(taskId)) {
-      return task;
-    }
+      if (this.isQueued(taskId)) {
+        return task;
+      }
 
-    if (this.runningTasks.size >= this.MAX_PARALLEL_OCR) {
-      return new Promise<Task | undefined>((resolve, reject) => {
-        this.queue.push({ taskId, options, onUpdate, resolve, reject });
-        TaskStore.update(taskId, {
-          status: 'ocr',
-          stageDescription: 'Đang xếp hàng chờ tài nguyên OCR...',
+      if (this.runningTasks.size >= this.MAX_PARALLEL_OCR) {
+        return new Promise<Task | undefined>((resolve, reject) => {
+          this.queue.push({ taskId, options, onUpdate, resolve, reject });
+          TaskStore.update(taskId, {
+            status: 'ocr',
+            stageDescription: 'Đang xếp hàng chờ tài nguyên OCR...',
+          });
+          onUpdate?.();
         });
-        onUpdate?.();
-      });
-    }
+      }
 
-    return this.executeOcr(taskId, options, onUpdate);
+      return this.executeOcr(taskId, options, onUpdate);
+    });
   }
 
   private static async executeOcr(
     taskId: string,
     options?: OcrRunOptions,
-    onUpdate?: () => void,
+    onUpdate?: () => void
   ): Promise<Task | undefined> {
     const task = TaskStore.getById(taskId);
     if (!task) throw new Error(`Không tìm thấy tác vụ ID: ${taskId}`);
@@ -165,14 +151,8 @@ export class OcrRunner {
       const fps = clampNumber(Number(options?.fps ?? SettingsStore.get('ocrFps')) || 2, 0.5, 5);
       const mode = (options?.mode || SettingsStore.get('ocrMode') || 'auto') as OcrMode;
       const customRegion = options?.customRegion ?? SettingsStore.get('ocrCustomRegion') ?? null;
-      const dualEngine = options?.dualEngine ?? (SettingsStore.get('ocrDualEngine') !== false);
-      const shouldStop = () => this.cancelRequested.has(taskId);
-
-      if (task.ttsAudioDir && fs.existsSync(task.ttsAudioDir)) {
-        try {
-          fs.rmSync(task.ttsAudioDir, { recursive: true, force: true });
-        } catch {}
-      }
+      const dualEngine = options?.dualEngine ?? SettingsStore.get('ocrDualEngine') !== false;
+      const shouldStop = () => this.cancelRequested.has(taskId) || isTaskRunCancelled(taskId);
 
       // Giai đoạn 1: trích khung hình
       TaskStore.update(taskId, {
@@ -180,12 +160,6 @@ export class OcrRunner {
         progress: 2,
         errorMessage: undefined,
         stageDescription: `Đang trích khung hình (chế độ ${mode.toUpperCase()})...`,
-        srtPath: undefined,
-        translatedSrtPath: undefined,
-        ttsAudioDir: undefined,
-        ttsMergedAudioPath: undefined,
-        outputPath: undefined,
-        ttsOverruns: undefined,
       });
       onUpdate?.();
 
@@ -197,19 +171,28 @@ export class OcrRunner {
         width: videoWidth,
         height: videoHeight,
         offsetRatio,
-      } = await extractFrames(task.filePath, fps, mode, customRegion, (percent) => {
-        TaskStore.update(taskId, {
-          progress: Math.min(24, 2 + Math.round(percent * 0.22)),
-          stageDescription: `Đang trích khung hình: ${percent}%...`,
-        });
-        onUpdate?.();
-        if (percent >= lastExtractLogPercent + 15 || percent === 100) {
-          console.log(`[OCR] Trích xuất khung hình video: ${percent}%...`);
-          lastExtractLogPercent = percent;
-        }
-      });
+      } = await extractFrames(
+        task.filePath,
+        fps,
+        mode,
+        customRegion,
+        (percent) => {
+          TaskStore.update(taskId, {
+            progress: Math.min(24, 2 + Math.round(percent * 0.22)),
+            stageDescription: `Đang trích khung hình: ${percent}%...`,
+          });
+          onUpdate?.();
+          if (percent >= lastExtractLogPercent + 15 || percent === 100) {
+            console.log(`[OCR] Trích xuất khung hình video: ${percent}%...`);
+            lastExtractLogPercent = percent;
+          }
+        },
+        shouldStop
+      );
       framesDir = dir;
-      console.log(`[OCR] Đã trích xuất hoàn tất ${framePaths.length} khung hình (${fps} fps, chế độ ${mode.toUpperCase()})`);
+      console.log(
+        `[OCR] Đã trích xuất hoàn tất ${framePaths.length} khung hình (${fps} fps, chế độ ${mode.toUpperCase()})`
+      );
 
       // Giai đoạn 2: Full-screen Text Detection & Tracking qua PaddleOCR PP-OCRv5
       const env = await checkRapidOcr();
@@ -288,7 +271,7 @@ export class OcrRunner {
             }
           },
           shouldStop,
-        },
+        }
       );
 
       if (shouldStop()) throw new CancelledError();
@@ -306,12 +289,7 @@ export class OcrRunner {
         onUpdate?.();
         console.log(`[OCR] Khởi động đối chiếu song song Tesseract trên ${cropFiles.length} crop...`);
 
-        const pool = await OcrPool.create(
-          language,
-          path.join(app.getPath('userData'), 'tessdata'),
-          undefined,
-          'line',
-        );
+        const pool = await OcrPool.create(language, path.join(app.getPath('userData'), 'tessdata'), undefined, 'line');
         let cropResults: CropOcrResult[];
         let lastTessLog = 0;
         try {
@@ -331,7 +309,7 @@ export class OcrRunner {
                 lastTessLog = done;
               }
             },
-            shouldStop,
+            shouldStop
           );
         } finally {
           await pool.terminate();
@@ -363,42 +341,38 @@ export class OcrRunner {
       // Bỏ lớp phủ tĩnh ở 1/4 trên khung (watermark/logo in cố định suốt video)
       // nếu không phải chế độ full (chế độ full giữ toàn bộ text trên màn hình)
       const cleanedResults =
-        mode === 'full'
-          ? frameResults
-          : filterPersistentTopLines(frameResults, frameIntervalMs, videoHeight);
+        mode === 'full' ? frameResults : filterPersistentTopLines(frameResults, frameIntervalMs, videoHeight);
       const { segments, stats } = buildSubtitleSegmentsWithStats(cleanedResults, frameIntervalMs);
 
       // In báo cáo debug chi tiết theo Rule 18
       console.log(
-        `[OCR Pipeline Report] OCR frames scanned: ${stats.framesScanned} | Text detections: ${stats.textDetections} | Tracked subtitle groups: ${stats.trackedGroups} | Duplicates merged: ${stats.duplicatesMerged} | Final subtitle events: ${stats.finalEvents} | High confidence: ${stats.highConfidence} | Needs review: ${stats.needsReview} | AI corrected: 0`,
+        `[OCR Pipeline Report] OCR frames scanned: ${stats.framesScanned} | Text detections: ${stats.textDetections} | Tracked subtitle groups: ${stats.trackedGroups} | Duplicates merged: ${stats.duplicatesMerged} | Final subtitle events: ${stats.finalEvents} | High confidence: ${stats.highConfidence} | Needs review: ${stats.needsReview} | AI corrected: 0`
       );
 
       const srtContent = segmentsToSrt(segments);
       if (!srtContent) {
         throw new Error(
-          'Không nhận diện được phụ đề nào — kiểm tra ngôn ngữ quét trong Cài đặt hoặc thử vùng quét "Toàn khung".',
+          'Không nhận diện được phụ đề nào — kiểm tra ngôn ngữ quét trong Cài đặt hoặc thử vùng quét "Toàn khung".'
         );
       }
 
       // Giai đoạn 6: ghi file .srt cạnh video (không ghi đè file có sẵn)
-      const videoDir = path.dirname(task.filePath);
+      const videoDir = getOrCreateProjectDir(task);
       const base = path.basename(task.filePath, path.extname(task.filePath));
       const targetPath = nextAvailablePath(path.join(videoDir, `${base}_ocr.srt`));
       fs.writeFileSync(targetPath, srtContent, 'utf-8');
       console.log(`[OCR] Đã ghi ${segments.length} dòng phụ đề vào ${targetPath}`);
 
-      writeDiagnosticDump(
-        targetPath.replace(/\.srt$/i, '.frames.txt'),
-        task.fileName,
-        merged,
-        frameIntervalMs,
-      );
+      writeDiagnosticDump(targetPath.replace(/\.srt$/i, '.frames.txt'), task.fileName, merged, frameIntervalMs);
 
+      throwIfTaskCancelled(taskId);
       if (!options?.isSubTask) {
+        invalidateTaskArtifacts(taskId, 'source');
         const updated = TaskStore.update(taskId, {
           status: 'done',
           progress: 100,
           srtPath: targetPath,
+          srtStale: false,
           stageDescription: `Đã quét OCR được ${segments.length} dòng phụ đề`,
           ocrStats: {
             framesScanned: stats.framesScanned,
@@ -419,7 +393,8 @@ export class OcrRunner {
 
         return updated ?? TaskStore.getById(taskId);
       } else {
-        const updated = TaskStore.update(taskId, {
+        return {
+          ...task,
           srtPath: targetPath,
           ocrStats: {
             framesScanned: stats.framesScanned,
@@ -430,9 +405,7 @@ export class OcrRunner {
             highConfidence: stats.highConfidence,
             needsReview: stats.needsReview,
           },
-        });
-        onUpdate?.();
-        return updated ?? TaskStore.getById(taskId);
+        };
       }
     } catch (err: any) {
       const cancelled = isCancelledError(err);
@@ -461,7 +434,7 @@ function writeDiagnosticDump(
   dumpPath: string,
   fileName: string,
   merged: MergedOcrFrame[],
-  frameIntervalMs: number,
+  frameIntervalMs: number
 ): void {
   const rows: string[] = [];
   merged.forEach((f, i) => {
@@ -475,7 +448,7 @@ function writeDiagnosticDump(
         ? ` | tess ${String(Math.round(l.altConfidence ?? 0)).padStart(3)} sim=${(l.similarity ?? 0).toFixed(2)} "${l.altText}"`
         : '';
       rows.push(
-        `${String(i).padStart(5)}  ${t.padStart(7)}s  ${l.chosen === 'paddle' ? 'pad' : 'tes'} ${String(l.confidence).padStart(3)}  y=${String(Math.round(l.y0)).padStart(4)}  "${l.text}"${alt}`,
+        `${String(i).padStart(5)}  ${t.padStart(7)}s  ${l.chosen === 'paddle' ? 'pad' : 'tes'} ${String(l.confidence).padStart(3)}  y=${String(Math.round(l.y0)).padStart(4)}  "${l.text}"${alt}`
       );
     }
   });
@@ -484,7 +457,7 @@ function writeDiagnosticDump(
     `# VANHSUB OCR frame dump — ${fileName}\n` +
       `# idx   time      eng conf    y  text (pad = PaddleOCR PP-OCRv5, tes = Tesseract thắng so sánh)\n` +
       `${rows.join('\n')}\n`,
-    'utf-8',
+    'utf-8'
   );
   console.log(`[OCR] Dump chi tiết từng khung: ${dumpPath}`);
 }

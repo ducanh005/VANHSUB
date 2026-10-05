@@ -149,8 +149,9 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
   const isTtsRunning = selectedTask?.status === 'dubbing';
   const isDubbingRunning = selectedTask?.status === 'exporting';
   const hasSrtFile = !!selectedTask?.srtPath;
-  const hasTtsAudio = !!selectedTask?.ttsAudioDir && !isTtsRunning;
-  const dubbedOutput = selectedTask?.outputPath;
+  const hasTtsAudio = !!selectedTask?.ttsAudioDir && !selectedTask.ttsStale && !isTtsRunning;
+  const legacyDub = selectedTask?.outputPath && /(?:_dubbed_|\.dubbed\.)/i.test(selectedTask.outputPath) ? selectedTask.outputPath : undefined;
+  const dubbedOutput = !selectedTask?.dubbedStale ? selectedTask?.dubbedPath || legacyDub : undefined;
   const customVoiceCount = Object.keys(voiceOverrides).length;
 
   // Reset trạng thái gán giọng & audio khi đổi tác vụ (playback 1 mạch vẫn chạy tiếp)
@@ -219,7 +220,7 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
     const next = !showVoicePanel;
     setShowVoicePanel(next);
     if (next && srtLines.length === 0) {
-      const srtPath = selectedTask?.translatedSrtPath || selectedTask?.srtPath;
+      const srtPath = (!selectedTask?.translationStale && selectedTask?.translatedSrtPath) || selectedTask?.srtPath;
       if (!srtPath || typeof window === 'undefined' || !window.vanhsub?.tasks?.readSrt) return;
       try {
         const content = await window.vanhsub.tasks.readSrt(srtPath);
@@ -320,7 +321,7 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
         return;
       }
       setMessage(
-        `Đã tạo lại audio dòng ${lineNumber} — bấm "Ghép audio vào video" để áp dụng vào video.`
+        `Đã cập nhật nhóm câu chứa dòng ${lineNumber} — ghép lại MP3 hoặc video để dùng audio mới.`
       );
     } catch (err: any) {
       setIsError(true);
@@ -944,7 +945,7 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
                         type="button"
                         onClick={() => handleRegenerateLine(lineNumber)}
                         disabled={regeneratingLine !== null || isTtsRunning || isDubbingRunning}
-                        title="Tạo lại audio dòng này với text hiện tại (sau khi sửa text ở Hiệu đính)"
+                        title="Tạo lại nhóm câu liên quan đến dòng này với nội dung hiện tại"
                         className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg border border-border bg-surface-2 text-text hover:border-accent/40 hover:text-accent cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"
                       >
                         {regeneratingLine === lineNumber ? (

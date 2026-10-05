@@ -1,5 +1,8 @@
 import fs from 'fs';
 import path from 'path';
+import { randomUUID } from 'node:crypto';
+import { translationConfigHash } from '../lib/translationConfig';
+import { nextAvailablePath } from '../lib/paths';
 import { jsonrepair } from 'jsonrepair';
 import { createGeminiClient, friendlyGeminiError } from '../ai/geminiClient';
 import { SettingsStore } from '../store/settingsStore';
@@ -31,9 +34,11 @@ interface CheckpointData {
   targetLanguage: string;
   srtMtimeMs?: number;
   totalLines?: number;
+  configHash?: string;
   /** key = id dòng phụ đề ('line-0'…); value = text gốc + bản dịch đã có */
   translations: Record<string, { source: string; target: string }>;
 }
+
 
 /** Đường dẫn file checkpoint đi kèm 1 file SRT */
 export function getCheckpointPath(srtPath: string): string {
@@ -63,6 +68,7 @@ export function loadCheckpoint(
     }
 
     const data = JSON.parse(fs.readFileSync(filePath, 'utf-8')) as CheckpointData;
+    if (data.configHash && data.configHash !== translationConfigHash(targetLanguage)) return result;
     if (data?.targetLanguage !== targetLanguage || typeof data.translations !== 'object') {
       return result;
     }
@@ -97,7 +103,8 @@ export function saveCheckpoint(
   srtPath: string,
   targetLanguage: string,
   translations: Record<string, { source: string; target: string }>,
-  totalLines?: number
+  totalLines?: number,
+  configHash = translationConfigHash(targetLanguage)
 ): void {
   let srtMtimeMs: number | undefined;
   try {
@@ -105,8 +112,10 @@ export function saveCheckpoint(
       srtMtimeMs = fs.statSync(srtPath).mtimeMs;
     }
   } catch {}
-  const data: CheckpointData = { targetLanguage, translations, srtMtimeMs, totalLines };
-  fs.writeFileSync(getCheckpointPath(srtPath), JSON.stringify(data), 'utf-8');
+  const data: CheckpointData = { targetLanguage, translations, srtMtimeMs, totalLines, configHash };
+  const destination = getCheckpointPath(srtPath), temporary = `${destination}.${randomUUID()}.tmp`;
+  try { fs.writeFileSync(temporary, JSON.stringify(data), 'utf-8'); fs.renameSync(temporary, destination); }
+  finally { if (fs.existsSync(temporary)) fs.unlinkSync(temporary); }
 }
 
 // =========================================================================
@@ -666,18 +675,21 @@ export async function translateSrtFile(
 
   // Nạp cache từ checkpoint của lần chạy trước (nếu có)
   const cachedRaw = loadCheckpoint(srtPath, targetLanguage, lines.length);
+  const configHash = translationConfigHash(targetLanguage);
   // Map id -> bản dịch; chỉ dùng khi text gốc KHÔNG đổi (nếu đổi sẽ dịch lại)
   const cachedTarget = new Map<string, string>();
+  const linesById = new Map(lines.map((line) => [line.id, line]));
   const checkpointData: Record<string, { source: string; target: string }> = {};
   for (const [id, packed] of cachedRaw) {
     const [source, target] = JSON.parse(packed) as [string, string];
-    const line = lines.find((l) => l.id === id);
+    const line = linesById.get(id);
     if (line && line.text === source) {
       cachedTarget.set(id, target);
       checkpointData[id] = { source, target };
     }
   }
   const totalCached = cachedTarget.size;
+  const translatedBySource = new Map(Object.values(checkpointData).map((entry) => [entry.source, entry.target]));
   if (totalCached > 0) {
     console.log(
       `[Translate] Tái sử dụng ${totalCached}/${lines.length} dòng đã dịch từ checkpoint (${targetLanguage})`
@@ -707,16 +719,8 @@ export async function translateSrtFile(
         continue;
       }
       if (cachedTarget.has(l.id)) continue;
-      for (const [_, entry] of Object.entries(checkpointData)) {
-        if (
-          entry.source === l.text &&
-          entry.target &&
-          !isLineUntranslated(l.text, entry.target, glossary)
-        ) {
-          cachedTarget.set(l.id, entry.target);
-          break;
-        }
-      }
+      const reusable = translatedBySource.get(l.text);
+      if (reusable && !isLineUntranslated(l.text, reusable, glossary)) cachedTarget.set(l.id, reusable);
     }
 
     const itemsToTranslate: BatchItem[] = batchLines
@@ -907,10 +911,11 @@ export async function translateSrtFile(
       const target = resultMap.get(line.id) ?? cachedTarget.get(line.id);
       if (target !== undefined && target.trim() && !isLineUntranslated(line.text, target, glossary)) {
         checkpointData[line.id] = { source: line.text, target };
+        translatedBySource.set(line.text, target);
         cachedTarget.set(line.id, target);
       }
     }
-    saveCheckpoint(srtPath, targetLanguage, checkpointData, lines.length);
+    saveCheckpoint(srtPath, targetLanguage, checkpointData, lines.length, configHash);
 
     return batchLines.map((line) => {
       const transText = resultMap.get(line.id) ?? cachedTarget.get(line.id);
@@ -975,7 +980,8 @@ export async function translateSrtFile(
 
   const srtDir = path.dirname(srtPath);
   const srtBasename = path.basename(srtPath, '.srt');
-  const translatedSrtPath = path.join(srtDir, `${srtBasename}.translated.srt`);
+  if (shouldStop?.()) throw new CancelledError();
+  const translatedSrtPath = nextAvailablePath(path.join(srtDir, `${srtBasename}.translated.srt`));
 
   fs.writeFileSync(translatedSrtPath, serializeSrt(finalLines), 'utf-8');
 

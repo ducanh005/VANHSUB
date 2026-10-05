@@ -1,3 +1,7 @@
+import { PipelineRunner } from './core/pipelineRunner';
+import { isTaskBusy, cancelTaskRun } from './lib/taskExecution';
+import { writeTaskSrt, invalidateTaskArtifacts, invalidateTaskConfiguration } from './lib/taskArtifacts';
+import { getOrCreateProjectDir } from './utils/projectFolder';
 import fs from 'fs'
 import path from 'path'
 import url from 'url'
@@ -6,7 +10,7 @@ import { app, ipcMain, dialog, BrowserWindow, protocol, net, shell } from 'elect
 import si from 'systeminformation'
 
 import { createWindow } from './helpers/create-window'
-import { TaskStore, type CreateTaskInput, type Task } from './store/taskStore'
+import { TaskStore, flushTaskStore, type CreateTaskInput, type Task } from './store/taskStore'
 import { SettingsStore, type AppSettings } from './store/settingsStore'
 import { polishSubtitleLine, translateSubtitleLine, cleanAndDeduplicateSubtitles } from './ai/geminiClient'
 import { TaskRunner } from './asr/taskRunner'
@@ -240,12 +244,16 @@ app.whenReady().then(() => {
 })
 
 let mainWindow: any = null
+let taskBroadcastTimer: NodeJS.Timeout | undefined
 
 function broadcastTasksUpdate() {
-  if (mainWindow && !mainWindow.isDestroyed())  {
-    mainWindow.webContents.send('tasks:updated', TaskStore.getAll())
-  }
+  if (taskBroadcastTimer) return
+  taskBroadcastTimer = setTimeout(() => {
+    taskBroadcastTimer = undefined
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('tasks:updated', TaskStore.getAll())
+  }, 100)
 }
+app.on('before-quit', () => { flushTaskStore(); if (taskBroadcastTimer) clearTimeout(taskBroadcastTimer) })
 
 ;(async () => {
   await app.whenReady()
@@ -391,93 +399,21 @@ ipcMain.handle('downloader:cancel', async (_event, downloadId?: string) => {
 // Batch: nhiều pipeline chạy SONG SONG nhưng qua hàng đợi, tối đa
 // MAX_PARALLEL_PIPELINES task cùng lúc — whisper/TTS đều ngốn GPU/CPU nên
 // chạy vô giới hạn sẽ tranh tài nguyên làm chậm cả nhóm.
-const MAX_PARALLEL_PIPELINES = 2;
-const pipelineActive = new Set<string>();
-const pipelineQueued: string[] = [];
-
-function enqueuePipeline(id: string): boolean {
-  const task = TaskStore.getById(id);
-  if (!task) return false;
-  if (['transcribing', 'translating', 'dubbing', 'exporting'].includes(task.status)) return false;
-  if (pipelineActive.has(id) || pipelineQueued.includes(id)) return false;
-  pipelineQueued.push(id);
+function assertTaskAvailable(id: string): void {
+  if (isTaskBusy(id) || PipelineRunner.isReserved(id)) throw new Error('Tác vụ đang chạy. Hãy chờ hoặc huỷ trước khi chạy bước khác.');
+}
+function startTaskOperation(id: string, operation: () => Promise<unknown>): boolean {
+  assertTaskAvailable(id);
+  void operation().catch((error: any) => {
+    TaskStore.update(id, { status: isCancelledError(error) ? 'cancelled' : 'error', errorMessage: error.message });
+    broadcastTasksUpdate();
+  });
   return true;
 }
-
-function drainPipelines(): void {
-  while (pipelineActive.size < MAX_PARALLEL_PIPELINES && pipelineQueued.length > 0) {
-    const id = pipelineQueued.shift()!;
-    pipelineActive.add(id);
-    void executePipeline(id).finally(() => {
-      pipelineActive.delete(id);
-      broadcastTasksUpdate();
-      drainPipelines();
-    });
-  }
-}
-
-async function executePipeline(id: string): Promise<void> {
-  const onUpdate = () => broadcastTasksUpdate()
-  const stop = (t: Task | undefined, label: string): boolean => {
-    if (!t || t.status === 'error' || t.status === 'cancelled') {
-      console.log(`[Pipeline] Dừng ở bước ${label} (status: ${t?.status || 'unknown'})`)
-      return true
-    }
-    return false
-  }
-
-  try {
-    console.log(`[Pipeline] Bắt đầu chạy cả quy trình cho task ${id}`)
-
-    // 1. Phiên âm (bỏ qua nếu đã có SRT)
-    let current = TaskStore.getById(id)!
-    if (!current.srtPath) {
-      current = (await TaskRunner.runTask(id, onUpdate))!
-      if (stop(current, 'phiên âm')) return
-    }
-
-    // 2. Dịch (bỏ qua nếu đã có bản dịch hoặc chưa có Gemini key)
-    if (!current.translatedSrtPath && SettingsStore.hasGeminiKey()) {
-      current = (await TranslateRunner.runTranslate(id, undefined, onUpdate))!
-      if (stop(current, 'dịch thuật')) return
-    }
-
-    // 3. Tạo giọng đọc (bỏ qua nếu đã có audio TTS)
-    current = TaskStore.getById(id)!
-    if (current.srtPath && !current.ttsAudioDir) {
-      current = (await TTSRunner.runTTS(id, undefined, undefined, onUpdate))!
-      if (stop(current, 'tạo lồng tiếng')) return
-    }
-
-    // 4. Ghép audio vào video
-    current = TaskStore.getById(id)!
-    if (current.srtPath && current.ttsAudioDir) {
-      await DubbingRunner.runDubbing(id, true, onUpdate)
-    }
-    console.log(`[Pipeline] Hoàn tất quy trình cho task ${id}`)
-  } catch (err) {
-    console.error('[Pipeline] Lỗi không mong muốn:', err)
-  }
-}
-
-ipcMain.handle('tasks:runPipeline', async (_event, id: string, opts?: { replaceAudio?: boolean }) => {
-  void opts; // replaceAudio mặc định true khi chạy pipeline
-  const enqueued = enqueuePipeline(id)
-  if (enqueued) drainPipelines()
-  return enqueued
-})
-
-// Batch: enqueue nhiều task cùng lúc — hàng đợi sẽ chạy tối đa
-// MAX_PARALLEL_PIPELINES task song song, task sau tự vào khi task trước xong
-ipcMain.handle('tasks:runPipelineBatch', async (_event, ids: string[]) => {
-  let enqueued = 0
-  for (const id of ids || []) {
-    if (enqueuePipeline(id)) enqueued++
-  }
-  drainPipelines()
-  console.log(`[Pipeline] Batch: nhận ${enqueued}/${ids?.length || 0} tác vụ vào hàng đợi`)
-  return enqueued
-})
+ipcMain.handle('tasks:runPipeline', async (_event, id: string, options?: { replaceAudio?: boolean }) =>
+  PipelineRunner.enqueue(id, options, broadcastTasksUpdate));
+ipcMain.handle('tasks:runPipelineBatch', async (_event, ids: string[]) =>
+  (ids || []).reduce((count, id) => count + Number(PipelineRunner.enqueue(id, {}, broadcastTasksUpdate)), 0));
 
 ipcMain.handle('tasks:create', async (_event, input: CreateTaskInput) => {
   const task = TaskStore.create(input)
@@ -486,18 +422,20 @@ ipcMain.handle('tasks:create', async (_event, input: CreateTaskInput) => {
 })
 
 ipcMain.handle('tasks:update', async (_event, id: string, updates: Partial<Task>) => {
+  const taskBefore = TaskStore.getById(id)
+  const changesArtifacts = ['filePath', 'sourceLanguage', 'targetLanguage', 'asrModel', 'asrEngine', 'enableDiarization', 'speakerCount', 'ttsVoice', 'ttsSpeed', 'ttsEngine', 'ttsVoiceOverrides'].some((key) =>
+    key in updates && JSON.stringify((updates as any)[key]) !== JSON.stringify((taskBefore as any)?.[key]));
+  if (changesArtifacts) assertTaskAvailable(id);
   const task = TaskStore.update(id, updates)
+  if (changesArtifacts && taskBefore) invalidateTaskConfiguration(taskBefore, updates);
   broadcastTasksUpdate()
-  return task
+  return TaskStore.getById(id)
 })
 
 function cancelTaskExecution(id: string): boolean {
-  // 1. Gỡ khỏi hàng đợi pipeline nếu đang chờ
-  const qIdx = pipelineQueued.indexOf(id)
-  if (qIdx !== -1) {
-    pipelineQueued.splice(qIdx, 1)
-  }
-  pipelineActive.delete(id)
+  const pipelineCancelled = PipelineRunner.cancel(id)
+  const runCancelled = cancelTaskRun(id)
+  const stemsCancelled = StemExportRunner.cancel(id)
 
   // 2. Huỷ bỏ các runner có thể đang chạy
   const asrCancelled = TaskRunner.cancel(id)
@@ -517,7 +455,7 @@ function cancelTaskExecution(id: string): boolean {
     })
   }
 
-  return asrCancelled || ocrCancelled || hybridCancelled || translateCancelled || ttsCancelled || exportCancelled || dubbingCancelled
+  return pipelineCancelled || runCancelled || stemsCancelled || asrCancelled || ocrCancelled || hybridCancelled || translateCancelled || ttsCancelled || exportCancelled || dubbingCancelled
 }
 
 ipcMain.handle('tasks:delete', async (_event, id: string) => {
@@ -528,9 +466,9 @@ ipcMain.handle('tasks:delete', async (_event, id: string) => {
 })
 
 ipcMain.handle('tasks:start', async (_event, id: string) => {
-  TaskRunner.runTask(id, () => {
+  startTaskOperation(id, () => TaskRunner.runTask(id, () => {
     broadcastTasksUpdate()
-  })
+  }))
   return true
 })
 
@@ -543,9 +481,9 @@ ipcMain.handle('tasks:cancel', async (_event, id: string) => {
 
 // Chạy kết hợp kép Whisper ASR + Quét OCR (R2 - Độ chính xác tuyệt đối)
 ipcMain.handle('tasks:startHybrid', async (_event, id: string, options?: HybridRunOptions) => {
-  HybridRunner.runHybrid(id, options, () => {
+  startTaskOperation(id, () => HybridRunner.runHybrid(id, options, () => {
     broadcastTasksUpdate()
-  })
+  }))
   return true
 })
 
@@ -562,7 +500,7 @@ ipcMain.handle('tasks:readSrt', async (_event, srtPath: string) => {
 })
 
 ipcMain.handle('tasks:writeSrt', async (_event, srtPath: string, content: string) => {
-  fs.writeFileSync(srtPath, content, 'utf-8')
+  writeTaskSrt(srtPath, content)
   broadcastTasksUpdate()
   return true
 })
@@ -579,7 +517,8 @@ ipcMain.handle('tasks:importSrt', async (_event, id: string, sourceSrtPath: stri
     throw new Error('Chỉ hỗ trợ file .srt')
   }
 
-  const videoDir = path.dirname(task.filePath)
+  assertTaskAvailable(id)
+  const videoDir = getOrCreateProjectDir(task)
   const base = path.basename(task.fileName, path.extname(task.fileName))
 
   // Không ghi đè file đã tồn tại — thêm _1, _2...
@@ -591,8 +530,10 @@ ipcMain.handle('tasks:importSrt', async (_event, id: string, sourceSrtPath: stri
 
   fs.copyFileSync(sourceSrtPath, target)
 
+  invalidateTaskArtifacts(id, 'source')
   const updated = TaskStore.update(id, {
     srtPath: target,
+    srtStale: false,
     stageDescription: 'Đã nhập phụ đề có sẵn — có thể dịch hoặc hiệu đính ngay',
   })
   broadcastTasksUpdate()
@@ -671,9 +612,9 @@ ipcMain.handle('ai:cleanSubtitles', async (_event, items: any[]) => {
 // Quét phụ đề cứng (hardsub) trong video bằng OCR — kết quả là file .srt
 // như phiên âm, nên sau đó dịch / tạo lồng tiếng / ghép video chạy bình thường
 ipcMain.handle('ocr:start', async (_event, id: string, options?: any) => {
-  OcrRunner.runOcr(id, options, () => {
+  startTaskOperation(id, () => OcrRunner.runOcr(id, options, () => {
     broadcastTasksUpdate()
-  })
+  }))
   return true
 })
 
@@ -684,9 +625,9 @@ ipcMain.handle('ocr:cancel', async (_event, id: string) => {
 
 // Dịch thuật AI qua TranslateRunner
 ipcMain.handle('translate:start', async (_event, id: string, targetLanguage?: string) => {
-  TranslateRunner.runTranslate(id, targetLanguage, () => {
+  startTaskOperation(id, () => TranslateRunner.runTranslate(id, targetLanguage, () => {
     broadcastTasksUpdate()
-  })
+  }))
   return true
 })
 
@@ -706,7 +647,7 @@ ipcMain.handle(
     style?: SubtitleStyle | null,
     advancedOptions?: AdvancedExportOptions | null
   ) => {
-    ExportRunner.runExport(
+    startTaskOperation(id, () => ExportRunner.runExport(
       id,
       mode,
       mask,
@@ -715,16 +656,16 @@ ipcMain.handle(
       },
       style ?? null,
       advancedOptions ?? null
-    )
+    ))
     return true
   }
 )
 
 // Tách nhạc nền / giọng khỏi video bằng AI Demucs — xuất 2 file mp3 cạnh video gốc
 ipcMain.handle('export:separateStems', async (_event, id: string) => {
-  StemExportRunner.runStemExport(id, () => {
+  startTaskOperation(id, () => StemExportRunner.runStemExport(id, () => {
     broadcastTasksUpdate()
-  })
+  }))
   return true
 })
 
@@ -739,9 +680,9 @@ ipcMain.handle(
     voiceOverrides?: Record<string, string>,
     engine?: 'viettts' | 'tiktok' | 'edge'
   ) => {
-    TTSRunner.runTTS(id, voice, speed, () => {
+    startTaskOperation(id, () => TTSRunner.runTTS(id, voice, speed, () => {
       broadcastTasksUpdate()
-    }, voiceOverrides, engine)
+    }, voiceOverrides, engine))
     return true
   }
 )
@@ -758,13 +699,17 @@ ipcMain.handle('tts:cancel', async (_event, id: string) => {
 
 // Tạo lại audio cho 1 dòng phụ đề (sau khi sửa text / đổi giọng)
 ipcMain.handle('tts:regenerateLine', async (_event, id: string, lineIndex: number) => {
-  return TTSRunner.regenerateLine(id, lineIndex)
+  assertTaskAvailable(id)
+  const result = await TTSRunner.regenerateLine(id, lineIndex)
+  broadcastTasksUpdate()
+  return result
 })
 
 // Ghép lại hoặc xuất file MP3 tổng hợp chính xác theo timeline cho dự án
 ipcMain.handle(
   'tts:export-merged-audio',
   async (_event, id: string, targetPath?: string, mode?: 'strict' | 'flexible') => {
+    assertTaskAvailable(id)
     const res = await TTSRunner.exportMergedAudio(id, targetPath, mode)
     broadcastTasksUpdate()
     return res
@@ -1011,9 +956,9 @@ ipcMain.handle(
     replaceAudio: boolean = true,
     options?: { syncMode?: 'strict' | 'flexible' | 'video-stretch'; mixOriginalAudio?: boolean; vocalSeparation?: boolean }
   ) => {
-    DubbingRunner.runDubbing(id, replaceAudio, () => {
+    startTaskOperation(id, () => DubbingRunner.runDubbing(id, replaceAudio, () => {
       broadcastTasksUpdate()
-    }, options)
+    }, options))
     return true
   }
 )

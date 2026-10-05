@@ -177,6 +177,7 @@ export interface KineticConfig {
 }
 
 export interface AdvancedExportOptions {
+  videoSource?: 'auto' | 'original' | 'dubbed';
   perLineStyles?: Record<number, PerLineSubtitleStyle>;
   customMask?: CustomMaskRegion | null;
   customMasks?: CustomMaskRegion[] | null;

@@ -147,6 +147,7 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
     else setInternalTaskId(id);
   };
   const [mode, setMode] = useState<ExportMode>('hardsub');
+  const [videoSource, setVideoSource] = useState<'auto' | 'original' | 'dubbed'>('auto');
   const [maskEnabled, setMaskEnabled] = useState(false);
   const [mask, setMask] = useState<SubMaskRegion>(DEFAULT_MASK);
   const [message, setMessage] = useState('');
@@ -287,8 +288,13 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
   const selectedTask = tasks.find((t) => t.id === selectedTaskId) || null;
   const isExporting = selectedTask?.status === 'exporting';
   const outputPath = selectedTask?.outputPath;
-  const hasTtsAudio = !!selectedTask?.ttsAudioDir;
-  const hasBothSrt = !!(selectedTask?.srtPath && selectedTask?.translatedSrtPath);
+  const hasTtsAudio = !!selectedTask?.ttsAudioDir && !selectedTask.ttsStale;
+  const hasBothSrt = !!(selectedTask?.srtPath && selectedTask?.translatedSrtPath && !selectedTask.translationStale);
+  const legacyDub = selectedTask?.outputPath && /(?:_dubbed_|\.dubbed\.)/i.test(selectedTask.outputPath) ? selectedTask.outputPath : undefined;
+  const availableDub = selectedTask?.dubbedPath || legacyDub;
+  const previewUsesDub = videoSource !== 'original' && !!availableDub && !selectedTask?.dubbedStale;
+  const previewVideoPath = previewUsesDub ? availableDub : selectedTask?.filePath;
+  const previewTimelineFactor = previewUsesDub ? selectedTask?.dubbedStretchFactor || 1 : 1;
 
   // Tải danh sách phụ đề mỗi khi chọn task
   useEffect(() => {
@@ -299,7 +305,7 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
       setSelectedLineIdx(null);
       return;
     }
-    const mainSrtPath = selectedTask.translatedSrtPath || selectedTask.srtPath;
+    const mainSrtPath = (!selectedTask.translationStale && selectedTask.translatedSrtPath) || selectedTask.srtPath;
     if (!mainSrtPath || !window.vanhsub?.tasks?.readSrt) {
       setSrtLines([]);
       setSecondarySrtLines([]);
@@ -310,7 +316,7 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
       .readSrt(mainSrtPath)
       .then((content) => {
         if (!canceled && content) {
-          setSrtLines(parseSrt(content));
+          setSrtLines(parseSrt(content).map((line) => ({ ...line, startMs: Math.round(line.startMs * previewTimelineFactor), endMs: Math.round(line.endMs * previewTimelineFactor) })));
         }
       })
       .catch(() => {
@@ -326,7 +332,7 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
         .readSrt(secSrtPath)
         .then((content) => {
           if (!canceled && content) {
-            setSecondarySrtLines(parseSrt(content));
+            setSecondarySrtLines(parseSrt(content).map((line) => ({ ...line, startMs: Math.round(line.startMs * previewTimelineFactor), endMs: Math.round(line.endMs * previewTimelineFactor) })));
           }
         })
         .catch(() => {
@@ -339,7 +345,7 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
     return () => {
       canceled = true;
     };
-  }, [selectedTaskId, selectedTask?.translatedSrtPath, selectedTask?.srtPath]);
+  }, [selectedTaskId, selectedTask?.translatedSrtPath, selectedTask?.srtPath, selectedTask?.translationStale, previewTimelineFactor]);
 
   const handleUpdateLineStyle = (lineIndex: number, lineStyle: PerLineSubtitleStyle | null) => {
     setPerLineStyles((prev) => {
@@ -413,6 +419,7 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
       const advancedOptions: AdvancedExportOptions | null =
         mode === 'hardsub'
           ? {
+              videoSource,
               perLineStyles: Object.keys(perLineStyles).length > 0 ? perLineStyles : undefined,
               customMask: customMaskEnabled && customMasks.length > 0 ? customMasks[0] : null,
               customMasks: customMaskEnabled ? customMasks.filter((m) => m.enabled !== false) : [],
@@ -426,7 +433,7 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
                 : null,
               kineticConfig: kineticConfig.preset !== 'none' ? kineticConfig : null,
             }
-          : null;
+          : { videoSource };
 
       await window.vanhsub.export.start(selectedTaskId, mode, maskParam, styleParam, advancedOptions);
       setMessage(`Đã bắt đầu xuất video (${mode === 'hardsub' ? 'Hardsub' : 'Softsub'})...`);
@@ -564,7 +571,7 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
               {/* Mini CapCut Live Video Studio Preview */}
               {selectedTask.filePath && (
                 <VideoPreviewCanvas
-                  videoPath={selectedTask.filePath}
+                  videoPath={previewVideoPath || selectedTask.filePath}
                   aspectRatio={formatOptions.aspectRatio || 'original'}
                   mirrorHorizontal={formatOptions.mirrorHorizontal}
                   speed={formatOptions.speed}
@@ -1503,6 +1510,16 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
 
           {/* Thông tin xuất + nút */}
           <div className="rounded-lg border border-border bg-surface p-4">
+            {(mode === 'hardsub' || mode === 'softsub') && (
+              <label className="mb-3 flex items-center gap-2 text-xs text-text-muted">
+                Video dùng để xuất
+                <select value={videoSource} onChange={(event) => setVideoSource(event.target.value as typeof videoSource)} className="rounded border border-border bg-bg p-1.5 text-text">
+                  <option value="auto">Tự động — ưu tiên video đã lồng tiếng</option>
+                  <option value="original">Video gốc</option>
+                  <option value="dubbed">Video đã lồng tiếng</option>
+                </select>
+              </label>
+            )}
             <div className="mb-3 space-y-1.5 text-xs text-text-muted">
               <p>
                 • Nguồn phụ đề:{' '}
@@ -1511,9 +1528,9 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
                 ) : (
                   <>
                     <span className="font-mono text-text">
-                      {(selectedTask.translatedSrtPath || selectedTask.srtPath || '').split(/[/\\]/).pop()}
+                      {((!selectedTask.translationStale && selectedTask.translatedSrtPath) || selectedTask.srtPath || '').split(/[/\\]/).pop()}
                     </span>
-                    {selectedTask.translatedSrtPath && (
+                    {selectedTask.translatedSrtPath && !selectedTask.translationStale && (
                       <span className="ml-1.5 rounded-full border border-accent/40 bg-accent-tint px-2 py-0.5 text-[10px] font-semibold text-accent">
                         dùng bản đã dịch
                       </span>

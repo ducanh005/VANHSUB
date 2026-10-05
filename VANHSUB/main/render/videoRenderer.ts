@@ -748,7 +748,7 @@ export async function muxSoftsub(options: Omit<RenderOptions, 'onProgress'>): Pr
         '-c:a copy',
         '-c:s mov_text',
         '-map 0:v',
-        '-map 0:a',
+        '-map 0:a?',
         '-map 1:s'
       ])
       .output(outputPath)

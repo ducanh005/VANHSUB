@@ -1,3 +1,5 @@
+import { withFfmpegCancellation } from '../lib/ffmpegCancellation';
+import { CancelledError } from '../lib/cancel';
 import path from 'path';
 import fs from 'fs';
 import os from 'os';
@@ -76,6 +78,7 @@ export function extractFrames(
   mode: OcrMode = 'auto',
   customRegion?: OcrCustomRegion | null,
   onProgress?: (percent: number) => void,
+  shouldStop?: () => boolean,
 ): Promise<FrameExtractResult> {
   return new Promise((resolve, reject) => {
     if (!fs.existsSync(inputPath)) {
@@ -102,7 +105,7 @@ export function extractFrames(
     filters.push("scale=w='if(lt(iw,1280),1280,iw)':h=-2");
     filters.push('format=rgb24');
 
-    ffmpeg(inputPath)
+    withFfmpegCancellation(ffmpeg(inputPath), shouldStop)
       .videoFilters(filters)
       .output(path.join(framesDir, 'frame_%06d.png'))
       .on('progress', (progress) => {
@@ -111,6 +114,7 @@ export function extractFrames(
         }
       })
       .on('end', () => {
+        if (shouldStop?.()) { cleanupFrames(framesDir); reject(new CancelledError()); return; }
         const framePaths = fs
           .readdirSync(framesDir)
           .filter((f) => f.endsWith('.png'))
@@ -134,6 +138,8 @@ export function extractFrames(
         });
       })
       .on('error', (err) => {
+        cleanupFrames(framesDir);
+        if (shouldStop?.()) { reject(new CancelledError()); return; }
         reject(new Error(`Lỗi trích xuất khung hình bằng ffmpeg: ${err.message}`));
       })
       .run();

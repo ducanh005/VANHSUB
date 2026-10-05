@@ -1,4 +1,5 @@
 import type { SrtLine } from '../lib/srt';
+import { createTimeWindowIndex } from '../lib/timeWindowIndex';
 import { isOcrGarbageLine } from '../lib/subtitleSanitizer';
 import { deduplicateProgressiveKaraoke, deduplicateExact } from '../lib/subtitleDeduplication';
 
@@ -393,6 +394,7 @@ export function fuseOcrAndWhisper(
 
   const resultSegments: SrtLine[] = [];
   const consumedWhisper = new Set<SrtLine>();
+  const queryWhisper = createTimeWindowIndex(whisperSegments);
 
   for (let idx = 0; idx < ocrToProcess.length; idx++) {
     const ocr = ocrToProcess[idx];
@@ -405,9 +407,7 @@ export function fuseOcrAndWhisper(
     const windowStart = anchoredStartMs - toleranceMs;
     const windowEnd = anchoredEndMs + toleranceMs;
 
-    const candidates = whisperSegments.filter(
-      (w) => w.endMs >= windowStart && w.startMs <= windowEnd
-    );
+    const candidates = queryWhisper(windowStart, windowEnd);
 
     // Không có ứng viên Whisper nào trong khung thời gian -> Banner video tĩnh HOẶC rác OCR
     if (candidates.length === 0) {

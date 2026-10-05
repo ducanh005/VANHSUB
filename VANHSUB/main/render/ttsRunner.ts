@@ -1,10 +1,15 @@
+import { runTaskStage, isTaskRunCancelled, throwIfTaskCancelled } from '../lib/taskExecution';
 import fs from 'fs';
 import path from 'path';
 import { TaskStore, type Task } from '../store/taskStore';
 import { SettingsStore } from '../store/settingsStore';
 import { generateTtsFromSrt, regenerateTtsLine, type TTSEngine } from '../render/ttsEngine';
 import { getSharedTikTokProvider } from '../tts-providers/tiktok/sessionStores';
-import { isCancelledError } from '../lib/cancel';
+import { isCancelledError, CancelledError } from '../lib/cancel';
+import { getTaskSrtPath, hashFile, invalidateTaskArtifacts } from '../lib/taskArtifacts';
+import { nextAvailablePath } from '../lib/paths';
+import { createTtsRunDirectory } from './ttsCache';
+import { cancelTaskRun } from '../lib/taskExecution';
 import { getOrCreateProjectDir, getProjectArtifactPaths } from '../utils/projectFolder';
 import { mergeAudioFiles } from './dubbingEngine';
 
@@ -33,7 +38,9 @@ export class TTSRunner {
 
   /** Yêu cầu huỷ: hiệu lực sau khi câu hiện tại tạo audio xong */
   static cancel(taskId: string): boolean {
-    if (!this.runningTasks.has(taskId)) return false;
+    if (!this.runningTasks.has(taskId) && ![...this.regeneratingLines].some((key) => key.startsWith(`${taskId}:`)))
+      return false;
+    cancelTaskRun(taskId);
     this.cancelledTasks.add(taskId);
     return true;
   }
@@ -49,43 +56,54 @@ export class TTSRunner {
     speed?: number,
     engine?: TTSEngine
   ): Promise<{ ok: boolean; error?: string }> {
-    const task = TaskStore.getById(taskId);
-    if (!task) return { ok: false, error: 'Không tìm thấy tác vụ.' };
-    if (!task.ttsAudioDir) {
-      return { ok: false, error: 'Tác vụ chưa tạo audio lồng tiếng — hãy chạy TTS trước.' };
-    }
+    return runTaskStage(taskId, 'regenerate', async () => {
+      const task = TaskStore.getById(taskId);
+      if (!task) return { ok: false, error: 'Không tìm thấy tác vụ.' };
+      if (!task.ttsAudioDir) {
+        return { ok: false, error: 'Tác vụ chưa tạo audio lồng tiếng — hãy chạy TTS trước.' };
+      }
 
-    const key = `${taskId}:${lineIndex}`;
-    if (this.regeneratingLines.has(key)) {
-      return { ok: false, error: `Dòng ${lineIndex} đang được tạo lại.` };
-    }
-    this.regeneratingLines.add(key);
+      const key = `${taskId}:${lineIndex}`;
+      if (this.regeneratingLines.has(key)) {
+        return { ok: false, error: `Dòng ${lineIndex} đang được tạo lại.` };
+      }
+      this.regeneratingLines.add(key);
 
-    try {
-      const srtPath = task.translatedSrtPath || task.srtPath;
-      if (!srtPath) return { ok: false, error: 'Tác vụ không có file phụ đề.' };
+      try {
+        const srtPath = getTaskSrtPath(task);
+        if (!srtPath) return { ok: false, error: 'Tác vụ không có file phụ đề.' };
 
-      // Giọng của dòng: gán riêng trên task (ttsVoiceOverrides) ưu tiên trước
-      // giọng chung — trước đây bỏ qua nên "Tạo lại audio dòng" luôn ra giọng mặc định
-      const voiceForLine =
-        voice || task.ttsVoiceOverrides?.[String(lineIndex)] || task.ttsVoice;
-      const engineForLine: TTSEngine = this.resolveEngine(task, engine);
+        // Giọng của dòng: gán riêng trên task (ttsVoiceOverrides) ưu tiên trước
+        // giọng chung — trước đây bỏ qua nên "Tạo lại audio dòng" luôn ra giọng mặc định
+        const voiceForLine = voice || task.ttsVoiceOverrides?.[String(lineIndex)] || task.ttsVoice;
+        const engineForLine: TTSEngine = this.resolveEngine(task, engine);
 
-      await regenerateTtsLine(
-        srtPath,
-        task.ttsAudioDir,
-        lineIndex,
-        voiceForLine,
-        speed || task.ttsSpeed,
-        engineForLine
-      );
-      return { ok: true };
-    } catch (err: any) {
-      console.error(`Lỗi khi tạo lại audio dòng ${lineIndex} task ${taskId}:`, err);
-      return { ok: false, error: err?.message || 'Không thể tạo lại audio cho dòng này.' };
-    } finally {
-      this.regeneratingLines.delete(key);
-    }
+        const regeneratedDir = createTtsRunDirectory(getOrCreateProjectDir(task), task.ttsAudioDir);
+        await regenerateTtsLine(
+          srtPath,
+          regeneratedDir,
+          lineIndex,
+          voiceForLine,
+          speed || task.ttsSpeed,
+          engineForLine,
+          () => isTaskRunCancelled(taskId)
+        );
+        throwIfTaskCancelled(taskId);
+        invalidateTaskArtifacts(taskId, 'tts');
+        TaskStore.update(taskId, {
+          ttsAudioDir: regeneratedDir,
+          ttsStale: false,
+          ttsSourceHash: hashFile(srtPath),
+          ...(voice ? { ttsVoiceOverrides: { ...task.ttsVoiceOverrides, [String(lineIndex)]: voice } } : {}),
+        });
+        return { ok: true };
+      } catch (err: any) {
+        console.error(`Lỗi khi tạo lại audio dòng ${lineIndex} task ${taskId}:`, err);
+        return { ok: false, error: err?.message || 'Không thể tạo lại audio cho dòng này.' };
+      } finally {
+        this.regeneratingLines.delete(key);
+      }
+    });
   }
 
   /**
@@ -96,37 +114,37 @@ export class TTSRunner {
     targetPath?: string,
     mode: 'strict' | 'flexible' = 'flexible'
   ): Promise<{ ok: boolean; audioPath?: string; error?: string }> {
-    const task = TaskStore.getById(taskId);
-    if (!task) return { ok: false, error: 'Không tìm thấy tác vụ.' };
-    const srtPath = task.translatedSrtPath || task.srtPath;
-    if (!srtPath || !fs.existsSync(srtPath)) {
-      return { ok: false, error: 'Không tìm thấy file phụ đề SRT của tác vụ.' };
-    }
-    const ttsAudioDir = task.ttsAudioDir || path.join(getOrCreateProjectDir(task), 'tts_audio');
-    if (!fs.existsSync(ttsAudioDir)) {
-      return { ok: false, error: 'Chưa có các file audio lồng tiếng — hãy chạy tạo TTS trước.' };
-    }
-
-    const artifactPaths = getProjectArtifactPaths(task);
-    const outputPath = targetPath || artifactPaths.ttsMergedAudioPath;
-
-    try {
-      const { audioPath, overruns } = await mergeAudioFiles(
-        srtPath,
-        ttsAudioDir,
-        outputPath,
-        undefined,
-        { mode }
-      );
-      if (overruns && overruns.length > 0) {
-        TaskStore.update(taskId, { ttsOverruns: overruns });
+    return runTaskStage(taskId, 'merge', async () => {
+      const task = TaskStore.getById(taskId);
+      if (!task) return { ok: false, error: 'Không tìm thấy tác vụ.' };
+      const srtPath = getTaskSrtPath(task);
+      if (!srtPath || !fs.existsSync(srtPath)) {
+        return { ok: false, error: 'Không tìm thấy file phụ đề SRT của tác vụ.' };
       }
-      TaskStore.update(taskId, { ttsMergedAudioPath: outputPath });
-      return { ok: true, audioPath };
-    } catch (err: any) {
-      console.error(`[TTSRunner] Lỗi khi xuất file MP3 tổng hợp task ${taskId}:`, err);
-      return { ok: false, error: err?.message || 'Không thể ghép file MP3 tổng hợp.' };
-    }
+      if (task.ttsStale || (task.ttsSourceHash && task.ttsSourceHash !== hashFile(srtPath)))
+        return { ok: false, error: 'Phụ đề đã thay đổi. Hãy tạo lại TTS trước khi ghép MP3.' };
+      const ttsAudioDir = task.ttsAudioDir || path.join(getOrCreateProjectDir(task), 'tts_audio');
+      if (!fs.existsSync(ttsAudioDir)) {
+        return { ok: false, error: 'Chưa có các file audio lồng tiếng — hãy chạy tạo TTS trước.' };
+      }
+
+      const artifactPaths = getProjectArtifactPaths(task);
+      const outputPath = targetPath || nextAvailablePath(artifactPaths.ttsMergedAudioPath);
+
+      try {
+        const { audioPath, overruns } = await mergeAudioFiles(srtPath, ttsAudioDir, outputPath, undefined, {
+          mode,
+          shouldStop: () => isTaskRunCancelled(taskId),
+        });
+        throwIfTaskCancelled(taskId);
+        TaskStore.update(taskId, { ttsOverruns: overruns });
+        TaskStore.update(taskId, { ttsMergedAudioPath: outputPath });
+        return { ok: true, audioPath };
+      } catch (err: any) {
+        console.error(`[TTSRunner] Lỗi khi xuất file MP3 tổng hợp task ${taskId}:`, err);
+        return { ok: false, error: err?.message || 'Không thể ghép file MP3 tổng hợp.' };
+      }
+    });
   }
 
   static async runTTS(
@@ -137,132 +155,138 @@ export class TTSRunner {
     voiceOverrides?: Record<string, string>,
     engine?: TTSEngine
   ): Promise<Task | undefined> {
-    const task = TaskStore.getById(taskId);
-    if (!task) throw new Error(`Không tìm thấy tác vụ ID: ${taskId}`);
+    return runTaskStage(taskId, 'tts', async () => {
+      const task = TaskStore.getById(taskId);
+      if (!task) throw new Error(`Không tìm thấy tác vụ ID: ${taskId}`);
 
-    // Kiểm tra file phụ đề (ưu tiên dùng bản dịch, nếu không có thì dùng bản gốc)
-    const srtPath = task.translatedSrtPath || task.srtPath;
-    if (!srtPath) {
-      throw new Error('Tác vụ chưa có file phụ đề SRT để tạo lồng tiếng.');
-    }
+      // Kiểm tra file phụ đề (ưu tiên dùng bản dịch, nếu không có thì dùng bản gốc)
+      const srtPath = getTaskSrtPath(task);
+      if (!srtPath) {
+        throw new Error('Tác vụ chưa có file phụ đề SRT để tạo lồng tiếng.');
+      }
 
-    if (this.runningTasks.has(taskId)) {
-      return task;
-    }
+      if (this.runningTasks.has(taskId)) {
+        return task;
+      }
 
-    this.runningTasks.add(taskId);
-    this.cancelledTasks.delete(taskId);
+      this.runningTasks.add(taskId);
+      this.cancelledTasks.delete(taskId);
 
-    const voiceToUse = voice || task.ttsVoice || SettingsStore.get('ttsVoice') || 'BV074_streaming';
-    const speedToUse = speed || task.ttsSpeed || SettingsStore.get('ttsSpeed') || 1.0;
-    // Engine: tham số caller > engine đã lưu trên task > mặc định theo session —
-    // có session TikTok thì dùng TikTok; KHÔNG dùng ttsVoice làm dấu hiệu chọn
-    // engine (task cũ mang ttsVoice từ thời VietTTS khiến TikTok bị bỏ qua —
-    // đúng lỗi "chọn giọng TikTok mà log toàn ra VietTTS")
-    const engineToUse = this.resolveEngine(task, engine);
-    console.log(`[TTS] Engine: ${engineToUse} · giọng: ${voiceToUse}`);
-
-    try {
-      // Ghi đè gán giọng khi caller truyền vào (kể cả object rỗng = xoá hết gán
-      // cũ — trước đây object rỗng bị bỏ qua nên gán cũ còn dính); undefined
-      // (pipeline) thì giữ nguyên gán đã lưu
-      TaskStore.update(taskId, {
-        status: 'dubbing',
-        progress: 0,
-        ttsVoice: voiceToUse,
-        ttsSpeed: speedToUse,
-        ttsEngine: engineToUse,
-        ...(voiceOverrides !== undefined ? { ttsVoiceOverrides: voiceOverrides } : {}),
-        stageDescription: `Đang khởi tạo lồng tiếng (${engineToUse})...`,
-      });
-      onUpdate?.();
-
-      // Lưu audio files từng dòng vào thư mục dự án của video
-      const projectDir = getOrCreateProjectDir(task);
-      const ttsAudioDir = path.join(projectDir, 'tts_audio');
-
-      const { audioFiles, totalDuration } = await generateTtsFromSrt(
-        srtPath,
-        ttsAudioDir,
-        {
-          voice: voiceToUse,
-          speed: speedToUse,
-          engine: engineToUse,
-          voiceOverrides: voiceOverrides || task.ttsVoiceOverrides,
-          shouldStop: () => this.cancelledTasks.has(taskId),
-        },
-        (current, total) => {
-          const progress = Math.round((current / total) * 100);
-          TaskStore.update(taskId, {
-            progress,
-            stageDescription: `Đang tạo lồng tiếng (${current}/${total})...`,
-          });
-          onUpdate?.();
-        }
-      );
-
-      // Tự động ghép các câu thành 1 file MP3 tổng hợp chuẩn xác theo timeline dự án
-      const artifactPaths = getProjectArtifactPaths(task);
-      const mergedMp3Path = artifactPaths.ttsMergedAudioPath;
-      let finalMergedPath: string | undefined = undefined;
+      const voiceToUse = voice || task.ttsVoice || SettingsStore.get('ttsVoice') || 'BV074_streaming';
+      const speedToUse = speed || task.ttsSpeed || SettingsStore.get('ttsSpeed') || 1.0;
+      // Engine: tham số caller > engine đã lưu trên task > mặc định theo session —
+      // có session TikTok thì dùng TikTok; KHÔNG dùng ttsVoice làm dấu hiệu chọn
+      // engine (task cũ mang ttsVoice từ thời VietTTS khiến TikTok bị bỏ qua —
+      // đúng lỗi "chọn giọng TikTok mà log toàn ra VietTTS")
+      const engineToUse = this.resolveEngine(task, engine);
+      console.log(`[TTS] Engine: ${engineToUse} · giọng: ${voiceToUse}`);
 
       try {
+        // Ghi đè gán giọng khi caller truyền vào (kể cả object rỗng = xoá hết gán
+        // cũ — trước đây object rỗng bị bỏ qua nên gán cũ còn dính); undefined
+        // (pipeline) thì giữ nguyên gán đã lưu
         TaskStore.update(taskId, {
-          stageDescription: 'Đang ghép file MP3 lồng tiếng tổng hợp theo timeline dự án...',
+          status: 'dubbing',
+          progress: 0,
+          errorMessage: undefined,
+          stageDescription: `Đang khởi tạo lồng tiếng (${engineToUse})...`,
         });
         onUpdate?.();
 
-        const { audioPath, overruns } = await mergeAudioFiles(
+        // Lưu audio files từng dòng vào thư mục dự án của video
+        const projectDir = getOrCreateProjectDir(task);
+        const ttsAudioDir = createTtsRunDirectory(projectDir, task.ttsAudioDir);
+
+        const { audioFiles, totalDuration } = await generateTtsFromSrt(
           srtPath,
           ttsAudioDir,
-          mergedMp3Path,
-          undefined,
-          { mode: 'flexible' }
+          {
+            voice: voiceToUse,
+            speed: speedToUse,
+            engine: engineToUse,
+            voiceOverrides: voiceOverrides || task.ttsVoiceOverrides,
+            shouldStop: () => this.cancelledTasks.has(taskId) || isTaskRunCancelled(taskId),
+          },
+          (current, total) => {
+            const progress = Math.round((current / total) * 100);
+            TaskStore.update(taskId, {
+              progress,
+              stageDescription: `Đang tạo lồng tiếng (${current}/${total})...`,
+            });
+            onUpdate?.();
+          }
         );
-        if (fs.existsSync(audioPath)) {
-          finalMergedPath = audioPath;
-        }
-        if (overruns && overruns.length > 0) {
-          TaskStore.update(taskId, { ttsOverruns: overruns });
-        }
-      } catch (mergeErr) {
-        console.warn(`[TTS] Cảnh báo: Tự động ghép MP3 tổng hợp gặp lỗi:`, mergeErr);
-      }
 
-      const updated = TaskStore.update(taskId, {
-        status: 'done',
-        progress: 100,
-        projectDir,
-        ttsAudioDir, // Lưu thư mục audio để dùng cho bước dubbing tiếp theo
-        ...(finalMergedPath ? { ttsMergedAudioPath: finalMergedPath } : {}),
-        stageDescription: finalMergedPath
-          ? 'Đã hoàn tất tạo lồng tiếng và xuất file MP3 tổng hợp dự án'
-          : 'Đã hoàn tất tạo lồng tiếng vào thư mục dự án',
-      });
-      onUpdate?.();
+        // Tự động ghép các câu thành 1 file MP3 tổng hợp chuẩn xác theo timeline dự án
+        const artifactPaths = getProjectArtifactPaths(task);
+        const mergedMp3Path = nextAvailablePath(artifactPaths.ttsMergedAudioPath);
+        let finalMergedPath: string | undefined = undefined;
+        let mergedOverruns: Task['ttsOverruns'];
 
-      return updated;
-    } catch (err: any) {
-      if (isCancelledError(err)) {
-        console.log(`Người dùng đã huỷ tạo lồng tiếng task ${taskId}`);
+        try {
+          TaskStore.update(taskId, {
+            stageDescription: 'Đang ghép file MP3 lồng tiếng tổng hợp theo timeline dự án...',
+          });
+          onUpdate?.();
+
+          const { audioPath, overruns } = await mergeAudioFiles(srtPath, ttsAudioDir, mergedMp3Path, undefined, {
+            mode: 'flexible',
+            shouldStop: () => this.cancelledTasks.has(taskId) || isTaskRunCancelled(taskId),
+          });
+          if (fs.existsSync(audioPath)) {
+            finalMergedPath = audioPath;
+          }
+          mergedOverruns = overruns;
+        } catch (mergeErr) {
+          if (isCancelledError(mergeErr)) throw mergeErr;
+          console.warn(`[TTS] Cảnh báo: Tự động ghép MP3 tổng hợp gặp lỗi:`, mergeErr);
+        }
+
+        throwIfTaskCancelled(taskId);
+        if (this.cancelledTasks.has(taskId)) throw new CancelledError();
+        invalidateTaskArtifacts(taskId, 'tts');
         const updated = TaskStore.update(taskId, {
-          status: 'cancelled',
-          stageDescription: 'Đã huỷ tạo lồng tiếng',
+          status: 'done',
+          progress: 100,
+          projectDir,
+          ttsAudioDir, // Lưu thư mục audio để dùng cho bước dubbing tiếp theo
+          ttsMergedAudioPath: finalMergedPath,
+          ttsOverruns: mergedOverruns,
+          ttsStale: false,
+          ttsSourceHash: hashFile(srtPath),
+          ttsVoice: voiceToUse,
+          ttsSpeed: speedToUse,
+          ttsEngine: engineToUse,
+          ...(voiceOverrides !== undefined ? { ttsVoiceOverrides: voiceOverrides } : {}),
+          stageDescription: finalMergedPath
+            ? 'Đã hoàn tất tạo lồng tiếng và xuất file MP3 tổng hợp dự án'
+            : 'Đã hoàn tất tạo lồng tiếng vào thư mục dự án',
+        });
+        onUpdate?.();
+
+        return updated;
+      } catch (err: any) {
+        if (isCancelledError(err)) {
+          console.log(`Người dùng đã huỷ tạo lồng tiếng task ${taskId}`);
+          const updated = TaskStore.update(taskId, {
+            status: 'cancelled',
+            stageDescription: 'Đã huỷ tạo lồng tiếng',
+          });
+          onUpdate?.();
+          return updated;
+        }
+        console.error(`Lỗi khi tạo lồng tiếng task ${taskId}:`, err);
+        const updated = TaskStore.update(taskId, {
+          status: 'error',
+          errorMessage: err.message || 'Lỗi không xác định khi tạo lồng tiếng',
+          stageDescription: 'Thất bại khi tạo lồng tiếng',
         });
         onUpdate?.();
         return updated;
+      } finally {
+        this.cancelledTasks.delete(taskId);
+        this.runningTasks.delete(taskId);
       }
-      console.error(`Lỗi khi tạo lồng tiếng task ${taskId}:`, err);
-      const updated = TaskStore.update(taskId, {
-        status: 'error',
-        errorMessage: err.message || 'Lỗi không xác định khi tạo lồng tiếng',
-        stageDescription: 'Thất bại khi tạo lồng tiếng',
-      });
-      onUpdate?.();
-      return updated;
-    } finally {
-      this.cancelledTasks.delete(taskId);
-      this.runningTasks.delete(taskId);
-    }
+    });
   }
 }

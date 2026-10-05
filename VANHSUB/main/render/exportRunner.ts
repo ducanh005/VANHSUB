@@ -1,15 +1,18 @@
+import { runTaskStage, withTaskContext, isTaskRunCancelled, throwIfTaskCancelled } from '../lib/taskExecution';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import type ffmpeg from 'fluent-ffmpeg';
-import { parseSrt } from '../lib/srt';
+import { parseSrt, serializeSrt } from '../lib/srt';
+import { randomUUID } from 'node:crypto';
 import { TaskStore, type Task } from '../store/taskStore';
-import { SettingsStore } from '../store/settingsStore';
+import { getTaskSrtPath } from '../lib/taskArtifacts';
 import { nextAvailablePath } from '../lib/paths';
 import { getOrCreateProjectDir } from '../utils/projectFolder';
 import { compileToAss, type SubtitleEntryStyle, type GlobalAssStyle, type KineticConfig } from './assCompiler';
 import { killProcessTreeByPid } from '../lib/processTree';
 import { isCancelledError } from '../lib/cancel';
+import { withFfmpegCancellation } from '../lib/ffmpegCancellation';
 import {
   burnHardsub,
   muxSoftsub,
@@ -28,6 +31,7 @@ export interface DualSubtitleOption {
 }
 
 export interface AdvancedExportOptions {
+  videoSource?: 'auto' | 'original' | 'dubbed';
   customMask?: CustomMaskRegion | null;
   customMasks?: CustomMaskRegion[] | null;
   watermark?: WatermarkOptions | null;
@@ -116,13 +120,15 @@ export class ExportRunner {
     const nextItem = this.queue.shift();
     if (!nextItem) return;
 
-    this.executeExport(
-      nextItem.taskId,
-      nextItem.mode,
-      nextItem.mask,
-      nextItem.onUpdate,
-      nextItem.style,
-      nextItem.advancedOptions,
+    withTaskContext(nextItem.taskId, () =>
+      this.executeExport(
+        nextItem.taskId,
+        nextItem.mode,
+        nextItem.mask,
+        nextItem.onUpdate,
+        nextItem.style,
+        nextItem.advancedOptions
+      )
     )
       .then(nextItem.resolve)
       .catch(nextItem.reject);
@@ -136,43 +142,45 @@ export class ExportRunner {
     style?: SubtitleStyle | null,
     advancedOptions?: AdvancedExportOptions | null
   ): Promise<Task | undefined> {
-    const task = TaskStore.getById(taskId);
-    if (!task) throw new Error(`Không tìm thấy tác vụ ID: ${taskId}`);
+    return runTaskStage(taskId, 'export', async () => {
+      const task = TaskStore.getById(taskId);
+      if (!task) throw new Error(`Không tìm thấy tác vụ ID: ${taskId}`);
 
-    const rawSrtPath = task.translatedSrtPath || task.srtPath;
-    if (!rawSrtPath) {
-      throw new Error('Tác vụ chưa có file phụ đề để xuất video.');
-    }
+      const rawSrtPath = getTaskSrtPath(task);
+      if (!rawSrtPath) {
+        throw new Error('Tác vụ chưa có file phụ đề để xuất video.');
+      }
 
-    if (this.runningExports.has(taskId)) {
-      return task;
-    }
+      if (this.runningExports.has(taskId)) {
+        return task;
+      }
 
-    if (this.isQueued(taskId)) {
-      return task;
-    }
+      if (this.isQueued(taskId)) {
+        return task;
+      }
 
-    if (this.runningExports.size >= this.MAX_PARALLEL_EXPORT) {
-      return new Promise<Task | undefined>((resolve, reject) => {
-        this.queue.push({
-          taskId,
-          mode,
-          mask,
-          onUpdate,
-          style,
-          advancedOptions,
-          resolve,
-          reject,
+      if (this.runningExports.size >= this.MAX_PARALLEL_EXPORT) {
+        return new Promise<Task | undefined>((resolve, reject) => {
+          this.queue.push({
+            taskId,
+            mode,
+            mask,
+            onUpdate,
+            style,
+            advancedOptions,
+            resolve,
+            reject,
+          });
+          TaskStore.update(taskId, {
+            status: 'exporting',
+            stageDescription: 'Đang xếp hàng chờ tài nguyên xuất video...',
+          });
+          onUpdate?.();
         });
-        TaskStore.update(taskId, {
-          status: 'exporting',
-          stageDescription: 'Đang xếp hàng chờ tài nguyên xuất video...',
-        });
-        onUpdate?.();
-      });
-    }
+      }
 
-    return this.executeExport(taskId, mode, mask, onUpdate, style, advancedOptions);
+      return this.executeExport(taskId, mode, mask, onUpdate, style, advancedOptions);
+    });
   }
 
   private static async executeExport(
@@ -186,21 +194,21 @@ export class ExportRunner {
     const task = TaskStore.getById(taskId);
     if (!task) throw new Error(`Không tìm thấy tác vụ ID: ${taskId}`);
 
-    const rawSrtPath = task.translatedSrtPath || task.srtPath;
+    const rawSrtPath = getTaskSrtPath(task);
     if (!rawSrtPath) {
       throw new Error('Tác vụ chưa có file phụ đề để xuất video.');
     }
 
-    this.runningExports.add(taskId);
-    this.cancelledTasks.delete(taskId);
-
     // Xác định đường dẫn xuất
-    const videoPath = task.filePath;
-    const videoDir = path.dirname(videoPath);
+    const legacyDub = task.outputPath && /(?:_dubbed_|\.dubbed\.)/i.test(task.outputPath) ? task.outputPath : undefined;
+    const dubbedPath = task.dubbedPath || legacyDub;
+    const hasDub = !task.dubbedStale && dubbedPath && fs.existsSync(dubbedPath);
+    if (advancedOptions?.videoSource === 'dubbed' && !hasDub)
+      throw new Error('Chưa có video lồng tiếng hợp lệ. Hãy ghép lồng tiếng trước.');
+    const videoPath = advancedOptions?.videoSource !== 'original' && hasDub ? dubbedPath! : task.filePath;
     const videoExt = path.extname(videoPath);
     const videoBase = path.basename(videoPath, videoExt);
 
-    const exportDirSetting = SettingsStore.get('exportDir');
     // Lưu vào thư mục dự án riêng của video
     const projectDir = getOrCreateProjectDir(task);
     const targetDir = projectDir;
@@ -212,8 +220,22 @@ export class ExportRunner {
 
     let finalSubPath = rawSrtPath;
     let tempAssFile: string | null = null;
+    let tempScaledSrt: string | undefined;
+    const timelineFactor = videoPath !== task.filePath ? task.dubbedStretchFactor || 1 : 1;
 
     try {
+      this.runningExports.add(taskId);
+      this.cancelledTasks.delete(taskId);
+      if (timelineFactor > 1.001) {
+        const scaled = parseSrt(fs.readFileSync(rawSrtPath, 'utf8')).map((line) => ({
+          ...line,
+          startMs: Math.round(line.startMs * timelineFactor),
+          endMs: Math.round(line.endMs * timelineFactor),
+        }));
+        tempScaledSrt = path.join(os.tmpdir(), `vanhsub_export_${randomUUID()}.srt`);
+        fs.writeFileSync(tempScaledSrt, serializeSrt(scaled));
+        finalSubPath = tempScaledSrt;
+      }
       if (this.cancelledTasks.has(taskId) || TaskStore.getById(taskId)?.status === 'cancelled') {
         if (TaskStore.getById(taskId)?.status !== 'cancelled') {
           TaskStore.update(taskId, {
@@ -234,7 +256,12 @@ export class ExportRunner {
 
       if (mode === 'hardsub') {
         const hasPerLine = advancedOptions?.perLineStyles && Object.keys(advancedOptions.perLineStyles).length > 0;
-        const hasDual = !!(advancedOptions?.dualSubtitles?.enabled && task.translatedSrtPath && task.srtPath);
+        const hasDual = !!(
+          advancedOptions?.dualSubtitles?.enabled &&
+          task.translatedSrtPath &&
+          task.srtPath &&
+          !task.translationStale
+        );
         const hasVertical = !!style?.isVertical;
         const hasCustomPos = !!(style?.posPercent || (style?.marginH !== undefined && style.marginH !== 20));
         const hasKinetic = !!(advancedOptions?.kineticConfig && advancedOptions.kineticConfig.preset !== 'none');
@@ -265,7 +292,7 @@ export class ExportRunner {
             targetHeight = 1080;
           }
 
-          const srtContent = fs.readFileSync(rawSrtPath, 'utf-8');
+          const srtContent = fs.readFileSync(finalSubPath, 'utf-8');
           const parsedLines = parseSrt(srtContent);
           const items = parsedLines.map((line, idx) => ({
             id: line.id,
@@ -307,8 +334,8 @@ export class ExportRunner {
               const secParsed = parseSrt(secContent);
               secondaryItems = secParsed.map((line) => ({
                 id: line.id,
-                startMs: line.startMs,
-                endMs: line.endMs,
+                startMs: Math.round(line.startMs * timelineFactor),
+                endMs: Math.round(line.endMs * timelineFactor),
                 text: line.text,
                 speaker: line.speaker,
                 words: line.words,
@@ -390,6 +417,7 @@ export class ExportRunner {
           formatOptions: advancedOptions?.formatOptions || null,
           style: style || null,
           onCommandCreated: (command) => {
+            withFfmpegCancellation(command, () => isTaskRunCancelled(taskId) || this.cancelledTasks.has(taskId));
             this.runningCommands.set(taskId, command);
           },
           onProgress: (percent) => {
@@ -424,9 +452,10 @@ export class ExportRunner {
 
         await muxSoftsub({
           videoPath,
-          srtPath: rawSrtPath,
+          srtPath: finalSubPath,
           outputPath,
           onCommandCreated: (command) => {
+            withFfmpegCancellation(command, () => isTaskRunCancelled(taskId) || this.cancelledTasks.has(taskId));
             this.runningCommands.set(taskId, command);
           },
         });
@@ -457,9 +486,12 @@ export class ExportRunner {
       }
 
       // F-EXP-02 Guard: Ngăn chặn lỗi hồi sinh tác vụ khi task đã bị huỷ
+      throwIfTaskCancelled(taskId);
       const currentTask = TaskStore.getById(taskId);
       if (this.cancelledTasks.has(taskId) || currentTask?.status === 'cancelled') {
-        console.log(`[ExportRunner] Tác vụ ${taskId} đã bị huỷ trước đó. Bỏ qua cập nhật 'done' và dọn dẹp file dở dang.`);
+        console.log(
+          `[ExportRunner] Tác vụ ${taskId} đã bị huỷ trước đó. Bỏ qua cập nhật 'done' và dọn dẹp file dở dang.`
+        );
         if (outputPath && fs.existsSync(outputPath)) {
           try {
             fs.unlinkSync(outputPath);
@@ -481,6 +513,7 @@ export class ExportRunner {
         status: 'done',
         progress: 100,
         outputPath,
+        ...(mode === 'hardsub' ? { hardsubPath: outputPath } : { softsubPath: outputPath }),
         projectDir,
         stageDescription: `Xuất video thành công: ${outputName}`,
       });
@@ -489,7 +522,11 @@ export class ExportRunner {
       return updated;
     } catch (err: any) {
       const currentTask = TaskStore.getById(taskId);
-      const wasCancelled = this.cancelledTasks.has(taskId) || currentTask?.status === 'cancelled' || isCancelledError(err);
+      const wasCancelled =
+        isTaskRunCancelled(taskId) ||
+        this.cancelledTasks.has(taskId) ||
+        currentTask?.status === 'cancelled' ||
+        isCancelledError(err);
 
       // Dọn dẹp file output dang dở trên đĩa
       if (outputPath && fs.existsSync(outputPath)) {
@@ -519,6 +556,7 @@ export class ExportRunner {
       onUpdate?.();
       return updated;
     } finally {
+      if (tempScaledSrt && fs.existsSync(tempScaledSrt)) fs.unlinkSync(tempScaledSrt);
       if (tempAssFile && fs.existsSync(tempAssFile)) {
         try {
           fs.unlinkSync(tempAssFile);

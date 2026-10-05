@@ -50,6 +50,7 @@ export async function transcribeUnified(
   if (requestedEngine === 'whisper-cpp') {
     const result = await transcribeWhisperCpp(audioPath, {
       modelName: options.model,
+      language: options.language,
       onProgress: (percent) => options.onProgress?.(percent, `Đang phiên âm whisper.cpp (${percent}%)...`),
       shouldStop: options.shouldStop,
     });
@@ -73,6 +74,7 @@ export async function transcribeUnified(
 
     const result = await transcribeWhisperCpp(audioPath, {
       modelName: options.model,
+      language: options.language,
       onProgress: (percent) =>
         options.onProgress?.(percent, `[Fallback whisper.cpp] Đang phiên âm (${percent}%)...`),
       shouldStop: options.shouldStop,
@@ -120,6 +122,7 @@ export async function transcribeUnified(
 
     const result = await transcribeWhisperCpp(audioPath, {
       modelName: options.model,
+      language: options.language,
       onProgress: (percent) =>
         options.onProgress?.(percent, `[Fallback whisper.cpp] Đang phiên âm (${percent}%)...`),
       shouldStop: options.shouldStop,
