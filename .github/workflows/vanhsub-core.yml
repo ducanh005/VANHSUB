@@ -1,0 +1,26 @@
+name: VANHSUB core
+on:
+  push:
+    paths: ['VANHSUB/**', '.github/workflows/vanhsub-core.yml']
+  pull_request:
+    paths: ['VANHSUB/**', '.github/workflows/vanhsub-core.yml']
+jobs:
+  core:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: VANHSUB
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: VANHSUB/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run test:core

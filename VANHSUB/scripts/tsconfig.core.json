@@ -1,0 +1,9 @@
+{
+  "extends": "../tsconfig.json",
+  "include": [
+    "../main/**/*.ts",
+    "../renderer/**/*.js", "../renderer/**/*.jsx", "../renderer/**/*.ts", "../renderer/**/*.tsx",
+    "test_core.ts", "audit_core_flow.ts", "audit_core_performance.ts",
+    "../tests/test_core_flow_regression.ts"
+  ]
+}

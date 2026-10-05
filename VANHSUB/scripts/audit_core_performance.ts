@@ -23,11 +23,13 @@ async function main() {
     }));
     fs.writeFileSync(path.join(root, 'vanhsub-tasks.json'), JSON.stringify({ tasks }));
     try {
-      const { TaskStore } = await import('../main/store/taskStore');
+      const { TaskStore, flushTaskStore } = await import('../main/store/taskStore');
       assert.equal(TaskStore.getAll().length, size);
       const start = performance.now();
       for (let i = 0; i < 30; i++) TaskStore.update(`task-${size - 1}`, { progress: i });
-      console.log(JSON.stringify({ benchmark: 'TaskStore.update', tasks: size, updates: 30, totalMs: +(performance.now() - start).toFixed(2), storeBytes: fs.statSync(path.join(root, 'vanhsub-tasks.json')).size }));
+      const scheduledMs = performance.now() - start;
+      flushTaskStore();
+      console.log(JSON.stringify({ benchmark: 'TaskStore.update', tasks: size, updates: 30, scheduledMs: +scheduledMs.toFixed(2), totalMs: +(performance.now() - start).toFixed(2), storeBytes: fs.statSync(path.join(root, 'vanhsub-tasks.json')).size }));
     } finally {
       assert.ok(path.resolve(root).startsWith(path.resolve(os.tmpdir()) + path.sep) && path.basename(root).startsWith('vanhsub-store-bench-'));
       fs.rmSync(root, { recursive: true, force: true });

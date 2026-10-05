@@ -1,6 +1,65 @@
 # Kiểm tra luồng chính VANHSUB — 05/10/2026
 
-## Kết luận
+## Kết quả cập nhật theo audit — 06/10/2026
+
+Đã cập nhật luồng phụ đề/lồng tiếng theo F01–F10. Phạm vi vẫn **không bao gồm Workflow AI và AI Studio**. Các mục bên dưới phần “Kết luận tại thời điểm audit” là bằng chứng trước khi sửa, tại commit `4228288`; số dòng trong các liên kết lịch sử có thể đã thay đổi.
+
+| Mục | Thay đổi đã thực hiện | Xác minh |
+|---|---|---|
+| F01 — tạo lại TTS nhóm | Tạo lại nhóm chứa dòng được chọn; manifest leader/member tham chiếu một audio master. Audio có tên theo nội dung/cấu hình; mỗi lần chạy có thư mục riêng. Chỉ công bố sau thành công. | Tạo lại member và leader đều làm thay đổi/khôi phục PCM đúng; không bỏ member. Pipeline tạo lại → dub → export sử dụng audio mới. |
+| F02 — nguồn video export | Lưu riêng `dubbedPath`, `hardsubPath`, `softsubPath`. Export mặc định ưu tiên dub còn hiệu lực, cho chọn video gốc hoặc dub trong UI. Có tương thích đầu ra dub cũ. | Softsub và xuất lại giữ PCM của dub; lựa chọn original giữ PCM gốc. Giãn video đồng thời giãn timestamp phụ đề/preview. |
+| F03 — hiệu lực đầu ra | Lưu/nhập SRT đánh dấu bản dịch/TTS/dub cần cập nhật; ghi lại cùng nội dung không làm mất hiệu lực. Hash nguồn/config dịch và hash SRT đầu vào TTS kiểm tra phiên bản. Đổi cấu hình ASR đánh dấu SRT cần chạy lại. | Kiểm tra sửa SRT, đổi cấu hình, checkpoint dịch và chạy lại pipeline. Giữ file cũ để phục hồi, chặn ghép MP3/dub bằng TTS đã hết hiệu lực. |
+| F04 — trùng tên | Thư mục dự án gắn ID task và marker chủ sở hữu; tách task cũ dùng chung thư mục. Mỗi download hoàn thành tạo thư mục mới; bỏ xoá video cùng tên. | Hai video cùng basename tách riêng; tải lặp giữ file cũ và cả hai kết quả mới. |
+| F05 — retry an toàn | Kiểm tra Gemini key trước xử lý. ASR/OCR/Hybrid/dịch/TTS ghi phiên bản mới và chuyển tham chiếu sau thành công; không xoá kết quả trước khi retry. | Dịch thiếu key giữ nguyên bản dịch/audio/MP3 cũ. Huỷ synthesis giữ nguyên manifest; huỷ TTS giữ audio đã công bố trước đó. |
+| F06 — biên chunk ASR | Chỉ gộp câu trùng nội dung chuẩn hoá, speaker và khoảng thời gian; kéo dài end của bản sao. Truyền source language cho whisper.cpp và các nhánh fallback. | Giữ câu khác nội dung và câu cùng nội dung do speaker khác nói ở vùng overlap. |
+| F07 — huỷ và điều phối | Một lease/run token cho mỗi task, duy trì qua pipeline và hàng đợi runner. Huỷ không giải phóng slot trước khi promise kết thúc. Có huỷ FFmpeg extraction/merge/mix, Demucs preflight/process và stem export. | Chặn thao tác đồng thời; huỷ TTS khi merge không trở lại done; pipeline giữ đúng hai slot đến cleanup; huỷ FFmpeg đang chạy kết thúc trong giới hạn kiểm thử 5 giây. |
+| F08 — speaker | TTS và dubbing dùng adapter từ parser SRT chung; speaker là metadata. | Stub synthesis không nhận nhãn speaker; hai speaker thành nhóm riêng; giữ nội dung nhiều dòng. |
+| F09 — video im lặng | Softsub dùng audio map optional `0:a?`. | FFmpeg thật xuất thành công video không có audio stream. |
+| F10 — pipeline | Không nhận task đang OCR/bận; thiếu key khi cần dịch thì dừng với thông báo rõ. Tôn trọng `replaceAudio=false`; kiểm tra file và hiệu lực trước khi bỏ qua bước. | Kiểm tra precondition, queue/cancel, replaceAudio và chuỗi SRT → TTS → dub → export. |
+
+### Tối ưu và dọn lặp
+
+- TTS giữ một master cho một nhóm, không copy toàn bộ câu ra mỗi member. Các run dùng hardlink audio bất biến khi filesystem hỗ trợ; fallback copy khi cần.
+- Cache timeline PCM WAV và duration audio có kiểm tra size/mtime; MP3/M4A dùng chung timeline **khi cùng chế độ đồng bộ**. Strict/flexible có cache riêng vì đầu ra khác nhau. Bỏ file cache dở dang khi merge thất bại; rút ngắn tên file để tránh lỗi FFmpeg trên đường dẫn Windows dài trong fixture.
+- TaskStore giữ index theo ID, trả snapshot riêng; gom ghi progress trong 250 ms, trạng thái cuối ghi ngay và flush khi thoát app. IPC gửi snapshot gom trong cửa sổ 100 ms.
+- Hybrid dùng interval index để tìm ứng viên theo thời gian; giữ thứ tự ứng viên ban đầu để không đổi tie-break. Cache dịch dùng Map theo ID/nội dung, checkpoint ghi qua file tạm và kiểm tra model/glossary/style.
+- Bỏ hai parser SRT riêng và chuyển FFmpeg process helper thành module dùng chung để tránh vòng import giữa dubbing và vocal separation.
+
+Microbenchmark sau cập nhật, cùng fixture cũ; không phải đo chất lượng model hay tốc độ video thật:
+
+| Benchmark | Trước | Sau |
+|---|---:|---:|
+| TaskStore, 100 task, 30 update | ~179 ms | 8,23 ms |
+| TaskStore, 1.000 task, 30 update | ~328 ms | 10,26 ms |
+| TaskStore, 5.000 task, 30 update | ~845 ms | 21,82 ms |
+| Hybrid, 500 segment/stream | 26,09 ms | 23,97 ms |
+| Hybrid, 1.000 segment/stream | 53,96 ms | 45,02 ms |
+| Hybrid, 2.000 segment/stream | 117,04 ms | 96,88 ms |
+| Hybrid, 4.000 segment/stream | 226,79 ms | 181,68 ms |
+
+Số TaskStore sau cập nhật **bao gồm một lần flush xuống đĩa**, không chỉ tính enqueue. Thời gian 30 update trong bộ nhớ khoảng 1 ms. Hybrid vẫn có chi phí xử lý text; không kết luận mọi tải thực tế tăng tốc tương đương.
+
+### Kiểm tra và lệnh chạy
+
+Thêm `npm run test:core` chạy 13 suite trong các process/store riêng: 12 suite cũ và [test_core_flow_regression.ts](../tests/test_core_flow_regression.ts) gồm **26 tình huống hồi quy**. Synthesis/key được stub hoặc cô lập; FFmpeg merge/mux, so PCM và đọc lại timestamp softsub dùng binary thật. Không dùng dữ liệu dự án hay tài khoản thật.
+
+```powershell
+npm run typecheck
+npm run test:core
+node node_modules/tsx/dist/cli.mjs scripts/audit_core_performance.ts
+```
+
+Script `scripts/audit_core_flow.ts` đã đổi sang kiểm tra hành vi đúng sau sửa, thay cho probe kỳ vọng lỗi. Thêm GitHub Actions `VANHSUB core` trên Windows để chạy typecheck và test khi push/PR; lần chạy CI từ máy chủ chưa được xác minh trong cập nhật này.
+
+Typecheck và 13/13 suite đã chạy thành công. Main/preload production bundle biên dịch thành công; có warning dependency tuỳ chọn của ws/systeminformation. Build renderer trong worktree hiện chưa hoàn tất: `node_modules` là junction từ ổ C sang ổ D, Turbopack từ chối đường dẫn ngoài root; fallback webpack gặp đường dẫn client Next xuyên ổ đĩa. Đã bật `experimental.externalDir` cho các helper TypeScript dùng chung ngoài renderer, nhưng chưa chứng nhận bộ cài.
+
+### Những tối ưu cần dữ liệu thực tế trước khi triển khai
+
+Chưa đổi OCR sang trích frame theo cửa sổ/streaming hoặc giữ model ASR/OCR chạy thường trú: cần video dài, cấu hình GPU/RAM và số đo đĩa để chọn phương án và ngân sách bộ nhớ. Chưa xoá nhánh segmentation Python/TypeScript, hàm legacy hoặc `nodejs-whisper` vì còn caller/test/assets phụ thuộc. Giữ phiên bản media cũ có thể tăng dung lượng dự án; chưa có chính sách tự động xoá lịch sử.
+
+Chưa đo WER/OCR/độ tự nhiên TTS trên video người dùng; chưa chạy dịch vụ TTS/Gemini, tải video mạng hay Demucs model thật và giao diện Electron tương tác. Các lỗi logic nêu trên đã có sửa và kiểm thử; chất lượng model/âm thanh thực tế cần bộ video riêng.
+
+## Kết luận tại thời điểm audit (trước cập nhật)
 
 VANHSUB có đủ các bước chính để nhập/tải video, tạo hoặc nhập SRT, hiệu đính, dịch, tạo giọng và xuất video. Các thuật toán phân đoạn, giữ timestamp khi dịch và render cơ bản vượt qua các bộ kiểm thử được chạy. Tuy nhiên, **chưa thể đánh giá luồng hoàn chỉnh là ổn định để dùng batch hoặc liên tục sửa rồi xuất lại**: có lỗi dùng đầu ra cũ, mất câu/audio, chọn sai nguồn âm thanh và xoá kết quả trước khi lần xử lý mới thành công.
 
@@ -8,7 +67,7 @@ VANHSUB có đủ các bước chính để nhập/tải video, tạo hoặc nh�
 
 Phạm vi: luồng phụ đề/lồng tiếng của ứng dụng; **không kiểm tra Workflow AI hoặc AI Studio**. Dịch/hiệu đính bằng Gemini thuộc luồng phụ đề nên nằm trong phạm vi. Tiêu chí nhu cầu được suy ra từ README, PROJECT và luồng UI hiện tại; chưa có bộ video/ngưỡng chất lượng riêng do người dùng cung cấp.
 
-## Luồng hiện tại và mức đáp ứng
+## Luồng trước cập nhật và mức đáp ứng
 
 ```mermaid
 flowchart LR
@@ -42,7 +101,7 @@ Nút “Chạy cả quy trình” hiện chạy ASR nếu thiếu SRT → dịch
 
 ## Phát hiện cần sửa
 
-P1: có thể làm sai/mất nội dung hoặc dữ liệu trong một thao tác bình thường. P2: lỗi điều phối, trường hợp biên hoặc giới hạn tính năng. Các lỗi dưới đây chưa được sửa trong đợt kiểm tra này.
+P1: có thể làm sai/mất nội dung hoặc dữ liệu trong một thao tác bình thường. P2: lỗi điều phối, trường hợp biên hoặc giới hạn tính năng. Các mô tả dưới đây ghi nhận trạng thái trước khi cập nhật; kết quả sửa nằm ở bảng đầu tài liệu.
 
 ### F01 — P1: tạo lại một dòng TTS không cập nhật nhóm audio
 
@@ -181,7 +240,7 @@ Mã có vòng tìm ứng viên O(O×W), nhưng thời gian fixture này chưa bi
 5. Default/comment engine không nhất quán: generateTtsFromSrt khai báo/log VietTTS, grouping mặc định TikTok, runner fallback Edge. Chuẩn hoá một resolver; không đánh giá log là bằng chứng backend đã chạy.
 6. `nodejs-whisper` **vẫn cung cấp asset/binary/model paths**, dù code không gọi API package. `renderer/lib/kineticEngine.ts` là re-export dùng chung. Không coi hai mục này là dependency/thuật toán thừa để xoá.
 
-## Xác minh đã thực hiện
+## Xác minh trong audit ban đầu
 
 12/12 file suite có exit code 0, log được kiểm tra phần tổng kết:
 
@@ -202,7 +261,7 @@ Mã có vòng tìm ứng viên O(O×W), nhưng thời gian fixture này chưa bi
 
 Typecheck `main`/`renderer` chạy thành công. Hai script audit cũng được typecheck riêng và chạy thành công.
 
-Script [audit_core_flow.ts](../scripts/audit_core_flow.ts) xác nhận **12 hiện tượng** thuộc F01–F10. Exit 0 nghĩa là tái hiện đúng những hiện tượng hiện tại, **không có nghĩa app đã được sửa**. Synthesis thay bằng stub; merge/export/hash PCM dùng FFmpeg thật. Handler writeSrt/pipeline được lấy trực tiếp từ source rồi transpile/evaluate trong VM với runner stub, không khởi động Electron. Stores/media nằm trong thư mục tạm riêng; không dùng key/session hay sửa dữ liệu dự án thật.
+Phiên bản ban đầu của `audit_core_flow.ts` tại commit `4228288` xác nhận **12 hiện tượng** thuộc F01–F10. Exit 0 của phiên bản đó nghĩa là tái hiện đúng lỗi, không có nghĩa app đã được sửa. Synthesis thay bằng stub; merge/export/hash PCM dùng FFmpeg thật. Handler writeSrt/pipeline được lấy từ source rồi transpile/evaluate trong VM với runner stub. Script hiện tại đã thay bằng regression suite như mô tả đầu tài liệu.
 
 ```powershell
 node node_modules/tsx/dist/cli.mjs scripts/audit_core_flow.ts
@@ -212,7 +271,7 @@ node node_modules/typescript/bin/tsc --noEmit --incremental false
 
 Chưa chạy giao diện Electron tương tác, toàn bộ ASR/OCR/Demucs bằng model trên video thực, TTS network, tải thật YouTube/TikTok/Douyin/Bilibili hoặc build bộ cài. Kết quả này đánh giá logic và các integration media được nêu, không chứng nhận chất lượng tiếng Việt đầu cuối.
 
-## Thứ tự xử lý đề xuất
+## Thứ tự xử lý đề xuất trong audit ban đầu
 
 1. F01/F03/F04/F05: tính nhất quán nhóm TTS, hiệu lực artifact, thư mục riêng và giữ kết quả cũ khi retry lỗi.
 2. F02/F06/F08/F09: nối export với video dub, bảo toàn câu ở biên ASR, metadata speaker và silent video.
