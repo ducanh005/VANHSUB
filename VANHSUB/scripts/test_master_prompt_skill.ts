@@ -57,19 +57,11 @@ async function testMasterPromptSkill() {
     model: 'deepseek-chat',
     apiKey: '',
   };
-  const geminiPrompt = await aiStudioLlmService.generateMasterPromptForChannel(
-    geminiProfile,
-    configWithDeepseekDefault
+  await assert.rejects(
+    () => aiStudioLlmService.generateMasterPromptForChannel(geminiProfile, configWithDeepseekDefault),
+    /Không thể tạo Master Prompt bằng Gemini Web.*Môi trường Electron không khả dụng/
   );
-  assert.ok(
-    geminiPrompt.includes('mô hình AI "Gemini Web (Zero-API Cost)"'),
-    `Master prompt must reflect Gemini Web, got: ${geminiPrompt.slice(0, 150)}`
-  );
-  assert.ok(
-    !geminiPrompt.includes('deepseek-chat'),
-    'Master prompt for Gemini channel must NEVER leak deepseek-chat'
-  );
-  console.log('✓ [PASS] Master Prompt accurately prioritizes channel aiProvider over global config.');
+  console.log('✓ [PASS] Channel provider takes priority and web failure is explicit; no silent template success.');
 
   console.log('--- TEST 3: Script Parsing with Strict Output Format ---');
   const strictTextOutput = `TITLE: Trận Đánh Quyết Định Bên Bờ Sông Dnipro

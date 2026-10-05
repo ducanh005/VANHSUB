@@ -39,6 +39,8 @@ export class AiStudioLlmService {
   // Client Factory
   // ==========================================================================
   private createClient(config: AiStudioLlmConfig): { client: OpenAI; model: string } | null {
+    // A retained API key must never make a web provider silently call an API.
+    if (config.provider === 'chatgpt_web' || config.provider === 'gemini_web') return null;
     const rawApiKey = (config.apiKey || '').trim();
     if (!rawApiKey) return null;
 
@@ -60,6 +62,13 @@ export class AiStudioLlmService {
 
     const model = config.model || (config.provider === 'deepseek' ? 'deepseek-chat' : 'gpt-4o');
     return { client, model };
+  }
+
+  public resolveChannelLlmConfig(config: AiStudioLlmConfig, profile?: Partial<ChannelProfileConfig>): AiStudioLlmConfig {
+    const provider = profile?.aiProvider;
+    if (!provider || provider === 'default' || provider === config.provider) return config;
+    // Credentials/model/base URL belong to the configured provider, not its replacement.
+    return { ...config, provider, apiKey: '', model: '', baseUrl: undefined };
   }
 
   // ==========================================================================
@@ -223,16 +232,14 @@ export class AiStudioLlmService {
       };
     }
 
-    const outlineArray: string[] = Array.isArray(parsed.outline)
+    const outlineArray: string[] = Array.isArray(parsed?.outline)
       ? parsed.outline
-      : Array.isArray(parsed.keyBeats)
+      : Array.isArray(parsed?.keyBeats)
       ? parsed.keyBeats
-      : [
-          'Phân đoạn 1 [00:00 - 00:45]: Mở đầu sự cố / bối cảnh bất ngờ...',
-          'Phân đoạn 2 [00:45 - 01:30]: Diễn biến kịch tính / xung đột cao trào...',
-          'Phân đoạn 3 [01:30 - 02:15]: Bước ngoặt / giải mã sự thật...',
-          'Phân đoạn 4 [02:15 - 03:00]: Bài học & Lối thoát...',
-        ];
+      : [];
+    if (outlineArray.length < 2 || outlineArray.some((beat) => typeof beat !== 'string' || !beat.trim())) {
+      throw new Error('AI chưa trả về dàn ý hợp lệ (ít nhất 2 phân đoạn). Vui lòng kiểm tra phản hồi và sinh ý tưởng lại.');
+    }
 
     // Tính toán thời lượng mục tiêu từ Cấu hình kênh
     let targetDurationSec = aspectRatio === '9:16' ? 45 : 240;
@@ -315,6 +322,7 @@ export class AiStudioLlmService {
     onProgress?: (msg: string) => void,
     channelProfile?: Partial<ChannelProfileConfig>
   ): Promise<IdeaBlueprint> {
+    config = this.resolveChannelLlmConfig(config, channelProfile);
     const projectName = channelProfile?.projectName?.trim() || '';
     const channelNiche = channelProfile?.channelNiche?.trim() || '';
     const channelOrientation = channelProfile?.channelOrientation?.trim() || '';
@@ -528,6 +536,7 @@ Yêu cầu nghiêm ngặt: Trả về DUY NHẤT một khối JSON hợp lệ th
     blueprint?: IdeaBlueprint,
     channelProfile?: ChannelProfileConfig
   ): Promise<ScriptBeatLine[]> {
+    config = this.resolveChannelLlmConfig(config, channelProfile);
     // 0. Nếu người dùng đã cung cấp sẵn kịch bản (Existing Script), tự động tách câu
     if (blueprint?.existingScript && blueprint.existingScript.trim().length >= 10) {
       onProgress?.('Đang phân tách kịch bản có sẵn thành các câu độc lập...');
@@ -899,7 +908,7 @@ Yêu cầu nghiêm ngặt:
       // 1. Fix D1: Strengthen Hook
       if (currentEval.failedCriteria.includes('D1') && updatedLines[0]) {
         const hookText = blueprint?.hookConcept || updatedLines[0].text;
-        updatedLines[0].text = `Ẩn sâu trong vùng núi non của Tây Ban Nha, di chỉ 7.000 năm tuổi La Braña-Arintero từng buộc giới nghiên cứu phải định hình lại góc nhìn: ${hookText.replace(/^[\s"“]+|[\s"”]+$/g, '')}`;
+        updatedLines[0].text = hookText.replace(/^[\s"“]+|[\s"”]+$/g, '');
         updatedLines[0].beatType = 'hook';
       }
 
@@ -907,7 +916,7 @@ Yêu cầu nghiêm ngặt:
       if (currentEval.failedCriteria.includes('D5') && updatedLines.length >= 3) {
         const midIdx = Math.floor(updatedLines.length / 2);
         if (!/(nhưng|tuy nhiên|điều đáng sợ là)/i.test(updatedLines[midIdx].text)) {
-          updatedLines[midIdx].text = `Nhưng điều đáng sợ nhất là: giữa hàng nghìn chứng tích cổ xưa, các nhà khoa học đã tìm thấy một manh mối kỳ lạ mà không ai có thể giải thích nổi. ${updatedLines[midIdx].text}`;
+          updatedLines[midIdx].text = `Tuy nhiên, ${updatedLines[midIdx].text}`;
           updatedLines[midIdx].beatType = 'climax';
         }
       }
@@ -932,6 +941,10 @@ Yêu cầu nghiêm ngặt:
     }
 
     // Re-evaluate newly refined lines
+    for (const line of updatedLines) {
+      const words = line.text.split(/\s+/).filter(Boolean).length;
+      line.estimatedDurationSec = Math.max(3, Math.round((words / 3.2) * 10) / 10);
+    }
     const newEval = await this.evaluateScript(updatedLines, blueprint, channelProfile, config);
     return {
       lines: updatedLines,
@@ -1350,6 +1363,7 @@ Chấm điểm trên thang 100 và trả về JSON DUY NHẤT:
     config?: AiStudioLlmConfig,
     onProgress?: (msg: string) => void
   ): Promise<string> {
+    if (config) config = this.resolveChannelLlmConfig(config, channelProfile);
     const projectName = (channelProfile.projectName || channelProfile.channelNiche || 'Kênh YouTube').trim();
     const niche = channelProfile.channelNiche || projectName || 'Nội dung khám phá & kiến thức chuyên sâu';
     const desc = channelProfile.channelDescription || 'Kênh chia sẻ những câu chuyện và góc nhìn độc đáo, hấp dẫn.';
@@ -1469,7 +1483,7 @@ Output NOTHING else. No analysis, no planning, no alternative titles, no word co
     const hasActiveLlm =
       effectiveProvider === 'chatgpt_web' ||
       effectiveProvider === 'gemini_web' ||
-      Boolean(config?.apiKey);
+      Boolean(config);
 
     if (hasActiveLlm) {
       try {
@@ -1654,17 +1668,20 @@ Bắt đầu ngay bằng mục 1 SYSTEM ROLE.`;
           resultText = await mgr.executePromptTurn(userPrompt, mode, onProgress);
         } else if (config) {
           const clientBundle = this.createClient({ ...config, provider: effectiveProvider });
-          if (clientBundle) {
-            const resp = await clientBundle.client.chat.completions.create({
-              model: clientBundle.model,
-              messages: [{ role: 'user', content: userPrompt }],
-              temperature: 0.7,
-            });
-            resultText = resp.choices[0]?.message?.content || '';
-          }
+          if (!clientBundle) throw new Error(`Chưa cấu hình API Key cho ${effectiveProvider}.`);
+          const resp = await clientBundle.client.chat.completions.create({
+            model: clientBundle.model,
+            messages: [{ role: 'user', content: userPrompt }],
+            temperature: 0.7,
+          });
+          resultText = resp.choices[0]?.message?.content || '';
         }
 
         if (resultText && resultText.trim().length >= 100) {
+          if (!['SYSTEM ROLE', 'CHANNEL DNA', 'STRICT OUTPUT FORMAT'].every((section) => resultText.toUpperCase().includes(section)) ||
+              !/\{\{\s*CHANNEL_NAME\s*\}\}/i.test(resultText) || !/\{\{\s*SOURCE_MATERIAL\s*\}\}/i.test(resultText)) {
+            throw new Error('Phản hồi thiếu cấu trúc hoặc biến đầu vào của Master Prompt.');
+          }
           // Chuẩn hóa tên AI model nếu model trả về tên cũ hoặc hallucination
           const cleanText = resultText.trim().replace(
             /(Bạn là nhà biên kịch lồng tiếng cao cấp chạy trên mô hình AI\s*")[^"]+("\s*cho)/i,
@@ -1672,8 +1689,9 @@ Bắt đầu ngay bằng mục 1 SYSTEM ROLE.`;
           );
           return cleanText;
         }
-      } catch (err) {
-        console.warn('[AiStudioLlmService] Remote master prompt generation error, using modular template:', err);
+        throw new Error('AI không trả về Master Prompt hợp lệ hoặc phản hồi quá ngắn.');
+      } catch (err: any) {
+        throw new Error(`Không thể tạo Master Prompt bằng ${aiModelName}: ${err?.message || err}`);
       }
     }
 
