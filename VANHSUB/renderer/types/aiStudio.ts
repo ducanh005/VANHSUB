@@ -749,6 +749,7 @@ export interface VanhsubAiStudioBridge {
   autoFillIdea?: (input: AutoFillIdeaInput) => Promise<AutoFillIdeaResponse>;
   approveStage?: (input: ApproveStageInput) => Promise<ApproveStageResponse>;
   generateMasterPrompt?: (input: GenerateMasterPromptPayload) => Promise<GenerateMasterPromptResult>;
+  selfTestDiagnostics?: () => Promise<SelfTestDiagnosticsResult>;
 
   // Chấm điểm kịch bản & Chỉnh sửa kịch bản bằng AI
   evaluateScript?: (input: EvaluateScriptPayload) => Promise<EvaluateScriptResult>;
@@ -762,13 +763,13 @@ export interface VanhsubAiStudioBridge {
 
   // ChatGPT Web Automation
   checkChatGptLogin?: () => Promise<{ isLoggedIn: boolean; userEmail?: string; sessionCheckedAt: number }>;
-  openChatGptLogin?: () => Promise<{ success: boolean }>;
+  openChatGptLogin?: () => Promise<boolean>;
   closeChatGptLogin?: () => Promise<{ success: boolean }>;
   logoutChatGptLogin?: () => Promise<{ success: boolean }>;
 
   // Gemini Web Automation
   checkGeminiLogin?: () => Promise<{ isLoggedIn: boolean; userEmail?: string; sessionCheckedAt: number }>;
-  openGeminiLogin?: () => Promise<{ success: boolean }>;
+  openGeminiLogin?: () => Promise<boolean>;
   closeGeminiLogin?: () => Promise<{ success: boolean }>;
   logoutGeminiLogin?: () => Promise<{ success: boolean }>;
 

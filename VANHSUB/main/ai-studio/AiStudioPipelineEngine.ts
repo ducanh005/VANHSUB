@@ -125,6 +125,8 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
     if (customOutputDir && customOutputDir.trim()) {
       return path.resolve(customOutputDir.trim());
     }
+    const sessionOutputDir = this.activeSessions.get(sessionId)?.outputDir?.trim();
+    if (sessionOutputDir) return path.resolve(sessionOutputDir);
     const config = getDecryptedAiStudioConfig();
     const activeProject = config.savedProjects?.find((p) => p.id === config.activeProjectId);
     if (activeProject?.outputDir && activeProject.outputDir.trim()) {
@@ -181,7 +183,7 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
     this.activeSessions.set(state.sessionId, state);
 
     try {
-      const sessionDir = this.getSessionDir(state.sessionId);
+      const sessionDir = this.getSessionDir(state.sessionId, state.outputDir);
       fs.mkdirSync(sessionDir, { recursive: true });
 
       const finalPath = path.join(sessionDir, 'session.json');
@@ -219,12 +221,12 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
     if (fs.existsSync(sessionJsonPath)) {
       try {
         const state: PipelineSessionState = JSON.parse(fs.readFileSync(sessionJsonPath, 'utf8'));
-        if (state && typeof state === 'object') {
+        if (state && typeof state === 'object' && state.sessionId === sessionId) {
           state.stages = state.stages || ({} as any);
           state.artifacts = state.artifacts || ({} as any);
+          this.activeSessions.set(sessionId, state);
+          return state;
         }
-        this.activeSessions.set(sessionId, state);
-        return state;
       } catch (err) {
         console.warn(`[AiStudioPipelineEngine] Corrupt session.json at ${sessionJsonPath}:`, err);
       }
@@ -235,12 +237,12 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
     if (fs.existsSync(legacyPath)) {
       try {
         const state: PipelineSessionState = JSON.parse(fs.readFileSync(legacyPath, 'utf8'));
-        if (state && typeof state === 'object') {
+        if (state && typeof state === 'object' && state.sessionId === sessionId) {
           state.stages = state.stages || ({} as any);
           state.artifacts = state.artifacts || ({} as any);
+          this.activeSessions.set(sessionId, state);
+          return state;
         }
-        this.activeSessions.set(sessionId, state);
-        return state;
       } catch {}
     }
 
@@ -275,7 +277,7 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
 
     // 3. Mark session as cancelled
     const session = await this.getState({ sessionId });
-    if (session && (session.status === 'running' || session.status === 'idle')) {
+    if (session && (session.status === 'running' || session.status === 'idle' || session.status === 'awaiting_approval')) {
       session.stages = session.stages || ({} as any);
       session.status = 'cancelled';
       if (session.stages[session.currentStage]) {
@@ -416,6 +418,11 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
       throw new Error(`Session không tồn tại: ${payload.sessionId}`);
     }
 
+    if (session.status !== 'awaiting_approval' || payload.currentStage !== session.currentStage ||
+        session.stages?.[session.currentStage]?.status !== 'success') {
+      throw new Error('Không thể duyệt bước: phiên phải đang chờ duyệt đúng công đoạn đã hoàn tất.');
+    }
+
     if (payload.updatedArtifacts) {
       session.artifacts = {
         ...session.artifacts,
@@ -498,7 +505,13 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
     session.stages = session.stages || ({} as any);
     session.artifacts = session.artifacts || ({} as any);
 
-    const targetStage = (payload.fromStage || session.currentStage) as AiStudioStageId;
+    const targetStage = (payload.fromStage ?? session.currentStage) as AiStudioStageId;
+    if (!Number.isInteger(targetStage) || targetStage < 1 || targetStage > 8) {
+      throw new Error('Công đoạn khôi phục phải nằm trong khoảng 1 đến 8.');
+    }
+    if (session.status === 'running' && this.activeAbortControllers.has(session.sessionId)) {
+      throw new Error('Pipeline đang chạy. Vui lòng dừng trước khi khôi phục để tránh chạy trùng.');
+    }
 
     // Validate state transition integrity: cannot resume stage N without completed stage N-1
     if (targetStage > 1) {
