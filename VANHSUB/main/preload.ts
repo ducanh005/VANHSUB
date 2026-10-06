@@ -67,8 +67,8 @@ const vanhsub = {
       engine?: 'viettts' | 'tiktok' | 'edge'
     ) => ipcRenderer.invoke('tts:start', id, voice, speed, voiceOverrides, engine),
     cancel: (id: string) => ipcRenderer.invoke('tts:cancel', id),
-    regenerateLine: (id: string, lineIndex: number) =>
-      ipcRenderer.invoke('tts:regenerateLine', id, lineIndex),
+    regenerateLine: (id: string, lineIndex: number, options?: { voice?: string; speed?: number; engine?: 'edge' | 'tiktok' | 'viettts' }) =>
+      ipcRenderer.invoke('tts:regenerateLine', id, lineIndex, options),
     exportMergedAudio: (id: string, targetPath?: string, mode?: 'strict' | 'flexible') =>
       ipcRenderer.invoke('tts:export-merged-audio', id, targetPath, mode),
     voices: () => ipcRenderer.invoke('tts:voices'),

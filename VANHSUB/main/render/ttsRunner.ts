@@ -94,6 +94,8 @@ export class TTSRunner {
           ttsAudioDir: regeneratedDir,
           ttsStale: false,
           ttsSourceHash: hashFile(srtPath),
+          ttsEngine: engineForLine,
+          ...(speed !== undefined ? { ttsSpeed: speed } : {}),
           ...(voice ? { ttsVoiceOverrides: { ...task.ttsVoiceOverrides, [String(lineIndex)]: voice } } : {}),
         });
         return { ok: true };
