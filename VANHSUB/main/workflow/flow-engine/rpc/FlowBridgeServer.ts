@@ -51,6 +51,7 @@ interface PendingRequest {
   resolve: (value: any) => void;
   reject: (reason: any) => void;
   timer: NodeJS.Timeout;
+  client?: WebSocket;
 }
 
 export class FlowBridgeServer {
@@ -88,28 +89,7 @@ export class FlowBridgeServer {
 
     server.on('connection', (ws: WebSocket) => {
       console.log(`[FlowBridgeServer] 🔌 Đã có Chrome Extension kết nối vào VanhSub (port ${listenPort})!`);
-      this.clients.add(ws);
-      this.cachedTabInfo = null;
-
-      ws.on('message', (data: any) => {
-        try {
-          const msg = JSON.parse(data.toString());
-          this.handleIncomingMessage(msg);
-        } catch (e: any) {
-          console.error('[FlowBridgeServer] Lỗi phân tích cú pháp message từ Extension:', e.message);
-        }
-      });
-
-      ws.on('close', () => {
-        console.log('[FlowBridgeServer] 🔌 Chrome Extension đã ngắt kết nối.');
-        this.clients.delete(ws);
-        this.cachedTabInfo = null;
-      });
-
-      ws.on('error', (err: any) => {
-        console.warn('[FlowBridgeServer] WebSocket client error:', err.message);
-        this.clients.delete(ws);
-      });
+      this.registerClient(ws);
     });
 
     server.on('error', (err: any) => {
@@ -121,6 +101,45 @@ export class FlowBridgeServer {
       } else {
         console.error(`[FlowBridgeServer] ❌ Lỗi WebSocket Server (port ${listenPort}):`, err.message);
       }
+    });
+  }
+
+  /**
+   * Đăng ký một client WebSocket kết nối và gắn các event listener vòng đời (message, close, error).
+   */
+  public registerClient(ws: WebSocket): void {
+    this.clients.add(ws);
+    this.cachedTabInfo = null;
+
+    const handleClientDisconnect = (reason: string) => {
+      this.clients.delete(ws);
+      this.cachedTabInfo = null;
+      for (const [id, req] of Array.from(this.pendingRequests.entries())) {
+        if (req.client === ws || this.clients.size === 0) {
+          clearTimeout(req.timer);
+          this.pendingRequests.delete(id);
+          req.reject(new Error(`BRIDGE_DISCONNECTED: Chrome Extension đã ngắt kết nối (${reason}).`));
+        }
+      }
+    };
+
+    ws.on('message', (data: any) => {
+      try {
+        const msg = JSON.parse(data.toString());
+        this.handleIncomingMessage(msg);
+      } catch (e: any) {
+        console.error('[FlowBridgeServer] Lỗi phân tích cú pháp message từ Extension:', e.message);
+      }
+    });
+
+    ws.on('close', () => {
+      console.log('[FlowBridgeServer] 🔌 Chrome Extension đã ngắt kết nối.');
+      handleClientDisconnect('kết nối đóng');
+    });
+
+    ws.on('error', (err: any) => {
+      console.warn('[FlowBridgeServer] WebSocket client error:', err?.message || err);
+      handleClientDisconnect(`lỗi client: ${err?.message || 'unknown'}`);
     });
   }
 
@@ -159,6 +178,9 @@ export class FlowBridgeServer {
       clearTimeout(req.timer);
       req.reject(new Error('FlowBridgeServer stopped'));
       this.pendingRequests.delete(id);
+    }
+    for (const ws of this.clients) {
+      try { ws.terminate(); } catch {}
     }
     this.clients.clear();
     this.cachedTabInfo = null;
@@ -226,7 +248,7 @@ export class FlowBridgeServer {
     const reqPromise = new Promise((resolve) => {
       const timer = setTimeout(() => {
         this.pendingRequests.delete(id);
-        resolve({ connected: true, error: 'Timeout khi lấy thông tin tab từ Chrome' });
+        resolve({ connected: false, error: 'Timeout khi lấy thông tin tab từ Chrome' });
       }, timeoutMs);
 
       this.pendingRequests.set(id, {
@@ -236,11 +258,18 @@ export class FlowBridgeServer {
           }
           resolve(res);
         },
-        reject: (err: any) => resolve({ connected: true, error: err?.message || String(err) }),
+        reject: (err: any) => resolve({ connected: false, error: err?.message || String(err) }),
         timer,
+        client,
       });
 
-      client.send(JSON.stringify({ id, method: 'get_status', params: { fullDiag } }));
+      try {
+        client.send(JSON.stringify({ id, method: 'get_status', params: { fullDiag } }));
+      } catch (sendErr: any) {
+        clearTimeout(timer);
+        this.pendingRequests.delete(id);
+        resolve({ connected: false, error: sendErr?.message || String(sendErr) });
+      }
     }).finally(() => {
       if (!fullDiag) {
         this.inflightTabInfoPromise = null;
@@ -276,9 +305,16 @@ export class FlowBridgeServer {
         resolve: () => resolve({ ok: true, message: 'Extension đã reload thành công' }),
         reject: () => resolve({ ok: true, message: 'Extension đang reload' }),
         timer,
+        client,
       });
 
-      client.send(JSON.stringify({ id, method: 'reload_extension', params: {} }));
+      try {
+        client.send(JSON.stringify({ id, method: 'reload_extension', params: {} }));
+      } catch (sendErr: any) {
+        clearTimeout(timer);
+        this.pendingRequests.delete(id);
+        resolve({ ok: false, message: sendErr?.message || String(sendErr) });
+      }
     });
   }
 
@@ -305,9 +341,16 @@ export class FlowBridgeServer {
         resolve: () => resolve({ ok: true, message: 'Tab Flow đã reload thành công' }),
         reject: (err) => resolve({ ok: false, message: err?.message || String(err) }),
         timer,
+        client,
       });
 
-      client.send(JSON.stringify({ id, method: 'reload_tab', params: {} }));
+      try {
+        client.send(JSON.stringify({ id, method: 'reload_tab', params: {} }));
+      } catch (sendErr: any) {
+        clearTimeout(timer);
+        this.pendingRequests.delete(id);
+        resolve({ ok: false, message: sendErr?.message || String(sendErr) });
+      }
     });
   }
 
@@ -330,17 +373,25 @@ export class FlowBridgeServer {
         resolve: (res: any) => resolve(res),
         reject: (err: any) => resolve({ error: err?.message || String(err) }),
         timer,
+        client,
       });
 
-      client.send(JSON.stringify({ id, method: 'dom_inspect', params: {} }));
+      try {
+        client.send(JSON.stringify({ id, method: 'dom_inspect', params: {} }));
+      } catch (sendErr: any) {
+        clearTimeout(timer);
+        this.pendingRequests.delete(id);
+        resolve({ error: sendErr?.message || String(sendErr) });
+      }
     });
   }
 
   /**
-   * Kích hoạt tạo ảnh/video trực tiếp qua giao diện Chrome tab (nhập prompt và click nút tạo thật)
-   * Giúp reCAPTCHA nhận diện tương tác người dùng thật 100%, không bị đánh dấu bot.
+   * @deprecated Cơ chế DOM Native UI Trigger đã bị loại bỏ hoàn toàn để chuyển sang Pure RPC (sendBatchRpc).
+   * Giữ lại interface tối thiểu để tương thích IPC cũ nếu còn component gọi.
    */
   public async triggerUiGen(prompt: string, timeoutMs = 45000, projectId?: string): Promise<any> {
+    console.warn('[FlowBridgeServer] ⚠️ triggerUiGen đã bị deprecated. Vui lòng chuyển sang Pure RPC (sendBatchRpc).');
     if (!this.isConnected()) return { error: 'NOT_CONNECTED' };
     const client = this.getFirstActiveClient();
     if (!client) return { error: 'NO_CLIENT' };
@@ -356,9 +407,16 @@ export class FlowBridgeServer {
         resolve: (res: any) => resolve(res),
         reject: (err: any) => resolve({ error: err?.message || String(err) }),
         timer,
+        client,
       });
 
-      client.send(JSON.stringify({ id, method: 'trigger_ui_gen', params: { prompt, projectId } }));
+      try {
+        client.send(JSON.stringify({ id, method: 'trigger_ui_gen', params: { prompt, projectId } }));
+      } catch (sendErr: any) {
+        clearTimeout(timer);
+        this.pendingRequests.delete(id);
+        resolve({ error: sendErr?.message || String(sendErr) });
+      }
     });
   }
 
@@ -381,9 +439,16 @@ export class FlowBridgeServer {
         resolve: (res) => resolve(res),
         reject,
         timer,
+        client,
       });
 
-      client.send(JSON.stringify({ id, method: 'tab_eval', params: { code } }));
+      try {
+        client.send(JSON.stringify({ id, method: 'tab_eval', params: { code } }));
+      } catch (sendErr: any) {
+        clearTimeout(timer);
+        this.pendingRequests.delete(id);
+        reject(sendErr);
+      }
     });
   }
 
@@ -422,28 +487,45 @@ export class FlowBridgeServer {
 
       this.pendingRequests.set(id, {
         resolve: (res) => {
+          if (!res || typeof res !== 'object') {
+            reject(new Error('BRIDGE_EMPTY_RESPONSE: Phản hồi từ Chrome Extension không hợp lệ.'));
+            return;
+          }
+          if (res.error) {
+            reject(new Error(`BRIDGE_ERROR: ${typeof res.error === 'string' ? res.error : JSON.stringify(res.error)}`));
+            return;
+          }
           if (res.status !== 200 && res.status !== 0) {
             reject(new Error(`HTTP ${res.status} từ Chrome: ${(res.body || res.error || '').slice(0, 300)}`));
+          } else if (typeof res.body !== 'string' || res.body.trim().length === 0) {
+            reject(new Error(`BRIDGE_EMPTY_BODY: Phản hồi từ Chrome không chứa nội dung RPC body hợp lệ.`));
           } else {
             resolve(res.body);
           }
         },
         reject,
         timer,
+        client,
       });
 
-      client.send(
-        JSON.stringify({
-          id,
-          method: 'batch_rpc',
-          params: {
-            rpcid,
-            freq: fReq,
-            captchaAction,
-            projectId,
-          },
-        })
-      );
+      try {
+        client.send(
+          JSON.stringify({
+            id,
+            method: 'batch_rpc',
+            params: {
+              rpcid,
+              freq: fReq,
+              captchaAction,
+              projectId,
+            },
+          })
+        );
+      } catch (sendErr: any) {
+        clearTimeout(timer);
+        this.pendingRequests.delete(id);
+        reject(new Error(`BRIDGE_SEND_FAILED: Không thể gửi dữ liệu tới Extension: ${sendErr?.message || sendErr}`));
+      }
     });
   }
 
@@ -478,9 +560,16 @@ export class FlowBridgeServer {
         },
         reject,
         timer,
+        client,
       });
 
-      client.send(JSON.stringify({ id, method: 'solve_captcha', params: { captchaAction } }));
+      try {
+        client.send(JSON.stringify({ id, method: 'solve_captcha', params: { captchaAction } }));
+      } catch (sendErr: any) {
+        clearTimeout(timer);
+        this.pendingRequests.delete(id);
+        reject(new Error(`BRIDGE_SEND_FAILED: Không thể gửi lệnh giải CAPTCHA tới Extension: ${sendErr?.message || sendErr}`));
+      }
     });
   }
 

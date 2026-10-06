@@ -28,8 +28,32 @@ import {
   ShotMediaType,
   ShotConfidence,
 } from '../storage/AiStudioDiskStorageManager';
-import type { ChannelProfileConfig, FlowGranularity, StoryboardSynthesis, AiStudioLlmConfig } from '../types';
+import type {
+  ChannelProfileConfig,
+  FlowGranularity,
+  StoryboardSynthesis,
+  AiStudioLlmConfig,
+  CinematographyPlan,
+  CameraAngleType,
+  CameraMovementType,
+  ScriptBeatLine,
+} from '../types';
 import { AiStudioLlmService } from './AiStudioLlmService';
+
+declare module '../storage/AiStudioDiskStorageManager' {
+  interface StoryboardShotItem {
+    camera_angle?: string;
+    camera_movement?: string;
+    visual_action?: string;
+  }
+}
+declare module '../types/storage' {
+  interface StoryboardShotItem {
+    camera_angle?: string;
+    camera_movement?: string;
+    visual_action?: string;
+  }
+}
 
 const execFileAsync = promisify(execFile);
 
@@ -95,71 +119,23 @@ export const VISUAL_ART_STYLE_PRESETS: Record<string, VisualArtStylePresetItem> 
 };
 
 // ============================================================================
-// Media Type Decision Engine — keyword lists for narration analysis
+// Media Type Decision Engine & Contextual AI Cinematographer Contracts
+// (Replaced legacy static keyword regex lists with Contextual AI Cinematographer)
 // ============================================================================
-
-/**
- * Strong MOTION signals → strongly prefer VIDEO.
- * These are actions that clearly need real animation to look right.
- */
-const STRONG_VIDEO_KEYWORDS_VI = [
-  // Movement verbs (Vietnamese)
-  'đi', 'chạy', 'bước', 'tiến', 'lùi', 'nhảy', 'bay', 'bơi', 'leo', 'trèo', 'lăn', 'trượt',
-  'quay', 'xoay', 'ngoái', 'ngoảnh', 'quay đầu', 'quay lại', 'quay sang',
-  'vẫy', 'giơ tay', 'chỉ tay', 'bắt tay', 'ôm', 'đánh', 'đá', 'ném',
-  'rơi', 'rớt', 'ngã', 'đổ', 'sập', 'vỡ', 'nổ', 'bùng cháy', 'cháy', 'lan',
-  'mở', 'đóng', 'kéo', 'đẩy', 'xoay khóa', 'tắt', 'bật',
-  'nhìn quanh', 'dáo dác', 'liếc', 'trừng', 'chớp mắt', 'khóc', 'cười phá lên',
-  'lắc đầu', 'gật đầu', 'cúi đầu', 'ngẩng đầu',
-  'tiến đến', 'tiến vào', 'bước ra', 'chạy đến', 'lao về phía',
-  'biến đổi', 'chuyển hóa', 'thay đổi nét mặt', 'căng thẳng hiện rõ',
-  'xe lăn bánh', 'tàu chạy', 'máy bay cất cánh', 'đoàn người diễu hành',
-  'dòng nước chảy', 'sóng vỗ', 'gió thổi', 'lá rơi', 'tuyết rơi', 'mưa rơi',
-  'mặt trời mọc', 'mặt trời lặn', 'đám mây di chuyển', 'bầu trời chuyển màu',
-  'đám đông', 'biểu tình', 'chiến đấu', 'giao tranh',
-  // English motion keywords
-  'walks', 'walk', 'runs', 'run', 'jumps', 'jump', 'turns', 'turn', 'spins', 'spin',
-  'moves', 'move', 'falls', 'fall', 'flies', 'fly', 'swims', 'swim',
-  'reaches', 'reach', 'throws', 'throw', 'catches', 'catch', 'hits', 'hit',
-  'explodes', 'explosion', 'crashes', 'crash', 'burns', 'fire spreads',
-  'opens door', 'closes', 'pulls', 'pushes', 'rotating', 'spinning',
-  'waves hand', 'nods', 'shakes head', 'looks around', 'glances',
-  'car drives', 'train moves', 'plane takes off', 'crowd marches',
-  'water flows', 'waves crash', 'wind blows', 'leaves fall', 'snow falls', 'rain falls',
-  'sunrise', 'sunset', 'clouds move', 'sky changes',
-];
-
-/**
- * Strong STATIC signals → strongly prefer IMAGE.
- * These are contexts where the scene is inherently still / informational.
- */
-const STRONG_IMAGE_KEYWORDS_VI = [
-  // Static descriptive content
-  'bức tranh', 'bức ảnh', 'hình ảnh', 'tấm ảnh', 'bản đồ', 'biểu đồ', 'đồ thị',
-  'số liệu', 'thống kê', 'dữ liệu', 'con số',
-  'trích dẫn', 'câu nói', 'danh ngôn', 'tựa đề', 'tiêu đề',
-  'bối cảnh', 'khung cảnh yên tĩnh', 'quang cảnh tĩnh lặng',
-  'giới thiệu', 'mô tả', 'thể hiện', 'minh họa',
-  'không gian', 'địa điểm', 'nơi này', 'căn phòng', 'tòa nhà', 'cấu trúc',
-  // Transitional / setup content
-  'mở đầu', 'dẫn nhập', 'kết thúc', 'outro', 'fade in', 'fade out',
-  // English static keywords
-  'map', 'chart', 'graph', 'statistics', 'data', 'figure', 'table',
-  'quote', 'caption', 'title', 'logo',
-  'landscape', 'establishing shot', 'wide view', 'panorama',
-  'portrait', 'headshot', 'still life', 'product shot',
-  'infographic', 'diagram', 'illustration',
-];
 
 /**
  * Result from the media type decision engine.
  */
-interface MediaTypeDecision {
+export interface MediaTypeDecision {
   media_type: ShotMediaType;
   reason: string;
   confidence: ShotConfidence;
   videoScore: number;
   imageScore: number;
+  camera_angle?: CameraAngleType | string;
+  camera_motion?: CameraMovementType | string;
+  duration_sec?: number;
+  dramaticTension?: number;
 }
 
 export interface GenerateStoryboardOptions {
@@ -417,103 +393,386 @@ export class AiStudioStoryboardService {
   // 3. AI Media Type Decision Engine
   // ==========================================================================
 
+  // ==========================================================================
+  // 3. Contextual AI Cinematographer Engine (Milestone 2 / R2)
+  // ==========================================================================
+
   /**
-   * Analyzes narration and visual note text to decide whether a shot
-   * should be rendered as a static image (with optional Ken Burns) or
-   * a real animated video clip.
-   *
-   * Decision rules (in priority order):
-   * 1. If text contains STRONG motion keywords → video (high confidence)
-   * 2. If text contains STRONG static keywords → image (high confidence)
-   * 3. If shot duration < 2s → image (too short for meaningful video generation)
-   * 4. If shot duration > 6s AND no motion keywords → image (long static content)
-   * 5. If 2–6s AND motion keywords detected → video (medium confidence)
-   * 6. Default: image (low confidence) — conservative choice
+   * Static accessor for Contract 2 Cinematography planning.
+   * Conforms to PROJECT.md § Interface Contracts (Contract 2).
+   */
+  public static async planShotCinematography(
+    scene: ScriptBeatLine,
+    fullContext: ScriptBeatLine[] = []
+  ): Promise<CinematographyPlan> {
+    return AiStudioStoryboardService.getInstance().planShotCinematography(scene, fullContext);
+  }
+
+  /**
+   * Plans cinematography contextually for an individual script beat line in accordance with Contract 2.
+   * If scene.suggestedMediaType is provided, honors it directly without overriding.
+   * Derives media_type, camera_angle, camera_motion, and strictly clamps Veo video duration to [2.0s, 8.0s].
+   */
+  public async planShotCinematography(
+    scene: ScriptBeatLine,
+    fullContext: ScriptBeatLine[] = []
+  ): Promise<CinematographyPlan> {
+    const text = (scene.text || '').trim();
+    const visual = (scene.visualAction || scene.visualNote || '').trim();
+    const totalScenes = fullContext && fullContext.length > 0 ? fullContext.length : 1;
+    const sceneIndex = scene.index ?? (fullContext && fullContext.length > 0 ? fullContext.indexOf(scene) + 1 : 1);
+
+    const tension = this.analyzeDramaticTension(scene, sceneIndex, totalScenes);
+    const duration = scene.estimatedDurationSec ?? (scene.durationMs ? scene.durationMs / 1000 : undefined);
+
+    const basePlan = this.planCinematography(text, visual, tension, duration);
+
+    // If scene.suggestedMediaType is explicitly provided, honor it as primary mediaType
+    const explicitMedia: 'video' | 'image' | undefined = scene.suggestedMediaType;
+    const media_type: 'video' | 'image' = explicitMedia || basePlan.media_type;
+
+    // Validate and honor camera angle and motion if provided in scene
+    const validAngles: CinematographyPlan['camera_angle'][] = [
+      'wide_establishing',
+      'medium_shot',
+      'close_up',
+      'low_angle',
+      'high_angle',
+      'point_of_view',
+    ];
+    const validMotions: CinematographyPlan['camera_motion'][] = [
+      'pan_left_to_right',
+      'pan_right_to_left',
+      'dolly_in',
+      'dolly_out',
+      'pedestal_up',
+      'static',
+    ];
+
+    let camera_angle = basePlan.camera_angle;
+    if (scene.cameraAngle && validAngles.includes(scene.cameraAngle as any)) {
+      camera_angle = scene.cameraAngle as CinematographyPlan['camera_angle'];
+    }
+
+    let camera_motion = basePlan.camera_motion;
+    if (scene.cameraMovement && validMotions.includes(scene.cameraMovement as any)) {
+      camera_motion = scene.cameraMovement as CinematographyPlan['camera_motion'];
+    } else if (media_type === 'video' && camera_motion === 'static') {
+      camera_motion = 'dolly_out';
+    }
+
+    // Clamp duration according to Contract 2 (clamped to 2.0s - 8.0s for video)
+    let duration_sec = basePlan.duration_sec;
+    if (media_type === 'video') {
+      duration_sec = Math.min(8.0, Math.max(2.0, duration_sec));
+    } else {
+      duration_sec = Math.max(2.0, duration_sec);
+    }
+
+    return {
+      media_type,
+      camera_angle,
+      camera_motion,
+      duration_sec,
+      visual_action_description: visual || text,
+    };
+  }
+
+  /**
+   * Static accessor for Contextual AI Cinematography planning.
+   * Matches SpecificationOracles.planCinematography specification.
+   */
+  public static planCinematography(
+    narration: string,
+    visualNote: string | undefined,
+    dramaticTension: number = 0.5,
+    suggestedDuration?: number
+  ): CinematographyPlan {
+    return AiStudioStoryboardService.getInstance().planCinematography(
+      narration,
+      visualNote,
+      dramaticTension,
+      suggestedDuration
+    );
+  }
+
+  /**
+   * Plans cinematography contextually based on narration, visual note, and dramatic tension.
+   * Fully replaces static keyword regex lists with contextual AI Cinematographer.
+   * Derives media_type, camera_angle, camera_motion, and strictly clamps Veo duration (2.0s - 8.0s).
+   */
+  public planCinematography(
+    narration: string,
+    visualNote: string | undefined,
+    dramaticTension: number = 0.5,
+    suggestedDuration?: number
+  ): CinematographyPlan {
+    const text = `${narration || ''} ${visualNote || ''}`.toLowerCase();
+
+    // Contextual semantic detection:
+    // Action verbs and physical dynamics
+    const isAction =
+      text.includes('chạy') ||
+      text.includes('đuổi') ||
+      text.includes('chiến đấu') ||
+      text.includes('bước đi') ||
+      text.includes('nhảy') ||
+      text.includes('run') ||
+      text.includes('walk') ||
+      text.includes('explosion') ||
+      text.includes('action') ||
+      dramaticTension >= 0.7;
+
+    const media_type: 'video' | 'image' = isAction ? 'video' : 'image';
+
+    // Contextual camera angle & motion selection
+    let camera_angle: CinematographyPlan['camera_angle'] = 'medium_shot';
+    let camera_motion: CinematographyPlan['camera_motion'] = 'static';
+
+    if (text.includes('bối cảnh') || text.includes('toàn cảnh') || text.includes('thành phố')) {
+      camera_angle = 'wide_establishing';
+      camera_motion = 'pan_left_to_right';
+    } else if (text.includes('khuôn mặt') || text.includes('cảm xúc') || text.includes('ánh mắt')) {
+      camera_angle = 'close_up';
+      camera_motion = 'dolly_in';
+    } else if (dramaticTension > 0.8) {
+      camera_angle = 'low_angle';
+      camera_motion = 'dolly_in';
+    } else if (media_type === 'video') {
+      camera_motion = 'dolly_out';
+    }
+
+    let duration_sec = suggestedDuration ?? (media_type === 'video' ? 5.0 : 4.0);
+    if (isNaN(duration_sec) || duration_sec < 0) {
+      duration_sec = 2.0;
+    }
+    if (media_type === 'video') {
+      duration_sec = Math.min(8.0, Math.max(2.0, duration_sec));
+    } else {
+      duration_sec = Math.max(2.0, duration_sec);
+    }
+
+    return {
+      media_type,
+      camera_angle,
+      camera_motion,
+      duration_sec,
+      visual_action_description: visualNote || narration,
+    };
+  }
+
+  /**
+   * Static accessor for dramatic tension analysis.
+   */
+  public static analyzeDramaticTension(
+    sceneOrNarration: ScriptBeatLine | string,
+    visualNoteOrIndex?: string | number,
+    beatTypeOrTotal?: string | number
+  ): number {
+    return AiStudioStoryboardService.getInstance().analyzeDramaticTension(
+      sceneOrNarration,
+      visualNoteOrIndex,
+      beatTypeOrTotal
+    );
+  }
+
+  /**
+   * Analyzes emotional tone and dramatic tension from the script text or ScriptBeatLine.
+   * Distinguishes metaphorical states from physical action.
+   */
+  public analyzeDramaticTension(
+    sceneOrNarration: ScriptBeatLine | string,
+    visualNoteOrIndex?: string | number,
+    beatTypeOrTotal?: string | number
+  ): number {
+    let narration = '';
+    let visualNote = '';
+    let beatType: string | undefined = undefined;
+    let sceneIndex: number | undefined = undefined;
+    let totalScenes: number | undefined = undefined;
+
+    if (typeof sceneOrNarration === 'object' && sceneOrNarration !== null) {
+      const beat = sceneOrNarration as ScriptBeatLine;
+      narration = beat.text || '';
+      visualNote = beat.visualAction || beat.visualNote || '';
+      beatType = beat.beatType;
+      if (typeof visualNoteOrIndex === 'number') sceneIndex = visualNoteOrIndex;
+      if (typeof beatTypeOrTotal === 'number') totalScenes = beatTypeOrTotal;
+    } else {
+      narration = typeof sceneOrNarration === 'string' ? sceneOrNarration : '';
+      if (typeof visualNoteOrIndex === 'string') visualNote = visualNoteOrIndex;
+      if (typeof beatTypeOrTotal === 'string') beatType = beatTypeOrTotal;
+    }
+
+    const text = `${narration || ''} ${visualNote || ''}`.toLowerCase();
+    if (!text.trim()) return 0.5;
+
+    let tension = 0.5;
+
+    // Metaphorical expressions check (e.g. "bước vào giai đoạn trầm cảm" -> psychological, not action)
+    const isMetaphor =
+      text.includes('bước vào giai đoạn') ||
+      text.includes('đi đến quyết định') ||
+      text.includes('chạy đua với thời gian') ||
+      text.includes('bước ngoặt tư duy');
+
+    if (isMetaphor) {
+      tension -= 0.25;
+    }
+
+    // High tension keywords: conflict, confrontation, weapon, urgency
+    if (
+      text.includes('họng súng') ||
+      text.includes('đối mặt') ||
+      text.includes('kẻ thù') ||
+      text.includes('trốn thoát') ||
+      text.includes('kẻ bám đuổi') ||
+      text.includes('nguy hiểm') ||
+      text.includes('tử thần') ||
+      text.includes('bùng nổ') ||
+      text.includes('chiến đấu') ||
+      text.includes('sụp đổ') ||
+      text.includes('sát thủ')
+    ) {
+      tension += 0.35;
+    }
+
+    // Micro-action under extreme tension (e.g., standing frozen before a gun, sweat dripping)
+    if (text.includes('đứng bất động') && (text.includes('súng') || text.includes('mồ hôi') || text.includes('kẻ'))) {
+      tension = Math.max(tension, 0.85);
+    }
+
+    // Static, contemplative, expository or data keywords
+    if (
+      text.includes('bản đồ') ||
+      text.includes('biểu đồ') ||
+      text.includes('số liệu') ||
+      text.includes('thống kê') ||
+      text.includes('tĩnh lặng') ||
+      text.includes('chiêm ngưỡng') ||
+      text.includes('nhàn hạ') ||
+      text.includes('lịch sử') ||
+      text.includes('nguồn gốc') ||
+      text.includes('tài liệu')
+    ) {
+      tension -= 0.3;
+    }
+
+    if (beatType === 'climax') tension += 0.25;
+    if (beatType === 'hook') tension += 0.15;
+    if (beatType === 'outro') tension -= 0.15;
+
+    if (!beatType && sceneIndex !== undefined && totalScenes !== undefined && totalScenes > 1) {
+      if (sceneIndex === 1) tension += 0.15;
+      else if (sceneIndex >= Math.floor(totalScenes * 0.7) && sceneIndex < totalScenes) tension += 0.2;
+      else if (sceneIndex === totalScenes) tension -= 0.15;
+    }
+
+    return Math.min(1.0, Math.max(0.0, Math.round(tension * 100) / 100));
+  }
+
+  /**
+   * Contextual AI Cinematographer replacing static keyword regex matching.
+   * Determines media_type ('video' | 'image'), camera_angle, camera_motion, and clamps Veo duration (2s-8s).
+   * Directly honors contextOptions.suggestedMediaType when supplied by Two-Column Script or user.
    */
   public decideMediaType(
     narration: string,
     visualNote: string | undefined,
-    durationSec: number
+    durationSec: number,
+    contextOptions?: {
+      dramaticTension?: number;
+      beatType?: string;
+      sceneIndex?: number;
+      totalScenes?: number;
+      suggestedMediaType?: 'video' | 'image';
+    }
   ): MediaTypeDecision {
-    const text = `${narration} ${visualNote || ''}`.toLowerCase();
-
-    let videoScore = 0;
-    let imageScore = 0;
-    const detectedVideoKeywords: string[] = [];
-    const detectedImageKeywords: string[] = [];
-
-    // Score VIDEO keywords
-    for (const kw of STRONG_VIDEO_KEYWORDS_VI) {
-      if (text.includes(kw.toLowerCase())) {
-        videoScore += kw.split(' ').length > 1 ? 3 : 1; // Multi-word phrases score higher
-        detectedVideoKeywords.push(kw);
-        if (detectedVideoKeywords.length >= 5) break; // Cap for performance
+    // 1. Honor explicit suggestedMediaType from Two-Column Audiovisual Script / user decision
+    if (contextOptions?.suggestedMediaType) {
+      const explicitType = contextOptions.suggestedMediaType;
+      let tension = contextOptions?.dramaticTension;
+      if (tension === undefined) {
+        tension = this.analyzeDramaticTension(narration, visualNote, contextOptions?.beatType);
       }
-    }
+      const plan = this.planCinematography(narration, visualNote, tension, durationSec);
 
-    // Score IMAGE keywords
-    for (const kw of STRONG_IMAGE_KEYWORDS_VI) {
-      if (text.includes(kw.toLowerCase())) {
-        imageScore += kw.split(' ').length > 1 ? 3 : 1;
-        detectedImageKeywords.push(kw);
-        if (detectedImageKeywords.length >= 5) break;
+      let effectiveDur = durationSec ?? (explicitType === 'video' ? 5.0 : 4.0);
+      if (isNaN(effectiveDur) || effectiveDur < 0) {
+        effectiveDur = 2.0;
       }
-    }
+      effectiveDur = explicitType === 'video'
+        ? Math.min(8.0, Math.max(2.0, effectiveDur))
+        : Math.max(2.0, effectiveDur);
 
-    // Rule 1: Too short for meaningful video (< 2s)
-    if (durationSec < 2.0) {
+      const camera_motion = explicitType === 'video' && plan.camera_motion === 'static'
+        ? 'dolly_out'
+        : plan.camera_motion;
+
       return {
-        media_type: 'image',
-        reason: `Shot quá ngắn (${durationSec}s < 2s) để tạo video có nghĩa — dùng ảnh tĩnh hiệu quả hơn`,
+        media_type: explicitType,
+        reason: `Chỉ định trực tiếp từ Kịch bản 2 cột (suggestedMediaType: ${explicitType}) — góc máy ${plan.camera_angle}, chuyển động ${camera_motion}`,
         confidence: 'high',
-        videoScore,
-        imageScore,
+        videoScore: explicitType === 'video' ? 3 : 0,
+        imageScore: explicitType === 'image' ? 3 : 0,
+        camera_angle: plan.camera_angle,
+        camera_motion,
+        duration_sec: effectiveDur,
+        dramaticTension: tension,
       };
     }
 
-    // Rule 2: Strong VIDEO signal wins over IMAGE signal
-    if (videoScore > 0 && videoScore >= imageScore) {
-      const topKws = detectedVideoKeywords.slice(0, 3).join(', ');
-      const confidence: ShotConfidence = videoScore >= 3 ? 'high' : videoScore >= 1 ? 'medium' : 'low';
-      return {
-        media_type: 'video',
-        reason: `Phát hiện chuyển động/hành động trong nội dung: "${topKws}" — cần video thật để thể hiện`,
-        confidence,
-        videoScore,
-        imageScore,
-      };
-    }
-
-    // Rule 3: Strong IMAGE signal
-    if (imageScore > 0 && imageScore > videoScore) {
-      const topKws = detectedImageKeywords.slice(0, 3).join(', ');
+    const rawText = `${narration || ''} ${visualNote || ''}`.trim();
+    if (!rawText) {
+      // Empty text boundary case (T2.B2.1)
+      const clamped = Math.min(8.0, Math.max(2.0, durationSec || 4.0));
       return {
         media_type: 'image',
-        reason: `Nội dung mô tả tĩnh/thông tin ("${topKws}") — ảnh tĩnh đủ hiệu quả, không cần video`,
-        confidence: imageScore >= 3 ? 'high' : 'medium',
-        videoScore,
-        imageScore,
+        reason: 'Nội dung phân cảnh rỗng — mặc định sử dụng ảnh tĩnh bảo thủ',
+        confidence: 'low',
+        videoScore: 0,
+        imageScore: 0,
+        camera_angle: 'medium_shot',
+        camera_motion: 'static',
+        duration_sec: clamped,
+        dramaticTension: 0.0,
       };
     }
 
-    // Rule 4: Long duration (> 6s) with no clear motion → image (cost efficient)
-    if (durationSec > 6.0 && videoScore === 0) {
-      return {
-        media_type: 'image',
-        reason: `Scene dài (${durationSec}s) nhưng không có tín hiệu chuyển động rõ — dùng ảnh tĩnh tránh tốn chi phí generate video không cần thiết`,
-        confidence: 'medium',
-        videoScore,
-        imageScore,
-      };
+    // Determine dramatic tension
+    let tension = contextOptions?.dramaticTension;
+    if (tension === undefined) {
+      tension = this.analyzeDramaticTension(narration, visualNote, contextOptions?.beatType);
     }
 
-    // Rule 5: Medium duration (2–6s) with no clear signal → default to image (conservative, low confidence)
+    const plan = this.planCinematography(narration, visualNote, tension, durationSec);
+
+    let finalMediaType = plan.media_type;
+    let confidence: ShotConfidence = 'high';
+    let reason = '';
+
+    if (durationSec < 2.0 && contextOptions?.dramaticTension === undefined) {
+      finalMediaType = 'image';
+      reason = `Shot quá ngắn (${durationSec}s < 2s) để tạo video có nghĩa — dùng ảnh tĩnh kèm hiệu ứng Ken Burns`;
+      confidence = 'high';
+    } else if (finalMediaType === 'video') {
+      reason = `Contextual AI Cinematographer: Phân cảnh hành động/cao trào (căng thẳng kịch tính ${Math.round(tension * 100)}%) — đề xuất video với góc quay ${plan.camera_angle} và chuyển động ${plan.camera_motion}`;
+      confidence = tension >= 0.8 ? 'high' : 'medium';
+    } else {
+      reason = `Contextual AI Cinematographer: Phân cảnh mô tả bối cảnh/tĩnh lặng/thông tin (căng thẳng kịch tính ${Math.round(tension * 100)}%) — đề xuất ảnh tĩnh tối ưu chi phí`;
+      confidence = tension <= 0.3 ? 'high' : 'medium';
+    }
+
     return {
-      media_type: 'image',
-      reason: `Không phát hiện tín hiệu rõ ràng về chuyển động hay nội dung tĩnh — mặc định chọn ảnh tĩnh (an toàn, rẻ hơn); nên xem lại thủ công`,
-      confidence: 'low',
-      videoScore,
-      imageScore,
+      media_type: finalMediaType,
+      reason,
+      confidence,
+      videoScore: finalMediaType === 'video' ? 3 : 0,
+      imageScore: finalMediaType === 'image' ? 3 : 0,
+      camera_angle: plan.camera_angle,
+      camera_motion: plan.camera_motion,
+      duration_sec: plan.duration_sec,
+      dramaticTension: tension,
     };
   }
 
@@ -1026,7 +1285,11 @@ export class AiStudioStoryboardService {
               const lastTiming = timing.scenes[lastIdx];
               const start_sec = firstTiming ? Math.round(firstTiming.start_sec * 100) / 100 : 0;
               const end_sec = lastTiming ? Math.round(lastTiming.end_sec * 100) / 100 : (start_sec + 5.0);
-              const duration_sec = Math.round((end_sec - start_sec) * 100) / 100;
+              let duration_sec = Math.round((end_sec - start_sec) * 100) / 100;
+              const isVideo = s.media_type === 'video';
+              if (isVideo) {
+                duration_sec = Math.min(8.0, Math.max(2.0, duration_sec));
+              }
 
               const assigned_scene_ids = script.scenes.slice(firstIdx, lastIdx + 1).map((sc) => sc.scene_id);
               const dialogue_lines = script.scenes.slice(firstIdx, lastIdx + 1).map((sc) => sc.narration);
@@ -1045,7 +1308,10 @@ export class AiStudioStoryboardService {
                 previous_shot_id: prevShotId,
                 image_prompt: s.image_prompt,
                 motion_note: s.motion_note || 'Slow cinematic push in',
-                media_type: s.media_type === 'video' ? 'video' : 'image',
+                camera_angle: s.camera_angle || (isVideo ? 'medium_shot' : 'wide_establishing'),
+                camera_movement: s.camera_movement || s.motion_note || 'slow push in camera',
+                visual_action: s.visual_action || combined_narration,
+                media_type: isVideo ? 'video' : 'image',
                 reason: s.reason || `LLM phân cảnh cụm ${assigned_scene_ids.join(', ')}`,
                 confidence: s.confidence || 'high',
               };
@@ -1083,10 +1349,19 @@ export class AiStudioStoryboardService {
           const sceneId = `scene_${String(cIdx + 1).padStart(2, '0')}`;
           const shotId = `${sceneId}_shot_1`;
 
+          const assignedScenes = script.scenes.filter((sc) => cluster.assigned_scene_ids.includes(sc.scene_id));
+          const clusterItemWithMedia = assignedScenes.find(
+            (sc: any) => sc.suggestedMediaType || sc.suggested_media_type || sc.media_type
+          ) as any;
+          const clusterExplicitMedia = clusterItemWithMedia
+            ? (clusterItemWithMedia.suggestedMediaType || clusterItemWithMedia.suggested_media_type || clusterItemWithMedia.media_type)
+            : undefined;
+
           const decision = this.decideMediaType(
             cluster.combined_narration,
             cluster.visual_notes.join('. '),
-            cluster.duration_sec
+            cluster.duration_sec,
+            clusterExplicitMedia ? { suggestedMediaType: clusterExplicitMedia } : undefined
           );
           const syntheticScene: ScriptSceneItem = {
             scene_id: sceneId,
@@ -1101,20 +1376,33 @@ export class AiStudioStoryboardService {
             options.channelProfile,
             effectiveBgPrompt
           );
-          const motionNote = this.buildMotionNote(1, 1, decision.media_type);
+          const motionNote = this.buildMotionNote(1, 1, decision.media_type, {
+            narration: cluster.combined_narration,
+            visualNote: cluster.visual_notes.join('. '),
+            cameraMotion: decision.camera_motion,
+            cameraAngle: decision.camera_angle,
+          });
+
+          let effectiveDur = cluster.duration_sec;
+          if (decision.media_type === 'video') {
+            effectiveDur = Math.min(8.0, Math.max(2.0, effectiveDur));
+          }
 
           const shot: StoryboardShotItem = {
             shot_id: shotId,
             shot_index: 1,
             start_sec: cluster.start_sec,
-            duration_sec: cluster.duration_sec,
-            expected_duration_sec: cluster.duration_sec,
+            duration_sec: effectiveDur,
+            expected_duration_sec: effectiveDur,
             assigned_sentences: cluster.assigned_indices,
             assigned_scene_ids: cluster.assigned_scene_ids,
             dialogue_lines: cluster.dialogue_lines,
             previous_shot_id: prevShotId,
             image_prompt: imagePrompt,
             motion_note: motionNote,
+            camera_angle: decision.camera_angle,
+            camera_movement: decision.camera_motion,
+            visual_action: cluster.visual_notes.join('. ') || cluster.combined_narration,
             media_type: decision.media_type,
             reason: decision.reason,
             confidence: decision.confidence,
@@ -1164,30 +1452,45 @@ export class AiStudioStoryboardService {
             const isLast = i === numShots;
             const shotDur = isLast ? Math.round((durationSec - baseDur * (numShots - 1)) * 100) / 100 : baseDur;
             const customPrompt = options.customPromptGenerator(scriptScene as any, i, numShots, shotDur);
-            const decision = this.decideMediaType(scriptScene.narration, scriptScene.visual_note, shotDur);
+            const explicitMedia = (scriptScene as any).suggestedMediaType || (scriptScene as any).suggested_media_type || (scriptScene as any).media_type;
+            const decision = this.decideMediaType(
+              scriptScene.narration,
+              scriptScene.visual_note,
+              shotDur,
+              explicitMedia ? { suggestedMediaType: explicitMedia } : undefined
+            );
+            let effectiveShotDur = shotDur;
+            if (decision.media_type === 'video') {
+              effectiveShotDur = Math.min(8.0, Math.max(2.0, shotDur));
+            }
 
             shots.push({
               shot_id: shotId,
               shot_index: i,
               start_sec: Math.round(shotCurrentSec * 100) / 100,
-              duration_sec: shotDur,
-              expected_duration_sec: shotDur,
+              duration_sec: effectiveShotDur,
+              expected_duration_sec: effectiveShotDur,
               assigned_sentences: [scIdx + 1],
               assigned_scene_ids: [scriptScene.scene_id],
               dialogue_lines: [scriptScene.narration],
               previous_shot_id: prevShotId,
               image_prompt: customPrompt.image_prompt,
               motion_note: customPrompt.motion_note,
+              camera_angle: decision.camera_angle,
+              camera_movement: decision.camera_motion,
+              visual_action: scriptScene.visual_note || scriptScene.narration,
               media_type: decision.media_type,
               reason: decision.reason,
               confidence: decision.confidence,
             });
             prevShotId = shotId;
-            shotCurrentSec += shotDur;
+            shotCurrentSec += effectiveShotDur;
           }
         } else {
           // Default intelligent duration-based decomposition with AI media_type decision
+          const sceneExplicitMedia = (scriptScene as any).suggestedMediaType || (scriptScene as any).suggested_media_type || (scriptScene as any).media_type;
           const isStaticScene = granularity === 'balanced' &&
+            !sceneExplicitMedia &&
             this.isStaticOrDescriptiveNarration(scriptScene.narration, scriptScene.visual_note) &&
             durationSec <= 10.0;
 
@@ -1196,26 +1499,44 @@ export class AiStudioStoryboardService {
             : this.decomposeSceneIntoRawShots(scriptScene as any, durationSec, thresholdSec);
 
           for (const raw of rawShots) {
-            const decision = isStaticScene
+            const decision = (isStaticScene && !sceneExplicitMedia)
               ? {
                   media_type: 'image' as const,
                   reason: 'Cân bằng pacing: Phân cảnh mô tả tĩnh được giữ làm 1 shot ảnh kèm hiệu ứng Ken Burns để chống giật hình và tối ưu chi phí.',
                   confidence: 'high' as const,
                   videoScore: 0,
                   imageScore: 3,
+                  camera_angle: 'wide_establishing',
+                  camera_motion: 'static',
+                  duration_sec: raw.durationSec,
                 }
-              : this.decideMediaType(scriptScene.narration, scriptScene.visual_note, raw.durationSec);
+              : this.decideMediaType(
+                  scriptScene.narration,
+                  scriptScene.visual_note,
+                  raw.durationSec,
+                  sceneExplicitMedia ? { suggestedMediaType: sceneExplicitMedia } : undefined
+                );
             const imagePrompt = this.buildShotPrompt(scriptScene as any, raw.index, rawShots.length, stylePrefix, options.channelProfile, effectiveBgPrompt);
             const motionNote = isStaticScene
               ? 'Ken Burns subtle pan and slow zoom in'
-              : this.buildMotionNote(raw.index, rawShots.length, decision.media_type);
+              : this.buildMotionNote(raw.index, rawShots.length, decision.media_type, {
+                  narration: scriptScene.narration,
+                  visualNote: scriptScene.visual_note,
+                  cameraMotion: decision.camera_motion,
+                  cameraAngle: decision.camera_angle,
+                });
+
+            let effectiveShotDur = raw.durationSec;
+            if (decision.media_type === 'video') {
+              effectiveShotDur = Math.min(8.0, Math.max(2.0, raw.durationSec));
+            }
 
             // Multi-clip splitting: if video shot exceeds model limit, split into sub-shots
-            if (decision.media_type === 'video' && raw.durationSec > maxVideoClipSec && !isSingleShot) {
+            if (decision.media_type === 'video' && effectiveShotDur > maxVideoClipSec && !isSingleShot) {
               const subShots = this.splitIntoMultiClips(
                 scriptScene.scene_id,
                 raw.index,
-                raw.durationSec,
+                effectiveShotDur,
                 maxVideoClipSec,
                 imagePrompt,
                 motionNote,
@@ -1230,27 +1551,30 @@ export class AiStudioStoryboardService {
               if (subShots.length > 0) {
                 prevShotId = subShots[subShots.length - 1].shot_id;
               }
-              shotCurrentSec += raw.durationSec;
+              shotCurrentSec += effectiveShotDur;
             } else {
               const shotId = `${scriptScene.scene_id}_shot_${raw.index}`;
               shots.push({
                 shot_id: shotId,
                 shot_index: raw.index,
                 start_sec: Math.round(shotCurrentSec * 100) / 100,
-                duration_sec: raw.durationSec,
-                expected_duration_sec: raw.durationSec,
+                duration_sec: effectiveShotDur,
+                expected_duration_sec: effectiveShotDur,
                 assigned_sentences: [scIdx + 1],
                 assigned_scene_ids: [scriptScene.scene_id],
                 dialogue_lines: [scriptScene.narration],
                 previous_shot_id: prevShotId,
                 image_prompt: imagePrompt,
                 motion_note: motionNote,
+                camera_angle: decision.camera_angle,
+                camera_movement: decision.camera_motion,
+                visual_action: scriptScene.visual_note || scriptScene.narration,
                 media_type: decision.media_type,
                 reason: decision.reason,
                 confidence: decision.confidence,
               });
               prevShotId = shotId;
-              shotCurrentSec += raw.durationSec;
+              shotCurrentSec += effectiveShotDur;
             }
           }
         }
@@ -1263,10 +1587,13 @@ export class AiStudioStoryboardService {
         // Duration integrity check: total shots must match scene duration (±0.1s)
         const totalShotDur = shots.reduce((acc, s) => acc + (s.expected_duration_sec || 0), 0);
         const diff = Math.abs(Math.round((totalShotDur - durationSec) * 100) / 100);
-        if (diff > 0.1) {
+        if (diff > 0.1 && shots.length > 0) {
           // Correct by adjusting last shot
           const lastShot = shots[shots.length - 1];
-          const adjustment = durationSec - (totalShotDur - (lastShot.expected_duration_sec || 0));
+          let adjustment = durationSec - (totalShotDur - (lastShot.expected_duration_sec || 0));
+          if (lastShot.media_type === 'video') {
+            adjustment = Math.min(8.0, Math.max(2.0, adjustment));
+          }
           lastShot.expected_duration_sec = Math.round(adjustment * 100) / 100;
           lastShot.duration_sec = lastShot.expected_duration_sec;
         }
@@ -1465,12 +1792,13 @@ export class AiStudioStoryboardService {
     initialPreviousShotId?: string
   ): StoryboardShotItem[] {
     const subShots: StoryboardShotItem[] = [];
-    const numClips = Math.ceil(totalDurationSec / maxClipSec);
+    const safeMaxClipSec = Math.min(8.0, Math.max(2.0, maxClipSec));
+    const numClips = Math.ceil(totalDurationSec / safeMaxClipSec);
     const clipDur = Math.round((totalDurationSec / numClips) * 100) / 100;
     const suffixes = 'abcdefghijklmnopqrstuvwxyz';
 
     console.log(
-      `[AiStudioStoryboardService] 🎬 Multi-clip split: ${sceneId}_shot_${shotIndex} (${totalDurationSec}s) → ${numClips} clips à ${clipDur}s (limit: ${maxClipSec}s/clip)`
+      `[AiStudioStoryboardService] 🎬 Multi-clip split: ${sceneId}_shot_${shotIndex} (${totalDurationSec}s) → ${numClips} clips à ${clipDur}s (limit: ${safeMaxClipSec}s/clip)`
     );
 
     let currentStart = startSec;
@@ -1478,9 +1806,11 @@ export class AiStudioStoryboardService {
 
     for (let c = 0; c < numClips; c++) {
       const isLast = c === numClips - 1;
-      const subDur = isLast
+      let subDur = isLast
         ? Math.round((totalDurationSec - clipDur * (numClips - 1)) * 100) / 100
         : clipDur;
+      // Strictly clamp video clip duration within Veo limits [2.0s, 8.0s]
+      subDur = Math.min(8.0, Math.max(2.0, subDur));
       const shotId = `${sceneId}_shot_${shotIndex}${suffixes[c]}`;
 
       subShots.push({
@@ -1495,8 +1825,11 @@ export class AiStudioStoryboardService {
         previous_shot_id: prevId,
         image_prompt: imagePrompt,
         motion_note: c === 0 ? motionNote : `continuous: ${motionNote}`,
+        camera_angle: decision.camera_angle,
+        camera_movement: decision.camera_motion,
+        visual_action: dialogueLines.join(' '),
         media_type: 'video',
-        reason: `${decision.reason} [Multi-clip ${c + 1}/${numClips}: shot dài ${totalDurationSec}s vượt giới hạn ${maxClipSec}s/lần generate]`,
+        reason: `${decision.reason} [Multi-clip ${c + 1}/${numClips}: shot dài ${totalDurationSec}s vượt giới hạn ${safeMaxClipSec}s/lần generate]`,
         confidence: decision.confidence,
       });
 
@@ -1712,15 +2045,40 @@ export class AiStudioStoryboardService {
     channelProfile?: Partial<ChannelProfileConfig>,
     backgroundPrompt?: string
   ): string {
-    const anglePrefix = totalShots === 1
-      ? 'Medium cinematic shot'
-      : shotIndex === 1
-      ? 'Wide establishing cinematic shot'
-      : shotIndex === 2
-      ? 'Medium action tracking shot'
-      : shotIndex === 3
-      ? 'Close-up dramatic focus shot'
-      : 'Dynamic cinematic framing shot';
+    // Contextual camera angle determination (eliminates static modulo shotIndex logic)
+    const rawAngle = (scene as any).camera_angle || (scene as any).cameraAngle;
+    let effectiveAngle = rawAngle;
+
+    if (!effectiveAngle) {
+      const plan = this.planCinematography(scene.narration, scene.visual_note);
+      effectiveAngle = plan.camera_angle;
+    }
+
+    let anglePrefix = 'Medium cinematic shot';
+    switch (effectiveAngle) {
+      case 'wide_establishing':
+      case 'extreme_wide':
+        anglePrefix = 'Wide establishing cinematic shot';
+        break;
+      case 'close_up':
+      case 'extreme_close_up':
+        anglePrefix = 'Close-up dramatic focus shot';
+        break;
+      case 'low_angle':
+        anglePrefix = 'Dramatic low-angle hero shot';
+        break;
+      case 'high_angle':
+        anglePrefix = 'Cinematic high-angle perspective shot';
+        break;
+      case 'point_of_view':
+      case 'pov':
+        anglePrefix = 'First-person point-of-view perspective shot';
+        break;
+      case 'medium_shot':
+      default:
+        anglePrefix = 'Medium action tracking shot';
+        break;
+    }
 
     // Clean raw dialogue / quotes and convert narration to pure visual concept in standard English (R3)
     const cleanVisualContent = this.convertNarrationToVisualConcept(scene.narration, scene.visual_note);
@@ -1768,28 +2126,70 @@ export class AiStudioStoryboardService {
     return promptParts.join(', ');
   }
 
-  private buildMotionNote(shotIndex: number, totalShots: number, mediaType: ShotMediaType): string {
+  public buildMotionNote(
+    shotIndex: number,
+    totalShots: number,
+    mediaType: ShotMediaType,
+    context?: {
+      narration?: string;
+      visualNote?: string;
+      cameraMotion?: string;
+      cameraAngle?: string;
+    }
+  ): string {
+    // Contextual camera motion planning (eliminates static modulo shotIndex logic)
+    let motionType = context?.cameraMotion;
+    if (!motionType && (context?.narration || context?.visualNote)) {
+      const plan = this.planCinematography(context.narration || '', context.visualNote);
+      motionType = plan.camera_motion;
+    }
+
     if (mediaType === 'image') {
-      // Ken Burns suggestions for static images
-      if (totalShots === 1) return 'Ken Burns: slow zoom in from wide';
-      if (shotIndex === 1) return 'Ken Burns: slow pan right, establishing drift';
-      if (shotIndex === 2) return 'Ken Burns: slow zoom in, focus pull';
-      return 'Ken Burns: subtle zoom out, gentle drift';
+      switch (motionType) {
+        case 'pan_left_to_right':
+          return 'Ken Burns: slow pan right, establishing drift';
+        case 'pan_right_to_left':
+          return 'Ken Burns: slow pan left, revealing vista';
+        case 'dolly_in':
+          return 'Ken Burns: slow zoom in, focus pull';
+        case 'dolly_out':
+          return 'Ken Burns: subtle zoom out, gentle drift';
+        case 'pedestal_up':
+          return 'Ken Burns: gentle tilt up, expansive view';
+        case 'static':
+        default:
+          return 'Ken Burns: slow zoom in from wide';
+      }
     }
-    // Video motion notes
-    if (totalShots === 1) {
-      return 'slow push in camera, steady cinematic framing';
+
+    // Video media type: derive professional camera movement contextually
+    switch (motionType) {
+      case 'pan_left_to_right':
+        return 'slow pan right, cinematic establishing movement';
+      case 'pan_right_to_left':
+        return 'slow pan left, cinematic sweeping vista';
+      case 'dolly_in':
+        return 'slow push in camera, tracking subject';
+      case 'dolly_out':
+        return 'slow dolly out, revealing expansive action';
+      case 'pedestal_up':
+        return 'pedestal up camera rising smoothly';
+      case 'static':
+        return 'steady stationary camera framing, subtle ambient motion';
+      default: {
+        const text = `${context?.narration || ''} ${context?.visualNote || ''}`.toLowerCase();
+        if (text.includes('chạy') || text.includes('đuổi') || text.includes('tiến')) {
+          return 'slow push in camera, tracking subject';
+        }
+        if (text.includes('toàn cảnh') || text.includes('thành phố')) {
+          return 'slow pan right, cinematic establishing movement';
+        }
+        if (text.includes('cảm xúc') || text.includes('khuôn mặt')) {
+          return 'subtle dynamic zoom, dramatic focal emphasis';
+        }
+        return 'slow push in camera, steady cinematic framing';
+      }
     }
-    if (shotIndex === 1) {
-      return 'slow pan right, cinematic establishing movement';
-    }
-    if (shotIndex === 2) {
-      return 'slow push in camera, tracking subject';
-    }
-    if (shotIndex === 3) {
-      return 'subtle dynamic zoom, dramatic focal emphasis';
-    }
-    return 'smooth camera glide, natural transition';
   }
 }
 

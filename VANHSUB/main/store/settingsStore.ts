@@ -91,6 +91,8 @@ export interface AppSettings {
   veoFlowCredits: number | null;
   /** Thời điểm kiểm tra credit Google Flow lần cuối (timestamp ms) */
   veoFlowCreditsCheckedAt: number;
+  /** Link dự án Google Flow đang kích hoạt (vd: https://flow.google.com/project/...) */
+  flowProjectUrl?: string;
 }
 
 // Lazy singleton — cùng pattern với taskStore.ts để tránh lỗi
@@ -151,6 +153,7 @@ function getStore(): Store<AppSettings> {
         veoCooldownSeconds: 8,
         veoFlowCredits: null,
         veoFlowCreditsCheckedAt: 0,
+        flowProjectUrl: '',
       },
     });
   }

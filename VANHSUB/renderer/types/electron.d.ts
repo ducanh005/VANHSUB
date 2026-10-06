@@ -10,6 +10,7 @@ import type {
   PipelineProgressEvent,
   IdeaBlueprint,
   SelfTestDiagnosticsResult,
+  CapCutDraftExportResult,
 } from './aiStudio';
 
 export type SettingKey =
@@ -501,7 +502,7 @@ export interface VanhsubAPI {
     }) => Promise<{ success: boolean; nextStage?: number }>;
     generateMasterPrompt: (payload: {
       channelProfile: Partial<ChannelProfileConfig>;
-    }) => Promise<{ masterPrompt: string }>;
+    }) => Promise<{ masterPrompt: string; chatgptConversationUrl?: string }>;
 
     // Chấm điểm kịch bản & Chỉnh sửa kịch bản bằng AI
     evaluateScript: (payload: {
@@ -537,6 +538,12 @@ export interface VanhsubAPI {
 
     // 1-Click Self-Test Diagnostics
     selfTestDiagnostics: () => Promise<SelfTestDiagnosticsResult>;
+
+    // 1-Click CapCut Desktop Draft Export (Milestone 5)
+    exportCapcutDraft: (
+      payload: any,
+      targetDir?: string
+    ) => Promise<CapCutDraftExportResult>;
 
     // Push Event Subscription
     onPipelineProgress: (callback: (event: PipelineProgressEvent) => void) => () => void;

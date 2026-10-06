@@ -80,6 +80,9 @@ export type FlowRpcErrorCode =
   | 'SESSION_EXPIRED'
   | 'RATE_LIMITED'
   | 'PUBLIC_ERROR_UNUSUAL_ACTIVITY'
+  | 'UNUSUAL_ACTIVITY'
+  | 'BOT_FLAGGED'
+  | 'CAPTCHA_SCORE_LOW'
   | 'CONTENT_REJECTED'
   | 'CONTENT_POLICY_VIOLATION'
   | 'TIMEOUT'
@@ -88,6 +91,7 @@ export type FlowRpcErrorCode =
   | 'INVALID_ARGUMENT'
   | 'CANCELLED'
   | 'NETWORK_ERROR'
+  | 'BRIDGE_DISCONNECTED'
   | 'UNKNOWN';
 
 export interface GoogleFlowRpcErrorOptions {
@@ -132,10 +136,15 @@ export class GoogleFlowRpcError extends Error {
     const msg = (this.message || '').toLowerCase();
     return (
       this.code === 'PUBLIC_ERROR_UNUSUAL_ACTIVITY' ||
+      this.code === 'UNUSUAL_ACTIVITY' ||
+      this.code === 'BOT_FLAGGED' ||
+      this.code === 'CAPTCHA_SCORE_LOW' ||
       Boolean((this.details as any)?.isUnusualActivity) ||
       msg.includes('public_error_unusual_activity') ||
       msg.includes('unusual_activity') ||
-      msg.includes('unusual activity')
+      msg.includes('unusual activity') ||
+      msg.includes('bot_flagged') ||
+      msg.includes('captcha_score_low')
     );
   }
 }
@@ -193,11 +202,13 @@ export function isUnusualActivityError(err: unknown): boolean {
   if (err instanceof GoogleFlowRpcError) {
     return err.isUnusualActivity;
   }
-  const msg = String((err as any)?.message || err || '').toLowerCase();
+  const msg = String((err as any)?.message || (err as any)?.code || err || '').toLowerCase();
   return (
     msg.includes('public_error_unusual_activity') ||
     msg.includes('unusual_activity') ||
-    msg.includes('unusual activity')
+    msg.includes('unusual activity') ||
+    msg.includes('bot_flagged') ||
+    msg.includes('captcha_score_low')
   );
 }
 
@@ -230,6 +241,9 @@ export function classifyFlowRpcError(
     lowerMsg.includes('chưa có phiên') ||
     lowerMsg.includes('verify p1 failed') ||
     lowerMsg.includes('không tìm thấy at token') ||
+    lowerMsg.includes('no_at_token') ||
+    lowerMsg.includes('no_flow_tab') ||
+    lowerMsg.includes('tab_not_in_project') ||
     lowerMsg.includes('unauthorized') ||
     lowerMsg.includes('forbidden') ||
     lowerMsg.includes('xsrf') ||
@@ -239,8 +253,15 @@ export function classifyFlowRpcError(
     lowerMsg.includes('webcontents was destroyed') ||
     lowerMsg.includes('render frame was disposed')
   ) {
+    const isNoTab = lowerMsg.includes('no_flow_tab');
+    const isNotInProject = lowerMsg.includes('tab_not_in_project');
+    const customMsg = isNotInProject
+      ? 'Tab Google Chrome hiện chưa ở trong trang dự án (https://flow.google.com/). Vui lòng đăng nhập và mở một Dự án (Project) hoặc bấm "+ New project" trên Google Chrome!'
+      : isNoTab
+      ? 'Không tìm thấy tab Google Flow đang mở trên Google Chrome. Vui lòng mở trang https://flow.google.com/ trên Chrome.'
+      : 'Phiên đăng nhập Google Flow đã hết hạn hoặc chưa đăng nhập. Vui lòng đăng nhập lại.';
     return new GoogleFlowRpcError(
-      'Phiên đăng nhập Google Flow đã hết hạn hoặc chưa đăng nhập. Vui lòng đăng nhập lại.',
+      customMsg,
       {
         code: 'SESSION_EXPIRED',
         retryable: false,
@@ -291,15 +312,39 @@ export function classifyFlowRpcError(
   if (
     lowerMsg.includes('public_error_unusual_activity') ||
     lowerMsg.includes('unusual_activity') ||
-    lowerMsg.includes('unusual activity')
+    lowerMsg.includes('unusual activity') ||
+    lowerMsg.includes('bot_flagged') ||
+    lowerMsg.includes('captcha_score_low') ||
+    lowerMsg.includes('empty_captcha_token') ||
+    lowerMsg.includes('captcha_execute_error') ||
+    lowerMsg.includes('empty_token') ||
+    lowerMsg.includes('execute_hang') ||
+    lowerMsg.includes('render_error') ||
+    lowerMsg.includes('execute_failed') ||
+    lowerMsg.includes('recaptcha evaluation failed')
   ) {
+    const code: FlowRpcErrorCode = (
+      lowerMsg.includes('captcha_score_low') ||
+      lowerMsg.includes('empty_captcha_token') ||
+      lowerMsg.includes('captcha_execute_error') ||
+      lowerMsg.includes('empty_token') ||
+      lowerMsg.includes('execute_hang') ||
+      lowerMsg.includes('render_error') ||
+      lowerMsg.includes('execute_failed')
+    )
+      ? 'CAPTCHA_SCORE_LOW'
+      : lowerMsg.includes('bot_flagged')
+      ? 'BOT_FLAGGED'
+      : (lowerMsg.includes('public_error_unusual_activity')
+          ? 'PUBLIC_ERROR_UNUSUAL_ACTIVITY'
+          : 'UNUSUAL_ACTIVITY');
     return new GoogleFlowRpcError(
       'Google Flow tạm thời chặn lệnh tạo do phát hiện hành vi tự động (PUBLIC_ERROR_UNUSUAL_ACTIVITY - reCAPTCHA bot flag). ' +
-      'Giải pháp: 1. Bấm nút "🌐 Mở Sảnh Google Flow" trên thanh tiêu đề để hiển thị cửa sổ trực tiếp trên màn hình; ' +
-      'hoặc 2. Cài đặt VanhSub Flow Bridge Extension trên Chrome để ký reCAPTCHA thật; ' +
-      'hoặc 3. Tạm dừng 1-2 phút trước khi bấm thử lại.',
+      'Giải pháp: 1. Đảm bảo tab Google Chrome flow.google.com đang ở trạng thái hoạt động và đã đăng nhập; ' +
+      '2. Chờ 1-2 phút theo cơ chế backoff để Google giải tỏa đánh dấu bot; ' +
+      '3. Hoặc tương tác nhẹ trên tab Chrome (di chuột, cuộn trang) để cập nhật điểm tin cậy reCAPTCHA Enterprise.',
       {
-        code: 'PUBLIC_ERROR_UNUSUAL_ACTIVITY',
+        code,
         retryable: true,
         retryAfterMs: 20000,
         suggestedAction: 'RETRY_WITH_BACKOFF',
@@ -452,6 +497,31 @@ export function classifyFlowRpcError(
       details: { rawMsg, context },
       cause: err,
     });
+  }
+
+  // 10. Mất kết nối hoặc chưa kết nối Chrome Extension Bridge
+  if (
+    lowerMsg.includes('bridge_disconnected') ||
+    lowerMsg.includes('extension_disconnected') ||
+    lowerMsg.includes('extension_not_connected') ||
+    lowerMsg.includes('extension chưa kết nối') ||
+    lowerMsg.includes('chưa có chrome extension') ||
+    lowerMsg.includes('extension_client_unavailable') ||
+    lowerMsg.includes('bridge_send_failed') ||
+    lowerMsg.includes('chrome bridge chưa kết nối')
+  ) {
+    return new GoogleFlowRpcError(
+      'Chrome Extension (VanhSub Flow Bridge) chưa được kết nối hoặc đã ngắt kết nối. ' +
+      'Vui lòng mở Google Chrome, đảm bảo tiện ích mở rộng đã được bật và có ít nhất 1 tab flow.google.com đang mở.',
+      {
+        code: 'BRIDGE_DISCONNECTED',
+        retryable: true,
+        retryAfterMs: 5000,
+        suggestedAction: 'RETRY_WITH_BACKOFF',
+        details: { rawMsg, context },
+        cause: err,
+      }
+    );
   }
 
   return new GoogleFlowRpcError(rawMsg || 'Lỗi không xác định khi tương tác với Google Flow RPC.', {
@@ -736,6 +806,7 @@ export class GoogleFlowRpcClient {
   protected readonly _sessionAdapter?: SessionContextAdapter;
   protected readonly _maxRetries: number;
   protected readonly _requestTimeoutMs: number;
+  protected _lastProjectId?: string;
 
   constructor(options: GoogleFlowRpcClientOptions | string = 'persist:google_veo') {
     if (typeof options === 'string') {
@@ -814,12 +885,25 @@ export class GoogleFlowRpcClient {
 
   /**
    * Lấy XSRF token `at` từ window object của trang Flow đang mở.
+   * Tự động kích hoạt cơ chế Self-Healing Session nếu bị redirect sang /about hoặc thiếu token.
    */
-  public async getAtToken(win?: any): Promise<string> {
+  public async getAtToken(win?: any, allowHealing = true): Promise<string> {
     const cached = _tokenCacheByPartition.get(this._partition);
     if (cached && Date.now() - cached.cachedAt < AT_TOKEN_CACHE_TTL_MS) {
       return cached.token;
     }
+
+    let currentUrl = '';
+    try {
+      if (win && !win.isDestroyed?.() && typeof win.webContents?.getURL === 'function') {
+        currentUrl = (win.webContents.getURL() || '').toLowerCase();
+      }
+    } catch {}
+
+    const isRedirectedToAbout =
+      currentUrl.includes('/about') ||
+      currentUrl.includes('flow.google.com/about') ||
+      currentUrl.includes('accounts.google.com');
 
     const script = `
       (function() {
@@ -867,18 +951,50 @@ export class GoogleFlowRpcClient {
 
     let sessionData: { token: string | null; fSid?: string; bl?: string } | null = null;
 
-    if (this._sessionAdapter) {
-      sessionData = await this._sessionAdapter.executeJavaScript(script);
-    } else if (win && !win.isDestroyed?.()) {
-      sessionData = await win.webContents.executeJavaScript(script);
-    } else {
-      throw new GoogleFlowRpcError(
-        'Không thể lấy CSRF at token: lobbyWindow chưa được khởi tạo hoặc đã bị đóng.',
-        { code: 'SESSION_EXPIRED', retryable: false }
-      );
+    if (!isRedirectedToAbout) {
+      if (this._sessionAdapter) {
+        sessionData = await this._sessionAdapter.executeJavaScript(script);
+      } else if (win && !win.isDestroyed?.()) {
+        sessionData = await win.webContents.executeJavaScript(script);
+      } else {
+        throw new GoogleFlowRpcError(
+          'Không thể lấy CSRF at token: lobbyWindow chưa được khởi tạo hoặc đã bị đóng.',
+          { code: 'SESSION_EXPIRED', retryable: false }
+        );
+      }
     }
 
-    const token = sessionData?.token;
+    let token = sessionData?.token;
+
+    // Tự động phục hồi phiên nếu token rỗng hoặc bị chuyển hướng sang /about
+    if ((!token || isRedirectedToAbout) && allowHealing) {
+      console.warn(
+        `[GoogleFlowRpcClient] 🩺 Phát hiện thiếu CSRF at token hoặc bị chuyển hướng (${currentUrl || 'no-token'}). ` +
+        `Kích hoạt Auto-Reconnect Session Healing...`
+      );
+      this.invalidateAtTokenCache();
+
+      try {
+        const { GoogleVeoSessionManager } = require('../../../veo/GoogleVeoSessionManager');
+        const sessionMgr = GoogleVeoSessionManager.getInstance();
+        const activeWin = win || sessionMgr.getLobbyWindow();
+        const healResult = await sessionMgr.recoverSessionOnRedirect(activeWin, this._lastProjectId);
+
+        if (healResult.success) {
+          // Thử lấy lại token sau khi đã phục hồi phiên thành công
+          return await this.getAtToken(activeWin, false);
+        } else if (healResult.requiresUserInteraction) {
+          throw new GoogleFlowRpcError(
+            'Phiên Google Flow cần đăng nhập lại hoặc giải CAPTCHA. Cửa sổ Sảnh đã được mở trên màn hình để bạn thao tác.',
+            { code: 'SESSION_EXPIRED', retryable: false, suggestedAction: 'REAUTH_REQUIRED' }
+          );
+        }
+      } catch (healErr: any) {
+        if (healErr instanceof GoogleFlowRpcError) throw healErr;
+        console.warn('[GoogleFlowRpcClient] Session healing gặp lỗi:', healErr?.message || healErr);
+      }
+    }
+
     if (!token) {
       throw new GoogleFlowRpcError(
         'Không tìm thấy CSRF at token (WIZ_global_data.SNlM0e) trong context phiên Google Flow.',
@@ -914,10 +1030,20 @@ export class GoogleFlowRpcClient {
         currentUrl.includes('flow.google.com/about') ||
         currentUrl.includes('servicelogin')
       ) {
-        throw new GoogleFlowRpcError(
-          'Chưa đăng nhập Google Flow hoặc phiên làm việc đã hết hạn. Vui lòng mở Sảnh Google Flow trên giao diện để đăng nhập tài khoản.',
-          { code: 'SESSION_EXPIRED', retryable: false, suggestedAction: 'REAUTH_REQUIRED' }
-        );
+        console.warn(`[GoogleFlowRpcClient] 🩺 mintCaptchaToken phát hiện chuyển hướng (${currentUrl}). Thử phục hồi phiên...`);
+        try {
+          const { GoogleVeoSessionManager } = require('../../../veo/GoogleVeoSessionManager');
+          const sessionMgr = GoogleVeoSessionManager.getInstance();
+          const healResult = await sessionMgr.recoverSessionOnRedirect(win, this._lastProjectId);
+          if (!healResult.success && healResult.requiresUserInteraction) {
+            throw new GoogleFlowRpcError(
+              'Chưa đăng nhập Google Flow hoặc phiên làm việc đã hết hạn. Vui lòng mở Sảnh Google Flow trên giao diện để đăng nhập tài khoản.',
+              { code: 'SESSION_EXPIRED', retryable: false, suggestedAction: 'REAUTH_REQUIRED' }
+            );
+          }
+        } catch (healErr: any) {
+          if (healErr instanceof GoogleFlowRpcError) throw healErr;
+        }
       }
       if (currentUrl.startsWith('http') && currentUrl.includes('flow.google.com') && !currentUrl.includes('/project/')) {
         try {
@@ -1082,8 +1208,13 @@ export class GoogleFlowRpcClient {
       signal,
     } = opts;
 
+    if (projectId && projectId !== PROJECT_ID_SLOT) {
+      this._lastProjectId = projectId;
+    }
+
     let lastError: Error | null = null;
     let attempt = 0;
+    let hasHealedSession = false;
 
     while (attempt <= maxRetries) {
       attempt++;
@@ -1274,6 +1405,25 @@ export class GoogleFlowRpcClient {
         lastError = classified;
         if (classified.code === 'SESSION_EXPIRED') {
           this.invalidateAtTokenCache();
+          if (attempt <= maxRetries && !hasHealedSession) {
+            hasHealedSession = true;
+            console.warn(`[GoogleFlowRpcClient] 🩺 Phát hiện SESSION_EXPIRED trong ${label}. Kích hoạt Auto-Reconnect Session Healing...`);
+            try {
+              const { GoogleVeoSessionManager } = require('../../../veo/GoogleVeoSessionManager');
+              const sessionMgr = GoogleVeoSessionManager.getInstance();
+              const healRes = await sessionMgr.recoverSessionOnRedirect(win, projectId || this._lastProjectId);
+              if (healRes.success) {
+                console.log(`[GoogleFlowRpcClient] 🩺 Phục hồi session thành công, retry RPC ${label}...`);
+                continue;
+              } else if (healRes.requiresUserInteraction) {
+                await sessionMgr.showLobbyForDebug();
+                throw classified;
+              }
+            } catch (healErr: any) {
+              if (healErr instanceof GoogleFlowRpcError) throw healErr;
+              console.warn('[GoogleFlowRpcClient] Session healing in callFlowRPC failed:', healErr?.message || healErr);
+            }
+          }
         }
         if (isUnusualActivityError(classified)) {
           throw classified;
@@ -1660,6 +1810,10 @@ export class GoogleFlowRpcClient {
         signal = params.signal,
       } = params;
 
+      if (projectId && projectId !== PROJECT_ID_SLOT) {
+        this._lastProjectId = projectId;
+      }
+
       if (signal?.aborted) {
         throw new GoogleFlowRpcError('Tác vụ đã bị người dùng huỷ bỏ.', { code: 'CANCELLED', retryable: false });
       }
@@ -1753,28 +1907,7 @@ export class GoogleFlowRpcClient {
         } catch (bridgeErr: any) {
           throw classifyFlowRpcError(bridgeErr);
         }
-        let res = parseBatchResponse(rawText, RPC_GEN_IMAGE);
-        if (!res.ok) {
-          const errStr = JSON.stringify(res.error);
-          if (errStr.includes('PUBLIC_ERROR_UNUSUAL_ACTIVITY')) {
-            console.warn('[GoogleFlowRpcClient] 🛡️ Pure RPC bị Google chặn (UNUSUAL_ACTIVITY). Tự động kích hoạt cơ chế Native UI DOM Trigger trên Chrome...');
-            try {
-              const uiRes = await bridge.triggerUiGen(prompt, 45000, cleanProjectId);
-              console.log('[GoogleFlowRpcClient] 🔍 uiRes result:', JSON.stringify(uiRes)?.slice(0, 300));
-              if (uiRes && uiRes.ok && uiRes.capturedRpc && uiRes.capturedRpc.response) {
-                const uiParsed = parseBatchResponse(uiRes.capturedRpc.response, RPC_GEN_IMAGE);
-                if (uiParsed.ok && uiParsed.data) {
-                  console.log('[GoogleFlowRpcClient] ✅ Native UI DOM Trigger thành công, nhận được phản hồi ảnh từ Flow!');
-                  res = uiParsed;
-                }
-              } else if (uiRes && !uiRes.ok) {
-                console.warn('[GoogleFlowRpcClient] ⚠️ triggerUiGen trả về lỗi:', uiRes.error || uiRes);
-              }
-            } catch (uiErr: any) {
-              console.warn('[GoogleFlowRpcClient] Fallback triggerUiGen thất bại:', uiErr?.message || uiErr);
-            }
-          }
-        }
+        const res = parseBatchResponse(rawText, RPC_GEN_IMAGE);
         if (!res.ok) {
           throw classifyFlowRpcError(new Error(`Extension Bridge image error: ${JSON.stringify(res.error)}`));
         }
@@ -1952,7 +2085,11 @@ export class GoogleFlowRpcClient {
         params.referenceAssets ||
         params.reference_assets;
 
-      const inputImageAsset =
+      if (projectId && projectId !== PROJECT_ID_SLOT) {
+        this._lastProjectId = projectId;
+      }
+
+      let inputImageAsset =
         typeof params.inputImageAsset === 'string' && params.inputImageAsset
           ? params.inputImageAsset
           : typeof params.input_image_asset === 'string' && params.input_image_asset
@@ -2056,29 +2193,7 @@ export class GoogleFlowRpcClient {
         } catch (bridgeErr: any) {
           throw classifyFlowRpcError(bridgeErr);
         }
-        let res = parseBatchResponse(rawText, rpcName);
-        if (!res.ok) {
-          const errStr = JSON.stringify(res.error);
-          if (errStr.includes('PUBLIC_ERROR_UNUSUAL_ACTIVITY')) {
-            console.warn('[GoogleFlowRpcClient] 🛡️ Pure RPC video bị Google chặn (UNUSUAL_ACTIVITY). Tự động kích hoạt cơ chế Native UI DOM Trigger trên Chrome...');
-            try {
-              const uiRes = await bridge.triggerUiGen(prompt, 30000, bridgeProjectId);
-              console.log('[GoogleFlowRpcClient] 🔍 uiRes video result:', JSON.stringify(uiRes)?.slice(0, 300));
-              if (uiRes && uiRes.ok && uiRes.capturedRpc && uiRes.capturedRpc.response) {
-                const capturedRpcId = uiRes.capturedRpc.rpcid || rpcName;
-                const uiParsed = parseBatchResponse(uiRes.capturedRpc.response, capturedRpcId);
-                if (uiParsed.ok && uiParsed.data) {
-                  console.log('[GoogleFlowRpcClient] ✅ Native UI DOM Trigger video thành công, nhận được phản hồi từ Flow!');
-                  res = uiParsed;
-                }
-              } else if (uiRes && !uiRes.ok) {
-                console.warn('[GoogleFlowRpcClient] ⚠️ triggerUiGen video trả về lỗi:', uiRes.error || uiRes);
-              }
-            } catch (uiErr: any) {
-              console.warn('[GoogleFlowRpcClient] Fallback triggerUiGen video thất bại:', uiErr?.message || uiErr);
-            }
-          }
-        }
+        const res = parseBatchResponse(rawText, rpcName);
         if (!res.ok) {
           throw classifyFlowRpcError(new Error(`Extension Bridge video error: ${JSON.stringify(res.error)}`));
         }
@@ -2155,13 +2270,32 @@ export class GoogleFlowRpcClient {
           }
 
           // Trường hợp 2: Image-to-Video / Reference-to-Video (MZZa6b)
+          let resolvedVideoAsset = inputImageAsset;
+          if (
+            resolvedVideoAsset &&
+            typeof resolvedVideoAsset === 'string' &&
+            (resolvedVideoAsset.includes('/') || resolvedVideoAsset.includes('\\') || /\.(png|jpe?g|webp)$/i.test(resolvedVideoAsset)) &&
+            fs.existsSync(resolvedVideoAsset)
+          ) {
+            try {
+              console.log(`[GoogleFlowRpcClient] 📤 [Direct Mode] Tự động upload frame đầu cho video từ đường dẫn local: ${resolvedVideoAsset}`);
+              const uploaded = await this.uploadAsset(activeWin, resolvedVideoAsset, projectId);
+              if (uploaded?.mediaId) {
+                resolvedVideoAsset = uploaded.mediaId;
+                inputImageAsset = uploaded.mediaId;
+              }
+            } catch (upErr: any) {
+              console.warn(`[GoogleFlowRpcClient] ⚠️ [Direct Mode] Không thể upload frame đầu ${resolvedVideoAsset}: ${upErr?.message || upErr}`);
+            }
+          }
+
           let captchaToken = CAPTCHA_SLOT;
           if (activeWin || this._sessionAdapter) {
             captchaToken = await this.mintCaptchaToken(activeWin, CAPTCHA_ACTION_VIDEO);
           }
 
           const innerPayload = buildGenVideoPayload({
-            imageMediaId: inputImageAsset,
+            imageMediaId: resolvedVideoAsset,
             aspectRatio,
             durationSeconds: durationSec,
             videoModel,

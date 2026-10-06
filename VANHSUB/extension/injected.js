@@ -23,6 +23,11 @@ const SITE_KEY = '6LdsFiUsAAAAAIjVDZcuLhaHiDn5nnHVXVRQGeMV';
 // a fallback for a page that has not configured one yet.
 function resolveSitekey() {
   try {
+    if (window.WIZ_global_data && typeof window.WIZ_global_data.xZbWve === 'string' && window.WIZ_global_data.xZbWve.length > 20) {
+      return window.WIZ_global_data.xZbWve;
+    }
+  } catch (e) { /* fall through */ }
+  try {
     const cfg = window.___grecaptcha_cfg || {};
     const clients = cfg.clients || {};
     for (const k of Object.keys(clients)) {
@@ -47,11 +52,6 @@ function resolveSitekey() {
           }
         }
       }
-    }
-  } catch (e) { /* fall through */ }
-  try {
-    if (window.WIZ_global_data && window.WIZ_global_data.xZbWve) {
-      return window.WIZ_global_data.xZbWve;
     }
   } catch (e) { /* fall through */ }
   return SITE_KEY;

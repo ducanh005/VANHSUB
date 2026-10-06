@@ -1,4 +1,4 @@
-﻿module.exports = {
+module.exports = {
   webpack: (config) => {
     config.output = {
       ...config.output,
@@ -17,6 +17,7 @@
       // tesseract.js spawn worker-script từ thư mục package — không bundle được
       'tesseract.js',
       'uuid',
+      'playwright-core',
     ];
     return config;
   },

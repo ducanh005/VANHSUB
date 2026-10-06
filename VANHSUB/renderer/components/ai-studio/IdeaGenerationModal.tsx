@@ -14,6 +14,9 @@ import {
   Clock,
   User,
   Image as ImageIcon,
+  Palette,
+  Compass,
+  Cpu,
 } from 'lucide-react';
 import { useAiStudioStore } from '../../lib/store/aiStudioStore';
 import type { IdeaBlueprint } from '../../types/aiStudio';
@@ -323,6 +326,24 @@ export default function IdeaGenerationModal({
                   <span className="inline-flex items-center gap-1.5 rounded-md bg-surface border border-border px-2.5 py-1 text-[11px] text-text">
                     <ImageIcon className="h-3.5 w-3.5 text-violet-400" />
                     <span>Model: <strong className="text-white">{config.channelProfile.imageModel || 'Nano Banana 2'} / {config.channelProfile.videoModel || 'Omni 1.1 Flash'}</strong></span>
+                  </span>
+                )}
+                {config.channelProfile.visualArtStylePreset && (
+                  <span className="inline-flex items-center gap-1.5 rounded-md bg-surface border border-border px-2.5 py-1 text-[11px] text-text">
+                    <Palette className="h-3.5 w-3.5 text-emerald-400" />
+                    <span>Phong cách: <strong className="text-white">{config.channelProfile.visualArtStylePreset}</strong></span>
+                  </span>
+                )}
+                {config.channelProfile.channelOrientation && (
+                  <span className="inline-flex items-center gap-1.5 rounded-md bg-surface border border-border px-2.5 py-1 text-[11px] text-text">
+                    <Compass className="h-3.5 w-3.5 text-cyan-400" />
+                    <span>Định hướng: <strong className="text-white truncate max-w-[200px] inline-block align-bottom">{config.channelProfile.channelOrientation}</strong></span>
+                  </span>
+                )}
+                {config.channelProfile.aiProvider && config.channelProfile.aiProvider !== 'default' && (
+                  <span className="inline-flex items-center gap-1.5 rounded-md bg-surface border border-border px-2.5 py-1 text-[11px] text-text">
+                    <Cpu className="h-3.5 w-3.5 text-amber-400" />
+                    <span>AI Provider: <strong className="text-white uppercase">{config.channelProfile.aiProvider.replace('_', ' ')}</strong></span>
                   </span>
                 )}
               </div>

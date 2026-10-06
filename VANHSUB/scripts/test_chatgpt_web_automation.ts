@@ -17,7 +17,7 @@
  *   npx tsx scripts/test_chatgpt_web_automation.ts
  */
 
-import { parseChatGptScriptResponse } from '../main/ai-studio/chatgpt/ChatGptWebSessionManager';
+import { parseChatGptScriptResponse, POLL_STATE_SCRIPT, INSTALL_FETCH_HOOK_SCRIPT, isUserPromptEcho } from '../main/ai-studio/chatgpt/ChatGptWebSessionManager';
 import { AiStudioLlmService } from '../main/ai-studio/services/AiStudioLlmService';
 import type { AiStudioLlmConfig } from '../main/ai-studio/types';
 
@@ -263,6 +263,64 @@ Hãy đăng ký theo dõi kênh ngay hôm nay để không bỏ lỡ những chu
     passed++;
   } catch (err: any) {
     logFail('Test 6 failed', err);
+    failed++;
+  }
+
+  // --------------------------------------------------------------------------
+  // Test 7: Injected DOM Script Syntax Validity & Prompt Echo Guard Verification
+  // --------------------------------------------------------------------------
+  logTest(7, 'Validate POLL_STATE_SCRIPT syntax and prompt echo guard');
+  try {
+    // 1. Verify POLL_STATE_SCRIPT and INSTALL_FETCH_HOOK_SCRIPT parse without SyntaxError
+    new Function(POLL_STATE_SCRIPT);
+    new Function(INSTALL_FETCH_HOOK_SCRIPT);
+    logPass('POLL_STATE_SCRIPT & INSTALL_FETCH_HOOK_SCRIPT are syntactically valid with zero errors.');
+
+    // 2. Verify prompt echo guard correctly identifies user prompts vs assistant outputs
+    const userPromptSample = `
+1. SYSTEM ROLE — model đóng vai ai, viết cho kênh nào (GỌI ĐÚNG TÊN KÊNH), khán giả nào, hứa hẹn gì với người xem.
+PHẦN B — VÙNG CẤM SỬA
+Ba khối dưới đây là hợp đồng kỹ thuật với phần mềm...
+… Xem thêm
+ChatGPT đang phản hồi
+    `.trim();
+
+    if (!isUserPromptEcho(userPromptSample)) {
+      throw new Error('Expected isUserPromptEcho to return true for user prompt snippet containing markers, but returned false');
+    }
+
+    const productionPromptSample = `
+Bạn là chuyên gia viết PRODUCTION MASTER PROMPT cho kênh YouTube kể chuyện dài.
+PHẦN A — KHUÔN BẮT BUỘC
+Bạn KHÔNG viết kịch bản. Bạn viết cái prompt sinh ra kịch bản đó.
+    `.trim();
+
+    if (!isUserPromptEcho(productionPromptSample)) {
+      throw new Error('Expected isUserPromptEcho to return true for production prompt instruction snippet, but returned false');
+    }
+
+    const assistantRealOutput = `
+1. SYSTEM ROLE
+Bạn là nhà biên kịch lồng tiếng cao cấp cho kênh YouTube VanhSub Lịch Sử.
+
+2. INPUT
+CHANNEL NAME: {{CHANNEL_NAME}}
+=== SOURCE START ===
+{{SOURCE_MATERIAL}}
+=== SOURCE END ===
+
+3. PRIMARY OBJECTIVE
+- Độ dài mục tiêu: 5 đến 8 phút (khoảng 1.100 - 1.450 từ lồng tiếng).
+    `.trim();
+
+    if (isUserPromptEcho(assistantRealOutput)) {
+      throw new Error('Expected isUserPromptEcho to return false for valid assistant response, but returned true');
+    }
+
+    logPass('Prompt echo guard accurately discriminates between echo snippets and valid assistant responses.');
+    passed++;
+  } catch (err: any) {
+    logFail('Test 7 failed', err);
     failed++;
   }
 

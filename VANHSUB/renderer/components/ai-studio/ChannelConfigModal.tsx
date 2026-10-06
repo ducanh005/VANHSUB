@@ -124,6 +124,9 @@ export default function ChannelConfigModal({
         });
         if (result?.masterPrompt) {
           handleChange('masterPrompt', result.masterPrompt);
+          if (result.chatgptConversationUrl) {
+            handleChange('chatgptConversationUrl', result.chatgptConversationUrl);
+          }
           setPromptMessage(`✨ Đã sinh Master Prompt cho project "${projectName}" bằng ${aiModelDisplayName}!`);
         }
       } else {

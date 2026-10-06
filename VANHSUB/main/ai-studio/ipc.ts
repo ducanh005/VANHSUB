@@ -21,6 +21,7 @@ import { GoogleVeoSessionManager } from '../veo/GoogleVeoSessionManager';
 import { ChatGptWebSessionManager } from './chatgpt/ChatGptWebSessionManager';
 import { GeminiWebSessionManager } from './gemini/GeminiWebSessionManager';
 import { aiStudioLlmService } from './services/AiStudioLlmService';
+import { CapCutDraftExporter } from './services/CapCutDraftExporter';
 import type {
   AiStudioConfig,
   PartialAiStudioConfig,
@@ -54,6 +55,7 @@ import type {
   ImportSceneMediaPayload,
   ImportSceneMediaResult,
   SelfTestDiagnosticsResult,
+  CapCutDraftExportResult,
 } from './types';
 
 // ============================================================================
@@ -324,10 +326,16 @@ export function registerAiStudioIpc(): void {
         return pipelineEngineDelegate.autoFillIdea(payload);
       }
       const config = getDecryptedAiStudioConfig();
+      const effectiveChannelProfile = {
+        ...(config.channelProfile || {}),
+        ...(payload.channelProfile || {}),
+      };
       const blueprint = await aiStudioLlmService.analyzeIdeaBlueprint(
         payload.topic,
         config.llm,
-        payload.aspectRatio || '16:9'
+        payload.aspectRatio || '16:9',
+        undefined,
+        effectiveChannelProfile
       );
       return {
         title: blueprint.title || blueprint.topic,
@@ -384,7 +392,10 @@ export function registerAiStudioIpc(): void {
           payload.channelProfile,
           effectiveLlmConfig
         );
-        return { masterPrompt };
+        return {
+          masterPrompt,
+          chatgptConversationUrl: payload.channelProfile?.chatgptConversationUrl,
+        };
       } catch (err: any) {
         console.error('[AI-Studio-IPC] Error generating master prompt:', err);
         throw new Error(`Lỗi tạo Master Prompt cho kênh: ${err?.message || err}`);
@@ -791,5 +802,31 @@ export function registerAiStudioIpc(): void {
     };
   });
 
-  console.log('[AI Studio] Registered 19 IPC channels successfully (including 1-Click Diagnostics).');
+  // --------------------------------------------------------------------------
+  // Milestone 5 Channel: 1-Click CapCut Desktop Draft Export
+  // --------------------------------------------------------------------------
+
+  /**
+   * Channel: aiStudio:export:capcutDraft
+   * Exports an AI Studio project or pipeline session into a valid CapCut Desktop draft.
+   */
+  safeHandle(
+    'aiStudio:export:capcutDraft',
+    async (_event, payload: any, maybeTargetDir?: string): Promise<CapCutDraftExportResult> => {
+      try {
+        if (typeof payload === 'string' && maybeTargetDir) {
+          return await CapCutDraftExporter.exportToCapCutDraft(maybeTargetDir, payload);
+        }
+        if (maybeTargetDir) {
+          return await CapCutDraftExporter.exportToCapCutDraft(payload, maybeTargetDir);
+        }
+        return await CapCutDraftExporter.exportToCapCutDraft(payload);
+      } catch (err: any) {
+        console.error('[AI-Studio-IPC] Error exporting CapCut draft:', err);
+        throw new Error(`Failed to export CapCut draft: ${err?.message || err}`);
+      }
+    }
+  );
+
+  console.log('[AI Studio] Registered 20 IPC channels successfully (including 1-Click CapCut Export).');
 }

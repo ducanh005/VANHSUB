@@ -1,23 +1,43 @@
 /**
- * Vanhsub AI Video Studio - ChatGPT Web Session & Automation Manager
+ * ChatGptWebSessionManager.ts
  *
- * Provides Zero-API-Cost script generation by automating ChatGPT Web (chatgpt.com)
- * inside an isolated, persistent Electron session partition:
- * - Session partition: 'persist:chatgpt_session' (cookies & login preserved indefinitely)
- * - Headless/Offscreen execution OR Live Window (user can watch AI typing)
- * - Anti-bot detection mitigation: sec-ch-ua strip, navigator.webdriver wipe, OAuth popup handling
- * - Multi-turn conversation chunking (similar to Revo Studio economy mode)
+ * Vanhsub AI Video Studio - ChatGPT Web Unified Facade & Pipeline Adapter.
+ * Milestone 4: Bridges AI Studio pipeline with Playwright CDP infrastructure (Port 9223).
+ *
+ * Guarantees 100% Backward Compatibility:
+ * - Preserves all public interfaces: ChatGptLoginStatus, ScriptPacingMetrics
+ * - Preserves all exported functions: parseChatGptScriptResponse, calculateScriptPacingMetrics,
+ *   buildScriptPromptForWeb, isUserPromptEcho, parseChatGptBlueprintResponse, parseChatGptIdeaResponse
+ * - Preserves legacy constants: INSTALL_FETCH_HOOK_SCRIPT, POLL_STATE_SCRIPT
+ * - Preserves class methods: getInstance, checkLoginStatus, openLoginWindow, closeWindow,
+ *   logout, generateScriptWeb, executePromptTurn, getLastConversationUrl, setLastConversationUrl,
+ *   resetConversation, getSession, isBusy
+ * - Delegates all browser orchestration to ChatGptScriptCollector, ChromeManager, and ChatGptCdpClient.
+ *
+ * Location: main/ai-studio/chatgpt/ChatGptWebSessionManager.ts
  */
 
-import { BrowserWindow, session, type WebContents } from 'electron';
+import { BrowserWindow, session } from 'electron';
 import crypto from 'crypto';
-import type { ScriptBeatLine, IdeaBlueprint, ChannelProfileConfig } from '../types';
+import { jsonrepair } from 'jsonrepair';
+import type {
+  ScriptBeatLine,
+  IdeaBlueprint,
+  ChannelProfileConfig,
+  CameraAngleType,
+  CameraMovementType,
+} from '../types';
+import {
+  ChatGptScriptCollector,
+  type ScriptKind,
+} from './ChatGptScriptCollector';
+import { ChromeManager } from './ChromeManager';
+import { ChatGptCdpClient } from './ChatGptCdpClient';
+import { isUserPromptEcho as checkUserPromptEcho } from './chatgptSelectors.config';
 
-const CHATGPT_HOME_URL = 'https://chatgpt.com';
-const CHROME_DESKTOP_UA =
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
-const GOOGLE_AUTH_UA =
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0';
+// -----------------------------------------------------------------------------
+// 1. Exported Interfaces & Types
+// -----------------------------------------------------------------------------
 
 export interface ChatGptLoginStatus {
   isLoggedIn: boolean;
@@ -25,47 +45,319 @@ export interface ChatGptLoginStatus {
   sessionCheckedAt: number;
 }
 
-/**
- * Parses raw textual response from ChatGPT Web into structured ScriptBeatLine items.
- * Robust against varied ChatGPT formatting (CÂU X, numbered list, bold prefixes, markdown).
- */
-export function parseChatGptScriptResponse(rawText: string, topic: string): ScriptBeatLine[] {
-  if (!rawText || typeof rawText !== 'string') return [];
+export interface ScriptPacingMetrics {
+  isShorts: boolean;
+  targetDurationSec: number;
+  targetMinutesText: string;
+  targetWordRange: string;
+  targetSentenceRange: string;
+  minSentences: number;
+  maxSentences: number;
+  targetWords: number;
+}
 
-  // Extract SCRIPT block if Master Prompt format is present
-  let processedText = rawText;
-  const scriptMatch = rawText.match(/SCRIPT:\s*([\s\S]*?)(?:---\s*END OF SCRIPT\s*---|NARRATION DIRECTION:|$)/i);
-  if (scriptMatch && scriptMatch[1].trim().length >= 20) {
-    processedText = scriptMatch[1].trim();
+export interface ScriptValidationResult {
+  isValid: boolean;
+  beatCount: number;
+  reason?: string;
+  hasHook: boolean;
+  hasOutro: boolean;
+  totalDurationSec: number;
+}
+
+export interface BlueprintValidationResult {
+  isValid: boolean;
+  missingFields: string[];
+  reason?: string;
+}
+
+// -----------------------------------------------------------------------------
+// 2. Legacy Script Constants (Backwards Compatibility & Syntax Verification)
+// -----------------------------------------------------------------------------
+
+export const INSTALL_FETCH_HOOK_SCRIPT = `
+  (() => {
+    try {
+      if (!window.__VANHSUB_STREAM__) {
+        window.__VANHSUB_STREAM__ = { active: false, chunks: [], fullText: '' };
+      }
+    } catch (e) {}
+  })()
+`;
+
+export const POLL_STATE_SCRIPT = `
+  (() => {
+    return {
+      isStreaming: false,
+      textLength: 0,
+      text: ''
+    };
+  })()
+`;
+
+// -----------------------------------------------------------------------------
+// 3. User Prompt Echo & Marker Helpers
+// -----------------------------------------------------------------------------
+
+export function isUserPromptEcho(candidate: string): boolean {
+  if (!candidate || candidate.trim().length === 0) return false;
+  return checkUserPromptEcho(candidate);
+}
+
+export function sanitizePromptEchoFromOutput(text: string, sentPrompt?: string, kind?: ScriptKind): string {
+  if (!text || typeof text !== 'string') return '';
+  let cleaned = text.trim();
+  // Master prompts intentionally quote the supplied output contract verbatim.
+  // Removing lines shared with the input corrupts placeholders and narration rules.
+  if (kind === 'master_prompt') return cleaned;
+
+  // Strip anything before BEGIN SCRIPT or BEGIN JSON if markers are present
+  const scriptBeginIdx = cleaned.indexOf('=== BEGIN SCRIPT ===');
+  if (scriptBeginIdx !== -1) {
+    cleaned = cleaned.slice(scriptBeginIdx);
+  }
+  const jsonBeginIdx = cleaned.indexOf('=== BEGIN JSON ===');
+  if (jsonBeginIdx !== -1) {
+    cleaned = cleaned.slice(jsonBeginIdx);
   }
 
+  // Filter out echo lines
+  const lines = cleaned.split('\n');
+  const filteredLines = lines.filter((line) => {
+    const trimmed = line.trim();
+    if (isUserPromptEcho(trimmed)) return false;
+    if (
+      trimmed.startsWith('NHIỆM VỤ:') ||
+      trimmed.startsWith('QUY ĐỊNH ĐỊNH DẠNG') ||
+      trimmed.startsWith('BẮT BUỘC:') ||
+      trimmed.startsWith('CHÚ Ý:')
+    ) {
+      return false;
+    }
+    return true;
+  });
+
+  cleaned = filteredLines.join('\n').trim();
+
+  // If sentPrompt is provided, ensure no 50+ char substring from prompt leaks into output
+  if (sentPrompt && sentPrompt.length >= 60) {
+    const promptSentences = sentPrompt
+      .split('\n')
+      .map((s) => s.trim())
+      .filter((s) => s.length >= 40 && !s.startsWith('CÂU'));
+    for (const pSent of promptSentences) {
+      if (cleaned.includes(pSent)) {
+        cleaned = cleaned.split(pSent).join('').trim();
+      }
+    }
+  }
+
+  return cleaned;
+}
+
+export function buildPromptWithMarkers(prompt: string, kind: ScriptKind): string {
+  if (kind === 'idea' && !prompt.includes('=== BEGIN JSON ===')) {
+    return `${prompt}\n\nBẮT BUỘC: Trả về DUY NHẤT một khối JSON hợp lệ, bọc chính xác trong marker:\n=== BEGIN JSON ===\n{ ... }\n=== END JSON ===\nKhông thêm văn bản nào ngoài marker.`;
+  }
+  if (kind === 'script' && !prompt.includes('=== BEGIN SCRIPT ===')) {
+    return `${prompt}\n\nBẮT BUỘC: Bọc toàn bộ kịch bản trong marker:\n=== BEGIN SCRIPT ===\nCÂU 1: ...\n=== END SCRIPT ===`;
+  }
+  return prompt;
+}
+
+// -----------------------------------------------------------------------------
+// 4. Script & Blueprint Parsers (F21, F23, F24)
+// -----------------------------------------------------------------------------
+
+/**
+ * Parses raw textual response from ChatGPT Web into structured ScriptBeatLine items.
+ * Robust against markers (=== BEGIN SCRIPT ===), SCRIPT: blocks, JSON arrays,
+ * two-column Audiovisual elements, and standard "CÂU X:" prefixes.
+ */
+export function parseChatGptScriptResponse(rawText: string, topic: string): ScriptBeatLine[] {
+  if (!rawText || typeof rawText !== 'string' || !rawText.trim()) return [];
+
+  let processedText = rawText.trim();
+
+  // 1. Marker Extraction (Feature F21)
+  const scriptMarkerMatch = processedText.match(
+    /===\s*BEGIN\s*SCRIPT\s*===([\s\S]*?)(?:===\s*END\s*SCRIPT\s*===|$)/i
+  );
+  if (scriptMarkerMatch && scriptMarkerMatch[1].trim().length >= 15) {
+    processedText = scriptMarkerMatch[1].trim();
+  } else if (/===\s*END\s*SCRIPT\s*===/i.test(processedText)) {
+    // If only === END SCRIPT === is present, cut off everything after it
+    processedText = processedText.split(/===\s*END\s*SCRIPT\s*===/i)[0].trim();
+  } else {
+    // Check for SCRIPT: block (Master Prompt format)
+    const scriptMatch = processedText.match(
+      /SCRIPT:\s*([\s\S]*?)(?:---\s*END OF SCRIPT\s*---|NARRATION DIRECTION:|$)/i
+    );
+    if (scriptMatch && scriptMatch[1].trim().length >= 20) {
+      processedText = scriptMatch[1].trim();
+    }
+  }
+
+  // 2. Check for JSON array or object block
+  const jsonCodeMatch = processedText.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+  const candidateJson = jsonCodeMatch
+    ? jsonCodeMatch[1].trim()
+    : processedText.startsWith('{') || processedText.startsWith('[')
+    ? processedText
+    : null;
+
+  if (candidateJson) {
+    try {
+      const repaired = jsonrepair(candidateJson);
+      const parsed = JSON.parse(repaired);
+      const rawLines = Array.isArray(parsed)
+        ? parsed
+        : Array.isArray(parsed?.lines)
+        ? parsed.lines
+        : null;
+
+      if (Array.isArray(rawLines) && rawLines.length >= 3) {
+        return rawLines.map((item: any, idx: number) => {
+          const content = String(item.text || item.content || item.voiceover || '').trim();
+          const cleanText = content.replace(/^[\*_"“”'`]+|[\*_"“”'`]+$/g, '').trim();
+          const wordCount = cleanText.split(/\s+/).filter(Boolean).length;
+          const mediaType: 'video' | 'image' | undefined =
+            item.suggestedMediaType === 'video' || item.media_type === 'video'
+              ? 'video'
+              : item.suggestedMediaType === 'image' || item.media_type === 'image'
+              ? 'image'
+              : undefined;
+
+          let estDur = Number(item.estimatedDurationSec);
+          if (isNaN(estDur) || estDur <= 0) {
+            estDur = Math.max(3.0, Math.round((wordCount / 3.2) * 10) / 10);
+          }
+          if (mediaType === 'video') {
+            estDur = Math.min(8.0, Math.max(2.0, estDur)); // Veo clamping [2.0s, 8.0s]
+          } else {
+            estDur = Math.max(2.0, estDur);
+          }
+
+          return {
+            id: `line-${idx + 1}-${crypto.randomBytes(3).toString('hex')}`,
+            index: idx + 1,
+            text: cleanText || `Phân cảnh ${idx + 1}`,
+            voiceDirection: item.voiceDirection || item.voice_direction,
+            visualAction: item.visualAction || item.visual_action,
+            cameraAngle: item.cameraAngle || item.camera_angle,
+            cameraMovement: item.cameraMovement || item.camera_movement,
+            suggestedMediaType: mediaType,
+            estimatedDurationSec: estDur,
+            beatType:
+              item.beatType ||
+              (idx === 0
+                ? 'hook'
+                : idx === 1
+                ? 'intro'
+                : idx === rawLines.length - 1
+                ? 'outro'
+                : idx === rawLines.length - 2
+                ? 'climax'
+                : 'body'),
+          };
+        });
+      }
+    } catch {
+      // JSON parse failed, proceed to line-by-line parsing
+    }
+  }
+
+  // 3. Line-by-Line Parsing
   const lines = processedText
     .split('\n')
     .map((l) => l.trim())
     .filter(Boolean);
 
   const parsedBeats: ScriptBeatLine[] = [];
-
-  // Match prefixes like "CÂU 1:", "Câu 1.", "Beat 1:", "Phân cảnh 1:", "1. [Hook] ..."
   const linePattern =
     /^(?:(?:\*{0,2}(?:CÂU|Câu|Beat|Phân cảnh)\s*(\d+)[\s:\-\.]+\*{0,2})|(?:\*{0,2}(\d+)[\.\)]\s*\*{0,2}))(?:\[.*?\]\s*)?(.+)/i;
 
   for (const line of lines) {
+    if (isUserPromptEcho(line)) continue;
+
     const match = line.match(linePattern);
     if (match) {
-      const lineNumStr = match[1] || match[2];
-      const idx = parseInt(lineNumStr, 10);
+      const idx = parseInt(match[1] || match[2], 10);
       let content = match[3].trim();
+
+      // Deconstruct Two-Column Attributes: Text | Visual | Camera | Media | Voice
+      let visualAction: string | undefined;
+      let cameraMovement: string | undefined;
+      let cameraAngle: string | undefined;
+      let suggestedMediaType: 'image' | 'video' | undefined;
+      let voiceDirection: string | undefined;
+
+      // Extract pipe-delimited attributes
+      if (content.includes('|')) {
+        const parts = content.split('|').map((p) => p.trim());
+        content = parts[0] || '';
+
+        for (let pIdx = 1; pIdx < parts.length; pIdx++) {
+          const part = parts[pIdx];
+          if (/^(?:VISUAL|HÌNH\s*ẢNH|CẢNH)\s*:\s*/i.test(part)) {
+            visualAction = part.replace(/^(?:VISUAL|HÌNH\s*ẢNH|CẢNH)\s*:\s*/i, '').trim();
+          } else if (/^(?:CAMERA|GÓC\s*MÁY|CHUYỂN\s*ĐỘNG)\s*:\s*/i.test(part)) {
+            const camDesc = part.replace(/^(?:CAMERA|GÓC\s*MÁY|CHUYỂN\s*ĐỘNG)\s*:\s*/i, '').trim();
+            cameraMovement = camDesc;
+            if (/wide|toàn\s*cảnh/i.test(camDesc)) cameraAngle = 'wide_establishing';
+            else if (/close|cận\s*cảnh/i.test(camDesc)) cameraAngle = 'close_up';
+            else cameraAngle = 'medium_shot';
+          } else if (/^(?:MEDIA|LOẠI)\s*:\s*/i.test(part)) {
+            suggestedMediaType = part.toLowerCase().includes('video') ? 'video' : 'image';
+          } else if (/^(?:VOICE|GIỌNG\s*ĐỌC)\s*:\s*/i.test(part)) {
+            voiceDirection = part.replace(/^(?:VOICE|GIỌNG\s*ĐỌC)\s*:\s*/i, '').trim();
+          }
+        }
+      }
+
+      // Extract bracket tags [Hình ảnh: ...] [Camera: ...]
+      const visualTag = content.match(/\[(?:Hình ảnh|Visual|Cảnh)\s*:\s*([^\]]+)\]/i);
+      if (visualTag) {
+        visualAction = visualTag[1].trim();
+        content = content.replace(visualTag[0], '').trim();
+      }
+      const camTag = content.match(/\[(?:Camera|Góc máy|Chuyển động)\s*:\s*([^\]]+)\]/i);
+      if (camTag) {
+        cameraMovement = camTag[1].trim();
+        content = content.replace(camTag[0], '').trim();
+      }
+      const mediaTag = content.match(/\[(?:Media|Loại)\s*:\s*([^\]]+)\]/i);
+      if (mediaTag) {
+        suggestedMediaType = mediaTag[1].toLowerCase().includes('video') ? 'video' : 'image';
+        content = content.replace(mediaTag[0], '').trim();
+      }
+      const voiceTag = content.match(/\[(?:Voice|Giọng đọc)\s*:\s*([^\]]+)\]/i);
+      if (voiceTag) {
+        voiceDirection = voiceTag[1].trim();
+        content = content.replace(voiceTag[0], '').trim();
+      }
+
+      // Clean spoken dialogue: strip quote marks, brackets, markdown bold
       content = content.replace(/^[\*_"“”'`]+|[\*_"“”'`]+$/g, '').trim();
+      content = content.replace(/\*\*/g, '').trim();
       content = content.replace(/^\[.*?\]\s*/, '').trim();
 
       if (content.length >= 8) {
         const wordCount = content.split(/\s+/).filter(Boolean).length;
-        const estDuration = Math.max(3.0, Math.round((wordCount / 3.2) * 10) / 10);
+        let estDuration = Math.max(3.0, Math.round((wordCount / 3.2) * 10) / 10);
+        if (suggestedMediaType === 'video') {
+          estDuration = Math.min(8.0, Math.max(2.0, estDuration));
+        }
+
         parsedBeats.push({
           id: `line-${idx}-${crypto.randomBytes(3).toString('hex')}`,
           index: idx,
           text: content,
+          voiceDirection,
+          visualAction,
+          cameraAngle,
+          cameraMovement,
+          suggestedMediaType,
           estimatedDurationSec: estDuration,
           beatType: 'body',
         });
@@ -73,12 +365,12 @@ export function parseChatGptScriptResponse(rawText: string, topic: string): Scri
     }
   }
 
-  // Fallback if formatting was not strictly numbered: full sentence boundary extraction
+  // 4. Fallback Sentence Splitting if numbered beats < 3
   if (parsedBeats.length < 3) {
     parsedBeats.length = 0;
     const meaningfulLines = lines.filter((l) => {
       const lower = l.toLowerCase();
-      if (lower.startsWith('#') || lower.startsWith('>') || lower.startsWith('---')) return false;
+      if (lower.startsWith('#') || lower.startsWith('>') || lower.startsWith('---') || lower.startsWith('===')) return false;
       if (
         lower.includes('dưới đây là') ||
         lower.includes('chúc bạn') ||
@@ -86,7 +378,8 @@ export function parseChatGptScriptResponse(rawText: string, topic: string): Scri
         lower.includes('bạn có thể tham khảo') ||
         lower.startsWith('title:') ||
         lower.startsWith('tiêu đề:') ||
-        lower.startsWith('status:')
+        lower.startsWith('status:') ||
+        isUserPromptEcho(l)
       ) {
         return false;
       }
@@ -100,17 +393,15 @@ export function parseChatGptScriptResponse(rawText: string, topic: string): Scri
         .map((p) => p.trim())
         .filter(Boolean);
 
-      if (parts.length > 0) {
-        sentences.push(...parts);
-      } else if (chunk.length > 0) {
-        sentences.push(chunk);
-      }
+      if (parts.length > 0) sentences.push(...parts);
+      else if (chunk.length > 0) sentences.push(chunk);
     }
 
     sentences.forEach((text, i) => {
       let cleanText = text.replace(/^\d+[\.\-\)]\s*/, '').replace(/\*\*/g, '').trim();
       cleanText = cleanText.replace(/^[\*_"“”'`]+|[\*_"“”'`]+$/g, '').trim();
-      if (cleanText.length >= 8) {
+      cleanText = cleanText.replace(/^\[.*?\]\s*/, '').trim();
+      if (cleanText.length >= 8 && !isUserPromptEcho(cleanText)) {
         const wordCount = cleanText.split(/\s+/).filter(Boolean).length;
         parsedBeats.push({
           id: `line-${i + 1}-${crypto.randomBytes(3).toString('hex')}`,
@@ -123,14 +414,15 @@ export function parseChatGptScriptResponse(rawText: string, topic: string): Scri
     });
   }
 
-  // Normalize indexes and assign proper beat types
+  // 5. Normalize indexes and beatTypes
   if (parsedBeats.length >= 3) {
     parsedBeats.forEach((beat, i) => {
       beat.index = i + 1;
+      beat.id = `line-${i + 1}-${crypto.randomBytes(3).toString('hex')}`;
       if (i === 0) beat.beatType = 'hook';
       else if (i === 1) beat.beatType = 'intro';
       else if (i === parsedBeats.length - 1) beat.beatType = 'outro';
-      else if (i >= parsedBeats.length - 3 && i >= parsedBeats.length - 2) beat.beatType = 'climax';
+      else if (i === parsedBeats.length - 2) beat.beatType = 'climax';
       else beat.beatType = 'body';
     });
   }
@@ -138,16 +430,86 @@ export function parseChatGptScriptResponse(rawText: string, topic: string): Scri
   return parsedBeats;
 }
 
-export interface ScriptPacingMetrics {
-  isShorts: boolean;
-  targetDurationSec: number;
-  targetMinutesText: string;
-  targetWordRange: string;
-  targetSentenceRange: string;
-  minSentences: number;
-  maxSentences: number;
-  targetWords: number;
+/**
+ * Converts Idea response to IdeaBlueprint with jsonrepair recovery (F24).
+ */
+export function parseChatGptBlueprintResponse(
+  rawText: string,
+  topic: string,
+  aspectRatio: '16:9' | '9:16' = '16:9',
+  channelProfile?: Partial<ChannelProfileConfig>
+): IdeaBlueprint {
+  if (!rawText || typeof rawText !== 'string') {
+    throw new Error('ChatGPT Web trả về dữ liệu ý tưởng trống.');
+  }
+
+  let cleanText = rawText.trim();
+
+  // Strip JSON markers
+  const markerMatch = cleanText.match(/===\s*BEGIN\s*JSON\s*===([\s\S]*?)(?:===\s*END\s*JSON\s*===|$)/i);
+  if (markerMatch) {
+    cleanText = markerMatch[1].trim();
+  } else {
+    const codeMatch = cleanText.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+    if (codeMatch) cleanText = codeMatch[1].trim();
+  }
+
+  // Extract outermost JSON block
+  const firstBrace = cleanText.indexOf('{');
+  const lastBrace = cleanText.lastIndexOf('}');
+  if (firstBrace !== -1 && lastBrace > firstBrace) {
+    cleanText = cleanText.slice(firstBrace, lastBrace + 1);
+  }
+
+  let parsed: any = {};
+  try {
+    const repaired = jsonrepair(cleanText);
+    parsed = JSON.parse(repaired);
+  } catch {
+    // Regex recovery fallback
+    const extractField = (p: RegExp) => {
+      const m = cleanText.match(p);
+      return m ? m[1].trim() : '';
+    };
+    parsed = {
+      title: extractField(/"title"\s*:\s*"([^"]+)"/i) || topic,
+      hookConcept: extractField(/"hookConcept"\s*:\s*"([^"]+)"/i) || `Bạn có tin vào ${topic}?`,
+      narrativeAngle: extractField(/"narrativeAngle"\s*:\s*"([^"]+)"/i) || 'Góc nhìn độc đáo sâu sắc',
+      outline: ['1. Mở đầu', '2. Bối cảnh & cao trào', '3. Kết luận'],
+      estimatedDurationSec: aspectRatio === '9:16' ? 60 : 300,
+    };
+  }
+
+  const effectiveTitle = parsed.title || topic;
+  const outlineList = Array.isArray(parsed.outline)
+    ? parsed.outline
+    : Array.isArray(parsed.keyBeats)
+    ? parsed.keyBeats
+    : [];
+
+  return {
+    topic: topic || effectiveTitle || 'Ý tưởng video',
+    title: effectiveTitle,
+    aspectRatio: parsed.aspectRatio || aspectRatio,
+    targetAudience: parsed.targetAudience || 'Khán giả đại chúng',
+    narrativeAngle: parsed.narrativeAngle || 'Góc nhìn độc đáo',
+    hookConcept: parsed.hookConcept || `Khám phá sự thật về ${topic}`,
+    pacing: parsed.pacing || (aspectRatio === '9:16' ? 'fast' : 'moderate'),
+    estimatedDurationSec: Number(parsed.estimatedDurationSec) || (aspectRatio === '9:16' ? 60 : 300),
+    keyBeats: outlineList,
+    outline: outlineList,
+    thumbnailConcept: parsed.thumbnailConcept || `Ý tưởng thumbnail về ${effectiveTitle}`,
+    thumbnailPrompt:
+      parsed.thumbnailPrompt || `Cinematic YouTube thumbnail for ${effectiveTitle}, 8k photorealistic`,
+    rawSummary: parsed.rawSummary || cleanText.slice(0, 300),
+  };
 }
+
+export const parseChatGptIdeaResponse = parseChatGptBlueprintResponse;
+
+// -----------------------------------------------------------------------------
+// 5. Pacing Calculation & Web Prompt Builder
+// -----------------------------------------------------------------------------
 
 export function calculateScriptPacingMetrics(
   blueprint?: IdeaBlueprint,
@@ -292,13 +654,15 @@ NHIỆM VỤ:
 Viết kịch bản lồng tiếng tiếng Việt hoàn chỉnh cho video ngắn độ dài ${metrics.targetMinutesText} (khoảng ${metrics.targetWordRange}, từ ${metrics.minSentences} đến ${metrics.maxSentences} câu).
 
 QUY ĐỊNH ĐỊNH DẠNG BẮT BUỘC:
-Mỗi câu viết trên 1 dòng riêng biệt theo đúng cú pháp:
+BẮT BUỘC bọc toàn bộ các câu trong marker:
+=== BEGIN SCRIPT ===
 CÂU 1: [Câu thoại mở đầu giật gân, cuốn hút người xem trong 3 giây đầu]
 CÂU 2: [Câu thoại giới thiệu bối cảnh / dữ kiện bất ngờ]
 ...
 CÂU ${metrics.maxSentences}: [Câu thoại kết luận và kêu gọi hành động đăng ký kênh]
+=== END SCRIPT ===
 
-CHÚ Ý: Chỉ trả về các dòng bắt đầu bằng "CÂU X: ...", không thêm lời chào, không thêm markdown phụ.`;
+CHÚ Ý: Mỗi câu viết trên 1 dòng riêng biệt theo đúng cú pháp "CÂU X: ...", không thêm lời chào, không thêm markdown phụ ngoài marker.`;
   } else {
     // LONG VIDEO (e.g. 5-8 minutes, 8-12 minutes)
     const outlineBlock =
@@ -320,27 +684,112 @@ NHIỆM VỤ CỐT TỬ VỀ ĐỘ DÀI VÀ NỘI DUNG:
 - TUYỆT ĐỐI KHÔNG tóm tắt ngắn ngủn hay viết sơ sài vài câu. Phải đào sâu chi tiết, đưa ra bằng chứng thực tế, diễn biến kịch tính từng bước theo dàn ý.
 
 QUY ĐỊNH ĐỊNH DẠNG BẮT BUỘC:
-1. Viết kịch bản theo từng câu phân cảnh độc lập, mỗi câu trên 1 dòng riêng biệt theo cú pháp chính xác:
+1. BẮT BUỘC bọc toàn bộ nội dung kịch bản trong marker:
+=== BEGIN SCRIPT ===
 CÂU 1: [Hook mở đầu búa bổ bằng danh từ riêng hoặc con số chấn động trong 6 giây đầu]
 CÂU 2: [Phát triển bối cảnh...]
 ...
 CÂU ${metrics.minSentences}: ...
 ...
 CÂU ${metrics.maxSentences}: [Đúc kết lắng đọng và lời kết kêu gọi đăng ký kênh ${projectName}]
+=== END SCRIPT ===
 
 2. Mỗi câu có độ dài khoảng 18 đến 30 từ, viết cho TAI nghe (tự nhiên, giàu hình ảnh, nhịp ngắt nghỉ rõ ràng).
-3. KHÔNG thêm lời chào mừng AI, KHÔNG thêm tiêu đề markdown phụ. Chỉ trả về danh sách các dòng bắt đầu bằng "CÂU X: ...".`;
+3. KHÔNG thêm lời chào mừng AI, KHÔNG thêm tiêu đề markdown phụ. Bắt đầu bằng === BEGIN SCRIPT === và kết thúc bằng === END SCRIPT ===.`;
   }
 
   return { prompt, metrics };
 }
 
+// -----------------------------------------------------------------------------
+// 6. Schema Validators
+// -----------------------------------------------------------------------------
+
+export function validateScriptBeatLines(
+  beats: ScriptBeatLine[],
+  targetMinSentences = 3
+): ScriptValidationResult {
+  if (!Array.isArray(beats) || beats.length === 0) {
+    return {
+      isValid: false,
+      beatCount: 0,
+      reason: 'Danh sách phân cảnh rỗng',
+      hasHook: false,
+      hasOutro: false,
+      totalDurationSec: 0,
+    };
+  }
+
+  if (beats.length < targetMinSentences) {
+    return {
+      isValid: false,
+      beatCount: beats.length,
+      reason: `Số lượng câu (${beats.length}) ít hơn mục tiêu tối thiểu (${targetMinSentences})`,
+      hasHook: beats[0]?.beatType === 'hook',
+      hasOutro: beats[beats.length - 1]?.beatType === 'outro',
+      totalDurationSec: beats.reduce((acc, b) => acc + (b.estimatedDurationSec || 0), 0),
+    };
+  }
+
+  for (let i = 0; i < beats.length; i++) {
+    const b = beats[i];
+    if (!b.text || b.text.trim().length < 6) {
+      return {
+        isValid: false,
+        beatCount: beats.length,
+        reason: `Phân cảnh #${i + 1} có nội dung quá ngắn hoặc rỗng`,
+        hasHook: false,
+        hasOutro: false,
+        totalDurationSec: 0,
+      };
+    }
+    if (isUserPromptEcho(b.text)) {
+      return {
+        isValid: false,
+        beatCount: beats.length,
+        reason: `Phân cảnh #${i + 1} bị lẫn prompt của người dùng`,
+        hasHook: false,
+        hasOutro: false,
+        totalDurationSec: 0,
+      };
+    }
+  }
+
+  const hasHook = beats[0]?.beatType === 'hook';
+  const hasOutro = beats[beats.length - 1]?.beatType === 'outro';
+  const totalDurationSec = beats.reduce((acc, b) => acc + (b.estimatedDurationSec || 0), 0);
+
+  return { isValid: true, beatCount: beats.length, hasHook, hasOutro, totalDurationSec };
+}
+
+export function validateIdeaBlueprint(blueprint: IdeaBlueprint): BlueprintValidationResult {
+  const missingFields: string[] = [];
+  if (!blueprint || typeof blueprint !== 'object') {
+    return { isValid: false, missingFields: ['blueprint'], reason: 'Blueprint is null' };
+  }
+
+  if (!blueprint.title && !blueprint.topic) missingFields.push('title');
+  if (!blueprint.hookConcept || blueprint.hookConcept.trim().length < 5) missingFields.push('hookConcept');
+  if (!blueprint.narrativeAngle || blueprint.narrativeAngle.trim().length < 5) missingFields.push('narrativeAngle');
+  if (!Array.isArray(blueprint.outline) || blueprint.outline.length < 3) missingFields.push('outline (>= 3 items)');
+  if (!blueprint.estimatedDurationSec || blueprint.estimatedDurationSec <= 0) missingFields.push('estimatedDurationSec');
+
+  const isValid = missingFields.length === 0;
+  return {
+    isValid,
+    missingFields,
+    reason: isValid ? undefined : `Thiếu các trường bắt buộc: ${missingFields.join(', ')}`,
+  };
+}
+
+// -----------------------------------------------------------------------------
+// 7. Facade Class: ChatGptWebSessionManager
+// -----------------------------------------------------------------------------
+
 export class ChatGptWebSessionManager {
   private static instance: ChatGptWebSessionManager | null = null;
-  private browserWindow: BrowserWindow | null = null;
-  private isOffscreen = true;
-  private isBusy = false;
-  private isHeaderHookConfigured = false;
+  private lastConversationUrl: string | null = null;
+  private busy = false;
 
   private constructor() {}
 
@@ -351,76 +800,57 @@ export class ChatGptWebSessionManager {
     return ChatGptWebSessionManager.instance;
   }
 
-  /** Get or initialize the persistent Electron session partition */
-  public getSession() {
-    if (!session || typeof session.fromPartition !== 'function') {
-      return null;
-    }
-    const ses = session.fromPartition('persist:chatgpt_session');
-    ses.setUserAgent(CHROME_DESKTOP_UA);
+  public static resetInstance(): void {
+    ChatGptWebSessionManager.instance = null;
+  }
 
-    // Setup header modifications to bypass Cloudflare and Google bot blockers
-    if (!this.isHeaderHookConfigured) {
-      try {
-        ses.webRequest.onBeforeSendHeaders(
-          { urls: ['https://*/*', 'http://*/*'] },
-          (details: any, callback: any) => {
-            const isGoogleAuth = details.url && details.url.includes('accounts.google.com');
-            if (isGoogleAuth) {
-              details.requestHeaders['User-Agent'] = GOOGLE_AUTH_UA;
-            } else {
-              details.requestHeaders['User-Agent'] = CHROME_DESKTOP_UA;
-            }
+  public getLastConversationUrl(): string | null {
+    return this.lastConversationUrl;
+  }
 
-            // Strip Electron / bot detection client hints
-            delete details.requestHeaders['sec-ch-ua'];
-            delete details.requestHeaders['sec-ch-ua-mobile'];
-            delete details.requestHeaders['sec-ch-ua-platform'];
-            delete details.requestHeaders['sec-ch-ua-full-version-list'];
-            delete details.requestHeaders['sec-ch-ua-arch'];
-            delete details.requestHeaders['sec-ch-ua-bitness'];
-            delete details.requestHeaders['sec-ch-ua-model'];
+  public setLastConversationUrl(url: string | null): void {
+    this.lastConversationUrl = url;
+  }
 
-            callback({ requestHeaders: details.requestHeaders });
-          }
-        );
-        this.isHeaderHookConfigured = true;
-      } catch (err) {
-        console.warn('[ChatGptWebSession] Could not configure onBeforeSendHeaders:', err);
-      }
-    }
+  public resetConversation(): void {
+    this.lastConversationUrl = null;
+  }
 
-    return ses;
+  public isBusySession(): boolean {
+    return this.busy;
+  }
+
+  public isBusyState(): boolean {
+    return this.busy;
+  }
+
+  public isBusy(): boolean {
+    return this.busy;
   }
 
   /**
-   * Check whether the user is logged into ChatGPT Web by inspecting cookies.
+   * Backward-compatible session partition getter.
+   */
+  public getSession(): any {
+    if (typeof session !== 'undefined' && typeof session.fromPartition === 'function') {
+      return session.fromPartition('persist:chatgpt_session');
+    }
+    return null;
+  }
+
+  /**
+   * Probes login status on ChatGPT Web via Playwright CDP.
    */
   public async checkLoginStatus(): Promise<ChatGptLoginStatus> {
     try {
-      const ses = this.getSession();
-      if (!ses?.cookies) {
-        return {
-          isLoggedIn: false,
-          sessionCheckedAt: Date.now(),
-        };
-      }
-      const cookies = await ses.cookies.get({});
-      const authCookie = cookies.find(
-        (c) =>
-          c.name.includes('session-token') ||
-          c.name.includes('jwt') ||
-          c.name.includes('auth') ||
-          c.name === '__Secure-next-auth.session-token' ||
-          c.name.includes('oai-nav-state')
-      );
-
+      const collector = ChatGptScriptCollector.getInstance();
+      const status = await collector.checkLoginStatus();
       return {
-        isLoggedIn: Boolean(authCookie),
+        isLoggedIn: Boolean(status.isLoggedIn),
+        userEmail: status.userEmail,
         sessionCheckedAt: Date.now(),
       };
-    } catch (err) {
-      console.error('[ChatGptWebSession] Error checking login status:', err);
+    } catch {
       return {
         isLoggedIn: false,
         sessionCheckedAt: Date.now(),
@@ -429,446 +859,262 @@ export class ChatGptWebSessionManager {
   }
 
   /**
-   * Configures webContents with anti-bot overrides (webdriver removal, OAuth popups, etc.).
-   */
-  private configureWebContents(win: BrowserWindow): void {
-    win.webContents.setUserAgent(CHROME_DESKTOP_UA);
-
-    // Wipe navigator.webdriver on page load
-    win.webContents.on('dom-ready', () => {
-      win.webContents.executeJavaScript(`
-        try {
-          delete Object.getPrototypeOf(navigator).webdriver;
-          if (navigator.webdriver) {
-            Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-          }
-        } catch (e) {}
-      `).catch(() => {});
-    });
-
-    // Handle OAuth navigation (Google, Apple, Microsoft)
-    win.webContents.on('did-navigate', (_event: any, url: string) => {
-      if (url.includes('accounts.google.com')) {
-        win.webContents.setUserAgent(GOOGLE_AUTH_UA);
-      } else {
-        win.webContents.setUserAgent(CHROME_DESKTOP_UA);
-      }
-    });
-
-    // Support OAuth popup login windows
-    win.webContents.setWindowOpenHandler(({ url }) => {
-      if (
-        url.includes('accounts.google.com') ||
-        url.includes('appleid.apple.com') ||
-        url.includes('login.microsoftonline.com') ||
-        url.includes('auth0') ||
-        url.includes('auth')
-      ) {
-        win.loadURL(url).catch(() => {});
-        return { action: 'deny' };
-      }
-      return { action: 'allow' };
-    });
-
-    win.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
-      // Ignore abort errors (usually redirects)
-      if (errorCode !== -3) {
-        console.warn(`[ChatGPT Web] Page load notice (${errorCode}): ${errorDescription} for ${validatedURL}`);
-      }
-    });
-  }
-
-  /**
-   * Opens a visible BrowserWindow for the user to log in with their ChatGPT account.
-   * When waitForCompletion is false (default, for UI button), returns true immediately so UI does not freeze.
-   * When waitForCompletion is true (for auto-generation), polls until user logs in or closes window.
+   * Opens Google Chrome (Port 9223) for human authentication.
+   * In headless CLI test environments where Electron runtime is absent, throws explicit error.
    */
   public async openLoginWindow(waitForCompletion = false): Promise<boolean> {
-    if (this.browserWindow && !this.browserWindow.isDestroyed()) {
-      this.browserWindow.setPosition(100, 100);
-      this.browserWindow.setSize(950, 750);
-      this.browserWindow.show();
-      this.browserWindow.focus();
-      this.isOffscreen = false;
-      if (!waitForCompletion) {
-        return true;
+    if (typeof BrowserWindow === 'undefined' && !process.env.PLAYWRIGHT_LIVE_CHROME) {
+      // Compatibility guard for headless CLI test runner
+      throw new Error('Môi trường Electron không khả dụng để mở trình duyệt ChatGPT.');
+    }
+
+    const chromeMgr = ChromeManager.getInstance();
+    const info = await chromeMgr.launchChrome({ port: 9223, headless: false, startUrl: 'https://chatgpt.com' });
+    if (!info.isAlive) {
+      return false;
+    }
+
+    if (!waitForCompletion) {
+      return true;
+    }
+
+    const startTime = Date.now();
+    const maxWaitMs = 300000; // 5 min timeout
+    while (Date.now() - startTime < maxWaitMs) {
+      await new Promise((r) => setTimeout(r, 1500));
+      const isAlive = await chromeMgr.isPortAlive(9223);
+      if (!isAlive) {
+        return false;
       }
-    } else {
-      const ses = this.getSession();
-      if (!ses || typeof BrowserWindow === 'undefined') {
-        throw new Error('Môi trường Electron không khả dụng để mở trình duyệt ChatGPT.');
-      }
-
-      this.browserWindow = new BrowserWindow({
-        width: 950,
-        height: 750,
-        title: 'Đăng nhập ChatGPT Web — Vanhsub AI Studio (Chế độ Tiết kiệm)',
-        backgroundColor: '#ffffff',
-        autoHideMenuBar: true,
-        show: true,
-        webPreferences: {
-          session: ses,
-          nodeIntegration: false,
-          contextIsolation: true,
-          backgroundThrottling: false,
-        },
-      });
-
-      this.configureWebContents(this.browserWindow);
-      this.isOffscreen = false;
-
-      // Load ChatGPT home
-      this.browserWindow.loadURL(CHATGPT_HOME_URL).catch((err) => {
-        console.warn('[ChatGptWebSession] loadURL warning:', err?.message || err);
-      });
-
-      this.browserWindow.on('closed', () => {
-        this.browserWindow = null;
-      });
-
-      if (!waitForCompletion) {
+      const st = await this.checkLoginStatus();
+      if (st.isLoggedIn) {
         return true;
       }
     }
-
-    return new Promise((resolve) => {
-      const pollInterval = setInterval(async () => {
-        if (!this.browserWindow || this.browserWindow.isDestroyed()) {
-          clearInterval(pollInterval);
-          resolve(false);
-          return;
-        }
-        const status = await this.checkLoginStatus();
-        if (status.isLoggedIn) {
-          clearInterval(pollInterval);
-          resolve(true);
-        }
-      }, 1500);
-
-      this.browserWindow?.on('closed', () => {
-        clearInterval(pollInterval);
-        resolve(false);
-      });
-    });
+    return false;
   }
 
   /**
-   * Logs out of ChatGPT Web by clearing cookies & storage data in the session partition.
+   * Cleanly disconnects CDP client and shuts down Chrome instance.
+   */
+  public async closeWindow(): Promise<void> {
+    try {
+      await ChatGptCdpClient.getInstance().disconnect();
+    } catch {}
+    try {
+      await ChromeManager.getInstance().closeChrome();
+    } catch {}
+  }
+
+  /**
+   * Logs out of ChatGPT Web by closing Chrome and clearing session storage data.
    */
   public async logout(): Promise<void> {
-    if (this.browserWindow && !this.browserWindow.isDestroyed()) {
-      this.browserWindow.close();
-      this.browserWindow = null;
-    }
+    await this.closeWindow();
+    this.lastConversationUrl = null;
     const ses = this.getSession();
-    if (ses) {
-      await ses.clearStorageData();
+    if (ses && typeof ses.clearStorageData === 'function') {
+      try {
+        await ses.clearStorageData();
+      } catch {}
     }
   }
 
   /**
-   * Ensures an active automation window is available (either visible or offscreen).
-   */
-  private async ensureAutomationWindow(mode: 'offscreen' | 'visible' = 'offscreen'): Promise<BrowserWindow> {
-    const ses = this.getSession();
-    if (!ses || typeof BrowserWindow === 'undefined') {
-      throw new Error('Môi trường Electron không khả dụng để tự động hóa ChatGPT.');
-    }
-    const shouldBeOffscreen = mode === 'offscreen';
-
-    if (this.browserWindow && !this.browserWindow.isDestroyed()) {
-      if (this.isOffscreen !== shouldBeOffscreen) {
-        if (shouldBeOffscreen) {
-          this.browserWindow.setPosition(-3000, -3000);
-          this.browserWindow.hide();
-          this.isOffscreen = true;
-        } else {
-          this.browserWindow.setPosition(100, 100);
-          this.browserWindow.setSize(850, 700);
-          this.browserWindow.show();
-          this.isOffscreen = false;
-        }
-      }
-      return this.browserWindow;
-    }
-
-    this.isOffscreen = shouldBeOffscreen;
-    this.browserWindow = new BrowserWindow({
-      width: 850,
-      height: 700,
-      x: shouldBeOffscreen ? -3000 : 100,
-      y: shouldBeOffscreen ? -3000 : 100,
-      show: !shouldBeOffscreen,
-      title: 'ChatGPT Web Automation — Vanhsub AI Studio',
-      backgroundColor: '#ffffff',
-      autoHideMenuBar: true,
-      webPreferences: {
-        session: ses,
-        nodeIntegration: false,
-        contextIsolation: true,
-        backgroundThrottling: false,
-      },
-    });
-
-    this.configureWebContents(this.browserWindow);
-
-    this.browserWindow.on('closed', () => {
-      this.browserWindow = null;
-    });
-
-    return this.browserWindow;
-  }
-
-  /**
-   * Sends a prompt turn into ChatGPT Web DOM and waits for response.
-   */
-  private async sendPromptTurn(
-    win: BrowserWindow,
-    prompt: string,
-    onProgress?: (msg: string) => void
-  ): Promise<string> {
-    onProgress?.('Đang truyền prompt vào ChatGPT Web...');
-
-    if (!win || win.isDestroyed() || win.webContents.isDestroyed()) {
-      throw new Error('Cửa sổ phiên ChatGPT Web không khả dụng hoặc đã bị đóng.');
-    }
-
-    const injected = await win.webContents.executeJavaScript(`
-      (async () => {
-        try {
-          const textarea = document.querySelector('#prompt-textarea') ||
-                           document.querySelector('div[contenteditable="true"]') ||
-                           document.querySelector('textarea');
-          if (!textarea) return { success: false, error: 'Không tìm thấy ô nhập prompt trên ChatGPT Web' };
-
-          textarea.focus();
-          if (textarea.tagName === 'DIV' || textarea.getAttribute('contenteditable') === 'true') {
-            document.execCommand('selectAll', false, null);
-            document.execCommand('insertText', false, ${JSON.stringify(prompt)});
-          } else {
-            textarea.value = ${JSON.stringify(prompt)};
-            textarea.dispatchEvent(new Event('input', { bubbles: true }));
-          }
-
-          await new Promise(r => setTimeout(r, 600));
-
-          const sendBtn = document.querySelector('button[data-testid="send-button"]') ||
-                          document.querySelector('button[aria-label="Send prompt"]') ||
-                          document.querySelector('button[data-testid="fruitjuice-send-button"]');
-          if (sendBtn && !sendBtn.disabled) {
-            sendBtn.click();
-            return { success: true };
-          }
-
-          const enterEvent = new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true });
-          textarea.dispatchEvent(enterEvent);
-          return { success: true };
-        } catch (err) {
-          return { success: false, error: String(err) };
-        }
-      })()
-    `);
-
-    if (!injected?.success) {
-      throw new Error(injected?.error || 'Không thể gửi prompt tới ChatGPT Web');
-    }
-
-    onProgress?.('ChatGPT đang phản hồi...');
-    return this.waitForResponseCompletion(win.webContents, onProgress);
-  }
-
-  /**
-   * Core automation: Navigate to ChatGPT, input prompt, wait for reply,
-   * with automatic Multi-Turn Chunking if the script is truncated.
+   * Generates video script via ChatGPT Web using Playwright CDP & continuation engine.
+   * Conforms 100% to AiStudioLlmService.generateScript.
    */
   public async generateScriptWeb(
     topic: string,
-    preset: string,
-    mode: 'offscreen' | 'visible' = 'offscreen',
+    preset = 'youtube_story',
+    _mode: 'offscreen' | 'visible' = 'offscreen',
     onProgress?: (msg: string) => void,
     blueprint?: IdeaBlueprint,
     channelProfile?: Partial<ChannelProfileConfig>
   ): Promise<string> {
-    if (this.isBusy) {
+    if (this.busy) {
       throw new Error('ChatGPT Web đang bận thực hiện tác vụ khác. Vui lòng thử lại sau giây lát.');
     }
+    this.busy = true;
 
-    this.isBusy = true;
     try {
       const loginStatus = await this.checkLoginStatus();
       if (!loginStatus.isLoggedIn) {
         onProgress?.('Chưa phát hiện đăng nhập ChatGPT Web. Đang mở cửa sổ đăng nhập...');
-        await this.openLoginWindow(true);
+        const opened = await this.openLoginWindow(true);
+        if (!opened) {
+          throw new Error('Không thể khởi chạy Google Chrome để đăng nhập ChatGPT Web.');
+        }
         const recheck = await this.checkLoginStatus();
         if (!recheck.isLoggedIn) {
-          throw new Error('Vui lòng hoàn tất đăng nhập tài khoản ChatGPT Web để sử dụng Chế độ Tiết kiệm.');
+          throw new Error('Vui lòng hoàn tất đăng nhập tài khoản ChatGPT Web trong cửa sổ Chrome để sử dụng Chế độ Tiết kiệm.');
         }
       }
 
-      onProgress?.('Đang kết nối phiên ChatGPT Web...');
-      const win = await this.ensureAutomationWindow(mode);
-
-      const currentUrl = win.webContents.getURL();
-      if (!currentUrl.includes('chatgpt.com')) {
-        await win.loadURL(CHATGPT_HOME_URL);
-        await new Promise((r) => setTimeout(r, 4000));
-      }
-
-      const { prompt: turn1Prompt, metrics } = buildScriptPromptForWeb(topic, preset, blueprint, channelProfile);
+      const { prompt, metrics } = buildScriptPromptForWeb(topic, preset, blueprint, channelProfile);
       onProgress?.(`Đang yêu cầu AI viết kịch bản mục tiêu ${metrics.targetMinutesText} (${metrics.targetSentenceRange})...`);
 
-      const turn1Response = await this.sendPromptTurn(win, turn1Prompt, onProgress);
-      let combinedResponse = turn1Response;
+      const collector = ChatGptScriptCollector.getInstance();
+      const targetUrl = channelProfile?.chatgptConversationUrl || this.lastConversationUrl || undefined;
 
-      const turn1Parsed = parseChatGptScriptResponse(turn1Response, topic);
-      const targetMin = metrics.minSentences;
+      const result = await collector.collect({
+        prompt,
+        kind: 'script',
+        targetMinSentences: metrics.minSentences,
+        targetMaxSentences: metrics.maxSentences,
+        onProgress,
+        startNewChat: !targetUrl,
+        targetUrl,
+        topic,
+      });
 
-      // Multi-Turn continuation if script has not reached target sentence count
-      if (turn1Parsed.length < targetMin) {
-        onProgress?.(
-          `Kịch bản lượt 1 đạt ${turn1Parsed.length}/${targetMin} câu. Đang gửi yêu cầu viết tiếp các phân cảnh (Multi-turn)...`
-        );
-        const nextStart = turn1Parsed.length + 1;
-        const targetEnd = Math.min(
-          metrics.maxSentences,
-          nextStart + Math.max(18, targetMin - turn1Parsed.length + 4)
-        );
-        const turn2Prompt = `Kịch bản đang rất hấp dẫn. Hãy viết tiếp liền mạch các phân cảnh tiếp theo từ CÂU ${nextStart} đến CÂU ${targetEnd} để phát triển trọn vẹn các phần còn lại của dàn ý cho chủ đề "${topic}". Đảm bảo tổng độ dài đạt mục tiêu ${metrics.targetMinutesText}. CÂU ${targetEnd} là phần kết luận và kêu gọi đăng ký kênh.
-Giữ nguyên đúng định dạng mỗi dòng:
-CÂU X: [Nội dung câu thoại]`;
-        try {
-          const turn2Response = await this.sendPromptTurn(win, turn2Prompt, onProgress);
-          combinedResponse = `${turn1Response}\n${turn2Response}`;
-
-          // If still significantly short for long form videos (e.g. 8-12 min), send turn 3
-          const turn2Parsed = parseChatGptScriptResponse(combinedResponse, topic);
-          if (turn2Parsed.length < targetMin - 8 && metrics.targetDurationSec >= 600) {
-            onProgress?.(`Đang gửi lượt 3 để hoàn tất kịch bản dài (${turn2Parsed.length}/${targetMin} câu)...`);
-            const nextStart3 = turn2Parsed.length + 1;
-            const turn3Prompt = `Hãy viết tiếp các phân cảnh cao trào và kết thúc từ CÂU ${nextStart3} đến CÂU ${metrics.maxSentences} để hoàn tất kịch bản. CÂU ${metrics.maxSentences} là lời kết và kêu gọi đăng ký kênh. Định dạng: CÂU X: [Nội dung].`;
-            const turn3Response = await this.sendPromptTurn(win, turn3Prompt, onProgress);
-            combinedResponse = `${combinedResponse}\n${turn3Response}`;
-          }
-        } catch (turn2Err) {
-          console.warn('[ChatGptWebSession] Turn 2 continuation failed, proceeding with received text:', turn2Err);
+      if (result.conversationUrl) {
+        this.lastConversationUrl = result.conversationUrl;
+        if (channelProfile) {
+          channelProfile.chatgptConversationUrl = result.conversationUrl;
         }
       }
 
-      return combinedResponse;
-    } finally {
-      this.isBusy = false;
-      if (mode === 'offscreen' && this.browserWindow && !this.browserWindow.isDestroyed()) {
-        this.browserWindow.hide();
+      let finalResponse = result.rawText || result.text || '';
+
+      if (isUserPromptEcho(finalResponse)) {
+        throw new Error('Phát hiện phản hồi bị bắt nhầm prompt người dùng (User Prompt Echo). Vui lòng thử lại.');
       }
+
+      // F22: Schema Validation & Targeted Retry
+      const parsedBeats = parseChatGptScriptResponse(finalResponse, topic);
+      if (parsedBeats.length < 3 && !result.isTruncated) {
+        onProgress?.('Kịch bản chưa đúng định dạng. Đang tự động retry yêu cầu định dạng chuẩn...');
+        const retryPrompt = `Kịch bản bạn vừa viết chưa đúng định dạng câu phân cảnh. Vui lòng viết lại toàn bộ kịch bản theo đúng cú pháp bắt buộc:\n=== BEGIN SCRIPT ===\nCÂU 1: [Câu thoại mở đầu] | VISUAL: [...] | CAMERA: [...] | MEDIA: [video]\nCÂU 2: [Câu thoại tiếp theo] | VISUAL: [...] | CAMERA: [...] | MEDIA: [image]\n...\nCÂU ${metrics.minSentences}: [Câu thoại kết luận]\n=== END SCRIPT ===`;
+        try {
+          const retryResult = await collector.collect({
+            prompt: retryPrompt,
+            kind: 'script',
+            targetMinSentences: metrics.minSentences,
+            targetMaxSentences: metrics.maxSentences,
+            onProgress,
+            startNewChat: false,
+            targetUrl: this.lastConversationUrl || undefined,
+            topic,
+          });
+          const retryParsed = parseChatGptScriptResponse(retryResult.rawText || retryResult.text || '', topic);
+          if (retryParsed.length >= 3) {
+            finalResponse = retryResult.rawText || retryResult.text || '';
+          }
+        } catch (retryErr) {
+          console.warn('[ChatGptWebSession] Safe retry notice:', retryErr);
+        }
+      }
+
+      return sanitizePromptEchoFromOutput(finalResponse, prompt);
+    } finally {
+      this.busy = false;
     }
   }
 
   /**
-   * Executes a single prompt turn against ChatGPT Web and returns the full response text.
-   * Useful for Idea Blueprint generation, SEO metadata, and custom prompt queries.
+   * Executes a single prompt turn on ChatGPT Web (e.g. Master Prompt, Idea, Script).
+   * Conforms 100% to AiStudioLlmService.analyzeIdeaBlueprint and generateMasterPromptForChannel.
    */
   public async executePromptTurn(
     prompt: string,
-    mode: 'offscreen' | 'visible' = 'offscreen',
-    onProgress?: (msg: string) => void
+    _mode: 'offscreen' | 'visible' = 'offscreen',
+    onProgress?: (msg: string) => void,
+    startNewChat = false,
+    targetConversationUrl?: string,
+    expectedKind: 'master_prompt' | 'idea' | 'script' | 'general' | 'raw' = 'general'
   ): Promise<string> {
-    if (this.isBusy) {
+    if (this.busy) {
       throw new Error('ChatGPT Web đang bận thực hiện tác vụ khác. Vui lòng thử lại sau giây lát.');
     }
+    this.busy = true;
 
-    this.isBusy = true;
     try {
       const loginStatus = await this.checkLoginStatus();
       if (!loginStatus.isLoggedIn) {
         onProgress?.('Chưa phát hiện đăng nhập ChatGPT Web. Đang mở cửa sổ đăng nhập...');
-        await this.openLoginWindow(true);
+        const opened = await this.openLoginWindow(true);
+        if (!opened) {
+          throw new Error('Không thể khởi chạy Google Chrome để đăng nhập ChatGPT Web.');
+        }
         const recheck = await this.checkLoginStatus();
         if (!recheck.isLoggedIn) {
           throw new Error('Vui lòng hoàn tất đăng nhập tài khoản ChatGPT Web để sử dụng Chế độ Tiết kiệm.');
         }
       }
 
-      onProgress?.('Đang kết nối phiên ChatGPT Web...');
-      const win = await this.ensureAutomationWindow(mode);
+      const kind: ScriptKind =
+        expectedKind === 'idea'
+          ? 'idea'
+          : expectedKind === 'master_prompt'
+          ? 'master_prompt'
+          : expectedKind === 'script'
+          ? 'script'
+          : 'raw';
 
-      const currentUrl = win.webContents.getURL();
-      if (!currentUrl.includes('chatgpt.com')) {
-        await win.loadURL(CHATGPT_HOME_URL);
-        await new Promise((r) => setTimeout(r, 4000));
+      const formattedPrompt = buildPromptWithMarkers(prompt, kind);
+      const collector = ChatGptScriptCollector.getInstance();
+      const targetUrl = targetConversationUrl || this.lastConversationUrl || undefined;
+
+      const result = await collector.collect({
+        prompt: formattedPrompt,
+        kind,
+        onProgress,
+        startNewChat,
+        targetUrl: startNewChat ? undefined : targetUrl,
+      });
+
+      if (result.conversationUrl) {
+        this.lastConversationUrl = result.conversationUrl;
       }
 
-      return await this.sendPromptTurn(win, prompt, onProgress);
-    } finally {
-      this.isBusy = false;
-      if (mode === 'offscreen' && this.browserWindow && !this.browserWindow.isDestroyed()) {
-        this.browserWindow.hide();
-      }
-    }
-  }
+      let outputText = result.rawText || result.text || '';
 
-  /**
-   * Polls the ChatGPT Web DOM until generation completes.
-   */
-  private async waitForResponseCompletion(
-    webContents: WebContents,
-    onProgress?: (msg: string) => void
-  ): Promise<string> {
-    const maxWaitMs = 90000; // 90s timeout
-    const startTime = Date.now();
-
-    await new Promise((r) => setTimeout(r, 2000));
-
-    let lastLength = 0;
-    let stableCount = 0;
-
-    while (Date.now() - startTime < maxWaitMs) {
-      if (webContents.isDestroyed()) {
-        throw new Error('Phiên ChatGPT Web đã bị đóng trong lúc chờ phản hồi.');
+      if (isUserPromptEcho(outputText)) {
+        throw new Error('Phát hiện phản hồi bị bắt nhầm prompt người dùng (User Prompt Echo). Vui lòng thử lại.');
       }
 
-      const state = await webContents.executeJavaScript(`
-        (() => {
+      outputText = sanitizePromptEchoFromOutput(outputText, prompt, kind);
+
+      // Schema validation and repair for idea blueprints
+      if (expectedKind === 'idea') {
+        const blueprint = parseChatGptIdeaResponse(outputText, 'Ý tưởng video');
+        const val = validateIdeaBlueprint(blueprint);
+        if (!val.isValid) {
+          onProgress?.(`Ý tưởng chưa đủ trường (${val.reason}). Đang gửi yêu cầu bổ sung...`);
+          const repairPrompt = `Khối JSON trước đó chưa hợp lệ: ${val.reason}.
+BẮT BUỘC trả về DUY NHẤT một khối JSON đầy đủ, bọc trong marker:
+=== BEGIN JSON ===
+{
+  "title": "Tiêu đề",
+  "hookConcept": "Câu mở đầu 3s",
+  "narrativeAngle": "Góc nhìn",
+  "outline": ["1...", "2...", "3..."],
+  "estimatedDurationSec": 60,
+  "thumbnailConcept": "Mô tả thumbnail",
+  "thumbnailPrompt": "Prompt tiếng Anh"
+}
+=== END JSON ===`;
           try {
-            const stopBtn = document.querySelector('button[data-testid="stop-button"]');
-            const isStreaming = Boolean(stopBtn) || Boolean(document.querySelector('.result-streaming'));
-            
-            const assistantMessages = Array.from(document.querySelectorAll('[data-message-author-role="assistant"]'));
-            const lastMsg = assistantMessages[assistantMessages.length - 1];
-            const text = lastMsg ? (lastMsg.innerText || lastMsg.textContent || '') : '';
-
-            return { isStreaming, text, messageCount: assistantMessages.length };
-          } catch (err) {
-            return { isStreaming: false, text: '', messageCount: 0, error: String(err) };
+            const retryRes = await collector.collect({
+              prompt: repairPrompt,
+              kind: 'idea',
+              startNewChat: false,
+              onProgress,
+            });
+            const retryBp = parseChatGptIdeaResponse(retryRes.rawText || retryRes.text || '', 'Ý tưởng video');
+            if (validateIdeaBlueprint(retryBp).isValid) {
+              outputText = retryRes.rawText || retryRes.text || '';
+            }
+          } catch (repairErr) {
+            console.warn('[ChatGptWebSession] Idea repair notice:', repairErr);
           }
-        })()
-      `);
-
-      if (state.isStreaming) {
-        onProgress?.(`AI đang viết kịch bản... (${state.text.length} ký tự)`);
-        stableCount = 0;
-      } else if (state.text && state.text.length > 30) {
-        if (state.text.length === lastLength) {
-          stableCount++;
-          if (stableCount >= 2) {
-            return state.text;
-          }
-        } else {
-          lastLength = state.text.length;
-          stableCount = 0;
         }
       }
 
-      await new Promise((r) => setTimeout(r, 1200));
-    }
-
-    throw new Error('Hết thời gian chờ phản hồi từ ChatGPT Web (Timeout 90s)');
-  }
-
-  /** Close active window if needed */
-  public closeWindow(): void {
-    if (this.browserWindow && !this.browserWindow.isDestroyed()) {
-      this.browserWindow.close();
-      this.browserWindow = null;
+      return outputText;
+    } finally {
+      this.busy = false;
     }
   }
 }

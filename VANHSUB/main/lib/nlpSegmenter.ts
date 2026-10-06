@@ -7,6 +7,7 @@ export interface NlpSegmentOptions {
   minDurationMs?: number;      // default: 1000
   minGapMs?: number;           // default: 80
   autoPadDuration?: boolean;   // default: true
+  consolidateClauses?: boolean; // default: false
 }
 
 export interface ConsolidateOptions {
@@ -808,15 +809,18 @@ export function segmentSubtitlesNetflix(
     minDurationMs = 1000,
     minGapMs = 80,
     autoPadDuration = true,
+    consolidateClauses = false,
   } = options;
 
-  // Bước 0: Pre-consolidation - Gom các vế câu ngắn chưa dứt trước khi phân tách
-  const consolidated = consolidateSubtitleClauses(lines, {
-    maxCharsPerLine,
-    maxLinesPerBlock,
-    maxGapMs: 1000,
-    minGapMs,
-  });
+  // Bước 0: Pre-consolidation - Gom các vế câu ngắn chưa dứt trước khi phân tách (khi bật cờ)
+  const consolidated = consolidateClauses
+    ? consolidateSubtitleClauses(lines, {
+        maxCharsPerLine,
+        maxLinesPerBlock,
+        maxGapMs: 1000,
+        minGapMs,
+      })
+    : lines;
 
   // Bước 1: Phân tách các khối quá dài thành các khối tuân thủ <= 2 dòng & <= 37 ký tự/dòng
   const expanded: SrtLine[] = [];

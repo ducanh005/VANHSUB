@@ -212,6 +212,11 @@ export function buildEnvelope(
  *   [["di", ...]]\n
  */
 export function parseBatchResponse(rawText: string, expectedRpcId: string): RpcResult {
+  if (!rawText || typeof rawText !== 'string') {
+    throw new Error(
+      `[FlowBatch] rawText rỗng hoặc không hợp lệ (${typeof rawText}) — không thể phân tích phản hồi batchexecute.`
+    );
+  }
   const trimmed = rawText.trimStart();
   if (!trimmed.startsWith(")]}'")) {
     throw new Error(
@@ -279,9 +284,13 @@ export function parseBatchResponse(rawText: string, expectedRpcId: string): RpcR
     const payloadStr = selectedInner[2] as string | null;
 
     if (payloadStr === null || payloadStr === undefined) {
-      // Error slot: innerPayload null = Flow returned error
+      const rawCode =
+        selectedInner[3] ??
+        selectedInner[4] ??
+        (Array.isArray(selectedInner[7]) ? selectedInner[7][0] : selectedInner[7]) ??
+        'unknown';
       const errorDetail = {
-        code: selectedInner[3] ?? selectedInner[4] ?? 'unknown',
+        code: typeof rawCode === 'string' ? rawCode : String(rawCode || 'unknown'),
         inner: selectedInner,
         rawSnippet: rawText.slice(0, 800),
       };

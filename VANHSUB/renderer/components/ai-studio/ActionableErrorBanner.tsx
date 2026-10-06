@@ -47,8 +47,13 @@ export default function ActionableErrorBanner({
 
   const isUnusualActivity =
     code === 'PUBLIC_ERROR_UNUSUAL_ACTIVITY' ||
+    code === 'UNUSUAL_ACTIVITY' ||
+    code === 'BOT_FLAGGED' ||
+    code === 'CAPTCHA_SCORE_LOW' ||
     code === 'CONTENT_REJECTED' ||
     lowerErr.includes('unusual_activity') ||
+    lowerErr.includes('bot_flagged') ||
+    lowerErr.includes('captcha_score_low') ||
     lowerErr.includes('recaptcha') ||
     lowerErr.includes('bảo mật') ||
     lowerErr.includes('chặn');

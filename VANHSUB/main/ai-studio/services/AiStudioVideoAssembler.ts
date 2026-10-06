@@ -34,6 +34,30 @@ export function escapeFfmpegSubtitlesPath(subPath: string): string {
   return escaped;
 }
 
+export interface KenBurnsMotionProfile {
+  name: string;
+  panEquation: string;
+  zoomEquation: string;
+  scaleFilter: string;
+}
+
+export type KenBurnsMotionType =
+  | 'pan_left_to_right'
+  | 'pan_right_to_left'
+  | 'zoom_in_third_left'
+  | 'zoom_in_third_right'
+  | 'zoom_out_wide'
+  | 'push_in_hero';
+
+export const CINEMATIC_CAMERA_MOTION_PROFILES: ReadonlyArray<KenBurnsMotionType> = [
+  'pan_left_to_right',
+  'pan_right_to_left',
+  'zoom_in_third_left',
+  'zoom_in_third_right',
+  'zoom_out_wide',
+  'push_in_hero',
+] as const;
+
 export interface VideoAssemblyOptions {
   scenes: StoryboardScene[];
   voiceoverAudioPath: string;
@@ -43,6 +67,8 @@ export interface VideoAssemblyOptions {
   aspectRatio?: FlowAspectRatio;
   wordsAlignment?: WordTimestamp[];
   scriptLines?: ScriptBeatLine[];
+  transitionSfxPath?: string;
+  enableTransitionSfx?: boolean;
   onProgress?: (percent: number) => void;
   signal?: AbortSignal;
   onRegisterProcess?: (proc: ffmpeg.FfmpegCommand) => void;
@@ -81,6 +107,130 @@ export class AiStudioVideoAssembler {
       return is720p ? { width: 720, height: 720 } : { width: 1080, height: 1080 };
     }
     return is720p ? { width: 1280, height: 720 } : { width: 1920, height: 1080 };
+  }
+
+  // ==========================================================================
+  // Dynamic Pan/Zoom Ken Burns (6 Cinematic Profiles with 1.5x Upscaling)
+  // ==========================================================================
+  /**
+   * Generates 6 cinematic camera motion profiles with 1.5x pre-upscaling
+   * to eliminate subpixel shimmering on Windows FFmpeg zoompan filter.
+   */
+  public static getKenBurnsProfiles(
+    width: number,
+    height: number,
+    durationSec: number
+  ): KenBurnsMotionProfile[] {
+    const frames = Math.max(25, Math.round(durationSec * 25));
+    const preUpscaleW = Math.round(width * 1.5);
+    const preUpscaleH = Math.round(height * 1.5);
+    const scaleFilter = `scale=${preUpscaleW}:${preUpscaleH}:force_original_aspect_ratio=increase,crop=${preUpscaleW}:${preUpscaleH}`;
+
+    return [
+      {
+        name: 'Pan L->R',
+        panEquation: `x='(iw-iw/zoom)*(on/${frames})':y='(ih-ih/zoom)/2'`,
+        zoomEquation: `z='1.15'`,
+        scaleFilter,
+      },
+      {
+        name: 'Pan R->L',
+        panEquation: `x='(iw-iw/zoom)*(1-on/${frames})':y='(ih-ih/zoom)/2'`,
+        zoomEquation: `z='1.15'`,
+        scaleFilter,
+      },
+      {
+        name: 'Zoom 1/3 Left',
+        panEquation: `x='(iw*0.33)-(iw/zoom*0.33)':y='(ih/2)-(ih/zoom/2)'`,
+        zoomEquation: `z='min(zoom+0.0015,1.25)'`,
+        scaleFilter,
+      },
+      {
+        name: 'Zoom 1/3 Right',
+        panEquation: `x='(iw*0.67)-(iw/zoom*0.67)':y='(ih/2)-(ih/zoom/2)'`,
+        zoomEquation: `z='min(zoom+0.0015,1.25)'`,
+        scaleFilter,
+      },
+      {
+        name: 'Zoom-out Wide',
+        panEquation: `x='(iw-iw/zoom)/2':y='(ih-ih/zoom)/2'`,
+        zoomEquation: `z='max(1.25-0.0015*on,1.0)'`,
+        scaleFilter,
+      },
+      {
+        name: 'Push-in Hero',
+        panEquation: `x='(iw-iw/zoom)/2':y='(ih-ih/zoom)/2'`,
+        zoomEquation: `z='min(1.0+0.002*on,1.20)'`,
+        scaleFilter,
+      },
+    ];
+  }
+
+  public getKenBurnsProfiles(
+    width: number,
+    height: number,
+    durationSec: number
+  ): KenBurnsMotionProfile[] {
+    return AiStudioVideoAssembler.getKenBurnsProfiles(width, height, durationSec);
+  }
+
+  // ==========================================================================
+  // Dynamic Audio Ducking & SFX Filter Chain
+  // ==========================================================================
+  /**
+   * Builds the FFmpeg audio filter chain for Dynamic Audio Ducking (-18dB)
+   * using sidechaincompress and scene transition SFX insertion at Tk - 0.2s.
+   */
+  public static buildDuckingAndSfxFilterChain(
+    hasBgm: boolean,
+    cutTimestampsSec: number[] = [],
+    sfxInputsCount: number = 0
+  ): string {
+    const filterParts: string[] = [];
+
+    if (hasBgm) {
+      filterParts.push(`[voice_in]asplit=2[voice_main][voice_sidechain]`);
+      filterParts.push(
+        `[bgm_in][voice_sidechain]sidechaincompress=threshold=0.03:ratio=8:attack=25:release=400:knee=2.5[bgm_ducked]`
+      );
+      if (sfxInputsCount > 0) {
+        filterParts.push(
+          `[voice_main][bgm_ducked]amix=inputs=2:duration=first:dropout_transition=2[audio_mix]`
+        );
+        let currentMix = '[audio_mix]';
+        for (let i = 0; i < sfxInputsCount; i++) {
+          const cutTime = cutTimestampsSec[i] !== undefined ? cutTimestampsSec[i] : (i + 1) * 4.0;
+          const sfxDelayMs = Math.max(0, Math.round((cutTime - 0.2) * 1000));
+          const sfxDelayedLabel = `[sfx_${i}_delayed]`;
+          const nextMixLabel = i === sfxInputsCount - 1 ? '[aout]' : `[sfx_mix_${i}]`;
+          filterParts.push(`[sfx_${i}]adelay=${sfxDelayMs}|${sfxDelayMs}${sfxDelayedLabel}`);
+          filterParts.push(
+            `${currentMix}${sfxDelayedLabel}amix=inputs=2:duration=first:dropout_transition=0${nextMixLabel}`
+          );
+          currentMix = nextMixLabel;
+        }
+      } else {
+        filterParts.push(
+          `[voice_main][bgm_ducked]amix=inputs=2:duration=first:dropout_transition=2[aout]`
+        );
+      }
+    } else {
+      filterParts.push(`[voice_in]anull[aout]`);
+    }
+
+    return filterParts.join(';');
+  }
+
+  public buildDuckingAndSfxFilterChain(
+    hasBgm: boolean,
+    cutTimestampsSec: number[] = [],
+    sfxInputsCount: number = 0
+  ): string {
+    return AiStudioVideoAssembler.buildDuckingAndSfxFilterChain(
+      hasBgm,
+      cutTimestampsSec,
+      sfxInputsCount
+    );
   }
 
   // ==========================================================================
@@ -283,12 +433,42 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         filterChain.push(`[${i}:v]${safeScale},trim=duration=${seg.durationSec},setpts=PTS-STARTPTS[v${i}]`);
       } else {
         cmd.input(seg.path).inputOptions(['-loop 1', `-t ${seg.durationSec}`]);
-        let zoomFilter = '';
         if (renderingConfig.kenBurnsEffect) {
           const frames = Math.max(25, Math.round(seg.durationSec * 25));
-          zoomFilter = `,zoompan=z='min(zoom+0.0012,1.15)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=${frames}:s=${width}x${height}`;
+          const profiles = AiStudioVideoAssembler.getKenBurnsProfiles(width, height, seg.durationSec);
+
+          // Select profile from scene/beat metadata or alternate modulo
+          const requestedMotion =
+            (seg as any).cameraMotion ||
+            (seg as any).cameraMovement ||
+            (scenes[i] as any)?.cameraMotion ||
+            (scenes[i] as any)?.cameraMovement ||
+            scriptLines[i]?.cameraMovement;
+
+          let profile: KenBurnsMotionProfile;
+          if (requestedMotion === 'pan_left_to_right') {
+            profile = profiles[0];
+          } else if (requestedMotion === 'pan_right_to_left') {
+            profile = profiles[1];
+          } else if (requestedMotion === 'zoom_in_third_left') {
+            profile = profiles[2];
+          } else if (requestedMotion === 'zoom_in_third_right') {
+            profile = profiles[3];
+          } else if (requestedMotion === 'zoom_out_wide' || requestedMotion === 'dolly_out') {
+            profile = profiles[4];
+          } else if (requestedMotion === 'push_in_hero' || requestedMotion === 'dolly_in') {
+            profile = profiles[5];
+          } else {
+            profile = profiles[i % profiles.length];
+          }
+
+          // 1.5x pre-upscaling before zoompan eliminates pixel shimmer on Windows FFmpeg
+          const preScale = `${profile.scaleFilter},setsar=1`;
+          const zoompan = `zoompan=${profile.zoomEquation}:${profile.panEquation}:d=${frames}:s=${width}x${height}:fps=25`;
+          filterChain.push(`[${i}:v]${preScale},${zoompan}[v${i}]`);
+        } else {
+          filterChain.push(`[${i}:v]${safeScale}[v${i}]`);
         }
-        filterChain.push(`[${i}:v]${safeScale}${zoomFilter}[v${i}]`);
       }
       concatInputs.push(`[v${i}]`);
     });
@@ -305,7 +485,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
       filterChain.push(`[vconcat]null[vout]`);
     }
 
-    // Audio inputs: Voiceover audio input nằm ở index segments.length
+    // Audio inputs: Voiceover audio input at index segments.length
     const voiceInputIdx = segments.length;
     cmd.input(voiceoverAudioPath);
 
@@ -317,13 +497,103 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     if (hasBgm) {
       bgmInputIdx = segments.length + 1;
       cmd.input(renderingConfig.defaultBgmPath!);
-      const bgmVol = renderingConfig.bgmVolume || 0.12;
-      filterChain.push(
-        `[${voiceInputIdx}:a]volume=1.0[voice]`,
-        `[${bgmInputIdx}:a]volume=${bgmVol}[bgm]`,
-        `[voice][bgm]amix=inputs=2:duration=first:dropout_transition=2[aout]`
-      );
     }
+
+    // Calculate cut timestamps Tk between consecutive scenes for transition SFX insertion
+    const cutTimestampsSec: number[] = [];
+    let accumulatedSec = 0;
+    for (let i = 0; i < segments.length - 1; i++) {
+      accumulatedSec += segments[i].durationSec;
+      cutTimestampsSec.push(Math.round(accumulatedSec * 100) / 100);
+    }
+
+    // Resolve transition SFX asset if available
+    let resolvedSfxPath = options.transitionSfxPath || (renderingConfig as any).transitionSfxPath;
+    if (!resolvedSfxPath) {
+      const candidates = [
+        path.join(process.cwd(), 'resources', 'sfx', 'whoosh.wav'),
+        path.join(process.cwd(), 'resources', 'sfx', 'impact.wav'),
+      ];
+      for (const cand of candidates) {
+        if (fs.existsSync(cand)) {
+          resolvedSfxPath = cand;
+          break;
+        }
+      }
+    }
+
+    const sfxEnabled = options.enableTransitionSfx !== false;
+    const hasSfx = Boolean(
+      sfxEnabled &&
+      resolvedSfxPath &&
+      fs.existsSync(resolvedSfxPath) &&
+      cutTimestampsSec.length > 0
+    );
+
+    let sfxInputIdx = -1;
+    if (hasSfx) {
+      sfxInputIdx = hasBgm ? segments.length + 2 : segments.length + 1;
+      cmd.input(resolvedSfxPath!);
+      const sfxCount = cutTimestampsSec.length;
+      if (sfxCount === 1) {
+        filterChain.push(`[${sfxInputIdx}:a]volume=0.35[sfx_0]`);
+      } else {
+        const sfxLabels = Array.from({ length: sfxCount }, (_, idx) => `[sfx_${idx}]`).join('');
+        filterChain.push(`[${sfxInputIdx}:a]volume=0.35,asplit=${sfxCount}${sfxLabels}`);
+      }
+    }
+
+    // Construct Audio Ducking & SFX Filtergraph
+    const autoDucking = renderingConfig.autoAudioDucking !== false;
+    const bgmVol = renderingConfig.bgmVolume || 0.12;
+
+    if (hasBgm) {
+      filterChain.push(`[${voiceInputIdx}:a]volume=1.0[voice_in]`);
+      filterChain.push(`[${bgmInputIdx}:a]volume=${bgmVol}[bgm_in]`);
+
+      if (autoDucking) {
+        const duckingChain = AiStudioVideoAssembler.buildDuckingAndSfxFilterChain(
+          true,
+          cutTimestampsSec,
+          hasSfx ? cutTimestampsSec.length : 0
+        );
+        filterChain.push(duckingChain);
+      } else {
+        if (hasSfx) {
+          filterChain.push(`[voice_in][bgm_in]amix=inputs=2:duration=first:dropout_transition=2[audio_mix]`);
+          let currentMix = '[audio_mix]';
+          for (let i = 0; i < cutTimestampsSec.length; i++) {
+            const cutTime = cutTimestampsSec[i] || (i + 1) * 4.0;
+            const sfxDelayMs = Math.max(0, Math.round((cutTime - 0.2) * 1000));
+            const sfxDelayedLabel = `[sfx_${i}_delayed]`;
+            const nextMixLabel = i === cutTimestampsSec.length - 1 ? '[aout]' : `[sfx_mix_${i}]`;
+            filterChain.push(`[sfx_${i}]adelay=${sfxDelayMs}|${sfxDelayMs}${sfxDelayedLabel}`);
+            filterChain.push(
+              `${currentMix}${sfxDelayedLabel}amix=inputs=2:duration=first:dropout_transition=0${nextMixLabel}`
+            );
+            currentMix = nextMixLabel;
+          }
+        } else {
+          filterChain.push(`[voice_in][bgm_in]amix=inputs=2:duration=first:dropout_transition=2[aout]`);
+        }
+      }
+    } else if (hasSfx) {
+      filterChain.push(`[${voiceInputIdx}:a]volume=1.0[voice_main]`);
+      let currentMix = '[voice_main]';
+      for (let i = 0; i < cutTimestampsSec.length; i++) {
+        const cutTime = cutTimestampsSec[i] || (i + 1) * 4.0;
+        const sfxDelayMs = Math.max(0, Math.round((cutTime - 0.2) * 1000));
+        const sfxDelayedLabel = `[sfx_${i}_delayed]`;
+        const nextMixLabel = i === cutTimestampsSec.length - 1 ? '[aout]' : `[sfx_mix_${i}]`;
+        filterChain.push(`[sfx_${i}]adelay=${sfxDelayMs}|${sfxDelayMs}${sfxDelayedLabel}`);
+        filterChain.push(
+          `${currentMix}${sfxDelayedLabel}amix=inputs=2:duration=first:dropout_transition=0${nextMixLabel}`
+        );
+        currentMix = nextMixLabel;
+      }
+    }
+
+    const hasAudioMix = hasBgm || hasSfx;
 
     onRegisterProcess?.(cmd);
 
@@ -344,7 +614,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         .complexFilter(filterChain.join(';'))
         .outputOptions([
           '-map [vout]',
-          hasBgm ? '-map [aout]' : `-map ${voiceInputIdx}:a`,
+          hasAudioMix ? '-map [aout]' : `-map ${voiceInputIdx}:a`,
           '-c:v libx264',
           '-pix_fmt yuv420p',
           '-preset veryfast',

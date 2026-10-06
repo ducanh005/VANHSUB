@@ -165,7 +165,16 @@ async function getFlowTab(autoCreate = false, preferredProjectId = null) {
     await waitForTabReady(created.id, 15000);
     return await chrome.tabs.get(created.id);
   }
-  // Ưu tiên tab đang active hoặc tab không bị discarded
+  // Ưu tiên 1: Tab khớp chính xác preferredProjectId (khi người dùng mở nhiều tab Flow khác project)
+  const validPid = isValidProjectId(preferredProjectId) ? preferredProjectId.trim() : null;
+  if (validPid) {
+    const matchingTab = tabs.find((t) => t.url && t.url.includes(`/project/${validPid}`));
+    if (matchingTab) {
+      return await reviveTabIfNeeded(matchingTab);
+    }
+  }
+
+  // Ưu tiên 2: tab đang active hoặc tab không bị discarded
   const activeTab = tabs.find((t) => t.active);
   const readyTab = tabs.find((t) => !t.discarded);
   const target = activeTab || readyTab || tabs[0];
@@ -365,6 +374,7 @@ async function handleMessage(msg) {
       }
 
       if (codeStr.startsWith('__TRIGGER_GEN__:')) {
+        warn('⚠️ __TRIGGER_GEN__ đã bị deprecated, vui lòng chuyển sang Pure batch_rpc');
         let cfg;
         try {
           cfg = JSON.parse(codeStr.slice('__TRIGGER_GEN__:'.length));
@@ -687,7 +697,9 @@ async function handleMessage(msg) {
     return;
   }
 
+  // @deprecated: trigger_ui_gen đã bị bãi bỏ, ưu tiên batch_rpc Pure RPC
   if (method === 'trigger_ui_gen') {
+    warn('⚠️ trigger_ui_gen đã bị deprecated, vui lòng sử dụng Pure batch_rpc');
     let tab = await getFlowTab(true, params?.projectId);
     if (!tab) {
       send({ id, error: 'NO_FLOW_TAB' });
@@ -1060,7 +1072,40 @@ async function runBatchRpc(cmd) {
         }
 
         if (!at) {
-          return { error: 'NO_AT_TOKEN: Không tìm thấy WIZ_global_data.SNlM0e trong trang Flow' };
+          try {
+            const scripts = Array.from(document.querySelectorAll('script'));
+            for (const s of scripts) {
+              const text = s.textContent || '';
+              const patterns = [
+                /"SNlM0e"\s*:\s*"([^"]{20,}?)"/,
+                /"at"\s*:\s*"(AIQ-[^"]+?)"/,
+                /"at"\s*:\s*"(AF[^"]+?)"/,
+                /"csrfToken"\s*:\s*"([^"]+?)"/,
+              ];
+              for (const pattern of patterns) {
+                const m = text.match(pattern);
+                if (m && m[1]) {
+                  at = m[1];
+                  break;
+                }
+              }
+              if (at) break;
+            }
+          } catch (e) {}
+        }
+
+        if (!at) {
+          try {
+            const meta = document.querySelector('meta[name="at"], meta[name="_at"]');
+            if (meta) {
+              const content = meta.getAttribute('content');
+              if (content) at = content;
+            }
+          } catch (e) {}
+        }
+
+        if (!at) {
+          return { error: 'NO_AT_TOKEN: Không tìm thấy CSRF at token (WIZ_global_data.SNlM0e) trong trang Flow' };
         }
 
         let finalFreq = freq;
@@ -1097,6 +1142,9 @@ async function runBatchRpc(cmd) {
               });
               const siteKey = (function() {
                 try {
+                  if (window.WIZ_global_data && typeof window.WIZ_global_data.xZbWve === 'string' && window.WIZ_global_data.xZbWve.length > 20) {
+                    return window.WIZ_global_data.xZbWve;
+                  }
                   const cfg = window.___grecaptcha_cfg || {};
                   const clients = cfg.clients || {};
                   for (const k of Object.keys(clients)) {

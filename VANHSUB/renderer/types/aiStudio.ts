@@ -253,6 +253,8 @@ export interface ChannelProfileConfig {
   channelOrientation: string;
   /** 7. Master prompt viết kịch bản */
   masterPrompt: string;
+  /** URL cuộc trò chuyện ChatGPT Web tương ứng với kênh (để giữ ngữ cảnh xuyên suốt) */
+  chatgptConversationUrl?: string;
   /** 8. Tra cứu dữ kiện trước khi viết */
   researchFactBeforeWrite: boolean;
   /** 9. AI chấm điểm & cải thiện kịch bản */
@@ -715,6 +717,7 @@ export type GenerateMasterPromptPayload = GenerateMasterPromptInput;
 
 export interface GenerateMasterPromptResponse {
   masterPrompt: string;
+  chatgptConversationUrl?: string;
   error?: string;
 }
 export type GenerateMasterPromptResult = GenerateMasterPromptResponse;
@@ -771,6 +774,12 @@ export interface VanhsubAiStudioBridge {
   openGeminiLogin?: () => Promise<{ success: boolean }>;
   closeGeminiLogin?: () => Promise<{ success: boolean }>;
   logoutGeminiLogin?: () => Promise<{ success: boolean }>;
+
+  // 1-Click CapCut Desktop Draft Export (Milestone 5)
+  exportCapcutDraft?: (
+    payload: any,
+    targetDir?: string
+  ) => Promise<CapCutDraftExportResult>;
 
   onPipelineProgress?: (callback: (event: PipelineProgressEvent) => void) => () => void;
   onProgress?: (callback: (event: PipelineProgressEvent) => void) => () => void;
@@ -836,4 +845,25 @@ export interface SelfTestDiagnosticsResult {
   overallReady: boolean;
   timestamp: number;
 }
+
+export interface CapCutDraftExportResult {
+  draftPath: string;
+  contentJsonPath: string;
+  metaInfoJsonPath: string;
+  tracksSummary: {
+    videoClipsCount: number;
+    voiceoverTracksCount: number;
+    bgmTracksCount: number;
+    subtitlesCount: number;
+    totalDurationUs: number;
+  };
+  trackSummary: {
+    videoClipsCount: number;
+    voiceoverTracksCount: number;
+    bgmTracksCount: number;
+    subtitlesCount: number;
+    totalDurationUs: number;
+  };
+}
+
 

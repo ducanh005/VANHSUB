@@ -28,6 +28,124 @@ export interface SceneProfile {
   updatedAt: string;
 }
 
+/**
+ * Character Anchor Configuration
+ * Conforms to PROJECT.md § Interface Contracts (Contract 3)
+ */
+export interface CharacterAnchorConfig {
+  characterId: string;
+  name: string;
+  visualTraits: string;
+  referenceImagePaths: string[];
+  lockedSeed?: number;
+  gender?: 'male' | 'female' | 'other';
+  ageGroup?: string;
+  avatarLocalPath?: string;
+  role?: string;
+  flowAssetId?: string;
+}
+
+/**
+ * Setting Anchor Configuration
+ * Conforms to PROJECT.md § Interface Contracts (Contract 3)
+ */
+export interface SettingAnchorConfig {
+  sceneId: string;
+  name: string;
+  environmentTraits: string;
+  referenceImagePaths: string[];
+  lightingMood?: string;
+  colorPalette?: string;
+  backgroundLocalPath?: string;
+  flowAssetId?: string;
+}
+
+/**
+ * Composite prompt for Imagen: [Style Prefix], [Character: Name, Traits], in scene: [Scene Description]
+ * Conforms to PROJECT.md § Interface Contracts (Contract 3)
+ */
+export function composeCharacterPrompt(
+  character: CharacterAnchorConfig,
+  sceneDescription: string,
+  stylePrefix = 'Cinematic, 8k photorealistic'
+): string {
+  const traits = character.visualTraits ? `, ${character.visualTraits}` : '';
+  return `${stylePrefix}, [Character: ${character.name}${traits}], in scene: ${sceneDescription}`.trim();
+}
+
+/**
+ * Composite motion prompt for Veo: [Character Name, Traits] [Subject Action], [Camera Movement]
+ * Conforms to PROJECT.md § Interface Contracts (Contract 3) & F3.2
+ */
+export function buildVeoMotionPrompt(
+  characterOrParams:
+    | CharacterAnchorConfig
+    | {
+        character?: CharacterAnchorConfig;
+        characterAnchorName?: string;
+        characterAnchorPrompt?: string;
+        characterName?: string;
+        characterTraits?: string;
+        visualAction?: string;
+        subjectAction?: string;
+        motionNote?: string;
+        cameraMovement?: string;
+      },
+  subjectActionArg?: string,
+  cameraMovementArg?: string
+): string {
+  if (
+    characterOrParams &&
+    typeof characterOrParams === 'object' &&
+    'characterId' in characterOrParams &&
+    'visualTraits' in characterOrParams
+  ) {
+    const char = characterOrParams as CharacterAnchorConfig;
+    const action = subjectActionArg?.trim() || '';
+    const motion = cameraMovementArg?.trim() || '';
+    const traits = char.visualTraits ? `, ${char.visualTraits}` : '';
+    const charHeader = `[${char.name}${traits}]`;
+    if (action && motion) {
+      return `${charHeader} ${action}, ${motion}`.trim();
+    }
+    if (action) {
+      return `${charHeader} ${action}`.trim();
+    }
+    if (motion) {
+      return `${charHeader} ${motion}`.trim();
+    }
+    return charHeader;
+  }
+
+  const p = (characterOrParams || {}) as {
+    character?: CharacterAnchorConfig;
+    characterAnchorName?: string;
+    characterAnchorPrompt?: string;
+    characterName?: string;
+    characterTraits?: string;
+    visualAction?: string;
+    subjectAction?: string;
+    motionNote?: string;
+    cameraMovement?: string;
+  };
+
+  const char = p.character;
+  const name = char?.name || p.characterAnchorName || p.characterName;
+  const traits = char?.visualTraits || p.characterAnchorPrompt || p.characterTraits;
+  const action = p.subjectAction || p.visualAction || subjectActionArg || '';
+  const motion = p.cameraMovement || p.motionNote || cameraMovementArg || 'cinematic motion';
+
+  if (name && traits) {
+    const charHeader = `[${name}, ${traits}]`;
+    return action ? `${charHeader} ${action}, ${motion}`.trim() : `${charHeader} ${motion}`.trim();
+  }
+  if (name) {
+    const charHeader = `[${name}]`;
+    return action ? `${charHeader} ${action}, ${motion}`.trim() : `${charHeader} ${motion}`.trim();
+  }
+  return action ? `${action}, ${motion}`.trim() : motion.trim();
+}
+
 interface BibleStoreSchema {
   characters: CharacterProfile[];
   scenes: SceneProfile[];
@@ -235,5 +353,120 @@ export const BibleStore = {
     const list = this.getScenes().filter((s) => s.id !== id);
     getStore().set('scenes', list);
     return true;
+  },
+
+  // --- Character & Setting Anchor Bridge (Milestone 3 / F3.1) ---
+
+  toCharacterAnchor(profile: CharacterProfile): CharacterAnchorConfig {
+    return {
+      characterId: profile.id,
+      name: profile.name,
+      visualTraits: profile.description || '',
+      referenceImagePaths: profile.referenceImages || [],
+      lockedSeed: profile.lockedSeed,
+      gender: profile.gender,
+      ageGroup: profile.ageGroup,
+      avatarLocalPath: profile.referenceImages?.[0],
+    };
+  },
+
+  toSettingAnchor(profile: SceneProfile): SettingAnchorConfig {
+    const traits = profile.description
+      ? (profile.description.includes(profile.name) ? profile.description : `${profile.name}. ${profile.description}`)
+      : profile.name;
+    return {
+      sceneId: profile.id,
+      name: profile.name,
+      environmentTraits: traits,
+      referenceImagePaths: profile.referenceImages || [],
+      lightingMood: profile.lightingMood,
+      colorPalette: profile.colorPalette,
+      backgroundLocalPath: profile.referenceImages?.[0],
+    };
+  },
+
+  getCharacterAnchorById(id: string): CharacterAnchorConfig | undefined {
+    const char = this.getCharacterById(id);
+    return char ? this.toCharacterAnchor(char) : undefined;
+  },
+
+  getSettingAnchorById(id: string): SettingAnchorConfig | undefined {
+    const scene = this.getSceneById(id);
+    return scene ? this.toSettingAnchor(scene) : undefined;
+  },
+
+  getCharacterAnchors(): CharacterAnchorConfig[] {
+    return this.getCharacters().map((c) => this.toCharacterAnchor(c));
+  },
+
+  getSettingAnchors(): SettingAnchorConfig[] {
+    return this.getScenes().map((s) => this.toSettingAnchor(s));
+  },
+
+  resolveCharacterAnchor(identifier?: string | CharacterProfile | CharacterAnchorConfig | null): CharacterAnchorConfig | undefined {
+    if (!identifier) return undefined;
+    if (typeof identifier === 'string') {
+      const char = this.getCharacterById(identifier) ||
+        this.getCharacters().find((c) => c.name === identifier || c.name.toLowerCase() === identifier.toLowerCase());
+      return char ? this.toCharacterAnchor(char) : undefined;
+    }
+    if ('characterId' in identifier && 'visualTraits' in identifier) {
+      return identifier as CharacterAnchorConfig;
+    }
+    if ('id' in identifier && 'description' in identifier) {
+      return this.toCharacterAnchor(identifier as CharacterProfile);
+    }
+    return undefined;
+  },
+
+  resolveSettingAnchor(identifier?: string | SceneProfile | SettingAnchorConfig | null): SettingAnchorConfig | undefined {
+    if (!identifier) return undefined;
+    if (typeof identifier === 'string') {
+      const scene = this.getSceneById(identifier) ||
+        this.getScenes().find((s) => s.name === identifier || s.name.toLowerCase() === identifier.toLowerCase());
+      return scene ? this.toSettingAnchor(scene) : undefined;
+    }
+    if ('sceneId' in identifier && 'environmentTraits' in identifier) {
+      return identifier as SettingAnchorConfig;
+    }
+    if ('id' in identifier && 'environment' in identifier) {
+      return this.toSettingAnchor(identifier as SceneProfile);
+    }
+    return undefined;
+  },
+
+  bridgeToChannelProfile(options: {
+    characterId?: string;
+    sceneId?: string;
+    existingProfile?: Record<string, any>;
+  }): Record<string, any> {
+    const result: Record<string, any> = { ...(options.existingProfile || {}) };
+    if (options.characterId) {
+      const charAnchor = this.getCharacterAnchorById(options.characterId);
+      if (charAnchor) {
+        result.hostName = charAnchor.name;
+        result.hostDescription = charAnchor.visualTraits;
+        if (charAnchor.referenceImagePaths.length > 0) {
+          result.hostAvatarUrl = charAnchor.referenceImagePaths[0];
+        }
+        result.channelCharacters = [
+          {
+            id: charAnchor.characterId,
+            name: charAnchor.name,
+            descriptionEn: charAnchor.visualTraits,
+            avatarUrl: charAnchor.referenceImagePaths[0],
+          },
+        ];
+      }
+    }
+    if (options.sceneId) {
+      const settingAnchor = this.getSettingAnchorById(options.sceneId);
+      if (settingAnchor) {
+        result.projectBackgroundPrompt = `${settingAnchor.environmentTraits}${
+          settingAnchor.lightingMood ? ', ' + settingAnchor.lightingMood : ''
+        }`;
+      }
+    }
+    return result;
   },
 };

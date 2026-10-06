@@ -29,6 +29,7 @@
     "msedge-tts": "^2.0.7",
     "nodejs-whisper": "^0.3.1",
     "openai": "^7.5.0",
+    "playwright-core": "^1.63.0",
     "sonner": "^2.0.8",
     "systeminformation": "^5.33.2",
     "tailwind-merge": "^3.6.0",

@@ -77,9 +77,9 @@ export interface AiStudioFlowEngineConfig {
   projectId?: string;
   /** Tên dự án trên Google Flow */
   projectName?: string;
-  /** Cho phép fallback sang synthetic scene card khi sinh media thất bại (mặc định false) */
+  /** @deprecated Bãi bỏ hoàn toàn trong Milestone 1 - Hệ thống không còn fallback sang synthetic scene card */
   allowSyntheticFallback?: boolean;
-  /** Alias cho explicit fallback */
+  /** @deprecated Bãi bỏ hoàn toàn trong Milestone 1 */
   fallbackToSynthetic?: boolean;
   /** Chế độ hiển thị cửa sổ sảnh Flow: 'offscreen' | 'live_window' */
   uiMode?: 'offscreen' | 'live_window';
@@ -220,6 +220,8 @@ export interface ChannelProfileConfig {
   channelOrientation: string;
   /** 7. Master prompt viết kịch bản */
   masterPrompt: string;
+  /** URL cuộc trò chuyện ChatGPT Web tương ứng với kênh (để giữ ngữ cảnh xuyên suốt) */
+  chatgptConversationUrl?: string;
   /** 8. Tra cứu dữ kiện trước khi viết */
   researchFactBeforeWrite: boolean;
   /** 9. AI chấm điểm & cải thiện kịch bản */
@@ -519,11 +521,67 @@ export type AiStudioStageName =
 
 export type AiStudioStageStatus = 'pending' | 'running' | 'success' | 'error' | 'skipped';
 
+export type CameraAngleType =
+  | 'wide_establishing'
+  | 'medium_shot'
+  | 'close_up'
+  | 'low_angle'
+  | 'high_angle'
+  | 'point_of_view'
+  | 'extreme_close_up'
+  | 'extreme_wide'
+  | 'dutch_angle'
+  | 'over_the_shoulder';
+
+export type CameraMovementType =
+  | 'pan_left_to_right'
+  | 'pan_right_to_left'
+  | 'dolly_in'
+  | 'dolly_out'
+  | 'pedestal_up'
+  | 'static'
+  | 'ken_burns_pan_zoom'
+  | 'tilt_up'
+  | 'tilt_down'
+  | 'tracking'
+  | 'orbit'
+  | 'crane'
+  | 'handheld_shake';
+
+export interface CinematographyPlan {
+  media_type: 'video' | 'image';
+  camera_angle:
+    | 'wide_establishing'
+    | 'medium_shot'
+    | 'close_up'
+    | 'low_angle'
+    | 'high_angle'
+    | 'point_of_view';
+  camera_motion:
+    | 'pan_left_to_right'
+    | 'pan_right_to_left'
+    | 'dolly_in'
+    | 'dolly_out'
+    | 'pedestal_up'
+    | 'static';
+  duration_sec: number;
+  visual_action_description: string;
+}
+
 export interface ScriptBeatLine {
   id: string;
   index: number;
   speaker?: string;
+  // Column 1: Voiceover (Audio)
   text: string;
+  voiceDirection?: string;
+  // Column 2: Visual Action & Camera Movement
+  visualAction?: string;
+  visualNote?: string;
+  cameraAngle?: CameraAngleType | string;
+  cameraMovement?: CameraMovementType | string;
+  suggestedMediaType?: 'image' | 'video';
+  // Timing & Artifacts
   startMs?: number;
   endMs?: number;
   durationMs?: number;
@@ -775,6 +833,7 @@ export interface GenerateMasterPromptPayload {
 
 export interface GenerateMasterPromptResult {
   masterPrompt: string;
+  chatgptConversationUrl?: string;
 }
 
 export interface ScriptCriteriaScore {
@@ -836,5 +895,69 @@ export interface SelfTestDiagnosticsResult {
   llm: { ok: boolean; message: string; provider: string };
   overallReady: boolean;
   timestamp: number;
+}
+
+// ============================================================================
+// 6. CapCut Desktop Draft Export Types (Milestone 5)
+// ============================================================================
+
+export interface CapCutDraftSceneItem {
+  id?: string;
+  path: string;
+  durationSec: number;
+  type?: 'video' | 'image';
+}
+
+export interface CapCutDraftSubtitleItem {
+  text: string;
+  startSec: number;
+  endSec: number;
+}
+
+export interface CapCutDraftProjectData {
+  id?: string;
+  title?: string;
+  durationSec?: number;
+  scenes?: CapCutDraftSceneItem[];
+  voiceoverPath?: string;
+  bgmPath?: string;
+  subtitles?: CapCutDraftSubtitleItem[];
+}
+
+export interface CapCutDraftExportOptions {
+  targetDir?: string;
+  targetDirectory?: string;
+  projectData?: CapCutDraftProjectData;
+  sessionState?: PipelineSessionState;
+  sessionId?: string;
+  projectId?: string;
+  // Direct top-level fields for convenience
+  id?: string;
+  title?: string;
+  durationSec?: number;
+  scenes?: CapCutDraftSceneItem[];
+  voiceoverPath?: string;
+  bgmPath?: string;
+  subtitles?: CapCutDraftSubtitleItem[];
+}
+
+export interface CapCutDraftExportResult {
+  draftPath: string;
+  contentJsonPath: string;
+  metaInfoJsonPath: string;
+  tracksSummary: {
+    videoClipsCount: number;
+    voiceoverTracksCount: number;
+    bgmTracksCount: number;
+    subtitlesCount: number;
+    totalDurationUs: number;
+  };
+  trackSummary: {
+    videoClipsCount: number;
+    voiceoverTracksCount: number;
+    bgmTracksCount: number;
+    subtitlesCount: number;
+    totalDurationUs: number;
+  };
 }
 

@@ -26,6 +26,9 @@ import {
   User,
   XCircle,
   Square,
+  Video,
+  Camera,
+  Film,
 } from 'lucide-react';
 import type {
   PipelineSessionState,
@@ -34,6 +37,43 @@ import type {
   IdeaBlueprint,
 } from '../../types/aiStudio';
 import { useAiStudioStore } from '../../lib/store/aiStudioStore';
+
+export interface ExtendedScriptBeatLine extends ScriptBeatLine {
+  beatType?: 'hook' | 'setup' | 'rising_action' | 'climax' | 'resolution' | 'call_to_action' | string;
+  voiceDirection?: string;
+  visualAction?: string;
+  visualNote?: string;
+  cameraAngle?: string;
+  cameraMovement?: string;
+  suggestedMediaType?: 'image' | 'video';
+}
+
+function formatCameraAngle(angle?: string): string {
+  if (!angle) return 'Trung cảnh';
+  const map: Record<string, string> = {
+    wide_establishing: 'Toàn cảnh (Wide)',
+    medium_shot: 'Trung cảnh (Medium)',
+    close_up: 'Cận cảnh (Close-up)',
+    low_angle: 'Góc thấp (Low Angle)',
+    high_angle: 'Góc cao (High Angle)',
+    point_of_view: 'Góc nhìn thứ nhất (POV)',
+  };
+  return map[angle] || angle;
+}
+
+function formatCameraMovement(movement?: string): string {
+  if (!movement) return 'Cố định';
+  const map: Record<string, string> = {
+    pan_left_to_right: 'Lia phải (Pan R)',
+    pan_right_to_left: 'Lia trái (Pan L)',
+    dolly_in: 'Tiến lại (Dolly In)',
+    dolly_out: 'Lùi ra (Dolly Out)',
+    pedestal_up: 'Nâng máy (Up)',
+    pedestal_down: 'Hạ máy (Down)',
+    static: 'Cố định (Static)',
+  };
+  return map[movement] || movement;
+}
 
 interface ScriptWorkspaceViewProps {
   session: PipelineSessionState;
@@ -65,15 +105,20 @@ export default function ScriptWorkspaceView({
   const { config } = useAiStudioStore();
 
   const blueprint = propBlueprint || session.artifacts?.blueprint || null;
-  const initialLines = session.artifacts?.scriptLines || [];
+  const initialLines = (session.artifacts?.scriptLines || []) as ExtendedScriptBeatLine[];
 
-  const [lines, setLines] = useState<ScriptBeatLine[]>(initialLines);
+  const [lines, setLines] = useState<ExtendedScriptBeatLine[]>(initialLines);
   const [evaluation, setEvaluation] = useState<ScriptEvaluation | null>(
     session.artifacts?.scriptEvaluation || null
   );
   const [isIdeaAccordionOpen, setIsIdeaAccordionOpen] = useState(false);
   const [editingLineIndex, setEditingLineIndex] = useState<number | null>(null);
   const [editingText, setEditingText] = useState('');
+  const [editingVisualAction, setEditingVisualAction] = useState('');
+  const [editingCameraAngle, setEditingCameraAngle] = useState('medium_shot');
+  const [editingCameraMovement, setEditingCameraMovement] = useState('static');
+  const [editingMediaType, setEditingMediaType] = useState<'video' | 'image'>('video');
+  const [editingVoiceDirection, setEditingVoiceDirection] = useState('');
   const [copyToast, setCopyToast] = useState<string | null>(null);
 
   // Script height controls (kéo dài hoặc thu ngắn kịch bản)
@@ -130,13 +175,13 @@ export default function ScriptWorkspaceView({
 
   // History for Undo
   const [history, setHistory] = useState<
-    { lines: ScriptBeatLine[]; evaluation: ScriptEvaluation | null }[]
+    { lines: ExtendedScriptBeatLine[]; evaluation: ScriptEvaluation | null }[]
   >([]);
 
   // Sync state when session changes
   useEffect(() => {
     if (session.artifacts?.scriptLines && session.artifacts.scriptLines.length > 0) {
-      setLines(session.artifacts.scriptLines);
+      setLines(session.artifacts.scriptLines as ExtendedScriptBeatLine[]);
     }
     if (session.artifacts?.scriptEvaluation) {
       setEvaluation(session.artifacts.scriptEvaluation);
@@ -178,7 +223,7 @@ export default function ScriptWorkspaceView({
     });
   }, [lines]);
 
-  const notifySessionUpdate = (newLines: ScriptBeatLine[], newEval: ScriptEvaluation | null) => {
+  const notifySessionUpdate = (newLines: ExtendedScriptBeatLine[], newEval: ScriptEvaluation | null) => {
     if (!onSessionUpdate) return;
     const updatedSession: PipelineSessionState = {
       ...session,
@@ -231,12 +276,12 @@ export default function ScriptWorkspaceView({
       });
 
       if (result?.lines && result.lines.length > 0) {
-        setLines(result.lines);
+        setLines(result.lines as ExtendedScriptBeatLine[]);
         if (result.evaluation) {
           setEvaluation(result.evaluation);
-          notifySessionUpdate(result.lines, result.evaluation);
+          notifySessionUpdate(result.lines as ExtendedScriptBeatLine[], result.evaluation);
         } else {
-          notifySessionUpdate(result.lines, evaluation);
+          notifySessionUpdate(result.lines as ExtendedScriptBeatLine[], evaluation);
           void handleEvaluate();
         }
       }
@@ -265,12 +310,12 @@ export default function ScriptWorkspaceView({
       });
 
       if (result?.lines && result.lines.length > 0) {
-        setLines(result.lines);
+        setLines(result.lines as ExtendedScriptBeatLine[]);
         if (result.evaluation) {
           setEvaluation(result.evaluation);
-          notifySessionUpdate(result.lines, result.evaluation);
+          notifySessionUpdate(result.lines as ExtendedScriptBeatLine[], result.evaluation);
         } else {
-          notifySessionUpdate(result.lines, evaluation);
+          notifySessionUpdate(result.lines as ExtendedScriptBeatLine[], evaluation);
           void handleEvaluate();
         }
       }
@@ -302,14 +347,30 @@ export default function ScriptWorkspaceView({
   // Start editing a specific line
   const handleStartEditLine = (index: number) => {
     setEditingLineIndex(index);
-    setEditingText(lines[index]?.text || '');
+    const line = lines[index];
+    setEditingText(line?.text || '');
+    setEditingVisualAction(line?.visualAction || line?.visualNote || '');
+    setEditingCameraAngle(line?.cameraAngle || 'medium_shot');
+    setEditingCameraMovement(line?.cameraMovement || 'static');
+    setEditingMediaType(line?.suggestedMediaType || 'video');
+    setEditingVoiceDirection(line?.voiceDirection || '');
   };
 
   // Save inline edited line
   const handleSaveInlineEdit = async (index: number) => {
-    if (editingText.trim() && lines[index]) {
-      const updated = lines.map((line, idx) =>
-        idx === index ? { ...line, text: editingText.trim() } : line
+    if (lines[index]) {
+      const updated: ExtendedScriptBeatLine[] = lines.map((line, idx) =>
+        idx === index
+          ? {
+              ...line,
+              text: editingText.trim() || line.text,
+              visualAction: editingVisualAction.trim() || undefined,
+              cameraAngle: editingCameraAngle || undefined,
+              cameraMovement: editingCameraMovement || undefined,
+              suggestedMediaType: editingMediaType,
+              voiceDirection: editingVoiceDirection.trim() || undefined,
+            }
+          : line
       );
       setLines(updated);
       setEditingLineIndex(null);
@@ -325,6 +386,26 @@ export default function ScriptWorkspaceView({
     } else {
       setEditingLineIndex(null);
     }
+  };
+
+  // Copy full 2-column script to clipboard
+  const handleCopyAudiovisualScript = () => {
+    const fullText = lines
+      .map((l, idx) => {
+        const time = timestamps[idx] || '0:00';
+        const visual = l.visualAction || l.visualNote || '(Chưa có mô tả hình ảnh)';
+        const cam = [formatCameraAngle(l.cameraAngle), formatCameraMovement(l.cameraMovement)]
+          .filter(Boolean)
+          .join(' | ');
+        const media = l.suggestedMediaType === 'image' ? 'ẢNH' : 'VIDEO';
+        return `[#${idx + 1} - ${time} - ${media}]\nTHOẠI: ${l.text}${
+          l.voiceDirection ? ` (Chỉ dẫn: ${l.voiceDirection})` : ''
+        }\nHÌNH ẢNH: ${visual}${cam ? ` [Góc & Chuyển động: ${cam}]` : ''}`;
+      })
+      .join('\n\n---\n\n');
+    navigator.clipboard.writeText(fullText);
+    setCopyToast('Đã sao chép kịch bản 2 cột (Audiovisual) vào clipboard!');
+    setTimeout(() => setCopyToast(null), 3000);
   };
 
   // Copy full script to clipboard
@@ -539,17 +620,17 @@ export default function ScriptWorkspaceView({
           </div>
         </div>
 
-        {/* 3. Box: Kịch Bản (Script Lines & Direct Inline Editing) */}
+        {/* 3. Box: Kịch Bản Phân Cảnh 2 Cột (Two-Column Audiovisual Script) */}
         <div className="rounded-lg border border-border bg-[#0B101E] p-4 space-y-3">
           {/* Header row */}
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-2.5">
               <span className="text-xs font-bold text-white flex items-center gap-1.5">
                 <FileText className="h-3.5 w-3.5 text-accent" />
-                Kịch bản
+                Kịch bản phân cảnh 2 cột (Audiovisual Script)
               </span>
               <span className="text-[11px] font-mono text-text-muted">
-                {stats.count} câu &bull; {stats.words} từ &bull; {stats.duration}
+                {stats.count} phân đoạn &bull; {stats.words} từ &bull; {stats.duration}
               </span>
             </div>
 
@@ -567,7 +648,7 @@ export default function ScriptWorkspaceView({
                       ? 'bg-accent-tint text-accent font-bold'
                       : 'text-text-muted hover:text-white'
                   }`}
-                  title="Thu ngắn danh sách câu kịch bản còn 200px để dễ nhìn thông tin ý tưởng"
+                  title="Thu ngắn danh sách phân cảnh còn 200px"
                 >
                   Thu ngắn (200px)
                 </button>
@@ -614,11 +695,22 @@ export default function ScriptWorkspaceView({
 
               <button
                 type="button"
+                onClick={handleCopyAudiovisualScript}
+                className="inline-flex items-center gap-1 rounded-lg border border-cyan-500/40 bg-cyan-950/30 px-2.5 py-1 text-[11px] font-medium text-cyan-300 hover:bg-cyan-900/40 hover:text-cyan-100 transition cursor-pointer"
+                title="Sao chép kịch bản 2 cột (Lời thoại + Hình ảnh & Góc máy)"
+              >
+                <Copy className="h-3 w-3 text-cyan-400" />
+                <span>Sao chép 2 cột</span>
+              </button>
+
+              <button
+                type="button"
                 onClick={handleCopyScript}
                 className="inline-flex items-center gap-1 rounded-lg border border-border bg-[#0F1626] px-2.5 py-1 text-[11px] text-text hover:text-white transition cursor-pointer"
+                title="Sao chép chỉ phần lời thoại thuyết minh"
               >
                 <Copy className="h-3 w-3" />
-                <span>Sao chép</span>
+                <span>Sao chép thoại</span>
               </button>
 
               <button
@@ -627,13 +719,13 @@ export default function ScriptWorkspaceView({
                 className="inline-flex items-center gap-1 rounded-lg border border-border bg-[#0F1626] px-2.5 py-1 text-[11px] text-text hover:text-white transition cursor-pointer"
               >
                 <Edit3 className="h-3 w-3" />
-                <span>Sửa kịch bản</span>
+                <span>Sửa phân cảnh</span>
               </button>
             </div>
           </div>
 
           <p className="text-[11px] text-amber-400/90 italic">
-            Nhấp vào câu bất kỳ để sửa trực tiếp (tự động lưu) &bull; Kéo thanh bên dưới để chỉnh chiều dài khung kịch bản
+            Kịch bản 2 cột tiêu chuẩn: Cột 1 Lời thoại (Voiceover) song song Cột 2 Hành động hình ảnh &amp; Máy quay (Visual Action &amp; Camera). Nhấp vào phân cảnh để sửa trực tiếp.
           </p>
 
           {copyToast && (
@@ -642,44 +734,79 @@ export default function ScriptWorkspaceView({
             </div>
           )}
 
+          {/* Column Header Titles for Two-Column Audiovisual Format */}
+          <div className="hidden md:grid grid-cols-12 gap-3 px-3 py-2 rounded-md bg-[#080C16] border border-border/80 text-[11px] font-bold text-text-muted uppercase tracking-wider select-none">
+            <div className="col-span-1 text-center font-mono text-[10px]"># &bull; Giờ</div>
+            <div className="col-span-5 flex items-center gap-1.5 text-cyan-400">
+              <Mic className="h-3.5 w-3.5 text-cyan-400" />
+              <span>Cột 1: Lời thoại &amp; Diễn xuất (Voiceover / Audio)</span>
+            </div>
+            <div className="col-span-6 flex items-center gap-1.5 text-amber-400">
+              <Video className="h-3.5 w-3.5 text-amber-400" />
+              <span>Cột 2: Hành động hình ảnh &amp; Máy quay (Visual &amp; Camera)</span>
+            </div>
+          </div>
+
           {/* Script lines list with resizable height */}
           <div
             style={{
               maxHeight: isScriptExpanded ? 'none' : `${scriptHeight}px`,
             }}
-            className="space-y-2 divide-y divide-slate-800/50 overflow-y-auto custom-scrollbar pr-1.5 transition-[max-height] duration-150"
+            className="space-y-3 overflow-y-auto custom-scrollbar pr-1.5 transition-[max-height] duration-150"
           >
             {lines.map((line, idx) => {
               const isEditing = editingLineIndex === idx;
               const timeLabel = timestamps[idx] || '0:00';
 
-              return (
-                <div
-                  key={line.id || idx}
-                  className={`pt-2.5 flex items-start gap-3 rounded-lg p-2 transition ${
-                    isEditing
-                      ? 'bg-surface ring-1 ring-accent/30'
-                      : 'hover:bg-surface cursor-text'
-                  }`}
-                  onClick={() => {
-                    if (!isEditing) handleStartEditLine(idx);
-                  }}
-                >
-                  {/* Timestamp */}
-                  <span className="font-mono text-xs text-text-muted shrink-0 select-none pt-0.5 w-10">
-                    {timeLabel}
-                  </span>
+              if (isEditing) {
+                // Editing Mode
+                return (
+                  <div
+                    key={line.id || idx}
+                    className="rounded-lg border border-accent/40 bg-[#0E1526] p-3 space-y-3 shadow-lg"
+                  >
+                    {/* Header bar of editing row */}
+                    <div className="flex items-center justify-between pb-2 border-b border-border/60 text-xs">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono font-bold text-accent">Phân đoạn #{idx + 1}</span>
+                        <span className="font-mono text-text-muted text-[11px]">⏱️ {timeLabel}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setEditingLineIndex(null)}
+                          className="rounded px-2.5 py-1 text-[11px] text-text-muted hover:text-white"
+                        >
+                          Hủy
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleSaveInlineEdit(idx)}
+                          className="inline-flex items-center gap-1 rounded bg-accent hover:bg-cyan-400 px-3 py-1 text-[11px] font-bold text-slate-950 shadow"
+                        >
+                          <Check className="h-3 w-3" />
+                          <span>Lưu phân cảnh</span>
+                        </button>
+                      </div>
+                    </div>
 
-                  {/* Narration Text or Editor */}
-                  <div className="flex-1 min-w-0">
-                    {isEditing ? (
-                      <div className="space-y-2">
+                    {/* Two editing columns */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {/* Left Column Editor: Voiceover & Voice Direction */}
+                      <div className="space-y-2 bg-[#090E1A] p-2.5 rounded-lg border border-border/60">
+                        <div className="flex items-center justify-between text-[11px]">
+                          <label className="font-semibold text-cyan-300 flex items-center gap-1">
+                            <Mic className="h-3 w-3" />
+                            Lời thoại (Voiceover)
+                          </label>
+                        </div>
                         <textarea
                           value={editingText}
                           onChange={(e) => setEditingText(e.target.value)}
-                          rows={3}
+                          rows={4}
                           autoFocus
-                          className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-xs text-white focus:border-accent/40 focus:outline-none"
+                          placeholder="Nhập lời thoại..."
+                          className="w-full rounded-md border border-border bg-[#050811] px-2.5 py-1.5 text-xs text-white focus:border-accent/40 focus:outline-none"
                           onKeyDown={(e) => {
                             if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
                               handleSaveInlineEdit(idx);
@@ -688,29 +815,214 @@ export default function ScriptWorkspaceView({
                             }
                           }}
                         />
-                        <div className="flex items-center justify-end gap-2">
-                          <button
-                            type="button"
-                            onClick={() => setEditingLineIndex(null)}
-                            className="rounded px-2.5 py-1 text-[11px] text-text-muted hover:text-white"
-                          >
-                            Hủy
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleSaveInlineEdit(idx)}
-                            className="inline-flex items-center gap-1 rounded bg-accent hover:bg-cyan-400 px-3 py-1 text-[11px] font-bold text-slate-950"
-                          >
-                            <Check className="h-3 w-3" />
-                            <span>Lưu câu thoại</span>
-                          </button>
+                        <div className="space-y-1">
+                          <label className="text-[10px] text-text-muted font-medium">Chỉ dẫn ngữ điệu (Voice Direction):</label>
+                          <input
+                            type="text"
+                            value={editingVoiceDirection}
+                            onChange={(e) => setEditingVoiceDirection(e.target.value)}
+                            placeholder="VD: Hồi hộp, dồn dập, thì thầm bí ẩn..."
+                            className="w-full rounded-md border border-border bg-[#050811] px-2.5 py-1 text-xs text-text focus:border-accent/40 focus:outline-none"
+                          />
                         </div>
                       </div>
-                    ) : (
-                      <p className="text-xs text-text leading-relaxed font-normal">
+
+                      {/* Right Column Editor: Visual Action & Camera Angles */}
+                      <div className="space-y-2 bg-[#090E1A] p-2.5 rounded-lg border border-border/60">
+                        <div className="flex items-center justify-between text-[11px]">
+                          <label className="font-semibold text-amber-300 flex items-center gap-1">
+                            <Video className="h-3 w-3" />
+                            Hành động hình ảnh (Visual Action)
+                          </label>
+                          <div className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => setEditingMediaType('video')}
+                              className={`px-2 py-0.5 rounded text-[10px] font-bold transition cursor-pointer ${
+                                editingMediaType === 'video'
+                                  ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
+                                  : 'text-text-muted hover:text-white'
+                              }`}
+                            >
+                              🎬 Video
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setEditingMediaType('image')}
+                              className={`px-2 py-0.5 rounded text-[10px] font-bold transition cursor-pointer ${
+                                editingMediaType === 'image'
+                                  ? 'bg-blue-500/20 text-blue-300 border border-blue-500/40'
+                                  : 'text-text-muted hover:text-white'
+                              }`}
+                            >
+                              🖼️ Ảnh
+                            </button>
+                          </div>
+                        </div>
+
+                        <textarea
+                          value={editingVisualAction}
+                          onChange={(e) => setEditingVisualAction(e.target.value)}
+                          rows={3}
+                          placeholder="Mô tả hành động, bối cảnh hình ảnh..."
+                          className="w-full rounded-md border border-border bg-[#050811] px-2.5 py-1.5 text-xs text-white focus:border-accent/40 focus:outline-none"
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                              handleSaveInlineEdit(idx);
+                            } else if (e.key === 'Escape') {
+                              setEditingLineIndex(null);
+                            }
+                          }}
+                        />
+
+                        <div className="grid grid-cols-2 gap-2 text-[10px]">
+                          <div>
+                            <label className="text-text-muted block mb-0.5 font-medium">Góc máy (Angle):</label>
+                            <select
+                              value={editingCameraAngle}
+                              onChange={(e) => setEditingCameraAngle(e.target.value)}
+                              className="w-full rounded border border-border bg-[#050811] px-2 py-1 text-xs text-white focus:outline-none"
+                            >
+                              <option value="wide_establishing">Toàn cảnh (Wide)</option>
+                              <option value="medium_shot">Trung cảnh (Medium)</option>
+                              <option value="close_up">Cận cảnh (Close-up)</option>
+                              <option value="low_angle">Góc thấp (Low Angle)</option>
+                              <option value="high_angle">Góc cao (High Angle)</option>
+                              <option value="point_of_view">Góc nhìn POV</option>
+                            </select>
+                          </div>
+
+                          <div>
+                            <label className="text-text-muted block mb-0.5 font-medium">Chuyển động (Motion):</label>
+                            <select
+                              value={editingCameraMovement}
+                              onChange={(e) => setEditingCameraMovement(e.target.value)}
+                              className="w-full rounded border border-border bg-[#050811] px-2 py-1 text-xs text-white focus:outline-none"
+                            >
+                              <option value="pan_left_to_right">Lia phải (Pan R)</option>
+                              <option value="pan_right_to_left">Lia trái (Pan L)</option>
+                              <option value="dolly_in">Tiến lại (Dolly In)</option>
+                              <option value="dolly_out">Lùi xa (Dolly Out)</option>
+                              <option value="pedestal_up">Nâng máy (Up)</option>
+                              <option value="pedestal_down">Hạ máy (Down)</option>
+                              <option value="static">Cố định (Static)</option>
+                            </select>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
+
+              // Display Mode (Clean 2-Column Audiovisual Row)
+              return (
+                <div
+                  key={line.id || idx}
+                  className="rounded-lg border border-border/70 bg-[#080D1A] hover:border-slate-700 hover:bg-[#0A1020] transition p-3 space-y-2 group"
+                >
+                  {/* Row Metadata Bar */}
+                  <div className="flex items-center justify-between text-[11px] text-text-muted border-b border-border/40 pb-1.5">
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono font-bold text-accent text-[11px]">
+                        #{String(idx + 1).padStart(2, '0')}
+                      </span>
+                      <span className="font-mono text-[10px] text-slate-400 bg-black/40 px-1.5 py-0.5 rounded border border-slate-800">
+                        {timeLabel}
+                      </span>
+                      {line.beatType && (
+                        <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-800/80 text-slate-300 border border-slate-700/60 uppercase">
+                          {line.beatType.replace('_', ' ')}
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleStartEditLine(idx)}
+                        className="opacity-70 group-hover:opacity-100 inline-flex items-center gap-1 rounded border border-border/80 bg-surface px-2 py-0.5 text-[10px] text-text-muted hover:text-white transition cursor-pointer"
+                        title="Chỉnh sửa phân cảnh này"
+                      >
+                        <Edit3 className="h-2.5 w-2.5" />
+                        <span>Sửa</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* 2-Column Content Grid */}
+                  <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-start">
+                    {/* Left Column: Voiceover Narration & Voice Direction (cols 1-6) */}
+                    <div
+                      className="md:col-span-6 space-y-1.5 cursor-text pr-2 md:border-r md:border-slate-800/60"
+                      onClick={() => handleStartEditLine(idx)}
+                    >
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-[10px] font-bold text-cyan-400/90 flex items-center gap-1">
+                          <Mic className="h-2.5 w-2.5" />
+                          THOẠI
+                        </span>
+                        {line.voiceDirection && (
+                          <span className="text-[10px] italic text-cyan-200/90 bg-cyan-950/40 border border-cyan-800/40 px-1.5 py-0.2 rounded">
+                            {line.voiceDirection}
+                          </span>
+                        )}
+                        {line.speaker && (
+                          <span className="text-[10px] font-medium text-slate-400 bg-slate-800/50 px-1.5 py-0.2 rounded">
+                            {line.speaker}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-text leading-relaxed font-normal select-text">
                         {line.text}
                       </p>
-                    )}
+                    </div>
+
+                    {/* Right Column: Visual Action, Media Type, Camera Angle & Movement (cols 7-12) */}
+                    <div
+                      className="md:col-span-6 space-y-1.5 cursor-text pl-0 md:pl-1"
+                      onClick={() => handleStartEditLine(idx)}
+                    >
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="text-[10px] font-bold text-amber-400/90 flex items-center gap-1">
+                          <Video className="h-2.5 w-2.5" />
+                          HÌNH ẢNH
+                        </span>
+
+                        {/* Media Type Badge */}
+                        <span
+                          className={`text-[10px] font-bold px-1.5 py-0.2 rounded border ${
+                            line.suggestedMediaType === 'image'
+                              ? 'bg-blue-500/15 border-blue-500/30 text-blue-300'
+                              : 'bg-rose-500/15 border-rose-500/30 text-rose-300'
+                          }`}
+                        >
+                          {line.suggestedMediaType === 'image' ? '🖼️ Ảnh' : '🎬 Video'}
+                        </span>
+
+                        {/* Camera Angle Badge */}
+                        {line.cameraAngle && (
+                          <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-amber-500/10 border border-amber-500/30 text-amber-300">
+                            📐 {formatCameraAngle(line.cameraAngle)}
+                          </span>
+                        )}
+
+                        {/* Camera Movement Badge */}
+                        {line.cameraMovement && (
+                          <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-emerald-500/10 border border-emerald-500/30 text-emerald-300">
+                            🎥 {formatCameraMovement(line.cameraMovement)}
+                          </span>
+                        )}
+                      </div>
+
+                      <p className="text-xs text-slate-300 leading-relaxed font-normal select-text">
+                        {line.visualAction || line.visualNote || (
+                          <span className="text-text-muted italic text-[11px]">
+                            {line.visualPromptEn || '(Chưa có mô tả hình ảnh phân cảnh)'}
+                          </span>
+                        )}
+                      </p>
+                    </div>
                   </div>
                 </div>
               );

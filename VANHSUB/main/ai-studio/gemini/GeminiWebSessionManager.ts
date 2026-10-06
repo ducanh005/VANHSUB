@@ -277,15 +277,23 @@ export class GeminiWebSessionManager {
     if (this.browserWindow && !this.browserWindow.isDestroyed()) {
       if (this.isOffscreen !== shouldBeOffscreen) {
         if (shouldBeOffscreen) {
+          this.browserWindow.setSkipTaskbar(true);
           this.browserWindow.setPosition(-3000, -3000);
-          this.browserWindow.hide();
+          if (!this.browserWindow.isVisible()) {
+            this.browserWindow.showInactive();
+          }
           this.isOffscreen = true;
         } else {
+          this.browserWindow.setSkipTaskbar(false);
           this.browserWindow.setPosition(100, 100);
           this.browserWindow.setSize(850, 700);
           this.browserWindow.show();
           this.isOffscreen = false;
         }
+      } else if (shouldBeOffscreen && !this.browserWindow.isVisible()) {
+        this.browserWindow.setSkipTaskbar(true);
+        this.browserWindow.setPosition(-3000, -3000);
+        this.browserWindow.showInactive();
       }
       return this.browserWindow;
     }
@@ -296,7 +304,8 @@ export class GeminiWebSessionManager {
       height: 700,
       x: shouldBeOffscreen ? -3000 : 100,
       y: shouldBeOffscreen ? -3000 : 100,
-      show: !shouldBeOffscreen,
+      show: true,
+      skipTaskbar: shouldBeOffscreen, // Ẩn khỏi taskbar Windows khi offscreen
       title: 'Gemini Web Automation — Vanhsub AI Studio',
       backgroundColor: '#ffffff',
       autoHideMenuBar: true,
@@ -307,6 +316,10 @@ export class GeminiWebSessionManager {
         backgroundThrottling: false,
       },
     });
+
+    if (shouldBeOffscreen) {
+      this.browserWindow.showInactive();
+    }
 
     this.configureWebContents(this.browserWindow);
 
@@ -455,7 +468,7 @@ CÂU X: [Nội dung câu thoại]`;
     } finally {
       this.isBusy = false;
       if (mode === 'offscreen' && this.browserWindow && !this.browserWindow.isDestroyed()) {
-        this.browserWindow.hide();
+        this.browserWindow.setPosition(-3000, -3000);
       }
     }
   }
@@ -498,7 +511,7 @@ CÂU X: [Nội dung câu thoại]`;
     } finally {
       this.isBusy = false;
       if (mode === 'offscreen' && this.browserWindow && !this.browserWindow.isDestroyed()) {
-        this.browserWindow.hide();
+        this.browserWindow.setPosition(-3000, -3000);
       }
     }
   }

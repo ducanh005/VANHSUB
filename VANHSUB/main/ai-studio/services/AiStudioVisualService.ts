@@ -232,6 +232,7 @@ export class AiStudioVisualService {
       // Attempt live Google Flow session if authenticated
       if (useGoogleFlow) {
         let finalPath: string | null = null;
+        let lastFlowErr: any = null;
         const maxRetries = typeof flowConfig.maxRetries === 'number' ? flowConfig.maxRetries : 2;
 
         for (let retry = 0; retry <= maxRetries; retry++) {
@@ -253,6 +254,7 @@ export class AiStudioVisualService {
               throw new GoogleFlowRpcError('Tác vụ đã bị người dùng huỷ bỏ.', { code: 'CANCELLED', retryable: false });
             }
             const flowErr = classifyFlowRpcError(rawFlowErr);
+            lastFlowErr = flowErr;
             if (flowErr.code === 'CANCELLED') {
               throw flowErr;
             }
@@ -261,13 +263,14 @@ export class AiStudioVisualService {
               flowErr.retryable ||
               errorCode === 'RATE_LIMITED' ||
               errorCode === 'PUBLIC_ERROR_UNUSUAL_ACTIVITY' ||
+              errorCode === 'UNUSUAL_ACTIVITY' ||
               errorCode === 'UPSTREAM_ERROR' ||
               errorCode === 'TIMEOUT' ||
               isUnusualActivityError(flowErr);
 
             if (isTransient && retry < maxRetries) {
-              // R2: Đối với PUBLIC_ERROR_UNUSUAL_ACTIVITY, tự động kích hoạt cơ chế dự phòng số 1 (CDP Trusted Click phần hardware) trước khi giãn cách lùi bước
-              if (isUnusualActivityError(flowErr) || errorCode === 'PUBLIC_ERROR_UNUSUAL_ACTIVITY') {
+              // R2: Đối với PUBLIC_ERROR_UNUSUAL_ACTIVITY, chỉ kích hoạt cơ chế dự phòng hardware click trên Electron khi chưa có Chrome Bridge
+              if (!isBridgeConnected && (isUnusualActivityError(flowErr) || errorCode === 'PUBLIC_ERROR_UNUSUAL_ACTIVITY' || errorCode === 'UNUSUAL_ACTIVITY')) {
                 console.warn(
                   `[AiStudioVisualService] Phát hiện PUBLIC_ERROR_UNUSUAL_ACTIVITY ở cảnh ${i + 1}. ` +
                   `Tự động kích hoạt cơ chế dự phòng số 1 (CDP Trusted Click phần hardware)...`
@@ -321,52 +324,31 @@ export class AiStudioVisualService {
               `[AiStudioVisualService] Sinh media Google Flow thất bại ở cảnh ${i + 1} [Mã lỗi: ${errorCode}]: ${flowErr.message}`
             );
 
-            // Bóc tách mã lỗi rõ ràng: chỉ fallback sang synthetic card khi có cấu hình explicit fallback, tránh âm thầm nuốt lỗi sinh ảnh/video thật
-            const hasExplicitFallback = Boolean(
-              flowConfig.allowSyntheticFallback === true ||
-              flowConfig.fallbackToSynthetic === true ||
-              (flowConfig as any).explicitFallback === true
-            );
-
-            const isRpcEngine = Boolean(
-              this.rpcClient ||
-              !isLegacyDom ||
-              flowConfig.engine === 'rpc' ||
-              flowConfig.engine === 'flow_rpc' ||
-              (flowConfig as any)?.useRpc === true
-            );
-
-            const isTerminalRpcError =
-              errorCode === 'SESSION_EXPIRED' ||
-              errorCode === 'RATE_LIMITED' ||
-              errorCode === 'PUBLIC_ERROR_UNUSUAL_ACTIVITY' ||
-              errorCode === 'CONTENT_POLICY_VIOLATION' ||
-              errorCode === 'CONTENT_REJECTED';
-
-            if (!hasExplicitFallback) {
-              if (isRpcEngine) {
-                throw flowErr;
-              } else if (flowConfig.allowSyntheticFallback === false) {
-                throw flowErr;
-              } else if (isTerminalRpcError && lobbyWin) {
-                throw flowErr;
-              }
+            // Kiểm tra xem phân cảnh đã có ảnh keyframe thực tế hay chưa
+            if (scene.imagePath && fs.existsSync(scene.imagePath)) {
+              console.log(
+                `[AiStudioVisualService] 📸 Phân cảnh ${i + 1} đã có ảnh keyframe thực tế. Tự động chuyển sang ảnh tĩnh Ken Burns thay vì thẻ chữ giả lập.`
+              );
+              finalPath = scene.imagePath;
+              scene.assetPath = scene.imagePath;
+              scene.motionType = 'ken_burns';
+              delete scene.videoPath;
+              break;
             }
 
-            console.info(
-              `[AiStudioVisualService] Kích hoạt synthetic scene card fallback cho cảnh ${i + 1}.`
-            );
-            break;
+            // Hoàn toàn không có ảnh keyframe thực tế -> Ném lỗi có cấu trúc để ActionableErrorBanner xử lý
+            throw lastFlowErr || flowErr;
           }
         }
 
         if (finalPath) {
           scene.assetPath = finalPath;
-          if (isSceneVideo) {
+          if (isSceneVideo && !finalPath.endsWith('.png')) {
             scene.videoPath = finalPath;
           } else {
             scene.imagePath = finalPath;
             delete scene.videoPath;
+            scene.motionType = 'ken_burns';
           }
           scene.status = 'ready';
           googleFlowSuccessCount++;
@@ -395,40 +377,29 @@ export class AiStudioVisualService {
 
           continue;
         }
-      }
 
-      // Procedural synthetic high-res scene card fallback
-      const fallbackPath = assetPath.endsWith('.mp4') ? assetPath.replace(/\.mp4$/, '.png') : assetPath;
-      await this.generateSyntheticSceneCard(scene, fallbackPath, flowConfig.aspectRatio || '16:9', '720p');
-      scene.assetPath = fallbackPath;
-      scene.imagePath = fallbackPath;
-      delete scene.videoPath;
-      scene.status = 'ready';
-      await onSceneComplete?.(scene, i);
+        // Nếu không có finalPath: sử dụng ảnh keyframe thật nếu có, ngược lại ném lỗi
+        if (scene.imagePath && fs.existsSync(scene.imagePath)) {
+          scene.assetPath = scene.imagePath;
+          delete scene.videoPath;
+          scene.motionType = 'ken_burns';
+          scene.status = 'ready';
+          googleFlowSuccessCount++;
+          await onSceneComplete?.(scene, i);
+          continue;
+        }
 
-      // Giãn cách an toàn sau khi tạo fallback (nếu còn cảnh tiếp theo)
-      if (i < scenes.length - 1 && !flowConfig.skipCooldown && flowConfig.cooldownSec !== undefined) {
-        if (signal?.aborted) {
-          throw new GoogleFlowRpcError('Tác vụ đã bị người dùng huỷ bỏ.', { code: 'CANCELLED', retryable: false });
-        }
-        const cooldownSec = typeof flowConfig.cooldownSec === 'number' && Number.isFinite(flowConfig.cooldownSec)
-          ? Math.max(0, Math.round(flowConfig.cooldownSec))
-          : 0;
-        const sceneEndPct = Math.min(99, sceneBasePct + sceneWeight);
-        for (let sec = cooldownSec; sec > 0; sec--) {
-          if (signal?.aborted) {
-            throw new GoogleFlowRpcError('Tác vụ đã bị người dùng huỷ bỏ.', { code: 'CANCELLED', retryable: false });
-          }
-          onProgress?.(sceneEndPct, `Đang giãn cách an toàn: Còn ${sec} giây trước cảnh tiếp theo...`);
-          await sleepAbortable(1000, signal);
-        }
+        throw (
+          lastFlowErr ||
+          new GoogleFlowRpcError(
+            `Không thể tạo media cho phân cảnh ${i + 1} và không có ảnh keyframe thực tế.`,
+            { code: 'UPSTREAM_ERROR', retryable: true }
+          )
+        );
       }
     }
 
-    const modeUsed: 'google_flow' | 'synthetic_fallback' =
-      useGoogleFlow && googleFlowSuccessCount > 0 && googleFlowSuccessCount === scenes.length
-        ? 'google_flow'
-        : 'synthetic_fallback';
+    const modeUsed: 'google_flow' = 'google_flow';
 
     return {
       scenes,
@@ -522,78 +493,161 @@ export class AiStudioVisualService {
       }
 
       if (isVideo) {
-        onProgress?.(10, 'Đang gửi yêu cầu tạo video (Veo RPC)...');
+        let resolvedKeyframeAsset = (scene as any).inputImageAsset || (scene as any).input_image_asset;
+        let keyframePath: string | undefined = scene.imagePath && fs.existsSync(scene.imagePath) ? scene.imagePath : undefined;
 
-        const inputImageAsset = (scene as any).inputImageAsset || (scene as any).input_image_asset;
+        // BƯỚC 1: Nếu chưa có keyframe image asset, sinh ảnh keyframe chất lượng cao bằng Imagen (ogiZ0b) trước
+        if (!resolvedKeyframeAsset) {
+          onProgress?.(8, 'Bước 1/2 (I2V): Đang sinh ảnh keyframe chất lượng cao bằng Imagen (ogiZ0b)...');
+          const keyframeTargetPath = targetPath.endsWith('.mp4')
+            ? targetPath.replace(/\.mp4$/i, '.png')
+            : `${targetPath}_keyframe.png`;
 
-        const genResult = await rpcClient.generateVideo({
-          prompt: effectivePrompt,
-          aspectRatio: flowConfig.aspectRatio || '16:9',
-          referenceAssets: refAssets,
-          inputImageAsset,
-          projectId: effectiveProjectId,
-          win: lobbyWin,
-          signal,
-          maxRetries: 0,
-          backoffBaseMs: typeof flowConfig.backoffBaseMs === 'number' ? flowConfig.backoffBaseMs : 10000,
-        });
+          const imgGenResult = await rpcClient.generateImage({
+            prompt: effectivePrompt,
+            aspectRatio: flowConfig.aspectRatio || '16:9',
+            referenceAssets: refAssets,
+            projectId: effectiveProjectId,
+            win: lobbyWin,
+            signal,
+            maxRetries: 0,
+            backoffBaseMs: typeof flowConfig.backoffBaseMs === 'number' ? flowConfig.backoffBaseMs : 10000,
+          });
 
-        let finalVideoUrl = genResult.videoUrl;
-
-        if (!finalVideoUrl) {
-          if (!genResult.operationId) {
-            throw new GoogleFlowRpcError('Không nhận được operationId từ Google Flow RPC video generation.', {
+          const keyframeUrl = imgGenResult.firstImageUrl || imgGenResult.images?.[0]?.url;
+          if (!keyframeUrl) {
+            throw new GoogleFlowRpcError('Không nhận được URL ảnh keyframe từ Google Flow Imagen RPC.', {
               code: 'UPSTREAM_ERROR',
               retryable: true,
             });
           }
 
-          onProgress?.(15, 'Đang theo dõi tiến trình tạo video (Veo RPC Poller)...');
-
-          const pollResult = await rpcClient.pollGeneration({
-            operationId: genResult.operationId,
-            projectId: genResult.projectId,
-            win: lobbyWin,
+          onProgress?.(18, 'Bước 1/2 (I2V): Đang tải ảnh keyframe từ CDN về thư mục dự án...');
+          await this.downloadMediaAsset(keyframeUrl, keyframeTargetPath, {
             signal,
-            onProgress: (pInfo) => {
-              // Scale polling progress (0-100%) into 15%-85% range so subsequent download never jumps backwards
-              const scaledPct = 15 + Math.round((Math.min(100, Math.max(0, pInfo.percentage)) / 100) * 70);
-              onProgress?.(
-                scaledPct,
-                `[Veo ${pInfo.state}] ${pInfo.message || 'Đang tạo video...'}`
-              );
-            },
+            win: lobbyWin,
+            partition: rpcClient.partition,
           });
 
-          finalVideoUrl = pollResult.videoUrl;
+          try {
+            this.validateMediaFile(keyframeTargetPath, 'image');
+          } catch (kErr) {
+            try { if (fs.existsSync(keyframeTargetPath)) fs.unlinkSync(keyframeTargetPath); } catch {}
+            throw kErr;
+          }
+
+          scene.imagePath = keyframeTargetPath;
+          keyframePath = keyframeTargetPath;
+
+          // Lấy Media UUID từ Imagen RPC response (mediaId hoặc assetId)
+          const keyframeMediaId =
+            imgGenResult.images?.[0]?.mediaId ||
+            imgGenResult.images?.[0]?.assetId ||
+            (imgGenResult as any).mediaId ||
+            keyframeTargetPath;
+
+          (scene as any).inputImageAsset = keyframeMediaId;
+          resolvedKeyframeAsset = keyframeMediaId;
+          console.log(`[AiStudioVisualService] ✅ Bước 1 I2V thành công: Keyframe mediaId=${keyframeMediaId}, path=${keyframeTargetPath}`);
         }
 
-        if (!finalVideoUrl) {
-          throw new GoogleFlowRpcError('Google Flow RPC hoàn tất nhưng không có videoUrl trong kết quả.', {
-            code: 'UPSTREAM_ERROR',
-            retryable: true,
-          });
-        }
+        // BƯỚC 2: Gọi Veo Image-to-Video (MZZa6b) với keyframe asset và motion prompt
+        const motionPrompt =
+          (scene as any).motionPrompt ||
+          (scene as any).cameraMovement ||
+          (scene as any).cameraMotion ||
+          effectivePrompt;
 
-        onProgress?.(88, 'Đang tải tệp video từ CDN về thư mục dự án...');
-        await this.downloadMediaAsset(finalVideoUrl, targetPath, {
-          signal,
-          win: lobbyWin,
-          partition: rpcClient.partition,
-        });
+        onProgress?.(25, 'Bước 2/2 (I2V): Đang gửi yêu cầu tạo video chuyển động Veo (MZZa6b)...');
 
         try {
-          this.validateMediaFile(targetPath, 'video');
-        } catch (vErr) {
-          try { if (fs.existsSync(targetPath)) fs.unlinkSync(targetPath); } catch {}
-          throw vErr;
-        }
+          const genResult = await rpcClient.generateVideo({
+            prompt: motionPrompt,
+            aspectRatio: flowConfig.aspectRatio || '16:9',
+            referenceAssets: refAssets,
+            inputImageAsset: resolvedKeyframeAsset,
+            projectId: effectiveProjectId,
+            win: lobbyWin,
+            signal,
+            maxRetries: 0,
+            backoffBaseMs: typeof flowConfig.backoffBaseMs === 'number' ? flowConfig.backoffBaseMs : 10000,
+          });
 
-        scene.videoPath = targetPath;
-        scene.assetPath = targetPath;
-        scene.status = 'ready';
-        onProgress?.(100, 'Đã tải hoàn tất video phân cảnh.');
-        return targetPath;
+          let finalVideoUrl = genResult.videoUrl;
+
+          if (!finalVideoUrl) {
+            if (!genResult.operationId) {
+              throw new GoogleFlowRpcError('Không nhận được operationId từ Google Flow RPC video generation.', {
+                code: 'UPSTREAM_ERROR',
+                retryable: true,
+              });
+            }
+
+            onProgress?.(35, 'Đang theo dõi tiến trình tạo video (Veo RPC Poller)...');
+
+            const pollResult = await rpcClient.pollGeneration({
+              operationId: genResult.operationId,
+              projectId: genResult.projectId,
+              win: lobbyWin,
+              signal,
+              onProgress: (pInfo) => {
+                const scaledPct = 35 + Math.round((Math.min(100, Math.max(0, pInfo.percentage)) / 100) * 50);
+                onProgress?.(
+                  scaledPct,
+                  `[Veo ${pInfo.state}] ${pInfo.message || 'Đang tạo video...'}`
+                );
+              },
+            });
+
+            finalVideoUrl = pollResult.videoUrl;
+          }
+
+          if (!finalVideoUrl) {
+            throw new GoogleFlowRpcError('Google Flow RPC hoàn tất nhưng không có videoUrl trong kết quả.', {
+              code: 'UPSTREAM_ERROR',
+              retryable: true,
+            });
+          }
+
+          onProgress?.(88, 'Đang tải tệp video từ CDN về thư mục dự án...');
+          await this.downloadMediaAsset(finalVideoUrl, targetPath, {
+            signal,
+            win: lobbyWin,
+            partition: rpcClient.partition,
+          });
+
+          try {
+            this.validateMediaFile(targetPath, 'video');
+          } catch (vErr) {
+            try { if (fs.existsSync(targetPath)) fs.unlinkSync(targetPath); } catch {}
+            throw vErr;
+          }
+
+          scene.videoPath = targetPath;
+          scene.assetPath = targetPath;
+          scene.status = 'ready';
+          onProgress?.(100, 'Đã tải hoàn tất video phân cảnh.');
+          return targetPath;
+        } catch (veoErr: any) {
+          // DISPATCH Task 3: Nếu sinh video Veo thất bại nhưng đã có ảnh keyframe thật,
+          // sử dụng ảnh keyframe thật (kèm hiệu ứng Ken Burns) làm hình ảnh phân cảnh
+          if (keyframePath && fs.existsSync(keyframePath)) {
+            console.warn(
+              `[AiStudioVisualService] ⚠️ Sinh video Veo thất bại: ${veoErr?.message || veoErr}. ` +
+              `Tự động fallback sang ảnh keyframe thực tế đã tạo kèm hiệu ứng Ken Burns: ${keyframePath}`
+            );
+            scene.imagePath = keyframePath;
+            scene.assetPath = keyframePath;
+            delete scene.videoPath;
+            scene.motionType = 'ken_burns';
+            scene.status = 'ready';
+            onProgress?.(100, 'Đã chuyển sang ảnh keyframe thực tế (Ken Burns animation).');
+            return keyframePath;
+          }
+
+          // Hoàn toàn không có ảnh keyframe thật -> ném lỗi có cấu trúc
+          throw veoErr;
+        }
       } else {
         // Image generation
         onProgress?.(15, 'Đang gửi yêu cầu tạo ảnh (Imagen/Nano RPC)...');
@@ -1284,6 +1338,7 @@ export class AiStudioVisualService {
       }
     }
 
+    let lastErr: any = null;
     if (useGoogleFlow) {
       const maxRetries = typeof payload.flowConfig?.maxRetries === 'number' ? payload.flowConfig.maxRetries : 2;
 
@@ -1304,6 +1359,7 @@ export class AiStudioVisualService {
             throw new GoogleFlowRpcError('Tác vụ đã bị người dùng huỷ bỏ.', { code: 'CANCELLED', retryable: false });
           }
           const classified = classifyFlowRpcError(err);
+          lastErr = classified;
           if (classified.code === 'CANCELLED') {
             throw classified;
           }
@@ -1311,13 +1367,15 @@ export class AiStudioVisualService {
             classified.retryable ||
             classified.code === 'RATE_LIMITED' ||
             classified.code === 'PUBLIC_ERROR_UNUSUAL_ACTIVITY' ||
+            classified.code === 'UNUSUAL_ACTIVITY' ||
             classified.code === 'UPSTREAM_ERROR' ||
             classified.code === 'TIMEOUT' ||
             isUnusualActivityError(classified);
 
           if (isTransient && retry < maxRetries) {
-            // R2: Đối với PUBLIC_ERROR_UNUSUAL_ACTIVITY, tự động kích hoạt cơ chế dự phòng số 1 (CDP Trusted Click phần hardware) trước khi giãn cách lùi bước
-            if (isUnusualActivityError(classified) || classified.code === 'PUBLIC_ERROR_UNUSUAL_ACTIVITY') {
+            // R2: Đối với PUBLIC_ERROR_UNUSUAL_ACTIVITY, chỉ kích hoạt cơ chế dự phòng hardware click trên Electron khi chưa có Chrome Bridge
+            const isBridge = FlowBridgeServer.getInstance().isConnected();
+            if (!isBridge && (isUnusualActivityError(classified) || classified.code === 'PUBLIC_ERROR_UNUSUAL_ACTIVITY' || classified.code === 'UNUSUAL_ACTIVITY')) {
               console.warn(
                 `[AiStudioVisualService] regenerateSceneAsset phát hiện PUBLIC_ERROR_UNUSUAL_ACTIVITY. ` +
                 `Tự động kích hoạt cơ chế dự phòng số 1 (CDP Trusted Click phần hardware)...`
@@ -1390,26 +1448,27 @@ export class AiStudioVisualService {
             classified.code === 'SESSION_EXPIRED' ||
             classified.code === 'RATE_LIMITED' ||
             classified.code === 'PUBLIC_ERROR_UNUSUAL_ACTIVITY' ||
+            classified.code === 'UNUSUAL_ACTIVITY' ||
             classified.code === 'CONTENT_POLICY_VIOLATION' ||
             classified.code === 'CONTENT_REJECTED';
 
-          if (!hasExplicitFallback) {
-            if (isRpcEngine) {
-              throw classified;
-            } else if (flowConfig.allowSyntheticFallback === false) {
-              throw classified;
-            } else if (isTerminal && lobbyWin) {
-              throw classified;
-            }
-          }
-          break;
+          // Bãi bỏ hoàn toàn synthetic card fallback, ném thẳng lỗi để ActionableErrorBanner xử lý
+          throw lastErr || classified;
         }
       }
     }
 
-    const fallbackPath = outPath.endsWith('.mp4') ? outPath.replace(/\.mp4$/, '.png') : outPath;
-    await this.generateSyntheticSceneCard(mockScene, fallbackPath, flowConfig.aspectRatio, '720p');
-    return { assetPath: fallbackPath, imagePath: fallbackPath };
+    if (mockScene.imagePath && fs.existsSync(mockScene.imagePath)) {
+      return { assetPath: mockScene.imagePath, imagePath: mockScene.imagePath };
+    }
+
+    throw (
+      lastErr ||
+      new GoogleFlowRpcError('Không thể tạo lại media và không có ảnh keyframe thực tế.', {
+        code: 'UPSTREAM_ERROR',
+        retryable: true,
+      })
+    );
   }
 }
 

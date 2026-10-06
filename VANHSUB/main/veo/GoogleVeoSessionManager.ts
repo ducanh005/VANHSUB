@@ -3001,6 +3001,103 @@ export class GoogleVeoSessionManager {
   public getLobbyWindow(): any {
     return this.lobbyWindow;
   }
+
+  /**
+   * Tự động phục hồi phiên làm việc khi phát hiện redirect sang /about hoặc thiếu token (Self-Healing Session).
+   * 1. Nạp lại cookies từ SettingsStore vào partition persist:google_veo.
+   * 2. Điều hướng lại về URL dự án hợp lệ https://flow.google.com/project/<id> (hoặc https://flow.google.com/).
+   * 3. Chờ trang nạp xong DOM/WIZ_global_data.
+   * 4. Nếu vẫn dừng ở trang đăng nhập Google hoặc /about (yêu cầu người dùng can thiệp):
+   *    -> Tự động đưa cửa sổ Sảnh ra màn hình (showLobbyForDebug) và thông báo cần re-auth.
+   */
+  public async recoverSessionOnRedirect(
+    win?: any,
+    targetProjectId?: string
+  ): Promise<{ success: boolean; requiresUserInteraction: boolean; currentUrl: string }> {
+    console.log('[GoogleVeoSessionManager] 🩺 Bắt đầu quy trình tự phục hồi phiên làm việc (Session Self-Healing)...');
+    let targetWin = win || this.lobbyWindow;
+    if (!targetWin || targetWin.isDestroyed?.()) {
+      try {
+        await this.openLobbyWindow({ uiMode: 'offscreen' });
+        targetWin = this.lobbyWindow;
+      } catch (err) {
+        console.warn('[GoogleVeoSessionManager] Không thể mở lobbyWindow để phục hồi session:', err);
+      }
+    }
+
+    if (!targetWin || targetWin.isDestroyed?.()) {
+      return { success: false, requiresUserInteraction: true, currentUrl: '' };
+    }
+
+    try {
+      // 1. Nạp lại cookies sạch từ SettingsStore vào partition
+      let electron: any = null;
+      try {
+        electron = require('electron');
+      } catch {}
+      const session = electron?.session;
+      if (session?.fromPartition) {
+        const ses = session.fromPartition('persist:google_veo');
+        const restoredCount = await this.restoreCookiesToPartition(ses);
+        console.log(`[GoogleVeoSessionManager] 🩺 Đã nạp lại ${restoredCount} cookies từ SettingsStore.`);
+      }
+
+      // 2. Xác định URL mục tiêu
+      let projectUrl = 'https://flow.google.com/';
+      const cleanProjId = (targetProjectId && targetProjectId !== '00000000-0000-0000-0000-000000000000') ? targetProjectId.trim() : '';
+      if (cleanProjId) {
+        projectUrl = `https://flow.google.com/project/${cleanProjId}`;
+      } else {
+        const storedProjUrl = SettingsStore.get('flowProjectUrl')?.trim();
+        if (storedProjUrl && storedProjUrl.includes('/project/')) {
+          projectUrl = storedProjUrl;
+        }
+      }
+
+      console.log(`[GoogleVeoSessionManager] 🩺 Điều hướng lại cửa sổ Sảnh về: ${projectUrl}`);
+      try {
+        await targetWin.loadURL(projectUrl);
+      } catch (navErr) {
+        console.warn('[GoogleVeoSessionManager] loadURL warning during session recovery:', navErr);
+      }
+
+      // Chờ 2.5s để Angular WIZ nạp lại context và WIZ_global_data
+      await new Promise((r) => setTimeout(r, 2500));
+
+      const afterUrl = (targetWin.webContents?.getURL?.() || '').toLowerCase();
+      console.log(`[GoogleVeoSessionManager] 🩺 URL sau khi nạp lại: ${afterUrl}`);
+
+      // 3. Kiểm tra xem có bị chuyển hướng sang login hoặc /about hay không
+      const isLoginOrAbout =
+        afterUrl.includes('accounts.google.com') ||
+        afterUrl.includes('flow.google.com/about') ||
+        afterUrl.includes('servicelogin');
+
+      if (isLoginOrAbout) {
+        console.warn('[GoogleVeoSessionManager] ⚠️ Phiên cần người dùng đăng nhập lại hoặc giải CAPTCHA. Đang đưa Sảnh ra màn hình...');
+        await this.showLobbyForDebug();
+        return {
+          success: false,
+          requiresUserInteraction: true,
+          currentUrl: afterUrl,
+        };
+      }
+
+      console.log('[GoogleVeoSessionManager] ✅ Phục hồi phiên làm việc thành công!');
+      return {
+        success: true,
+        requiresUserInteraction: false,
+        currentUrl: afterUrl,
+      };
+    } catch (err: any) {
+      console.error('[GoogleVeoSessionManager] ❌ Lỗi trong quy trình recoverSessionOnRedirect:', err);
+      return {
+        success: false,
+        requiresUserInteraction: true,
+        currentUrl: targetWin.webContents?.getURL?.() || '',
+      };
+    }
+  }
 }
 
 

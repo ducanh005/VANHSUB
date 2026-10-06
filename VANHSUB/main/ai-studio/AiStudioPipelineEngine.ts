@@ -55,6 +55,12 @@ import { GoogleVeoSessionManager, OFFSCREEN_X, OFFSCREEN_Y } from '../veo/Google
 import { GoogleFlowBrowserMutex } from '../workflow/dispatcher/GoogleFlowBrowserMutex';
 import { FlowBridgeServer } from '../workflow/flow-engine/rpc/FlowBridgeServer';
 import { broadcastPipelineActionLog } from './ipc';
+import {
+  BibleStore,
+  CharacterAnchorConfig,
+  SettingAnchorConfig,
+  buildVeoMotionPrompt,
+} from '../store/bibleStore';
 
 /**
  * Resolves the root directory where AI Studio pipeline sessions and checkpoints are persisted.
@@ -340,7 +346,9 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
       artifacts: {
         blueprint: payload.blueprint,
         ideaSummary: payload.blueprint?.rawSummary || payload.blueprint?.title || topic,
-      },
+        characterAnchor: aiStudioStyleRefsService.resolveCharacterAnchorFromConfig(config),
+        settingAnchor: aiStudioStyleRefsService.resolveSettingAnchorFromConfig(config),
+      } as any,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
@@ -1278,20 +1286,34 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
                fs.existsSync(rawBgImage))
             );
 
+            const charAnchor: CharacterAnchorConfig | undefined =
+              (session.artifacts as any)?.characterAnchor ||
+              aiStudioStyleRefsService.resolveCharacterAnchorFromConfig(config);
+            const settingAnchor: SettingAnchorConfig | undefined =
+              (session.artifacts as any)?.settingAnchor ||
+              aiStudioStyleRefsService.resolveSettingAnchorFromConfig(config);
+
             const styleRefsResult = await aiStudioStyleRefsService.ensureStyleRefs({
               storage,
               win: lobbyWin,
+              characterAnchor: charAnchor,
+              settingAnchor: settingAnchor,
               // Pass user-provided image paths if available
-              userCharacterImagePath: isCharSourceValid ? rawCharAvatar : undefined,
-              userBackgroundImagePath: isBgSourceValid ? rawBgImage : undefined,
+              userCharacterImagePath: isCharSourceValid ? rawCharAvatar : (charAnchor?.referenceImagePaths?.[0] || undefined),
+              userBackgroundImagePath: isBgSourceValid ? rawBgImage : (settingAnchor?.referenceImagePaths?.[0] || undefined),
               // Text prompts for AI generation fallback
-              characterStylePrompt: config.channelProfile?.hostDescription
+              characterStylePrompt: charAnchor?.visualTraits
+                || config.channelProfile?.hostDescription
                 || config.channelProfile?.channelCharacters?.[0]?.descriptionEn
                 || 'a professional video host character',
-              backgroundStylePrompt: config.channelProfile?.projectBackgroundPrompt
+              backgroundStylePrompt: settingAnchor?.environmentTraits
+                || config.channelProfile?.projectBackgroundPrompt
                 || 'clean modern studio background, professional lighting',
               aspectRatio: config.flowEngine.aspectRatio,
             });
+
+            (session.artifacts as any).characterAnchor = charAnchor;
+            (session.artifacts as any).settingAnchor = settingAnchor;
 
             // FIXED canonical reference paths for ALL shots (no chain dependency)
             const characterRefPath = storage.getStyleRefPath('character');
@@ -1516,6 +1538,26 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
                   throw new Error('Quá trình tạo visual media đã bị hủy bởi người dùng.');
                 }
 
+                // Resolve matching script beat line to extract visual action and camera movement
+                const assignedIndices = shot.assigned_sentences || [];
+                const matchingLines = (session.artifacts.scriptLines || []).filter((l) =>
+                  assignedIndices.includes(l.index) || assignedIndices.includes(l.index + 1)
+                );
+                const primaryLine = matchingLines[0];
+                const visualAction = primaryLine?.visualAction || primaryLine?.visualNote || shot.image_prompt || '';
+                const cameraMovement = primaryLine?.cameraMovement || shot.motion_note || 'steady cinematic camera motion';
+
+                // Enrich Veo motion prompt: [Character Anchor Traits] + [Subject Action] + [Camera Movement]
+                const richMotionPrompt = charAnchor
+                  ? buildVeoMotionPrompt(charAnchor, visualAction, cameraMovement)
+                  : buildVeoMotionPrompt({
+                      characterName: config.channelProfile?.hostName,
+                      characterTraits: config.channelProfile?.hostDescription,
+                      visualAction,
+                      cameraMovement,
+                      motionNote: shot.motion_note,
+                    });
+
                 const i2vProgress = 70 + Math.round((completedSteps / totalSteps) * 15);
                 onProgress({
                   sessionId: session.sessionId,
@@ -1523,7 +1565,7 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
                   stageName: STAGE_CONFIG[6].label,
                   progress: Math.min(84, i2vProgress),
                   status: 'running',
-                  message: `[I2V] Shot ${shot.shot_id} (${completedSteps + 1}/${totalSteps}) — ${shot.motion_note || 'cinematic motion'}`,
+                  message: `[I2V] Shot ${shot.shot_id} (${completedSteps + 1}/${totalSteps}) — ${richMotionPrompt}`,
                   lastAction: {
                     ts: new Date().toISOString(),
                     scene_id: sceneId,
@@ -1543,6 +1585,10 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
                     shotId: shot.shot_id,
                     sourceImagePath: imgResult.imagePath,
                     motionNote: shot.motion_note,
+                    prompt: richMotionPrompt,
+                    characterAnchor: charAnchor,
+                    visualAction,
+                    cameraMovement,
                     expectedDurationSec: shot.expected_duration_sec || 4.0,
                     tolerancePct: 15.0,
                     forceRegenerate,
@@ -1864,6 +1910,19 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
 
         if (mode === 'video') {
           const expectedDurationSec = sc ? sc.durationMs / 1000 : 4.0;
+          const charAnchor = (session?.artifacts as any)?.characterAnchor ||
+            aiStudioStyleRefsService.resolveCharacterAnchorFromConfig(config);
+          const scLine = session?.artifacts.scriptLines?.find((l) => l.index === sc?.lineIndex || l.id === sc?.id);
+          const visualAction = scLine?.visualAction || scLine?.visualNote || sc?.visualPrompt || '';
+          const cameraMovement = scLine?.cameraMovement || 'steady cinematic camera motion';
+          const richPrompt = charAnchor
+            ? buildVeoMotionPrompt(charAnchor, visualAction, cameraMovement)
+            : buildVeoMotionPrompt({
+                characterName: config.channelProfile?.hostName,
+                characterTraits: config.channelProfile?.hostDescription,
+                visualAction,
+                cameraMovement,
+              });
 
           const vidResult = await mutex.runExclusive(async () => {
             return FlowMediaAutomationEngine.generateVideoForShot({
@@ -1871,6 +1930,10 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
               win: lobbyWin,
               sceneId,
               shotId,
+              prompt: richPrompt,
+              characterAnchor: charAnchor,
+              visualAction,
+              cameraMovement,
               expectedDurationSec,
               forceRegenerate: true,
             });
@@ -1966,6 +2029,19 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
             const session = await this.getState({ sessionId: payload.sessionId });
             const sc = session?.artifacts.scenes?.find((s) => s.id === shotId || s.shotId === shotId);
             const expectedDurationSec = sc ? sc.durationMs / 1000 : 4.0;
+            const charAnchor = (session?.artifacts as any)?.characterAnchor ||
+              aiStudioStyleRefsService.resolveCharacterAnchorFromConfig(config);
+            const scLine = session?.artifacts.scriptLines?.find((l) => l.index === sc?.lineIndex || l.id === sc?.id);
+            const visualAction = scLine?.visualAction || scLine?.visualNote || sc?.visualPrompt || '';
+            const cameraMovement = scLine?.cameraMovement || 'steady cinematic camera motion';
+            const richPrompt = charAnchor
+              ? buildVeoMotionPrompt(charAnchor, visualAction, cameraMovement)
+              : buildVeoMotionPrompt({
+                  characterName: config.channelProfile?.hostName,
+                  characterTraits: config.channelProfile?.hostDescription,
+                  visualAction,
+                  cameraMovement,
+                });
 
             const vidResult = await mutex.runExclusive(async () => {
               return FlowMediaAutomationEngine.generateVideoForShot({
@@ -1973,6 +2049,11 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
                 win: lobbyWin,
                 sceneId,
                 shotId,
+                sourceImagePath: imgResult.imagePath,
+                prompt: richPrompt,
+                characterAnchor: charAnchor,
+                visualAction,
+                cameraMovement,
                 expectedDurationSec,
                 forceRegenerate: true,
               });

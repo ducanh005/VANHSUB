@@ -548,3 +548,50 @@ Integrity mode: development
 - [ ] Cung cấp đường dẫn tuyệt đối của các tệp media đã tạo để người dùng mở xem.
 
 
+
+
+## 2026-10-04T09:03:50Z
+
+Nâng cấp toàn diện module AISTUDIO trong VANHSUB: Tối ưu hóa pipeline Google Flow (Veo & Imagen), thay thế bộ từ khóa cứng bằng AI Đạo diễn hình ảnh thực thụ (tự quyết định Ảnh vs Video, thời lượng, góc máy và chuyển động), bổ sung cơ chế Image-to-Video trên Google Flow, đồng bộ nhân vật, Dynamic Audio Ducking và xuất dự án CapCut Desktop (1-Click).
+
+Working directory: d:\DEAN\DEAN\VANHSUB
+Integrity mode: development
+
+## Requirements
+
+### R1. Tối ưu hóa & Ổn định hóa Google Flow Engine (Veo Video & Imagen)
+- Tập trung chuyên sâu vào hạ tầng Google Flow (Veo & Imagen) qua Web RPC và Chrome Bridge, không sử dụng các API thương mại bên ngoài.
+- Ổn định hóa cơ chế bắt CSRF token, auto-reconnect khi session hết hạn hoặc gặp CAPTCHA, loại bỏ hoàn toàn tình trạng fallback ra thẻ chữ màu (Synthetic Text Card) gây hỏng video.
+- Bổ sung quy trình sinh Image-to-Video (I2V) chuẩn trên Google Flow: Cho phép sinh ảnh keyframe chất lượng cao trước, sau đó đưa vào Veo kèm prompt chuyển động để tạo clip video nhất quán và chân thực.
+
+### R2. Thiết kế Lại Kiến Trúc AI Đạo Diễn Hình Ảnh (AI Cinematographer / Shot Planner)
+- Thay thế hoàn toàn thuật toán quét từ khóa tĩnh (regex keyword matching trong decideMediaType) bằng AI Đạo Diễn Hình Ảnh (Visual Director):
+  - AI đọc toàn bộ kịch bản và phân cảnh, hiểu sâu sắc ngữ cảnh và cảm xúc để chủ động quyết định: Phân cảnh nào dùng Video (hành động, cao trào, chuyển động máy), phân cảnh nào dùng Ảnh tĩnh (thông tin, bối cảnh, chân dung tĩnh).
+  - Tự động tính toán thời lượng tối ưu cho từng clip video (từ 2s - 8s phù hợp giới hạn Veo) hoặc ảnh tĩnh kèm chỉ dẫn Ken Burns.
+- Cấu trúc lại Kịch bản thành 2 cột song song (Audiovisual Script): Lời thoại (Voiceover) và Chỉ đạo thị giác (Visual Action & Camera Movement), thay vì chỉ có lời thoại đơn thuần rồi suy đoán mù.
+
+### R3. Đột phá Tính Nhất Quán Nhân Vật & Bối Cảnh (Character Consistency)
+- Tích hợp cơ chế neo diện mạo nhân vật chính (Character Anchor): Tự động truyền ảnh mẫu đại diện hoặc bộ prompt mô tả đặc điểm nhận diện bất biến (khuôn mặt, trang phục, màu tóc) vào cả bước sinh Ảnh và bước sinh Video trên Google Flow.
+
+### R4. Nâng cấp Engine Dựng Phim & Thiết Kế Âm Thanh (Dynamic Audio Ducking & SFX)
+- Sửa lỗi hiệu ứng Ken Burns: Thay thế công thức zoom tâm cố định bằng Dynamic Pan/Zoom (Pan ngang, Zoom góc 1/3 bố cục).
+- Tích hợp cơ chế Dynamic Audio Ducking: Nhạc nền BGM tự động giảm âm lượng (-18dB) khi có tiếng đọc và dâng lên tự nhiên ở các khoảng lặng.
+- Tự động chèn các hiệu ứng âm thanh chuyển cảnh ngắn (SFX Whoosh / Impact) giữa các phân cảnh.
+
+### R5. Tích hợp Xuất Dự Án CapCut Desktop (1-Click CapCut Draft Export)
+- Bổ sung tính năng xuất thẳng cấu trúc thư mục dự án CapCut Desktop (draft_content.json), đưa toàn bộ video clips, audio voice, nhạc nền và phụ đề theo timeline đa track để người dùng mở ngay trên CapCut Desktop.
+
+### R6. Tối ưu Hóa Giao Diện AutoPilotView
+- Tách nhỏ file AutoPilotView.tsx (>3.300 dòng), ẩn các tham số kỹ thuật hạ tầng (Bridge, Mutex, Token) vào phần Nâng cao, mang lại giao diện tinh gọn, trực quan cho người sáng tạo nội dung.
+
+## Acceptance Criteria
+
+### Tính thông minh của khâu Visual & Video Planning
+- [ ] Phân cảnh không còn bị phụ thuộc vào danh sách từ khóa cứng; 100% quyết định chọn Ảnh vs Video, góc máy và chuyển động do AI Đạo diễn phân tích từ ngữ cảnh kịch bản.
+- [ ] Mọi phân cảnh dạng Video trên Google Flow đều nhận được prompt chuyển động máy quay chuyên nghiệp (Camera movement, Subject action), hỗ trợ luồng Image-to-Video mượt mà.
+- [ ] Không còn xuất hiện Synthetic Card (thẻ ảnh màu kèm chữ) khi gặp lỗi; hiển thị thông báo rõ ràng cho người dùng hoặc thử lại an toàn.
+
+### Tính ổn định và nhất quán
+- [ ] Nhân vật chính duy trì nhận diện ổn định qua các phân cảnh trên Google Flow.
+- [ ] Nhạc nền BGM tự động ducking mượt mà không lấn át giọng đọc.
+- [ ] File xuất CapCut mở thành công trên CapCut Desktop với đầy đủ các track video, audio và phụ đề.

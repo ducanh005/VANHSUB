@@ -763,19 +763,7 @@ export class FlowRpcClient {
           opts.projectId
         );
       } catch (bridgeErr: any) {
-        const errStr = bridgeErr?.message || String(bridgeErr);
-        if (errStr.includes('PUBLIC_ERROR_UNUSUAL_ACTIVITY')) {
-          console.warn('[FlowRpcClient] 🛡️ Pure RPC bị UNUSUAL_ACTIVITY, thử fallback __TRIGGER_GEN__...');
-          const cfg = JSON.stringify({ mode: 'IMAGE', prompt: opts.prompt });
-          const result = await bridge.tabEval('__TRIGGER_GEN__:' + cfg, 75000);
-          if (result?.ok && result.response) {
-            rawText = typeof result.response === 'string' ? result.response : JSON.stringify(result.response);
-          } else {
-            throw bridgeErr;
-          }
-        } else {
-          throw bridgeErr;
-        }
+        throw bridgeErr;
       }
 
       const res = parseBatchResponse(rawText, RPC_GEN_IMAGE);
@@ -956,26 +944,29 @@ export class FlowRpcClient {
   ): Promise<OperationStatus> {
     const bridge = FlowBridgeServer.getInstance();
     if (bridge.isConnected()) {
-      console.log(`[FlowRpcClient] 🌐 [Chrome Extension Bridge __TRIGGER_GEN__] Đang tạo video text: "${opts.prompt.slice(0, 40)}"...`);
-      // Dùng UI click (isTrusted=true) để bypass reCAPTCHA bot detection
-      const cfg = JSON.stringify({ mode: 'VIDEO', prompt: opts.prompt });
-      const result = await bridge.tabEval('__TRIGGER_GEN__:' + cfg, 120000);
-      if (!result?.ok) {
-        throw new Error(`[FlowRpcClient] UI gen (VIDEO) lỗi: ${result?.error || JSON.stringify(result)}`);
+      console.log(`[FlowRpcClient] 🌐 [Chrome Extension Bridge] Đang tạo video text (Pure RPC): "${opts.prompt.slice(0, 40)}"...`);
+      const innerPayload = buildGenVideoTextPayload({
+        ...opts,
+        captchaToken: CAPTCHA_SLOT,
+      });
+
+      let rawText = '';
+      try {
+        rawText = await bridge.sendBatchRpc(
+          RPC_GEN_VIDEO_TEXT,
+          innerPayload,
+          CAPTCHA_ACTION_VIDEO,
+          opts.projectId
+        );
+      } catch (bridgeErr: any) {
+        throw bridgeErr;
       }
-      // result.response là raw as29s response text từ sniffer (chứa signed CDN video URL)
-      const rawResponse: string = typeof result.response === 'string' ? result.response : JSON.stringify(result.response);
-      const videoUrlMatch = rawResponse.match(/https:\/\/flow-content\.google\/video\/[^"'\s\\]+/);
-      const videoUrl = videoUrlMatch ? videoUrlMatch[0] : undefined;
-      if (!videoUrl) {
-        throw new Error(`[FlowRpcClient] Không tìm thấy video URL trong as29s response: ${rawResponse.slice(0, 300)}`);
+
+      const res = parseBatchResponse(rawText, RPC_GEN_VIDEO_TEXT);
+      if (!res.ok) {
+        throw new Error(`[FlowRpcClient] Chrome Extension Bridge video text lỗi: ${JSON.stringify(res.error)}`);
       }
-      console.log(`[FlowRpcClient] ✅ [__TRIGGER_GEN__ VIDEO] Video URL: ${videoUrl.slice(0, 80)}`);
-      return {
-        operationId: result.mediaId || result.rpcid || 'ui-gen',
-        done: true,
-        videoUrl,
-      };
+      return extractOperationStatus(res.data, RPC_GEN_VIDEO_TEXT);
     }
 
     if (!win || win.isDestroyed()) {

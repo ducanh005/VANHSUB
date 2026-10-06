@@ -1736,6 +1736,7 @@ ipcMain.handle('bridge:inspect-dom', async () => {
   }
 });
 
+/** @deprecated DOM Native UI Trigger đã bị loại bỏ hoàn toàn, ưu tiên Pure RPC qua sendBatchRpc */
 ipcMain.handle('bridge:trigger-ui-gen', async (_event, prompt: string) => {
   try {
     const { getFlowBridgeServer } = await import('./workflow/flow-engine/rpc/FlowBridgeServer');

@@ -94,7 +94,9 @@ export class AiStudioLlmService {
     return filtered.map((text, idx) => {
       const cleanText = text.replace(/^[\*_"“”'`]+|[\*_"“”'`]+$/g, '').trim();
       const wordCount = cleanText.split(/\s+/).filter(Boolean).length;
-      const estimatedDurationSec = Math.max(3.0, Math.round((wordCount / 3.2) * 10) / 10);
+      // Clamped within Veo limits [2.0s, 8.0s]
+      const rawSec = Math.round((wordCount / 3.2) * 10) / 10;
+      const estimatedDurationSec = Math.min(8.0, Math.max(2.0, rawSec));
 
       const beatType: ScriptBeatLine['beatType'] =
         idx === 0
@@ -107,10 +109,17 @@ export class AiStudioLlmService {
           ? 'climax'
           : 'body';
 
+      const isDynamic = beatType === 'hook' || beatType === 'climax' || /chạy|nhảy|bay|lao|đuổi|chiến|nổ/i.test(cleanText);
+
       return {
         id: `line-${idx + 1}-${crypto.randomBytes(3).toString('hex')}`,
         index: idx + 1,
         text: cleanText,
+        voiceDirection: idx === 0 ? 'Hồi hộp, lôi cuốn' : idx === filtered.length - 1 ? 'Kêu gọi rõ ràng, lắng đọng' : undefined,
+        visualAction: cleanText,
+        cameraAngle: idx === 0 ? 'close_up' : idx === 1 ? 'wide_establishing' : 'medium_shot',
+        cameraMovement: isDynamic ? 'dolly_in' : 'pan_left_to_right',
+        suggestedMediaType: isDynamic ? 'video' : 'image',
         estimatedDurationSec,
         beatType,
       };
@@ -223,17 +232,6 @@ export class AiStudioLlmService {
       };
     }
 
-    const outlineArray: string[] = Array.isArray(parsed.outline)
-      ? parsed.outline
-      : Array.isArray(parsed.keyBeats)
-      ? parsed.keyBeats
-      : [
-          'Phân đoạn 1 [00:00 - 00:45]: Mở đầu sự cố / bối cảnh bất ngờ...',
-          'Phân đoạn 2 [00:45 - 01:30]: Diễn biến kịch tính / xung đột cao trào...',
-          'Phân đoạn 3 [01:30 - 02:15]: Bước ngoặt / giải mã sự thật...',
-          'Phân đoạn 4 [02:15 - 03:00]: Bài học & Lối thoát...',
-        ];
-
     // Tính toán thời lượng mục tiêu từ Cấu hình kênh
     let targetDurationSec = aspectRatio === '9:16' ? 45 : 240;
     if (channelProfile) {
@@ -256,6 +254,55 @@ export class AiStudioLlmService {
       Number(parsed.estimatedDurationSec) > 0
         ? Number(parsed.estimatedDurationSec)
         : targetDurationSec;
+
+    let outlineArray: string[] = Array.isArray(parsed.outline) && parsed.outline.length > 0
+      ? parsed.outline
+      : Array.isArray(parsed.keyBeats) && parsed.keyBeats.length > 0
+      ? parsed.keyBeats
+      : [];
+
+    // Fallback 1: Nếu JSON trả về outline quá ngắn (< 4 phân đoạn), quét lại raw text xem có danh sách phân đoạn đầy đủ hơn
+    if (outlineArray.length < 4) {
+      const textBeats = sanitizedText
+        .split('\n')
+        .map((l) => l.trim().replace(/^[-*•]\s*/, ''))
+        .filter(
+          (l) =>
+            (/^\[?\d+[\.:\-\]]/i.test(l) ||
+              /^Phân đoạn\s*\d+/i.test(l) ||
+              /^Beat\s*\d+/i.test(l) ||
+              /\[\d{2}:\d{2}\s*-\s*\d{2}:\d{2}\]/i.test(l)) &&
+            l.length > 15
+        );
+      if (textBeats.length >= 4) {
+        outlineArray = textBeats;
+      }
+    }
+
+    // Fallback 2: Nếu outline vẫn dưới 3 phân đoạn, phân giải theo cấu trúc nhiều phân đoạn tiêu chuẩn tương ứng thời lượng
+    if (outlineArray.length < 3) {
+      const beatCount = aspectRatio === '9:16' ? 4 : 6;
+      const step = Math.max(15, Math.round(estimatedDurationSec / beatCount));
+      const formatTime = (seconds: number): string => {
+        const m = Math.floor(seconds / 60);
+        const s = seconds % 60;
+        return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+      };
+      const baseDetail = outlineArray.join('; ') || parsed.hookConcept || topic;
+      const defaultThemes = [
+        'Mở đầu gây sốc & Khởi phát sự kiện giật gân',
+        'Khám phá manh mối & Bối cảnh diễn biến kịch tính',
+        'Leo thang căng thẳng & Phát hiện xung đột then chốt',
+        'Bước ngoặt bất ngờ & Đỉnh điểm cao trào kịch tính',
+        'Hạ màn giải mã sự thật & Đúc kết bài học sâu sắc',
+        'Chiêm nghiệm thực tế & Kêu gọi hành động (CTA) đăng ký kênh',
+      ];
+      outlineArray = defaultThemes.slice(0, beatCount).map((theme, idx) => {
+        const startSec = idx * step;
+        const endSec = idx === beatCount - 1 ? estimatedDurationSec : (idx + 1) * step;
+        return `Phân đoạn ${idx + 1} [${formatTime(startSec)} - ${formatTime(endSec)}]: ${theme} (${baseDetail.slice(0, 70)}...)`;
+      });
+    }
 
     // Thiết lập thumbnailPrompt dự phòng chuẩn theo Nhân vật và Model của Kênh
     const hostName =
@@ -317,11 +364,14 @@ export class AiStudioLlmService {
   ): Promise<IdeaBlueprint> {
     const projectName = channelProfile?.projectName?.trim() || '';
     const channelNiche = channelProfile?.channelNiche?.trim() || '';
+    const channelDescription = channelProfile?.channelDescription?.trim() || '';
     const channelOrientation = channelProfile?.channelOrientation?.trim() || '';
     const channelHook = channelProfile?.channelHook?.trim() || '';
     const masterPrompt = channelProfile?.masterPrompt?.trim() || '';
     const imageModel = channelProfile?.imageModel?.trim() || 'Nano Banana 2';
     const videoModel = channelProfile?.videoModel?.trim() || 'Omni 1.1 Flash';
+    const visualArtStylePreset = channelProfile?.visualArtStylePreset || 'cinematic';
+    const projectBackgroundPrompt = channelProfile?.projectBackgroundPrompt?.trim() || '';
 
     const hostName =
       channelProfile?.hostName?.trim() ||
@@ -332,6 +382,15 @@ export class AiStudioLlmService {
       channelProfile?.channelCharacters?.[0]?.descriptionEn?.trim() ||
       '';
     const characterRole = channelProfile?.characterRole?.trim() || 'Nhân vật dẫn dắt / tâm điểm';
+
+    const effectiveProvider =
+      channelProfile?.aiProvider && channelProfile.aiProvider !== 'default'
+        ? channelProfile.aiProvider
+        : config?.provider || 'deepseek';
+    const effectiveConfig: AiStudioLlmConfig = {
+      ...config,
+      provider: effectiveProvider,
+    };
 
     // Tính toán mục tiêu thời lượng và số lượng phân đoạn dàn ý
     let durationLabel = '3 - 5 phút';
@@ -405,6 +464,23 @@ export class AiStudioLlmService {
       );
     }
 
+    if (channelDescription) {
+      channelContextParts.push(
+        `=== 1B. BẢN SẮC & MÔ TẢ KÊNH ===\n"${channelDescription}"`
+      );
+    }
+
+    if (channelProfile?.seriesType) {
+      const seriesTypeMap: Record<string, string> = {
+        standalone: 'Các tập độc lập (chủ đề mới hoàn toàn mỗi tập, không phụ thuộc tập trước)',
+        serialized: 'Chuỗi tập liền mạch (theo tiến trình thời gian/cốt truyện tiếp diễn)',
+        anthology: 'Tuyển tập chuyên đề (cùng một vũ trụ/ngách nhưng nhân vật/vụ án khác nhau)',
+      };
+      channelContextParts.push(
+        `- Kiểu chuỗi tập: ${seriesTypeMap[channelProfile.seriesType] || channelProfile.seriesType}`
+      );
+    }
+
     channelContextParts.push(
       `=== 2. THỜI LƯỢNG MỤC TIÊU & QUY CHUẨN DÀN Ý ===\n- Định dạng: ${aspectRatio === '9:16' ? 'Video Ngắn dọc (9:16 Shorts/TikTok/Reels)' : 'Video Dài ngang (16:9 YouTube)'}\n- Thời lượng mục tiêu: ${durationLabel} (ước tính ~${targetSec} giây)\n- Yêu cầu số lượng phân đoạn trong dàn ý: BẮT BUỘC có ĐỦ từ ${minBeats} đến ${maxBeats} phân đoạn cụ thể để bao quát toàn bộ thời lượng yêu cầu.`
     );
@@ -421,12 +497,12 @@ export class AiStudioLlmService {
         .replace(/\{\{\s*SOURCE_MATERIAL\s*\}\}/gi, topic || 'Chủ đề video')
         .replace(/\{\{\s*[^}]*\s*\}\}/g, '');
       channelContextParts.push(
-        `=== 3. MASTER PROMPT & NGUYÊN TẮC KÊNH ===\nKịch bản và dàn ý phải tuyệt đối tuân thủ tinh thần và phong cách chỉ đạo từ Master Prompt của kênh:\n"""\n${sanitizedMasterPrompt.slice(0, 1200)}\n"""`
+        `=== 3. MASTER PROMPT & NGUYÊN TẮC KÊNH ===\nKịch bản và dàn ý phải tuyệt đối tuân thủ tinh thần và phong cách chỉ đạo từ Master Prompt của kênh:\n"""\n${sanitizedMasterPrompt.slice(0, 3500)}\n"""`
       );
     }
 
     channelContextParts.push(
-      `=== 4. MODEL HÌNH ẢNH & VIDEO ===\n- Model hình ảnh: "${imageModel}"\n- Model video: "${videoModel}"\n- Prompt tạo ảnh bìa (thumbnailPrompt) PHẢI được viết bằng tiếng Anh chi tiết, tối ưu hóa các từ khóa ánh sáng cinematic, framing, camera angle, 8k photorealistic phù hợp với model [${imageModel}].`
+      `=== 4. PHONG CÁCH NGHỆ THUẬT & MODEL HÌNH ẢNH / VIDEO ===\n- Preset phong cách nghệ thuật: "${visualArtStylePreset}"\n- Model hình ảnh: "${imageModel}"\n- Model video: "${videoModel}"${projectBackgroundPrompt ? `\n- Bối cảnh / Vũ trụ thị giác chung: "${projectBackgroundPrompt}"` : ''}\n- Prompt tạo ảnh bìa (thumbnailPrompt) PHẢI được viết bằng tiếng Anh chi tiết, tối ưu hóa các từ khóa ánh sáng cinematic, framing, camera angle, 8k photorealistic phù hợp với phong cách [${visualArtStylePreset}] và model [${imageModel}].`
     );
 
     if (hostName || hostDescription) {
@@ -437,20 +513,52 @@ export class AiStudioLlmService {
 
     const channelContextText = channelContextParts.join('\n\n');
 
+    const buildSampleOutline = (count: number, totalSec: number): string[] => {
+      const step = Math.max(15, Math.round(totalSec / count));
+      const formatTime = (seconds: number): string => {
+        const m = Math.floor(seconds / 60);
+        const s = seconds % 60;
+        return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+      };
+      const sampleThemes = [
+        'Mở đầu gây sốc / Bối cảnh giật gân cuốn hút',
+        'Khám phá manh mối / Giới thiệu mâu thuẫn & sự kiện then chốt',
+        'Diễn biến leo thang / Bí mật ẩn giấu dần hé lộ',
+        'Bước ngoặt bất ngờ / Xung đột chạm đỉnh cao trào',
+        'Đỉnh điểm kịch tính / Đối đầu gay cấn & giải mã sự thật',
+        'Hậu quả / Bài học đắt giá & Đúc kết chiêm nghiệm sâu sắc',
+        'Thực tế hiện tại / Tác động lâu dài đến người trong cuộc',
+        'Góc nhìn mở rộng / Những góc khuất chưa từng được kể',
+        'Tổng kết toàn diện & Kêu gọi hành động (CTA) đăng ký theo dõi',
+        'Lời cảnh tỉnh tương lai & Lời chào chốt hạ ấn tượng',
+      ];
+      const beats: string[] = [];
+      for (let i = 0; i < count; i++) {
+        const startSec = i * step;
+        const endSec = i === count - 1 ? totalSec : Math.min(totalSec, (i + 1) * step);
+        const theme = sampleThemes[i % sampleThemes.length] || `Phát triển câu chuyện phân đoạn ${i + 1}`;
+        beats.push(`Phân đoạn ${i + 1} [${formatTime(startSec)} - ${formatTime(endSec)}]: ${theme}...`);
+      }
+      return beats;
+    };
+
+    const sampleOutlineBeats = buildSampleOutline(minBeats, targetSec);
+    const sampleOutlineJson = JSON.stringify(sampleOutlineBeats, null, 4);
+
     const prompt = `Bạn là Giám đốc Sáng tạo & Biên kịch trưởng cho kênh YouTube/TikTok triệu view.
 Nhiệm vụ: Dựa trên chủ đề/ý tưởng đầu vào: "${topic || channelNiche || projectName || 'Ý tưởng mới'}" và toàn bộ CẤU HÌNH KÊNH dưới đây, hãy lập kế hoạch chi tiết và sinh mẫu ý tưởng sản xuất video hoàn chỉnh.
 
 ${channelContextText}
 
-Preset phong cách: "${config.systemPromptPreset || 'youtube_story'}".
+Preset phong cách: "${effectiveConfig.systemPromptPreset || 'youtube_story'}".
 
 QUY TẮC BẮT BUỘC:
 1. TIÊU ĐỀ (title): Phải liên quan trực tiếp đến Tên Dự Án "${projectName || channelNiche}", lôi cuốn, giật gân, chuẩn SEO click-through-rate cao.
-2. DÀN Ý (outline): BẮT BUỘC trả về mảng có ĐÚNG từ ${minBeats} đến ${maxBeats} phân đoạn (mỗi phần tử là một phân đoạn có mốc thời gian rõ ràng, ví dụ "[00:00 - 00:45] Phân đoạn 1: Mở đầu...").
+2. DÀN Ý (outline): BẮT BUỘC trả về mảng có ĐỦ TỪ ${minBeats} ĐẾN ${maxBeats} PHÂN ĐOẠN CHI TIẾT (tuyệt đối KHÔNG gộp lại thành 2-3 phân đoạn ngắn ngủi). Mỗi phân đoạn PHẢI có mốc thời gian rõ ràng dạng [mm:ss - mm:ss], mô tả chi tiết diễn biến, hình ảnh và nhịp độ kịch bản tương xứng với thời lượng ${durationLabel}.
 3. HÌNH ẢNH THUMBNAIL (thumbnailConcept & thumbnailPrompt): ${
   hostName || hostDescription
-    ? `BẮT BUỘC có sự xuất hiện của nhân vật ${hostName || 'đại diện'}. Cụ thể: "thumbnailPrompt" (tiếng Anh) PHẢI chứa chi tiết diện mạo và trang phục nhân vật: "featuring character ${hostName} (${hostDescription})", ánh sáng cinematic 8k, phong cách chuẩn model ${imageModel}. "thumbnailConcept" (tiếng Việt) phải mô tả rõ bối cảnh và hành động của nhân vật ${hostName}.`
-    : `Bắt mắt, ánh sáng cinematic, tối ưu cho model ${imageModel}.`
+    ? `BẮT BUỘC có sự xuất hiện của nhân vật ${hostName || 'đại diện'}. Cụ thể: "thumbnailPrompt" (tiếng Anh) PHẢI chứa chi tiết diện mạo và trang phục nhân vật: "featuring character ${hostName} (${hostDescription})", ánh sáng cinematic 8k, phong cách chuẩn [${visualArtStylePreset}] và model ${imageModel}. "thumbnailConcept" (tiếng Việt) phải mô tả rõ bối cảnh và hành động của nhân vật ${hostName}.`
+    : `Bắt mắt, ánh sáng cinematic, phong cách [${visualArtStylePreset}], tối ưu cho model ${imageModel}.`
 }
 
 Yêu cầu nghiêm ngặt: Trả về DUY NHẤT một khối JSON hợp lệ theo đúng cấu trúc sau (không kèm lời chào, không markdown thừa):
@@ -458,23 +566,25 @@ Yêu cầu nghiêm ngặt: Trả về DUY NHẤT một khối JSON hợp lệ th
   "title": "Tiêu đề video cuốn hút, gắn với dự án và chủ đề",
   "hookConcept": "Câu mở đầu 3 giây gây tò mò, giật gân, giữ chân khán giả",
   "narrativeAngle": "Góc nhìn/tiếp cận độc đáo của kênh",
-  "outline": [
-    "Phân đoạn 1 [00:00 - 00:45]: Mở đầu sự cố / bối cảnh bất ngờ...",
-    "Phân đoạn 2 [00:45 - 01:30]: Diễn biến kịch tính / xung đột cao trào..."
-  ],
+  "outline": ${sampleOutlineJson},
   "estimatedDurationSec": ${targetSec},
   "thumbnailConcept": "Mô tả ý tưởng hình ảnh bìa thumbnail cực kỳ bắt mắt${hostName ? ` có sự xuất hiện của ${hostName}` : ''}",
   "thumbnailPrompt": "Detailed English image prompt for thumbnail generation, cinematic lighting, 8k, photorealistic${hostName && hostDescription ? `, featuring ${hostName}: ${hostDescription}` : ''}, optimized for ${imageModel}"
 }`;
 
     // 1. ChatGPT Web Automation
-    if (config.provider === 'chatgpt_web') {
+    if (effectiveConfig.provider === 'chatgpt_web') {
       try {
         const { ChatGptWebSessionManager } = await import('../chatgpt/ChatGptWebSessionManager');
         const mgr = ChatGptWebSessionManager.getInstance();
-        const mode = config.chatgptWebMode || 'offscreen';
+        const mode = effectiveConfig.chatgptWebMode || 'offscreen';
         onProgress?.('Đang gửi yêu cầu sinh ý tưởng tới ChatGPT Web...');
-        const rawText = await mgr.executePromptTurn(prompt, mode, onProgress);
+        const targetUrl = channelProfile?.chatgptConversationUrl || mgr.getLastConversationUrl();
+        const rawText = await mgr.executePromptTurn(prompt, mode, onProgress, false, targetUrl || undefined, 'idea');
+        const lastUrl = mgr.getLastConversationUrl();
+        if (lastUrl && channelProfile) {
+          channelProfile.chatgptConversationUrl = lastUrl;
+        }
         return this.parseBlueprintJson(rawText, topic, aspectRatio, channelProfile);
       } catch (err: any) {
         console.error('[AiStudioLlmService] ChatGPT Web blueprint error:', err);
@@ -483,11 +593,11 @@ Yêu cầu nghiêm ngặt: Trả về DUY NHẤT một khối JSON hợp lệ th
     }
 
     // 2. Gemini Web Automation
-    if (config.provider === 'gemini_web') {
+    if (effectiveConfig.provider === 'gemini_web') {
       try {
         const { GeminiWebSessionManager } = await import('../gemini/GeminiWebSessionManager');
         const mgr = GeminiWebSessionManager.getInstance();
-        const mode = config.geminiWebMode || 'offscreen';
+        const mode = effectiveConfig.geminiWebMode || 'offscreen';
         onProgress?.('Đang gửi yêu cầu sinh ý tưởng tới Gemini Web...');
         const rawText = await mgr.executePromptTurn(prompt, mode, onProgress);
         return this.parseBlueprintJson(rawText, topic, aspectRatio, channelProfile);
@@ -498,16 +608,16 @@ Yêu cầu nghiêm ngặt: Trả về DUY NHẤT một khối JSON hợp lệ th
     }
 
     // 3. API Client (OpenAI, DeepSeek, Custom)
-    const clientBundle = this.createClient(config);
+    const clientBundle = this.createClient(effectiveConfig);
     if (!clientBundle) {
-      throw new Error(`Chưa cấu hình API Key cho nhà cung cấp LLM "${config.provider}". Vui lòng kiểm tra lại tab Cài Đặt hoặc chọn Chế độ Tiết kiệm.`);
+      throw new Error(`Chưa cấu hình API Key cho nhà cung cấp LLM "${effectiveConfig.provider}". Vui lòng kiểm tra lại tab Cài Đặt hoặc chọn Chế độ Tiết kiệm.`);
     }
 
     try {
       const response = await clientBundle.client.chat.completions.create({
         model: clientBundle.model,
         messages: [{ role: 'user', content: prompt }],
-        temperature: config.temperature ?? 0.6,
+        temperature: effectiveConfig.temperature ?? 0.6,
       });
 
       const rawText = response.choices[0]?.message?.content || '';
@@ -628,17 +738,25 @@ ${blueprint?.outline && blueprint.outline.length > 0 ? `Dàn ý các phân cản
 Phong cách: "${channelProfile?.channelOrientation || config.systemPromptPreset || 'youtube_story'}".
 Độ dài mục tiêu: ${metrics.targetMinutesText} (khoảng ${metrics.targetWordRange}).
 
-Yêu cầu nghiêm ngặt:
-1. Chia kịch bản thành các câu phân cảnh độc lập (${metrics.minSentences} - ${metrics.maxSentences} câu), mỗi câu có từ 15 đến 30 từ, viết cho người nghe, đảm bảo tổng thời lượng đạt mục tiêu ${metrics.targetMinutesText}.
-2. Câu mở đầu (index 1) PHẢI là "hook" cuốn hút gây tò mò trong 3 giây đầu.
-3. Câu kết thúc PHẢI là "outro" kêu gọi hành động (đăng ký kênh, theo dõi).
-4. Phân loại beatType: "hook" | "intro" | "body" | "climax" | "outro".
-5. Trả về định dạng JSON DUY NHẤT có cấu trúc:
+Yêu cầu cấu trúc Kịch bản 2 Cột Điện ảnh (Two-Column Audiovisual Script):
+1. Chia kịch bản thành các câu phân cảnh độc lập (${metrics.minSentences} - ${metrics.maxSentences} câu), viết cho người nghe, đảm bảo tổng thời lượng đạt mục tiêu ${metrics.targetMinutesText}.
+2. Cột 1 (Voiceover / Audio): Lời thoại lồng tiếng tự nhiên tiếng Việt ("text"), chỉ dẫn giọng đọc ("voiceDirection").
+3. Cột 2 (Visual Action & Camera): Mô tả hành động chủ thể và bối cảnh ("visualAction"), góc máy & chuyển động camera chuyên nghiệp ("cameraMovement", ví dụ: 'slow dolly in', 'wide pan left to right'), và đề xuất loại media ("suggestedMediaType": "video" | "image").
+4. Thời lượng video ("estimatedDurationSec") tối ưu trong khoảng 2.0s đến 8.0s (phù hợp giới hạn Google Flow Veo).
+5. Câu mở đầu (index 1) PHẢI là "hook" cuốn hút gây tò mò trong 3 giây đầu.
+6. Câu kết thúc PHẢI là "outro" kêu gọi hành động (đăng ký kênh, theo dõi).
+7. Phân loại beatType: "hook" | "intro" | "body" | "climax" | "outro".
+8. Trả về định dạng JSON DUY NHẤT có cấu trúc:
 {
   "lines": [
     {
       "index": 1,
-      "text": "Câu thoại tiếng Việt đầy đủ...",
+      "text": "Câu thoại lồng tiếng tiếng Việt (Cột 1)...",
+      "voiceDirection": "Hồi hộp, lôi cuốn...",
+      "visualAction": "Tàu con thoi từ từ bay ngang qua dải ngân hà rực rỡ (Cột 2)...",
+      "cameraAngle": "wide_establishing",
+      "cameraMovement": "pan_left_to_right",
+      "suggestedMediaType": "video",
       "estimatedDurationSec": 4.5,
       "beatType": "hook"
     }
@@ -661,9 +779,32 @@ Yêu cầu nghiêm ngặt:
         const rawLines = Array.isArray(parsed) ? parsed : parsed.lines;
         if (Array.isArray(rawLines) && rawLines.length >= 3) {
           lines = rawLines.map((item: any, idx: number) => {
-            const text = String(item.text || item.content || '').trim();
+            const text = String(item.text || item.content || item.voiceover || '').trim();
             const fallbackText = `Chào mừng bạn đến với phần ${idx + 1} của chủ đề ${topic}.`;
             const finalText = text.length >= 10 ? text : fallbackText;
+
+            const visualAction = String(
+              item.visualAction || item.visual_action || item.visualNote || item.visual_note || finalText
+            ).trim();
+
+            const cameraMovement = String(
+              item.cameraMovement || item.camera_movement || item.cameraDirection || 'slow push in camera'
+            ).trim();
+
+            const cameraAngle = item.cameraAngle || item.camera_angle || (idx === 0 ? 'close_up' : idx === 1 ? 'wide_establishing' : 'medium_shot');
+            const suggestedMediaType = item.suggestedMediaType === 'video' || item.media_type === 'video' ? 'video' : 'image';
+            const voiceDirection = item.voiceDirection || item.voice_direction;
+
+            let estDur = Number(item.estimatedDurationSec);
+            if (isNaN(estDur) || estDur <= 0) {
+              const wordCount = finalText.split(/\s+/).filter(Boolean).length;
+              estDur = Math.round((wordCount / 3.2) * 10) / 10;
+            }
+            if (suggestedMediaType === 'video') {
+              estDur = Math.min(8.0, Math.max(2.0, estDur));
+            } else {
+              estDur = Math.max(2.0, estDur);
+            }
 
             const beatType: ScriptBeatLine['beatType'] =
               item.beatType || (idx === 0 ? 'hook' : idx === rawLines.length - 1 ? 'outro' : 'body');
@@ -672,7 +813,12 @@ Yêu cầu nghiêm ngặt:
               id: `line-${idx + 1}-${crypto.randomBytes(3).toString('hex')}`,
               index: idx + 1,
               text: finalText,
-              estimatedDurationSec: Number(item.estimatedDurationSec) > 0 ? Number(item.estimatedDurationSec) : 4.5,
+              voiceDirection,
+              visualAction,
+              cameraAngle,
+              cameraMovement,
+              suggestedMediaType,
+              estimatedDurationSec: estDur,
               beatType,
             };
           });
@@ -963,7 +1109,11 @@ Yêu cầu nghiêm ngặt:
       const concept = visualConceptDictionary[beat] || 'cinematic atmospheric environment landscape';
       const visualPrompt = `${stylePrefix}, ${concept}, highly detailed, sharp focus, 8k wallpaper`;
 
-      const durationSec = line.estimatedDurationSec || (line.durationMs ? line.durationMs / 1000 : 4.5);
+      let durationSec = line.estimatedDurationSec || (line.durationMs ? line.durationMs / 1000 : 4.5);
+      const isVideo = flowConfig.outputMode === 'video' || line.suggestedMediaType === 'video';
+      if (isVideo) {
+        durationSec = Math.min(8.0, Math.max(2.0, durationSec));
+      }
 
       return {
         id: `scene-${idx + 1}`,
@@ -974,7 +1124,7 @@ Yêu cầu nghiêm ngặt:
         lineText: line.text,
         visualPrompt,
         negativePrompt,
-        motionType: flowConfig.outputMode === 'video' ? 'video' : 'ken_burns',
+        motionType: isVideo ? 'video' : 'ken_burns',
         status: 'pending',
       };
     });
@@ -1275,6 +1425,11 @@ Chấm điểm trên thang 100 và trả về JSON DUY NHẤT:
         id: `line-1-${crypto.randomBytes(3).toString('hex')}`,
         index: 1,
         text: `Chào mừng bạn đến với hành trình khám phá ${topic}. Bạn có tin vào những bí ẩn chưa từng được tiết lộ?`,
+        voiceDirection: 'Giọng trầm ấm, hồi hộp, gây tò mò',
+        visualAction: `Góc quay cận cảnh mở ra thế giới bí ẩn của ${topic}`,
+        cameraAngle: 'close_up',
+        cameraMovement: 'slow dolly in, focus pull',
+        suggestedMediaType: 'video',
         estimatedDurationSec: 4.5,
         beatType: 'hook',
       },
@@ -1282,6 +1437,11 @@ Chấm điểm trên thang 100 và trả về JSON DUY NHẤT:
         id: `line-2-${crypto.randomBytes(3).toString('hex')}`,
         index: 2,
         text: 'Ở độ sâu hàng ngàn mét, áp suất và bóng tối bao trùm, các nhà khoa học đã ghi nhận những âm thanh kỳ lạ.',
+        voiceDirection: 'Kể chuyện sâu lắng, dẫn dắt',
+        visualAction: 'Tàu lặn khoa học từ từ chìm vào bóng tối đại dương bao la',
+        cameraAngle: 'wide_establishing',
+        cameraMovement: 'pan_left_to_right',
+        suggestedMediaType: 'video',
         estimatedDurationSec: 5.0,
         beatType: 'intro',
       },
@@ -1289,6 +1449,11 @@ Chấm điểm trên thang 100 và trả về JSON DUY NHẤT:
         id: `line-3-${crypto.randomBytes(3).toString('hex')}`,
         index: 3,
         text: 'Những sinh vật phát quang bí ẩn và cấu trúc địa chất khổng lồ thách thức mọi định luật vật lý hiện đại.',
+        voiceDirection: 'Kịch tính, dồn dập, nhấn mạnh cao trào',
+        visualAction: 'Sinh vật phát quang khổng lồ lướt qua tảng cự thạch cổ đại dưới đáy biển',
+        cameraAngle: 'low_angle',
+        cameraMovement: 'dolly_in',
+        suggestedMediaType: 'video',
         estimatedDurationSec: 5.2,
         beatType: 'climax',
       },
@@ -1296,6 +1461,11 @@ Chấm điểm trên thang 100 và trả về JSON DUY NHẤT:
         id: `line-4-${crypto.randomBytes(3).toString('hex')}`,
         index: 4,
         text: 'Hãy đăng ký kênh Vanhsub AI Studio ngay hôm nay để không bỏ lỡ những phát hiện chấn động tiếp theo.',
+        voiceDirection: 'Tươi sáng, kết nối, kêu gọi hành động',
+        visualAction: 'Khung cảnh hoàng hôn biển tĩnh lặng với logo kênh xuất hiện trang nhã',
+        cameraAngle: 'wide_establishing',
+        cameraMovement: 'static',
+        suggestedMediaType: 'image',
         estimatedDurationSec: 4.8,
         beatType: 'outro',
       },
@@ -1646,7 +1816,11 @@ Bắt đầu ngay bằng mục 1 SYSTEM ROLE.`;
           const { ChatGptWebSessionManager } = await import('../chatgpt/ChatGptWebSessionManager');
           const mgr = ChatGptWebSessionManager.getInstance();
           const mode = config?.chatgptWebMode || 'offscreen';
-          resultText = await mgr.executePromptTurn(userPrompt, mode, onProgress);
+          resultText = await mgr.executePromptTurn(userPrompt, mode, onProgress, true, undefined, 'master_prompt');
+          const newUrl = mgr.getLastConversationUrl();
+          if (newUrl && channelProfile) {
+            channelProfile.chatgptConversationUrl = newUrl;
+          }
         } else if (effectiveProvider === 'gemini_web') {
           const { GeminiWebSessionManager } = await import('../gemini/GeminiWebSessionManager');
           const mgr = GeminiWebSessionManager.getInstance();
@@ -1665,6 +1839,21 @@ Bắt đầu ngay bằng mục 1 SYSTEM ROLE.`;
         }
 
         if (resultText && resultText.trim().length >= 100) {
+          // Bảo vệ: Nếu vô tình bắt dính prompt template hướng dẫn, bỏ qua để không ghi đè master prompt hỏng
+          if (
+            resultText.includes('PHẦN F — CÁCH TRẢ LỜI') ||
+            resultText.includes('PHẦN B — VÙNG CẤM SỬA') ||
+            resultText.includes('PHẦN E — ĐẦU VÀO') ||
+            resultText.includes('PHẦN A — KHUÔN BẮT BUỘC') ||
+            resultText.includes('Ba khối dưới đây là hợp đồng kỹ thuật') ||
+            resultText.includes('Bạn là chuyên gia viết PRODUCTION MASTER PROMPT') ||
+            resultText.includes('Bạn KHÔNG viết kịch bản') ||
+            resultText.includes('… Xem thêm') ||
+            resultText.includes('ChatGPT đang phản hồi')
+          ) {
+            throw new Error('ChatGPT trả về nội dung lặp prompt đầu vào. Master prompt hiện tại được giữ nguyên.');
+          }
+
           // Chuẩn hóa tên AI model nếu model trả về tên cũ hoặc hallucination
           const cleanText = resultText.trim().replace(
             /(Bạn là nhà biên kịch lồng tiếng cao cấp chạy trên mô hình AI\s*")[^"]+("\s*cho)/i,
@@ -1672,8 +1861,10 @@ Bắt đầu ngay bằng mục 1 SYSTEM ROLE.`;
           );
           return cleanText;
         }
+        throw new Error('AI không trả về master prompt hợp lệ (nội dung trống hoặc quá ngắn).');
       } catch (err) {
-        console.warn('[AiStudioLlmService] Remote master prompt generation error, using modular template:', err);
+        console.warn('[AiStudioLlmService] Remote master prompt generation failed:', err);
+        throw err;
       }
     }
 

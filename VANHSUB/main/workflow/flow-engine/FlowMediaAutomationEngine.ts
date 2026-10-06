@@ -40,6 +40,21 @@ import { FlowVisualConfirmGuard } from './FlowVisualConfirmGuard';
 import { FlowFileInputInjector, ensureLocalImageFile, shortenForLog } from './FlowFileInputInjector';
 import { GoogleVeoSessionManager } from '../../veo/GoogleVeoSessionManager';
 import { FlowBridgeServer } from './rpc/FlowBridgeServer';
+import {
+  CharacterAnchorConfig,
+  SettingAnchorConfig,
+  buildVeoMotionPrompt,
+  composeCharacterPrompt,
+} from '../../store/bibleStore';
+
+export type {
+  CharacterAnchorConfig,
+  SettingAnchorConfig,
+};
+export {
+  buildVeoMotionPrompt,
+  composeCharacterPrompt,
+};
 
 const execFileAsync = promisify(execFile);
 
@@ -96,6 +111,18 @@ export interface GenerateVideoOptions {
   shotId: string;
   sourceImagePath?: string;
   motionNote?: string;
+  /** Explicit prompt override (if already built via buildVeoMotionPrompt) */
+  prompt?: string;
+  /** Character Anchor configuration to enrich prompt (Milestone 3 / F3.2) */
+  characterAnchor?: CharacterAnchorConfig;
+  /** Character Name */
+  characterName?: string;
+  /** Character visual traits */
+  characterTraits?: string;
+  /** Subject action description */
+  visualAction?: string;
+  /** Camera movement instruction */
+  cameraMovement?: string;
   expectedDurationSec: number;
   tolerancePct?: number;
   targetProjectId?: string;
@@ -589,6 +616,23 @@ export class FlowMediaAutomationEngine {
     const maxRetries = options.maxRetries ?? 2;
     const tolerancePct = options.tolerancePct ?? FlowMediaAutomationEngine.DEFAULT_DEVIATION_TOLERANCE_PCT;
 
+    // Resolve rich Veo motion prompt: [Character Anchor Name & Traits] + [Subject Action] + [Camera Movement]
+    let videoPrompt = options.prompt?.trim();
+    if (!videoPrompt) {
+      if (options.characterAnchor || options.characterTraits || options.characterName || options.visualAction) {
+        videoPrompt = buildVeoMotionPrompt({
+          character: options.characterAnchor,
+          characterName: options.characterName,
+          characterTraits: options.characterTraits,
+          visualAction: options.visualAction,
+          cameraMovement: options.cameraMovement,
+          motionNote,
+        });
+      } else {
+        videoPrompt = motionNote || 'cinematic motion';
+      }
+    }
+
     // 1. Check idempotency: If valid video exists on disk and !forceRegenerate, skip generation
     if (!options.forceRegenerate && storage.isAssetValid(sceneId, shotId, 'video')) {
       const currentVer = storage.getCurrentMediaVersion(shotId, 'vid');
@@ -713,13 +757,13 @@ export class FlowMediaAutomationEngine {
             target: 'file_input',
             retry,
             status: 'ok',
-            details: { sourceFile: path.basename(sourcePath) },
+            details: { sourceFile: path.basename(sourcePath), prompt: videoPrompt },
           })
         );
 
         const result = await sessionMgr.generateVideoViaBrowserContext(
           {
-            prompt: motionNote || 'cinematic motion',
+            prompt: videoPrompt,
             initFrameUrl: sourcePath,
             aspectRatio: '16:9',
             durationSeconds: Math.round(expectedDurationSec),

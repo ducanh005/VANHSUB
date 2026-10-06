@@ -152,6 +152,16 @@ export function sanitizeSubtitles(lines: SrtLine[], options?: SanitizeOptions): 
   };
 }
 
+export interface UntranslatedOptions {
+  /**
+   * Cho biết nguồn phụ đề có phải là ngôn ngữ CJK (tiếng Trung, Nhật, Hàn) hay không.
+   * Nếu nguồn là CJK, mà một dòng cụ thể hoàn toàn KHÔNG chứa ký tự CJK
+   * (chỉ chứa từ Latinh ngắn, watermark, brand, số... ví dụ: "Aenon", "Pauouco", "MISSION"),
+   * thì khi mô hình giữ nguyên dạng từ này, nó được coi là foreign token hợp lệ và miễn trừ kiểm tra.
+   */
+  isSourceCjk?: boolean;
+}
+
 /**
  * Kiểm tra xem một dòng phụ đề có bị coi là chưa dịch hay không (R1: Untranslated Line Detection).
  * Trả về true nếu bản dịch giống hệt câu gốc (target === source) và KHÔNG thuộc diện miễn trừ.
@@ -160,11 +170,13 @@ export function sanitizeSubtitles(lines: SrtLine[], options?: SanitizeOptions): 
  * 2. Dòng chỉ chứa chữ số và ký tự số (ví dụ: "123", "2024", "$100", "50%").
  * 3. Từ mượn / viết tắt ngắn toàn cầu (ví dụ: "OK", "O.K.").
  * 4. Khớp chính xác với bảng thuật ngữ bắt buộc (glossary) quy định giữ nguyên dạng.
+ * 5. Ngoại lệ từ ngoại lai Latinh/watermark: Nguồn là CJK nhưng dòng chỉ chứa chữ cái Latinh ngắn (không có chữ CJK).
  */
 export function isLineUntranslated(
   source: string,
   target: string,
-  glossary?: string
+  glossary?: string,
+  options?: UntranslatedOptions
 ): boolean {
   const sourceTrim = (source || '').trim();
   const targetTrim = (target || '').trim();
@@ -231,6 +243,19 @@ export function isLineUntranslated(
           return false;
         }
       }
+    }
+  }
+
+  // 5. Ngoại lệ từ ngoại lai Latinh/watermark khi nguồn là CJK:
+  // Nếu video nguồn là CJK nhưng dòng phụ đề cụ thể hoàn toàn KHÔNG chứa ký tự CJK
+  // (chỉ chứa chữ cái Latinh ngắn, thương hiệu, watermark, tên riêng... ví dụ: "Aenon", "Pauouco", "CapCut")
+  // và độ dài <= 40 ký tự, thì việc giữ nguyên dạng là hợp lệ.
+  if (options?.isSourceCjk) {
+    const hasCjk = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u.test(
+      sourceClean || sourceTrim
+    );
+    if (!hasCjk && (sourceClean || sourceTrim).length <= 40) {
+      return false;
     }
   }
 

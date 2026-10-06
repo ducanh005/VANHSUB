@@ -254,6 +254,10 @@ const vanhsub = {
     // 1-Click Self-Test Diagnostics (Milestone 3)
     selfTestDiagnostics: () => ipcRenderer.invoke('aiStudio:diagnostics:selfTest'),
 
+    // 1-Click CapCut Desktop Draft Export (Milestone 5)
+    exportCapcutDraft: (payload: any, targetDir?: string) =>
+      ipcRenderer.invoke('aiStudio:export:capcutDraft', payload, targetDir),
+
     // Push Event Subscription (Returns unsubscribe function)
     onPipelineProgress: (callback: (event: any) => void) => {
       const subscription = (_event: any, data: any) => callback(data);
@@ -317,6 +321,7 @@ contextBridge.exposeInMainWorld('debug', {
     ipcRenderer.invoke('bridge:eval', code),
   inspectDom: () =>
     ipcRenderer.invoke('bridge:inspect-dom'),
+  /** @deprecated DOM Native UI Trigger đã bị loại bỏ, ưu tiên Pure RPC */
   triggerUiGen: (prompt: string) =>
     ipcRenderer.invoke('bridge:trigger-ui-gen', prompt),
 })

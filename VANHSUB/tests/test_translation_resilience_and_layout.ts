@@ -719,6 +719,28 @@ Phần 2:
     assert.strictEqual(isLineUntranslated('<b>$100</b>', '$100'), false, 'Bold currency number is exempted');
     assert.strictEqual(isLineUntranslated('<b>$100</b>', '<b>$100</b>'), false, 'Bold currency number preserved is exempted');
     assert.strictEqual(isLineUntranslated('<i>50%</i>', '50%'), false, 'Italic percentage is exempted');
+
+    // CJK source with Latin foreign token/watermark exemption (Rule 5)
+    assert.strictEqual(
+      isLineUntranslated('Aenon', 'Aenon', undefined, { isSourceCjk: true }),
+      false,
+      'Latin watermark "Aenon" in CJK source is exempted'
+    );
+    assert.strictEqual(
+      isLineUntranslated('Pauouco', 'Pauouco', undefined, { isSourceCjk: true }),
+      false,
+      'Latin watermark "Pauouco" in CJK source is exempted'
+    );
+    assert.strictEqual(
+      isLineUntranslated('我爱你', '我爱你', undefined, { isSourceCjk: true }),
+      true,
+      'Genuine CJK line preserved verbatim is NOT exempted and must be translated'
+    );
+    assert.strictEqual(
+      isLineUntranslated('Aenon', 'Aenon', undefined, { isSourceCjk: false }),
+      true,
+      'Latin word in non-CJK source is NOT exempted'
+    );
   });
 
   await test('2.9 Full batch 0 untranslated: Gemini returning raw source strings for ALL lines in batch 0 triggers retry and succeeds', async () => {
@@ -920,6 +942,101 @@ Phần 2:
     assert.ok(/gemini-3|gemini-flash-latest/i.test('gemini-3.8-flash'));
     assert.ok(/gemini-3|gemini-flash-latest/i.test('gemini-3.5-flash-lite'));
     assert.ok(/gemini-3|gemini-flash-latest/i.test('gemini-flash-latest'));
+  });
+
+  await test('2.15 CJK subtitle with Latin foreign watermark ("Aenon") translates without crash or false untranslated error', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'test_cjk_watermark_'));
+    const srtFile = path.join(tempDir, 'cjk_watermark.srt');
+    const testLines: SrtLine[] = [
+      { id: 'line-0', startMs: 1000, endMs: 2500, text: '这时候的我只有一条路', speaker: 'SPEAKER_00' },
+      { id: 'line-1', startMs: 3000, endMs: 4000, text: '都是你写好的', speaker: 'SPEAKER_00' },
+      { id: 'line-2', startMs: 4500, endMs: 5000, text: 'Aenon', speaker: 'SPEAKER_00' }, // Latin watermark
+      { id: 'line-3', startMs: 5500, endMs: 7000, text: '那她呢，许清萱的故事呢', speaker: 'SPEAKER_00' },
+    ];
+    fs.writeFileSync(srtFile, serializeSrt(testLines), 'utf-8');
+
+    SettingsStore.set('geminiApiKey', 'test_key');
+    SettingsStore.set('translateBatchSize', 10);
+    SettingsStore.set('translateConcurrency', 1);
+
+    const testClient = new OpenAI({ apiKey: 'test_key' });
+    const proto = Object.getPrototypeOf(testClient.chat.completions) as any;
+    const origCreate = proto.create;
+
+    let callCount = 0;
+    proto.create = async function () {
+      callCount++;
+      return {
+        choices: [
+          {
+            message: {
+              content: JSON.stringify([
+                { i: 'line-0', text: 'Lúc đó tôi chỉ có một con đường' },
+                { i: 'line-1', text: 'Đều do cậu viết sẵn' },
+                { i: 'line-2', text: 'Aenon' }, // Gemini echoes Latin watermark
+                { i: 'line-3', text: 'Còn cô ấy thì sao, câu chuyện của Hứa Thanh Huyên thì sao' },
+              ]),
+            },
+          },
+        ],
+      };
+    };
+
+    try {
+      const { translatedSrtPath } = await translateSrtFile(srtFile, 'vi');
+      const parsed = parseSrt(fs.readFileSync(translatedSrtPath, 'utf-8'));
+
+      assert.strictEqual(callCount, 1, 'Should succeed on first attempt without false untranslated error on Aenon');
+      assert.strictEqual(parsed.length, 4);
+      assert.strictEqual(parsed[2].text, 'Aenon', 'Latin watermark Aenon preserved safely');
+    } finally {
+      proto.create = origCreate;
+      try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch {}
+    }
+  });
+
+  await test('2.16 Attempt 3 fallback rescue accepts raw returned string for persistent proper noun', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'test_attempt3_rescue_'));
+    const srtFile = path.join(tempDir, 'rescue.srt');
+    const testLines: SrtLine[] = [
+      { id: 'line-0', startMs: 1000, endMs: 2500, text: 'CustomBrandName', speaker: 'SPEAKER_00' },
+    ];
+    fs.writeFileSync(srtFile, serializeSrt(testLines), 'utf-8');
+
+    SettingsStore.set('geminiApiKey', 'test_key');
+    SettingsStore.set('translateBatchSize', 10);
+    SettingsStore.set('translateConcurrency', 1);
+
+    const testClient = new OpenAI({ apiKey: 'test_key' });
+    const proto = Object.getPrototypeOf(testClient.chat.completions) as any;
+    const origCreate = proto.create;
+
+    let callCount = 0;
+    proto.create = async function () {
+      callCount++;
+      // Model consistently returns the exact same string 3 times
+      return {
+        choices: [
+          {
+            message: {
+              content: JSON.stringify([{ i: 'line-0', text: 'CustomBrandName' }]),
+            },
+          },
+        ],
+      };
+    };
+
+    try {
+      const { translatedSrtPath } = await translateSrtFile(srtFile, 'vi');
+      const parsed = parseSrt(fs.readFileSync(translatedSrtPath, 'utf-8'));
+
+      assert.strictEqual(callCount, 3, 'Must have attempted 3 times');
+      assert.strictEqual(parsed.length, 1);
+      assert.strictEqual(parsed[0].text, 'CustomBrandName', 'Must rescue line on attempt 3');
+    } finally {
+      proto.create = origCreate;
+      try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch {}
+    }
   });
 
   // ===========================================================================

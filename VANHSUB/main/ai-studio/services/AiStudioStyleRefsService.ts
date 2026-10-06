@@ -18,6 +18,7 @@ import path from 'path';
 import { AiStudioDiskStorageManager, StyleManifest } from '../storage/AiStudioDiskStorageManager';
 import { FlowMediaAutomationEngine } from '../../workflow/flow-engine/FlowMediaAutomationEngine';
 import { shortenForLog } from '../../workflow/flow-engine/FlowFileInputInjector';
+import { BibleStore, CharacterAnchorConfig, SettingAnchorConfig } from '../../store/bibleStore';
 
 export interface EnsureStyleRefsOptions {
   storage: AiStudioDiskStorageManager;
@@ -46,6 +47,14 @@ export interface EnsureStyleRefsOptions {
   backgroundStylePrompt?: string;
   /** Aspect ratio for AI-generated style reference images */
   aspectRatio?: string;
+  /** Character Anchor configuration (Milestone 3 / F3.1) */
+  characterAnchor?: CharacterAnchorConfig;
+  /** Setting Anchor configuration (Milestone 3 / F3.1) */
+  settingAnchor?: SettingAnchorConfig;
+  /** Character ID to lookup in BibleStore */
+  characterId?: string;
+  /** Scene ID to lookup in BibleStore */
+  sceneId?: string;
 }
 
 export interface StyleRefsResult {
@@ -130,6 +139,83 @@ export class AiStudioStyleRefsService {
   }
 
   /**
+   * Resolves Character Anchor configuration from BibleStore by character ID.
+   */
+  public resolveCharacterAnchorFromBible(characterId?: string): CharacterAnchorConfig | undefined {
+    if (!characterId) return undefined;
+    return BibleStore.getCharacterAnchorById(characterId);
+  }
+
+  /**
+   * Resolves Setting Anchor configuration from BibleStore by scene ID.
+   */
+  public resolveSettingAnchorFromBible(sceneId?: string): SettingAnchorConfig | undefined {
+    if (!sceneId) return undefined;
+    return BibleStore.getSettingAnchorById(sceneId);
+  }
+
+  /**
+   * Resolves Character Anchor configuration from project / channel profile config,
+   * matching with BibleStore profiles or creating a config fallback.
+   */
+  public resolveCharacterAnchorFromConfig(config?: any): CharacterAnchorConfig | undefined {
+    if (!config) return undefined;
+    const channelProfile = config.channelProfile;
+    if (channelProfile) {
+      if (channelProfile.hostName) {
+        const found = BibleStore.getCharacters().find(
+          (c) =>
+            c.name.toLowerCase() === channelProfile.hostName.toLowerCase() ||
+            c.id === channelProfile.hostName
+        );
+        if (found) {
+          return BibleStore.toCharacterAnchor(found);
+        }
+      }
+      if (channelProfile.channelCharacters && channelProfile.channelCharacters.length > 0) {
+        const c = channelProfile.channelCharacters[0];
+        return {
+          characterId: c.id,
+          name: c.name,
+          visualTraits: c.descriptionEn || '',
+          referenceImagePaths: c.avatarUrl ? [c.avatarUrl] : [],
+          avatarLocalPath: c.avatarUrl,
+        };
+      }
+      if (channelProfile.hostName || channelProfile.hostDescription) {
+        return {
+          characterId: 'char-host',
+          name: channelProfile.hostName || 'Host',
+          visualTraits: channelProfile.hostDescription || '',
+          referenceImagePaths: channelProfile.hostAvatarUrl ? [channelProfile.hostAvatarUrl] : [],
+          avatarLocalPath: channelProfile.hostAvatarUrl,
+        };
+      }
+    }
+    const defaultChars = BibleStore.getCharacters();
+    return defaultChars.length > 0 ? BibleStore.toCharacterAnchor(defaultChars[0]) : undefined;
+  }
+
+  /**
+   * Resolves Setting Anchor configuration from project / channel profile config,
+   * matching with BibleStore scenes or creating a config fallback.
+   */
+  public resolveSettingAnchorFromConfig(config?: any): SettingAnchorConfig | undefined {
+    if (!config) return undefined;
+    const channelProfile = config.channelProfile;
+    if (channelProfile?.projectBackgroundPrompt) {
+      return {
+        sceneId: 'scene-project-bg',
+        name: 'Project Background',
+        environmentTraits: channelProfile.projectBackgroundPrompt,
+        referenceImagePaths: config.flowEngine?.referenceImagePath ? [config.flowEngine.referenceImagePath] : [],
+      };
+    }
+    const defaultScenes = BibleStore.getScenes();
+    return defaultScenes.length > 0 ? BibleStore.toSettingAnchor(defaultScenes[0]) : undefined;
+  }
+
+  /**
    * Main entry point — ensures style refs are ready before any shot generation.
    *
    * Decision tree:
@@ -141,6 +227,32 @@ export class AiStudioStyleRefsService {
    */
   public async ensureStyleRefs(options: EnsureStyleRefsOptions): Promise<StyleRefsResult> {
     const { storage } = options;
+
+    // Resolve Character and Setting Anchors if provided by ID or missing
+    if (options.characterId && !options.characterAnchor) {
+      options.characterAnchor = this.resolveCharacterAnchorFromBible(options.characterId);
+    }
+    if (options.sceneId && !options.settingAnchor) {
+      options.settingAnchor = this.resolveSettingAnchorFromBible(options.sceneId);
+    }
+
+    if (options.characterAnchor) {
+      if (!options.userCharacterImagePath && options.characterAnchor.referenceImagePaths?.length > 0) {
+        options.userCharacterImagePath = options.characterAnchor.referenceImagePaths[0];
+      }
+      if (!options.characterStylePrompt && options.characterAnchor.visualTraits) {
+        options.characterStylePrompt = options.characterAnchor.visualTraits;
+      }
+    }
+
+    if (options.settingAnchor) {
+      if (!options.userBackgroundImagePath && options.settingAnchor.referenceImagePaths?.length > 0) {
+        options.userBackgroundImagePath = options.settingAnchor.referenceImagePaths[0];
+      }
+      if (!options.backgroundStylePrompt && options.settingAnchor.environmentTraits) {
+        options.backgroundStylePrompt = options.settingAnchor.environmentTraits;
+      }
+    }
 
     // Ensure the style_refs directory exists before anything
     storage.ensureDirectories();
@@ -253,8 +365,16 @@ export class AiStudioStyleRefsService {
       character_style_prompt: charPrompt,
       background_style_prompt: bgPrompt,
       source: isUserProvided ? 'user_provided' : 'ai_generated',
+      ...(options.characterAnchor ? {
+        character_anchor_id: options.characterAnchor.characterId,
+        character_anchor_name: options.characterAnchor.name,
+      } : {}),
+      ...(options.settingAnchor ? {
+        setting_anchor_id: options.settingAnchor.sceneId,
+        setting_anchor_name: options.settingAnchor.name,
+      } : {}),
       created_at: new Date().toISOString(),
-    };
+    } as StyleManifest;
 
     storage.saveStyleManifest(manifest);
     console.log(`[StyleRefsService] ✅ Style manifest written (source: ${manifest.source})`);
@@ -313,8 +433,16 @@ export class AiStudioStyleRefsService {
       character_style_prompt: charPrompt,
       background_style_prompt: bgPrompt,
       source: 'ai_generated',
+      ...(options.characterAnchor ? {
+        character_anchor_id: options.characterAnchor.characterId,
+        character_anchor_name: options.characterAnchor.name,
+      } : {}),
+      ...(options.settingAnchor ? {
+        setting_anchor_id: options.settingAnchor.sceneId,
+        setting_anchor_name: options.settingAnchor.name,
+      } : {}),
       created_at: new Date().toISOString(),
-    };
+    } as StyleManifest;
 
     storage.saveStyleManifest(manifest);
     console.log('[StyleRefsService] ✅ Style manifest written (source: ai_generated)');

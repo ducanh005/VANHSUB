@@ -601,9 +601,7 @@ export class GoogleFlowAdapter implements ModelAdapter {
         .input(`color=c=0x6366F1:s=${width}x${height}:d=${duration}`)
         .inputFormat('lavfi')
         .complexFilter([
-          `[0:v][1:v]blend=all_expr='A*(1-T/${duration})+B*(T/${duration})'[bg]`,
-          `[bg]drawtext=text='VANHSUB Workflow AI - Veo Shot':fontcolor=white:fontsize=28:x=(w-text_w)/2:y=h/2-40:shadowcolor=black:shadowx=2:shadowy=2[v1]`,
-          `[v1]drawtext=text='${promptClean}...':fontcolor=0xC9A227:fontsize=20:x=(w-text_w)/2:y=h/2+10[outv]`,
+          `[0:v][1:v]blend=all_expr='A*(1-T/${duration})+B*(T/${duration})'[outv]`,
         ])
         .outputOptions([
           '-map [outv]',
@@ -991,33 +989,19 @@ Respond in strict JSON format:
       ffmpeg()
         .input(`color=c=${bgCol}:s=${width}x${height}:d=1`)
         .inputFormat('lavfi')
-        .complexFilter([
-          `drawtext=text='VANHSUB - Keyframe Frame':fontcolor=white:fontsize=30:x=(w-text_w)/2:y=h/2-40:shadowcolor=black:shadowx=2:shadowy=2[v1]`,
-          `[v1]drawtext=text='${promptClean}...':fontcolor=0x38BDF8:fontsize=22:x=(w-text_w)/2:y=h/2+15[outv]`,
-        ])
-        .outputOptions(['-map [outv]', '-frames:v 1', '-q:v 2'])
+        .outputOptions(['-frames:v 1', '-q:v 2'])
         .output(outPath)
         .on('end', () => resolve())
         .on('error', () => {
-          // Fallback cấp 2: Dùng bộ tạo màu đơn sắc không cần font chữ
-          ffmpeg()
-            .input(`color=c=${bgCol}:s=${width}x${height}:d=1`)
-            .inputFormat('lavfi')
-            .outputOptions(['-frames:v 1', '-q:v 2'])
-            .output(outPath)
-            .on('end', () => resolve())
-            .on('error', () => {
-              // Fallback cấp 3: Ghi file 1x1 PNG hợp lệ chống lỗi hiển thị thẻ img
-              try {
-                const validPng = Buffer.from(
-                  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
-                  'base64'
-                );
-                fs.writeFileSync(outPath, validPng);
-              } catch {}
-              resolve();
-            })
-            .run();
+          // Fallback cấp 2: Ghi file 1x1 PNG hợp lệ chống lỗi hiển thị thẻ img
+          try {
+            const validPng = Buffer.from(
+              'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+              'base64'
+            );
+            fs.writeFileSync(outPath, validPng);
+          } catch {}
+          resolve();
         })
         .run();
     });
