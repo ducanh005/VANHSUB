@@ -108,28 +108,18 @@ export async function separateVocalsFastFfmpeg(
       '-i',
       inputAudioPath,
       '-filter_complex',
-      '[0:a]pan=stereo|c0=c0-c1|c1=c1-c0,volume=1.25[aout]',
+      '[0:a]aformat=channel_layouts=stereo,asplit=2[bg][voice];[bg]pan=stereo|c0=c0-c1|c1=c1-c0,volume=1.25[aout];[voice]pan=mono|c0=0.5*c0+0.5*c1,bandpass=f=1200:width_type=h:w=2000[vout]',
       '-map',
       '[aout]',
       noVocals,
-    ],
-    { shouldStop }
-  );
-  await runFfmpeg(
-    [
-      '-y',
-      '-i',
-      inputAudioPath,
-      '-filter_complex',
-      '[0:a]pan=mono|c0=0.5*c0+0.5*c1,bandpass=f=1200:width_type=h:w=2000[aout]',
       '-map',
-      '[aout]',
+      '[vout]',
       vocals,
     ],
     { shouldStop }
   );
 
-  return { noVocals, vocals: fs.existsSync(vocals) ? vocals : noVocals };
+  return { noVocals, vocals };
 }
 
 /**
@@ -139,7 +129,8 @@ export async function separateVocalsFastFfmpeg(
 export async function separateVocals(
   inputAudioPath: string,
   outDir: string,
-  shouldStop?: () => boolean
+  shouldStop?: () => boolean,
+  onBackend?: (backend: 'demucs' | 'dsp') => void
 ): Promise<StemPaths> {
   fs.mkdirSync(outDir, { recursive: true });
   const modelName = 'htdemucs';
@@ -149,10 +140,12 @@ export async function separateVocals(
   const demucsCheck = await checkDemucs(shouldStop);
   if (shouldStop?.()) throw new CancelledError();
   if (!demucsCheck.ok) {
+    onBackend?.('dsp');
     console.warn(`[VocalSeparation] ${demucsCheck.detail} -> Chuyển sang FFmpeg DSP Vocal Cancellation tự động.`);
     return separateVocalsFastFfmpeg(inputAudioPath, outDir, shouldStop);
   }
 
+  onBackend?.('demucs');
   return new Promise((resolve, reject) => {
     console.log(`[Demucs] Bắt đầu tách lời thoại bằng AI: ${path.basename(inputAudioPath)}`);
     const args = ['-m', 'demucs', '--two-stems=vocals', '-n', modelName, '-o', outDir, inputAudioPath];

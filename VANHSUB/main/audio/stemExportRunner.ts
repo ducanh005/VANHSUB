@@ -13,7 +13,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { TaskStore, type Task } from '../store/taskStore';
-import { checkDemucs, separateVocals } from './vocalSeparation';
+import { separateVocals } from './vocalSeparation';
 import { extractFullQualityAudio } from '../asr/audioExtractor';
 
 export class StemExportRunner {
@@ -59,15 +59,20 @@ export class StemExportRunner {
         );
 
         setStage(12, 'Kiểm tra môi trường tách giọng...');
-        const demucs = await checkDemucs(() => isTaskRunCancelled(taskId));
-        if (!demucs.ok) {
-          console.warn(`[Stems] ${demucs.detail} -> Sử dụng bộ lọc FFmpeg DSP nhanh...`);
-          setStage(15, 'Đang tách lời thoại bằng FFmpeg DSP (nhanh, offline)...');
-        } else {
-          setStage(15, 'Đang tách lời thoại bằng AI (Demucs)...');
-        }
         tempOutDir = path.join(os.tmpdir(), `vanhsub_stems_${randomUUID()}`);
-        const { noVocals, vocals } = await separateVocals(tempWav, tempOutDir, () => isTaskRunCancelled(taskId));
+        const { noVocals, vocals } = await separateVocals(
+          tempWav,
+          tempOutDir,
+          () => isTaskRunCancelled(taskId),
+          (backend) => {
+            setStage(
+              15,
+              backend === 'demucs'
+                ? 'Đang tách lời thoại bằng AI (Demucs)...'
+                : 'Đang tách lời thoại bằng FFmpeg DSP (nhanh, offline)...'
+            );
+          }
+        );
 
         setStage(78, 'Đang xuất file MP3 (320kbps)...');
         const dir = getOrCreateProjectDir(task);
