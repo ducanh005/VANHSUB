@@ -2,6 +2,16 @@
 
 ## Kết quả cập nhật theo audit — 06/10/2026
 
+### Đợt tối ưu tiếp theo
+
+- **TTS không tiếp tục nhân bản lịch sử cache:** khi tạo run mới, chỉ seed những MP3 được manifest hiện tại tham chiếu; nhiều member dùng chung master chỉ copy/link một lần. Các phiên bản cũ giữ nguyên ở thư mục cũ. Fixture có nhiều bản audio cũ xác nhận run mới chỉ có bộ master đang dùng, manifest và dữ liệu lịch sử không bị sửa.
+- **Tách nhạc/giọng giảm xử lý lặp:** kiểm tra Demucs một lần và thông báo backend được chọn qua callback. Nhánh DSP dùng một tiến trình FFmpeg, một lần giải mã, chia luồng để tạo cả nhạc nền và giọng. Kiểm tra WAV stereo đầu ra giống từng byte với hai filter cũ; bổ sung trường hợp audio mono. Đây là giảm công việc giải mã, không phải tuyên bố tốc độ tăng gấp đôi hay chất lượng DSP tương đương Demucs.
+- **Tạo lại dòng dùng đúng lựa chọn UI:** truyền giọng, tốc độ, engine qua preload/IPC tới runner; giọng của dòng được lưu lại. Bảng gán giọng đọc lại SRT mỗi lần mở, tránh giữ phụ đề đã sửa; huỷ cập nhật bất đồng bộ khi đổi task/đóng bảng, giữ lựa chọn giọng chưa gửi của người dùng.
+- **Kiểm tra được toàn bộ production build trong worktree:** thêm `npm run build:check`, biên dịch renderer bằng webpack và main/preload bằng cấu hình Nextron. Nguồn được sao chép tạm cạnh thư viện thực để tránh lỗi đường dẫn xuyên ổ C/D; không tải lại dependencies, không thay thư mục app đang chạy. Thư mục tạm và junction được dọn sau kiểm tra. Đã xác nhận renderer/static pages, main và preload đều build thành công.
+- **Build lỗi phải báo thất bại:** Nextron hiện ghi lỗi compiler nhưng không đặt exit code thất bại; wrapper kiểm tra `stats.hasErrors()` và đặt exit code 1. Có regression cố ý dùng entry thiếu để kiểm chứng. CI bổ sung `build:check` sau typecheck/test. Lệnh này xác minh bundle, không tạo installer; `npm run build` thông thường vẫn cần môi trường dependency phù hợp.
+
+Bộ core hiện có **30 tình huống hồi quy** trong suite mới (26 cũ + 4 bổ sung). Chưa thay đổi chiến lược OCR/model thường trú hay tự động xoá lịch sử dự án; các hạng mục đó vẫn cần workload thực tế như phần giới hạn bên dưới.
+
 Đã cập nhật luồng phụ đề/lồng tiếng theo F01–F10. Phạm vi vẫn **không bao gồm Workflow AI và AI Studio**. Các mục bên dưới phần “Kết luận tại thời điểm audit” là bằng chứng trước khi sửa, tại commit `4228288`; số dòng trong các liên kết lịch sử có thể đã thay đổi.
 
 | Mục | Thay đổi đã thực hiện | Xác minh |
@@ -41,17 +51,18 @@ Số TaskStore sau cập nhật **bao gồm một lần flush xuống đĩa**, k
 
 ### Kiểm tra và lệnh chạy
 
-Thêm `npm run test:core` chạy 13 suite trong các process/store riêng: 12 suite cũ và [test_core_flow_regression.ts](../tests/test_core_flow_regression.ts) gồm **26 tình huống hồi quy**. Synthesis/key được stub hoặc cô lập; FFmpeg merge/mux, so PCM và đọc lại timestamp softsub dùng binary thật. Không dùng dữ liệu dự án hay tài khoản thật.
+Thêm `npm run test:core` chạy 13 suite trong các process/store riêng: 12 suite cũ và [test_core_flow_regression.ts](../tests/test_core_flow_regression.ts) gồm **30 tình huống hồi quy** sau đợt tối ưu tiếp theo. Synthesis/key được stub hoặc cô lập; FFmpeg merge/mux, so PCM và đọc lại timestamp softsub dùng binary thật. Không dùng dữ liệu dự án hay tài khoản thật.
 
 ```powershell
 npm run typecheck
 npm run test:core
+npm run build:check
 node node_modules/tsx/dist/cli.mjs scripts/audit_core_performance.ts
 ```
 
 Script `scripts/audit_core_flow.ts` đã đổi sang kiểm tra hành vi đúng sau sửa, thay cho probe kỳ vọng lỗi. Thêm GitHub Actions `VANHSUB core` trên Windows để chạy typecheck và test khi push/PR; lần chạy CI từ máy chủ chưa được xác minh trong cập nhật này.
 
-Typecheck và 13/13 suite đã chạy thành công. Main/preload production bundle biên dịch thành công; có warning dependency tuỳ chọn của ws/systeminformation. Build renderer trong worktree hiện chưa hoàn tất: `node_modules` là junction từ ổ C sang ổ D, Turbopack từ chối đường dẫn ngoài root; fallback webpack gặp đường dẫn client Next xuyên ổ đĩa. Đã bật `experimental.externalDir` cho các helper TypeScript dùng chung ngoài renderer, nhưng chưa chứng nhận bộ cài.
+Typecheck và 13/13 suite đã chạy thành công. Đợt đầu chỉ main/preload build thành công vì junction C/D làm Next lỗi. Đợt tiếp theo đã chạy thành công `build:check` cho cả renderer/main/preload bằng staging trên cùng ổ với thư viện; vẫn có warning dependency tuỳ chọn của ws/systeminformation. Chưa tạo hoặc kiểm chứng bộ cài.
 
 ### Những tối ưu cần dữ liệu thực tế trước khi triển khai
 

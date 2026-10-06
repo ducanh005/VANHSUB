@@ -22,6 +22,8 @@ export async function runCoreFlowRegression() {
   const { TTSRunner } = await import('../main/render/ttsRunner');
   const { ExportRunner } = await import('../main/render/exportRunner');
   const { TranslateRunner } = await import('../main/translate/translateRunner');
+  const { createTtsRunDirectory } = await import('../main/render/ttsCache');
+  const { separateVocalsFastFfmpeg } = await import('../main/audio/vocalSeparation');
   const { DubbingRunner } = await import('../main/render/dubbingRunner');
   const { saveCheckpoint, loadCheckpoint } = await import('../main/translate/translator');
   const { parseSrt } = await import('../main/lib/srt');
@@ -159,6 +161,86 @@ export async function runCoreFlowRegression() {
       assert.equal(count(), initial);
       await mergeAudioFiles(srt, dir, path.join(root, 'flexible.mp3'), undefined, { mode: 'flexible' });
       assert.equal(count(), initial + 1);
+    });
+    await test('A new TTS run seeds only referenced masters and preserves history in the old run', () => {
+      const oldFiles = fs.readdirSync(dir).filter((file) => file.endsWith('.mp3'));
+      const active = [...new Set(Object.values(manifest(dir)).map((entry: any) => entry.audioFile))].sort();
+      assert.ok(oldFiles.length > active.length);
+      const next = createTtsRunDirectory(path.join(root, 'cache-seed'), dir);
+      assert.deepEqual(
+        fs
+          .readdirSync(next)
+          .filter((file) => file.endsWith('.mp3'))
+          .sort(),
+        active
+      );
+      assert.deepEqual(manifest(next), manifest(dir));
+      assert.deepEqual(
+        fs.readdirSync(dir).filter((file) => file.endsWith('.mp3')),
+        oldFiles
+      );
+    });
+    await test('Regeneration applies the selected voice and persists it without altering the old manifest', async () => {
+      const task = TaskStore.create({
+        fileName: 'voice.mp4',
+        filePath: path.join(root, 'voice.mp4'),
+        srtPath: srt,
+        ttsAudioDir: dir,
+        ttsEngine: 'edge',
+      });
+      const previous = fs.readFileSync(path.join(dir, 'manifest.json'));
+      const voices: string[] = [];
+      edge.synthesize = async (_text, voice) => {
+        voices.push(voice!);
+        return { audio: tone };
+      };
+      try {
+        assert.equal((await TTSRunner.regenerateLine(task.id, 2, 'vi-VN-NamMinhNeural', 1.2, 'edge')).ok, true);
+        const result = TaskStore.getById(task.id)!;
+        assert.ok(voices.includes('vi-VN-NamMinhNeural'));
+        assert.equal(result.ttsVoiceOverrides?.['2'], 'vi-VN-NamMinhNeural');
+        assert.equal(result.ttsEngine, 'edge'); assert.equal(result.ttsSpeed, 1.2);
+        assert.equal(manifest(result.ttsAudioDir!)['2'].voice, 'vi-VN-NamMinhNeural');
+        assert.deepEqual(fs.readFileSync(path.join(dir, 'manifest.json')), previous);
+      } finally {
+        edge.synthesize = async () => ({ audio: tone });
+      }
+    });
+    await test('Single-pass DSP produces the same stereo background and voice as the separate filters', async () => {
+      const stereo = path.join(root, 'stereo.wav');
+      await runFfmpeg([
+        '-y',
+        '-f',
+        'lavfi',
+        '-i',
+        'sine=frequency=220:duration=1',
+        '-f',
+        'lavfi',
+        '-i',
+        'sine=frequency=440:duration=1',
+        '-filter_complex',
+        '[0:a][1:a]amerge=inputs=2[a]',
+        '-map',
+        '[a]',
+        stereo,
+      ]);
+      const background = path.join(root, 'reference-bg.wav'),
+        vocals = path.join(root, 'reference-voice.wav');
+      await runFfmpeg(['-y', '-i', stereo, '-af', 'pan=stereo|c0=c0-c1|c1=c1-c0,volume=1.25', background]);
+      await runFfmpeg([
+        '-y',
+        '-i',
+        stereo,
+        '-af',
+        'pan=mono|c0=0.5*c0+0.5*c1,bandpass=f=1200:width_type=h:w=2000',
+        vocals,
+      ]);
+      const actual = await separateVocalsFastFfmpeg(stereo, path.join(root, 'stems'));
+      assert.deepEqual(fs.readFileSync(actual.noVocals), fs.readFileSync(background));
+      assert.deepEqual(fs.readFileSync(actual.vocals), fs.readFileSync(vocals));
+      const mono = await separateVocalsFastFfmpeg(tone440, path.join(root, 'mono-stems'));
+      assert.ok(fs.statSync(mono.noVocals).size > 44);
+      assert.ok(fs.statSync(mono.vocals).size > 44);
     });
     await test('Speaker metadata is stripped from synthesis and keeps speakers in separate groups', async () => {
       const speakers = path.join(root, 'speakers.srt');
@@ -562,6 +644,18 @@ export async function runCoreFlowRegression() {
       assert.equal(persisted.progress, 100);
       assert.equal(persisted.asrEngine, 'whisper-cpp');
       assert.equal(persisted.speakerCount, 2);
+    });
+    await test('Production build verification returns a failure code for webpack compilation errors', () => {
+      const script = `const path = require('node:path'); require('webpack')({mode:'production', entry:path.join(process.argv[1], 'missing.ts'), output:{path:process.argv[1]}}).run((error, stats) => console.log('COMPILER_ERRORS=' + Boolean(error || stats.hasErrors())));`;
+      assert.throws(
+        () =>
+          execFileSync(
+            process.execPath,
+            ['--require', path.resolve('scripts/webpack-check.cjs'), '-e', script, path.join(root, 'webpack-failure')],
+            { windowsHide: true, encoding: 'utf8', stdio: 'pipe' }
+          ),
+        (error: any) => error.status === 1 && String(error.stdout).includes('COMPILER_ERRORS=true')
+      );
     });
     console.log(`CORE FLOW REGRESSION: ${passed}/${passed} passed`);
   } finally {

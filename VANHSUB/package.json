@@ -8,6 +8,7 @@
   "scripts": {
     "dev": "nextron",
     "build": "nextron build",
+    "build:check": "node scripts/build-check.cjs",
     "postinstall": "electron-builder install-app-deps",
     "test:core": "tsx scripts/test_core.ts",
     "typecheck": "tsc --project scripts/tsconfig.core.json --noEmit --incremental false"
