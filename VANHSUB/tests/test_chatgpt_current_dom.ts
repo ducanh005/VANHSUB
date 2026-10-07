@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { chromium } from 'playwright-core';
 import { getAssistantTurns, readAssistantTurnText } from '../main/ai-studio/chatgpt/chatgptSelectors.config';
-import { ChatGptScriptCollector, ChatGptStreamingTimeoutError, readComposerText } from '../main/ai-studio/chatgpt/ChatGptScriptCollector';
+import { ChatGptScriptCollector, ChatGptStreamingTimeoutError, readComposerText, stitchScriptTurns, isMissingExpectedMarker } from '../main/ai-studio/chatgpt/ChatGptScriptCollector';
 import { AiStudioLlmService } from '../main/ai-studio/services/AiStudioLlmService';
 import { ChatGptWebSessionManager, sanitizePromptEchoFromOutput } from '../main/ai-studio/chatgpt/ChatGptWebSessionManager';
 
@@ -58,6 +58,36 @@ Output NOTHING else. No analysis, no planning, no alternative titles, no word co
 music instructions, no commentary.`;
     assert.equal(sanitizePromptEchoFromOutput(contract, `Copy this verbatim:\n${contract}`, 'master_prompt'), contract);
     passed++;
+    const title = 'Hanh trinh kham pha nhung bi an cua dai duong sau tham';
+    const idea = JSON.stringify({ title, outline: ['A', 'B', 'C'] });
+    assert.equal(sanitizePromptEchoFromOutput(idea, `Write an idea about:\n${title}`, 'idea'), idea);
+    assert.equal(sanitizePromptEchoFromOutput(`CÂU 1: ${title}`, `Write a script about:\n${title}`, 'script'), `CÂU 1: ${title}`);
+    passed++;
+    await page.setContent('<div>No continuation button</div>');
+    const incompleteMaster = '1. SYSTEM ROLE\n2. INPUT\n=== SOURCE END ===\n3. PRIMARY OBJECTIVE\nNot finished.';
+    const partial = await collector.handleContinuationIfTruncated(page, incompleteMaster, { kind: 'master_prompt', maxContinuationTurns: 0 });
+    assert.equal(partial.isTruncated, true);
+    const complete = await collector.handleContinuationIfTruncated(page, `1. SYSTEM ROLE\n9. STRICT OUTPUT FORMAT\n${contract}`, { kind: 'master_prompt', maxContinuationTurns: 0 });
+    assert.equal(complete.isTruncated, false);
+    passed++;
+    const stitched = stitchScriptTurns(['=== BEGIN SCRIPT ===\nCÂU 1: First sentence.', 'CÂU 2: Still unfinished']);
+    assert.equal(stitched.includes('=== END SCRIPT ==='), false);
+    assert.equal((await collector.handleContinuationIfTruncated(page, stitched, { kind: 'script', maxContinuationTurns: 0 })).isTruncated, true);
+    assert.equal((await collector.handleContinuationIfTruncated(page, stitched + '\n=== END SCRIPT ===', { kind: 'script', targetMinSentences: 10, maxContinuationTurns: 0 })).isTruncated, true);
+    assert.equal(isMissingExpectedMarker('{"nested":{"title":"ok"}, "outline":[', 'idea'), true);
+    passed++;
+    const continuationCollector = new ChatGptScriptCollector();
+    let continuations = 0;
+    continuationCollector.sendPrompt = async () => { continuations++; };
+    continuationCollector.waitForStreamingComplete = async () => {};
+    continuationCollector.extractLatestResponseText = async () => `9. STRICT OUTPUT FORMAT\n${contract}`;
+    const resumed = await continuationCollector.handleContinuationIfTruncated(page, incompleteMaster, { kind: 'master_prompt', maxContinuationTurns: 2 });
+    assert.equal(continuations, 1);
+    assert.equal(resumed.isTruncated, false);
+    assert.ok(resumed.fullText.includes('music instructions, no commentary.'));
+    continuationCollector.extractLatestResponseText = async () => '';
+    assert.equal((await continuationCollector.handleContinuationIfTruncated(page, incompleteMaster, { kind: 'master_prompt', maxContinuationTurns: 2 })).isTruncated, true);
+    passed++;
     await page.setContent('<button aria-label="Gửi phản hồi">Unrelated</button><form><textarea id="prompt-textarea">Old default</textarea><button type="button" aria-label="Gửi">Send</button></form>');
     await page.evaluate(`document.querySelector('form button').onclick = () => {
       const input = document.querySelector('textarea');
@@ -96,6 +126,23 @@ music instructions, no commentary.`;
     assert.equal(sends, 1);
     passed++;
     const manager = ChatGptWebSessionManager.getInstance();
+    const sharedCollector = ChatGptScriptCollector.getInstance();
+    const originalCollect = sharedCollector.collect;
+    const originalLogin = manager.checkLoginStatus;
+    try {
+      manager.checkLoginStatus = async () => ({ isLoggedIn: true, sessionCheckedAt: Date.now() });
+      const response = { text: contract, rawText: contract, turnCount: 1, durationMs: 1, wordCount: 50,
+        isTruncated: true, continuedTurns: 5, continuationTriggered: true, conversationUrl: 'https://chatgpt.com/c/test' };
+      sharedCollector.collect = async () => response;
+      await assert.rejects(manager.executePromptTurn('Test', 'offscreen', undefined, true, undefined, 'master_prompt'), /chưa hoàn tất/);
+      await assert.rejects(manager.generateScriptWeb('Test'), /chưa hoàn tất/);
+      response.isTruncated = false;
+      assert.equal(await manager.executePromptTurn(`Copy verbatim:\n${contract}`, 'offscreen', undefined, true, undefined, 'master_prompt'), contract);
+      passed++;
+    } finally {
+      sharedCollector.collect = originalCollect;
+      manager.checkLoginStatus = originalLogin;
+    }
     const original = manager.executePromptTurn;
     try {
       manager.executePromptTurn = async () => { throw new Error('TEST_READ_TIMEOUT'); };

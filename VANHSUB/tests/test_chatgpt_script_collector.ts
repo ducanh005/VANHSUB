@@ -315,7 +315,8 @@ async function runTestSuite() {
     assert.strictEqual(isMissingExpectedMarker(incompleteMaster, 'master_prompt'), true);
 
     const completeMaster = '1. SYSTEM ROLE\nBạn là chuyên gia...\n9. STRICT OUTPUT FORMAT\nĐịnh dạng chuẩn.';
-    assert.strictEqual(isMissingExpectedMarker(completeMaster, 'master_prompt'), false);
+    assert.strictEqual(isMissingExpectedMarker(completeMaster, 'master_prompt'), true);
+    assert.strictEqual(isMissingExpectedMarker(completeMaster + '\nNARRATION DIRECTION:\nOutput NOTHING else. No analysis, no commentary.', 'master_prompt'), false);
   });
 
   // ----------------------------------------------------------------------------

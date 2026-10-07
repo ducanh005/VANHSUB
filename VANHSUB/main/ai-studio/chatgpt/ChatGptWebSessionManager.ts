@@ -121,35 +121,10 @@ export function sanitizePromptEchoFromOutput(text: string, sentPrompt?: string, 
     cleaned = cleaned.slice(jsonBeginIdx);
   }
 
-  // Filter out echo lines
-  const lines = cleaned.split('\n');
-  const filteredLines = lines.filter((line) => {
-    const trimmed = line.trim();
-    if (isUserPromptEcho(trimmed)) return false;
-    if (
-      trimmed.startsWith('NHIỆM VỤ:') ||
-      trimmed.startsWith('QUY ĐỊNH ĐỊNH DẠNG') ||
-      trimmed.startsWith('BẮT BUỘC:') ||
-      trimmed.startsWith('CHÚ Ý:')
-    ) {
-      return false;
-    }
-    return true;
-  });
-
-  cleaned = filteredLines.join('\n').trim();
-
-  // If sentPrompt is provided, ensure no 50+ char substring from prompt leaks into output
-  if (sentPrompt && sentPrompt.length >= 60) {
-    const promptSentences = sentPrompt
-      .split('\n')
-      .map((s) => s.trim())
-      .filter((s) => s.length >= 40 && !s.startsWith('CÂU'));
-    for (const pSent of promptSentences) {
-      if (cleaned.includes(pSent)) {
-        cleaned = cleaned.split(pSent).join('').trim();
-      }
-    }
+  // Shared input/output text is legitimate (titles, source facts, quoted contracts).
+  // Reject a complete input echo; never erase matching substrings inside a response.
+  if (sentPrompt && cleaned === sentPrompt.trim()) {
+    throw new Error('ChatGPT trả lại nguyên prompt đầu vào thay vì kết quả.');
   }
 
   return cleaned;
@@ -975,6 +950,7 @@ export class ChatGptWebSessionManager {
         }
       }
 
+      if (result.isTruncated) throw new Error('Kịch bản ChatGPT chưa hoàn tất sau các lượt tiếp tục.');
       let finalResponse = result.rawText || result.text || '';
 
       if (isUserPromptEcho(finalResponse)) {
@@ -998,7 +974,7 @@ export class ChatGptWebSessionManager {
             topic,
           });
           const retryParsed = parseChatGptScriptResponse(retryResult.rawText || retryResult.text || '', topic);
-          if (retryParsed.length >= 3) {
+          if (!retryResult.isTruncated && retryParsed.length >= 3) {
             finalResponse = retryResult.rawText || retryResult.text || '';
           }
         } catch (retryErr) {
@@ -1006,6 +982,9 @@ export class ChatGptWebSessionManager {
         }
       }
 
+      if (parseChatGptScriptResponse(finalResponse, topic).length < 3) {
+        throw new Error('ChatGPT chưa trả về kịch bản đúng định dạng sau khi yêu cầu sửa.');
+      }
       return sanitizePromptEchoFromOutput(finalResponse, prompt);
     } finally {
       this.busy = false;
@@ -1068,6 +1047,7 @@ export class ChatGptWebSessionManager {
         this.lastConversationUrl = result.conversationUrl;
       }
 
+      if (result.isTruncated) throw new Error('Phản hồi ChatGPT chưa hoàn tất sau các lượt tiếp tục.');
       let outputText = result.rawText || result.text || '';
 
       if (isUserPromptEcho(outputText)) {
@@ -1103,11 +1083,14 @@ BẮT BUỘC trả về DUY NHẤT một khối JSON đầy đủ, bọc trong m
               onProgress,
             });
             const retryBp = parseChatGptIdeaResponse(retryRes.rawText || retryRes.text || '', 'Ý tưởng video');
-            if (validateIdeaBlueprint(retryBp).isValid) {
+            if (!retryRes.isTruncated && validateIdeaBlueprint(retryBp).isValid) {
               outputText = retryRes.rawText || retryRes.text || '';
             }
           } catch (repairErr) {
             console.warn('[ChatGptWebSession] Idea repair notice:', repairErr);
+          }
+          if (!validateIdeaBlueprint(parseChatGptIdeaResponse(outputText, 'Ý tưởng video')).isValid) {
+            throw new Error('ChatGPT chưa trả về ý tưởng đủ các trường bắt buộc sau khi yêu cầu sửa.');
           }
         }
       }

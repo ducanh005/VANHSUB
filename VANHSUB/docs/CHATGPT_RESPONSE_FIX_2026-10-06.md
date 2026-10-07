@@ -34,3 +34,14 @@ The output sanitizer removed every input line of at least 40 characters from the
 Submission handling now reads a textarea's live value without falling back to its stale default text, re-resolves a replaced composer, and accepts a newly added user message matching the sent prompt as confirmation. Send buttons are resolved within the composer's form when present, with exact English/Vietnamese accessible labels prioritized. Failed clicks no longer count as successful; Enter fallback can run. An unconfirmed send no longer triggers a second blind click.
 
 The Chromium regression suite now has 13 passing cases, adding verbatim contract preservation, stale textarea defaults, unrelated send buttons, delayed editor clearing, no-op submission rejection, and failed-click Enter fallback. TypeScript passes. Live idea generation remains unverified because the Chrome CDP endpoint was unavailable during this follow-up.
+
+## Follow-up review and repairs: incomplete responses
+
+- Removed destructive per-line/substring filtering for idea and script outputs too. Legitimate repeated titles/source facts remain intact; complete input echoes still fail validation.
+- Master-prompt completion now requires the output contract, narration direction, and final output-only instruction. The source boundary in section 2 is no longer treated as the end of the answer.
+- Idea completion requires a parseable JSON object, not merely any closing brace from a nested object.
+- Script stitching no longer invents an END SCRIPT marker. Continuation exhaustion checks the requested minimum sentence count; empty or unchanged continuation results stay incomplete.
+- Native Continue click errors propagate; waiting requires the answer to change before accepting the expanded turn.
+- Both facade entry points reject truncated results. Failed format/schema repair no longer silently returns an invalid result.
+- Verification: 18 regression cases (Chromium DOM plus mocked facade/continuation cases), 21 collector tests, TypeScript, and main/preload webpack build pass. The old test which treated section 9's heading alone as completion was corrected to require the final contract.
+- Chrome CDP port 9223 remained unavailable. No claim of live authenticated generation success is made. Restart the D-drive application to load the rebuilt main/preload bundles.

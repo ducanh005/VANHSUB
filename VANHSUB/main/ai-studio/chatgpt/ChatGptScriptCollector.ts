@@ -159,6 +159,8 @@ export interface SendPromptOptions {
 }
 
 export interface StreamingWaitOptions {
+  /** Native Continue can extend the same turn; require a change before accepting it. */
+  initialResponseText?: string;
   /** Maximum time in milliseconds to wait for streaming to start (default: 15,000ms) */
   startTimeoutMs?: number;
   /** Interval in milliseconds between stability polling checks (default: 1200ms per PROJECT.md) */
@@ -474,6 +476,19 @@ export function isCutoffSentence(text: string): boolean {
 /**
  * Checks whether an expected closing marker is missing from the output.
  */
+export function hasCompleteIdeaJson(text: string): boolean {
+  const start = text.indexOf('{');
+  const end = text.lastIndexOf('}');
+  if (start < 0 || end <= start) return false;
+  try { JSON.parse(text.slice(start, end + 1)); return true; } catch { return false; }
+}
+
+export function hasCompleteMasterPrompt(text: string): boolean {
+  return /SYSTEM\s*ROLE/i.test(text) && /STRICT\s*OUTPUT\s*FORMAT/i.test(text) &&
+    /NARRATION\s*DIRECTION\s*:/i.test(text) &&
+    /Output\s+NOTHING\s+else\.[\s\S]*?no\s+commentary\./i.test(text);
+}
+
 export function isMissingExpectedMarker(text: string, kind?: ScriptKind): boolean {
   if (!text || typeof text !== 'string') return false;
 
@@ -487,19 +502,9 @@ export function isMissingExpectedMarker(text: string, kind?: ScriptKind): boolea
     if (hasScriptHeader && !hasScriptEnd) return true;
   }
 
-  if (kind === 'idea') {
-    const firstBrace = text.indexOf('{');
-    const lastBrace = text.lastIndexOf('}');
-    if (firstBrace !== -1 && (lastBrace === -1 || lastBrace <= firstBrace)) {
-      return true;
-    }
-  }
+  if (kind === 'idea') return !hasCompleteIdeaJson(text);
 
-  if (kind === 'master_prompt') {
-    const hasSystemRole = /(?:1\.\s*SYSTEM\s*ROLE|SYSTEM\s*ROLE)/i.test(text);
-    const hasEnd = /(?:9\.\s*STRICT\s*OUTPUT\s*FORMAT|STRICT\s*OUTPUT\s*FORMAT|END\s*OF\s*SCRIPT|=== SOURCE END ===)/i.test(text);
-    if (hasSystemRole && !hasEnd) return true;
-  }
+  if (kind === 'master_prompt') return !hasCompleteMasterPrompt(text);
 
   return false;
 }
@@ -615,11 +620,6 @@ export function stitchScriptTurns(turns: string[]): string {
 
     // Case 3: Turn K ended cleanly, Turn K+1 continues normally
     combined = `${combined}\n${cleanedTurn}`;
-  }
-
-  // Ensure closing marker if opening marker was requested
-  if (combined.includes('=== BEGIN SCRIPT ===') && !combined.includes('=== END SCRIPT ===')) {
-    combined = `${combined}\n=== END SCRIPT ===`;
   }
 
   return combined;
@@ -1273,6 +1273,12 @@ export class ChatGptScriptCollector {
 
       const currentText = await readAssistantTurnText(targetTurn);
 
+      if (options?.initialResponseText !== undefined && currentText.trim() === options.initialResponseText.trim()) {
+        stableCount = 0;
+        await new Promise((r) => setTimeout(r, pollIntervalMs));
+        continue;
+      }
+
       const currentLength = currentText.trim().length;
 
       if (streaming) {
@@ -1401,8 +1407,8 @@ export class ChatGptScriptCollector {
       // 2. Explicit completion boundary verification
       const hasExplicitEndMarker = (
         (kind === 'script' && (/===\s*END\s*SCRIPT\s*===/i.test(fullText) || /---\s*END OF SCRIPT\s*---/i.test(fullText))) ||
-        (kind === 'idea' && fullText.includes('{') && fullText.lastIndexOf('}') > fullText.indexOf('{')) ||
-        (kind === 'master_prompt' && /(?:9\.\s*STRICT\s*OUTPUT\s*FORMAT|STRICT\s*OUTPUT\s*FORMAT|END\s*OF\s*SCRIPT|=== SOURCE END ===)/i.test(fullText))
+        (kind === 'idea' && hasCompleteIdeaJson(fullText)) ||
+        (kind === 'master_prompt' && hasCompleteMasterPrompt(fullText))
       );
 
       // If output has an explicit completion marker and no continue button and no requested beat deficit, it is complete!
@@ -1422,12 +1428,13 @@ export class ChatGptScriptCollector {
       let nextTurnText = '';
 
       if (hasContinueBtn && continueBtnRes && continueBtnRes.locator) {
+        const previousText = await this.extractLatestResponseText(page, options);
         // Track A: Click UI "Continue generating"
         options?.onProgress?.('Đang nhấn nút "Continue generating"...');
         if (typeof continueBtnRes.locator.click === 'function') {
-          await continueBtnRes.locator.click({ timeout: 3000 }).catch(() => {});
+          await continueBtnRes.locator.click({ timeout: 3000 });
         }
-        await this.waitForStreamingComplete(page, options?.timeoutMs, { ...options, initialTurnCount: undefined });
+        await this.waitForStreamingComplete(page, options?.timeoutMs, { ...options, initialTurnCount: undefined, initialResponseText: previousText });
         nextTurnText = await this.extractLatestResponseText(page, options);
       } else {
         // Track B: Structured continuation prompt fallback
@@ -1448,6 +1455,10 @@ export class ChatGptScriptCollector {
         nextTurnText = await this.extractLatestResponseText(page, options);
       }
 
+      if (nextTurnText.trim() === fullText.trim()) {
+        isTruncated = true;
+        break;
+      }
       if (nextTurnText.trim().length > 0) {
         if (kind === 'script') {
           fullText = stitchScriptTurns([fullText, nextTurnText]);
@@ -1455,20 +1466,23 @@ export class ChatGptScriptCollector {
           fullText = stitchProseTurns(fullText, nextTurnText);
         }
       } else {
+        isTruncated = true;
         break;
       }
     }
 
     // Check if still truncated after reaching max turns
-    if (continuedTurns >= maxTurns) {
+    {
       const isCutoff = isCutoffSentence(fullText);
       const isMissingMarker = isMissingExpectedMarker(fullText, kind);
       const hasExplicitEndMarker = (
         (kind === 'script' && (/===\s*END\s*SCRIPT\s*===/i.test(fullText) || /---\s*END OF SCRIPT\s*---/i.test(fullText))) ||
-        (kind === 'idea' && fullText.includes('{') && fullText.lastIndexOf('}') > fullText.indexOf('{')) ||
-        (kind === 'master_prompt' && /(?:9\.\s*STRICT\s*OUTPUT\s*FORMAT|STRICT\s*OUTPUT\s*FORMAT|END\s*OF\s*SCRIPT|=== SOURCE END ===)/i.test(fullText))
+        (kind === 'idea' && hasCompleteIdeaJson(fullText)) ||
+        (kind === 'master_prompt' && hasCompleteMasterPrompt(fullText))
       );
-      isTruncated = !hasExplicitEndMarker && (isCutoff || isMissingMarker);
+      const beatDeficit = kind === 'script' && typeof targetMin === 'number' &&
+        parseChatGptScriptResponse(fullText, topic).length < targetMin;
+      isTruncated = isTruncated || beatDeficit || (!hasExplicitEndMarker && (isCutoff || isMissingMarker));
     }
 
     return {
