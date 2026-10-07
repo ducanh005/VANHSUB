@@ -1117,15 +1117,19 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
                 });
               };
 
-              const targetFlowProjectId = extractFlowProjectId(
-                activeProject?.flowProjectUrl ||
-                (config as any).flowProjectUrl ||
-                (config.flowEngine as any)?.projectId ||
-                (config.flowEngine as any)?.flowProjectUrl
-              );
+              let targetFlowProjectId = extractFlowProjectId(session.flowProjectUrl);
+              if (FlowBridgeServer.getInstance().isConnected()) {
+                if (signal?.aborted) throw new Error('Tác vụ đã bị huỷ.');
+                const linked = await GoogleFlowBrowserMutex.getInstance().runExclusive(
+                  () => FlowBridgeServer.getInstance().ensureProject(targetFlowProjectId || undefined)
+                );
+                targetFlowProjectId = linked.projectId;
+                session.flowProjectUrl = `https://labs.google/fx/vi/tools/flow/project/${linked.projectId}`;
+                this.persistSessionStateAtomic(session);
+              }
               const effectiveFlowEngineConfig: AiStudioFlowEngineConfig = {
                 ...config.flowEngine,
-                projectId: config.flowEngine?.projectId || targetFlowProjectId || undefined,
+                projectId: targetFlowProjectId || undefined,
               };
 
               const dispatchResult = await aiStudioVisualService.dispatchVisualAssets(
@@ -1819,13 +1823,17 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
         const mutex = GoogleFlowBrowserMutex.getInstance();
 
         const activeProj = config.savedProjects?.find((p) => p.id === config.activeProjectId);
+        const ownerSession = await this.getState({ sessionId: payload.sessionId });
         const targetFlowProjectId = extractFlowProjectId(
+          ownerSession?.flowProjectUrl ||
           payload.flowConfig?.projectId ||
           activeProj?.flowProjectUrl ||
-          (config as any).flowProjectUrl ||
-          (config.flowEngine as any)?.projectId ||
-          (config.flowEngine as any)?.flowProjectUrl
+          (config as any).flowProjectUrl
         );
+        if (!targetFlowProjectId) throw new Error('Phiên chưa có project Flow riêng. Hãy chạy bước tạo media trước khi tạo lại cảnh.');
+        if (payload.flowConfig?.projectId && extractFlowProjectId(payload.flowConfig.projectId) !== targetFlowProjectId) {
+          throw new Error('Project tạo lại cảnh không khớp project đã lưu của phiên.');
+        }
         const targetFlowProjectName = activeProj?.name || (config as any).projectName || (config as any).topic;
 
         const effectivePayload: RegenerateSceneAssetPayload = {

@@ -191,6 +191,15 @@ async function handleMessage(msg) {
     return;
   }
 
+  if (method === 'ensure_project') {
+    try {
+      const tab = await getFlowTab(true, params?.projectId);
+      const ensured = await ensureTabInProject(tab, params?.projectId, params?.createNew === true);
+      send({ id, result: { projectId: ensured.projectId, url: ensured.tab.url } });
+    } catch (err) { send({ id, error: err.message }); }
+    return;
+  }
+
   if (method === 'get_status') {
     const tab = await getFlowTab(false);
     let diag = null;
@@ -660,6 +669,85 @@ async function handleMessage(msg) {
     return;
   }
 
+  if (method === 'recover_unusual_activity') {
+    log('🛡️ Kích hoạt recover_unusual_activity: Mô phỏng tương tác người dùng tự nhiên (CDP Trusted Click isTrusted=true)...');
+    const tab = await getFlowTab(false, params?.projectId);
+    if (!tab) {
+      send({ id, error: 'NO_FLOW_TAB' });
+      return;
+    }
+    try {
+      let cdpAttached = false;
+      try {
+        await chrome.debugger.attach({ tabId: tab.id }, '1.3');
+        cdpAttached = true;
+      } catch (e) {
+        if (e && e.message && e.message.includes('already attached')) {
+          cdpAttached = true;
+        } else {
+          warn('Debugger attach warn:', e && e.message);
+        }
+      }
+
+      if (cdpAttached) {
+        try {
+          const jitterMoves = [
+            { x: 450, y: 350 },
+            { x: 520, y: 380 },
+            { x: 480, y: 420 },
+            { x: 400, y: 300 },
+          ];
+          for (const m of jitterMoves) {
+            await chrome.debugger.sendCommand({ tabId: tab.id }, 'Input.dispatchMouseEvent', {
+              type: 'mouseMoved',
+              x: m.x,
+              y: m.y,
+            });
+            await new Promise((r) => setTimeout(r, 60));
+          }
+          await chrome.debugger.sendCommand({ tabId: tab.id }, 'Input.dispatchMouseEvent', {
+            type: 'mousePressed',
+            x: 480,
+            y: 420,
+            button: 'left',
+            clickCount: 1,
+            modifiers: 0,
+          });
+          await new Promise((r) => setTimeout(r, 80));
+          await chrome.debugger.sendCommand({ tabId: tab.id }, 'Input.dispatchMouseEvent', {
+            type: 'mouseReleased',
+            x: 480,
+            y: 420,
+            button: 'left',
+            clickCount: 1,
+            modifiers: 0,
+          });
+          log('🖱️ Đã phát CDP trusted mouse interaction trên tab Flow');
+        } catch (dbgErr) {
+          warn('CDP mouse simulation error:', dbgErr && dbgErr.message);
+        } finally {
+          try { await chrome.debugger.detach({ tabId: tab.id }); } catch {}
+        }
+      }
+
+      try {
+        await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          world: 'MAIN',
+          func: () => {
+            window.scrollBy({ top: 50, behavior: 'smooth' });
+            setTimeout(() => window.scrollBy({ top: -50, behavior: 'smooth' }), 300);
+          },
+        });
+      } catch {}
+
+      send({ id, result: { ok: true } });
+    } catch (err) {
+      send({ id, error: err.message });
+    }
+    return;
+  }
+
   if (method === 'dom_inspect') {
     const tab = await getFlowTab();
     if (!tab) {
@@ -699,7 +787,7 @@ async function handleMessage(msg) {
 
   // @deprecated: trigger_ui_gen đã bị bãi bỏ, ưu tiên batch_rpc Pure RPC
   if (method === 'trigger_ui_gen') {
-    warn('⚠️ trigger_ui_gen đã bị deprecated, vui lòng sử dụng Pure batch_rpc');
+    warn('⚠️ trigger_ui_gen fallback CDP Trusted Click được kích hoạt');
     let tab = await getFlowTab(true, params?.projectId);
     if (!tab) {
       send({ id, error: 'NO_FLOW_TAB' });
@@ -709,14 +797,60 @@ async function handleMessage(msg) {
       const ensured = await ensureTabInProject(tab, params?.projectId);
       tab = ensured.tab;
       const promptText = params.prompt || 'a drone shot over ocean waves';
+      const targetMode = (params.mode || 'IMAGE').toUpperCase();
       const clickTimestamp = Date.now();
 
-      // Bước 1: Điền prompt vào ô ProseMirror và lấy tọa độ nút tạo
+      // Bước 1: Chuyển chế độ (Image vs Video nếu cần), điền prompt vào ô ProseMirror và lấy tọa độ nút tạo
       const [phase1] = await chrome.scripting.executeScript({
         target: { tabId: tab.id },
         world: 'MAIN',
-        args: [promptText],
-        func: async (text) => {
+        args: [{ promptText, targetMode }],
+        func: async (cfg) => {
+          const reqMode = (cfg.targetMode || 'IMAGE').toUpperCase();
+          const text = cfg.promptText || '';
+
+          // 1a. Chuyển chế độ (Image vs Video) nếu cần thiết
+          const allInitialBtns = Array.from(document.querySelectorAll('button'));
+          const trigger = allInitialBtns.find((b) => {
+            const aria = (b.getAttribute('aria-label') || '').toLowerCase();
+            return (
+              aria.includes('kích hoạt') ||
+              aria.includes('kich hoat') ||
+              aria.includes('cài đặt') ||
+              aria.includes('cai dat') ||
+              aria.includes('settings')
+            );
+          }) || document.querySelector('button.settings-trigger-button, flow-settings-button button');
+
+          if (trigger) {
+            const curText = (trigger.innerText || '').toLowerCase();
+            const isVideo = curText.includes('video') || curText.includes('veo') || curText.includes('giây') || curText.includes('giay') || curText.includes('720p') || curText.includes('1080p');
+            const needsSwitch = (reqMode === 'IMAGE' && isVideo) || (reqMode === 'VIDEO' && !isVideo);
+            if (needsSwitch) {
+              console.log(`[VanhSub:UI] 🔄 Đang chuyển chế độ: hiện tại="${curText.slice(0, 30)}" → mục tiêu=${reqMode}...`);
+              let pane = document.querySelector('.cdk-overlay-pane, flow-settings-popover');
+              if (!pane) {
+                trigger.click();
+                await new Promise((r) => setTimeout(r, 700));
+                pane = document.querySelector('.cdk-overlay-pane, flow-settings-popover');
+              }
+              const container = document.querySelector('.cdk-overlay-container') || pane;
+              if (container) {
+                const modeBtns = Array.from(container.querySelectorAll('mat-button-toggle, button, [role="radio"]'));
+                const kw = reqMode === 'IMAGE' ? ['hình ảnh', 'hinh anh', 'image', 'ảnh', 'anh'] : ['video', 'videocam'];
+                const t = modeBtns.find((b) => kw.some((k) => (b.innerText || '').toLowerCase().includes(k)));
+                if (t) {
+                  const clickTarget = t.querySelector('button') || t;
+                  clickTarget.click();
+                  await new Promise((r) => setTimeout(r, 500));
+                }
+              }
+              const bd = document.querySelector('.cdk-overlay-backdrop');
+              if (bd) bd.click();
+              await new Promise((r) => setTimeout(r, 500));
+            }
+          }
+
           let pm = document.querySelector(
             'flow-prompt-box .ProseMirror, .prosemirror-editor .ProseMirror, .ProseMirror, flow-prompt-box [contenteditable="true"], [contenteditable="true"]:not([contenteditable="false"]), textarea:not(.g-recaptcha-response)'
           );
@@ -786,7 +920,7 @@ async function handleMessage(msg) {
           const cx = Math.round(rect.left + rect.width / 2);
           const cy = Math.round(rect.top + rect.height / 2);
 
-          return { ok: true, cx, cy, disabled: btn.disabled };
+          return { ok: true, cx, cy, disabled: btn.disabled, targetMode: reqMode };
         },
       });
 
@@ -798,14 +932,22 @@ async function handleMessage(msg) {
 
       // Bước 2: Bấm nút bằng CDP Trusted Click (phần cứng mô phỏng isTrusted=true)
       let cdpSuccess = false;
+      let actualClickTimestamp = clickTimestamp;
       try {
-        await chrome.debugger.attach({ tabId: tab.id }, '1.3');
+        try {
+          await chrome.debugger.attach({ tabId: tab.id }, '1.3');
+        } catch (attErr) {
+          if (!attErr?.message?.includes('already attached')) {
+            throw attErr;
+          }
+        }
         await chrome.debugger.sendCommand({ tabId: tab.id }, 'Input.dispatchMouseEvent', {
           type: 'mouseMoved',
           x: p1.cx,
           y: p1.cy,
         });
         await new Promise((r) => setTimeout(r, 50));
+        actualClickTimestamp = Date.now();
         await chrome.debugger.sendCommand({ tabId: tab.id }, 'Input.dispatchMouseEvent', {
           type: 'mousePressed',
           x: p1.cx,
@@ -824,7 +966,7 @@ async function handleMessage(msg) {
           modifiers: 0,
         });
         cdpSuccess = true;
-        log(`🖱️ Đã phát CDP trusted click tại (${p1.cx}, ${p1.cy})`);
+        log(`🖱️ Đã phát CDP trusted click tại (${p1.cx}, ${p1.cy}) cho mode=${targetMode}`);
       } catch (cdpErr) {
         warn('CDP click gặp sự cố, fallback sang DOM click:', cdpErr.message);
       } finally {
@@ -833,6 +975,7 @@ async function handleMessage(msg) {
 
       if (!cdpSuccess) {
         // Fallback DOM click
+        actualClickTimestamp = Date.now();
         await chrome.scripting.executeScript({
           target: { tabId: tab.id },
           world: 'MAIN',
@@ -851,15 +994,23 @@ async function handleMessage(msg) {
       const [phase3] = await chrome.scripting.executeScript({
         target: { tabId: tab.id },
         world: 'MAIN',
-        args: [clickTimestamp],
-        func: async (ts) => {
+        args: [{ clickTimestamp: Math.max(0, actualClickTimestamp - 200), targetMode }],
+        func: async (args) => {
+          const ts = args.clickTimestamp;
+          const mode = (args.targetMode || 'IMAGE').toUpperCase();
           const deadline = Date.now() + 45000;
           while (Date.now() < deadline) {
             await new Promise((r) => setTimeout(r, 600));
             const hist = (window.__VANHSUB_SNIFFER__?.history || []).filter((h) => (h.timestamp || 0) >= ts);
-            const genRpc = hist.find(
-              (h) => h.url && (h.url.includes('ogiZ0b') || h.url.includes('YhhmEf') || h.url.includes('eb1hJf') || h.url.includes('MZZa6b')) && h.status === 200 && h.response
-            );
+            // Ưu tiên RPC khớp chính xác với mode được yêu cầu, ngăn chặn bắt nhầm gói tin chéo mode
+            const genRpc = hist.find((h) => {
+              if (!h.url || h.status !== 200 || !h.response) return false;
+              if (mode === 'IMAGE') {
+                return h.url.includes('ogiZ0b');
+              } else {
+                return h.url.includes('as29s') || h.url.includes('MZZa6b') || h.url.includes('YhhmEf') || h.url.includes('eb1hJf');
+              }
+            });
             if (genRpc) {
               return {
                 ok: true,
@@ -917,10 +1068,22 @@ function waitForTabReady(tabId, timeoutMs = 12000) {
   });
 }
 
-async function ensureTabInProject(tab, preferredProjectId) {
+async function ensureTabInProject(tab, preferredProjectId, createNew = false) {
   let currentTab = tab;
   let tabProjectId = extractProjectIdFromUrl(currentTab?.url);
   const validPreferredId = isValidProjectId(preferredProjectId) ? preferredProjectId.trim() : null;
+
+  const oldProjectId = tabProjectId;
+  if (!validPreferredId && !createNew) {
+    throw new Error('FLOW_PROJECT_REQUIRED: Chưa liên kết project Flow cho tác vụ. Không sử dụng project đang mở.');
+  }
+  if (createNew) {
+    await chrome.tabs.update(currentTab.id, { url: 'https://labs.google/fx/vi/tools/flow' });
+    await waitForTabReady(currentTab.id, 15000);
+    currentTab = await chrome.tabs.get(currentTab.id);
+    tabProjectId = extractProjectIdFromUrl(currentTab.url);
+    if (tabProjectId) throw new Error('FLOW_PROJECT_CREATE_FAILED: Không mở được trang tạo project mới.');
+  }
 
   // Nếu VanhSub chỉ định projectId hợp lệ cụ thể và tab hiện tại chưa ở đúng project đó:
   if (validPreferredId && validPreferredId !== tabProjectId) {
@@ -932,7 +1095,8 @@ async function ensureTabInProject(tab, preferredProjectId) {
     await chrome.tabs.update(currentTab.id, { url: `${baseOrigin}${tabProjectId}` });
     await waitForTabReady(currentTab.id, 10000);
     currentTab = await chrome.tabs.get(currentTab.id);
-    tabProjectId = extractProjectIdFromUrl(currentTab?.url) || validPreferredId;
+    tabProjectId = extractProjectIdFromUrl(currentTab?.url);
+    if (tabProjectId !== validPreferredId) throw new Error('FLOW_PROJECT_MISMATCH: Không mở được đúng project đã liên kết.');
   }
 
   // Nếu tab đang ở trang sảnh (chưa vào /project/<uuid>), thử tự động click mở hoặc tạo dự án mới
@@ -943,11 +1107,6 @@ async function ensureTabInProject(tab, preferredProjectId) {
         target: { tabId: currentTab.id },
         world: 'MAIN',
         func: () => {
-          const link = document.querySelector('a[href*="/project/"]');
-          if (link) {
-            link.click();
-            return true;
-          }
           const btns = Array.from(document.querySelectorAll('button, a, [role="button"]'));
           const newProjBtn = btns.find((b) => {
             const t = (b.innerText || b.getAttribute('aria-label') || '').toLowerCase();
@@ -981,6 +1140,9 @@ async function ensureTabInProject(tab, preferredProjectId) {
     }
   }
 
+  if (!tabProjectId || (createNew && tabProjectId === oldProjectId)) {
+    throw new Error('FLOW_PROJECT_CREATE_FAILED: Chưa xác nhận được project mới. Vui lòng kiểm tra trang Flow.');
+  }
   return { tab: currentTab, projectId: tabProjectId };
 }
 

@@ -340,9 +340,7 @@ export function classifyFlowRpcError(
           : 'UNUSUAL_ACTIVITY');
     return new GoogleFlowRpcError(
       'Google Flow tạm thời chặn lệnh tạo do phát hiện hành vi tự động (PUBLIC_ERROR_UNUSUAL_ACTIVITY - reCAPTCHA bot flag). ' +
-      'Giải pháp: 1. Đảm bảo tab Google Chrome flow.google.com đang ở trạng thái hoạt động và đã đăng nhập; ' +
-      '2. Chờ 1-2 phút theo cơ chế backoff để Google giải tỏa đánh dấu bot; ' +
-      '3. Hoặc tương tác nhẹ trên tab Chrome (di chuột, cuộn trang) để cập nhật điểm tin cậy reCAPTCHA Enterprise.',
+      'Đã kích hoạt cơ chế tự động phục hồi và giãn cách lùi bước (Exponential Backoff).',
       {
         code,
         retryable: true,
@@ -1381,10 +1379,6 @@ export class GoogleFlowRpcClient {
             rawResponse: rawText,
           });
 
-          if (isUnusualActivityError(classified)) {
-            throw classified;
-          }
-
           if (classified.retryable && attempt <= maxRetries) {
             const expDelay = calculateExponentialBackoffMs(attempt - 1, 10000, 120000);
             const delay = classified.retryAfterMs ? Math.max(classified.retryAfterMs, expDelay) : expDelay;
@@ -1424,9 +1418,6 @@ export class GoogleFlowRpcClient {
               console.warn('[GoogleFlowRpcClient] Session healing in callFlowRPC failed:', healErr?.message || healErr);
             }
           }
-        }
-        if (isUnusualActivityError(classified)) {
-          throw classified;
         }
         if (classified.retryable && attempt <= maxRetries) {
           const expDelay = calculateExponentialBackoffMs(attempt - 1, 10000, 120000);
@@ -1676,11 +1667,24 @@ export class GoogleFlowRpcClient {
    * thực hiện cơ chế dự phòng số 1 (CDP Trusted Click phần hardware) qua Chrome DevTools Protocol,
    * và mô phỏng tương tác người dùng tự nhiên để nâng reCAPTCHA Enterprise score lên mức an toàn.
    */
-  public async handleUnusualActivityRecovery(win?: any): Promise<any> {
+  public async handleUnusualActivityRecovery(win?: any, projectId?: string, signal?: AbortSignal): Promise<any> {
     console.warn(
       '[GoogleFlowRpcClient] 🛡️ Phát hiện PUBLIC_ERROR_UNUSUAL_ACTIVITY (reCAPTCHA bot flag). ' +
       'Tự động kích hoạt cơ chế dự phòng số 1 (CDP Trusted Click phần hardware)...'
     );
+
+    try {
+      const bridge = FlowBridgeServer.getInstance();
+      if (bridge.isConnected()) {
+        await bridge.recoverUnusualActivity(15000, projectId || this._lastProjectId, signal);
+        return win;
+      }
+    } catch (brErr: any) {
+      console.warn('[GoogleFlowRpcClient] Bridge recoverUnusualActivity warning:', brErr?.message || brErr);
+      if (FlowBridgeServer.getInstance().isConnected()) {
+        return win;
+      }
+    }
 
     let activeWin = win;
     try {
@@ -1762,8 +1766,8 @@ export class GoogleFlowRpcClient {
   }
 
   /** Alias tương thích ngược cho internal / subclass override */
-  protected async _handleUnusualActivityAutoRecovery(win?: any): Promise<any> {
-    return await this.handleUnusualActivityRecovery(win);
+  protected async _handleUnusualActivityAutoRecovery(win?: any, projectId?: string, signal?: AbortSignal): Promise<any> {
+    return await this.handleUnusualActivityRecovery(win, projectId, signal);
   }
 
   /**
@@ -1902,7 +1906,9 @@ export class GoogleFlowRpcClient {
             RPC_GEN_IMAGE,
             innerPayload,
             CAPTCHA_ACTION_IMAGE,
-            cleanProjectId
+            cleanProjectId,
+            undefined,
+            signal
           );
         } catch (bridgeErr: any) {
           throw classifyFlowRpcError(bridgeErr);
@@ -1998,10 +2004,10 @@ export class GoogleFlowRpcClient {
           if (attempt < maxAttempts && (isUnusual || classified.retryable)) {
             if (isUnusual) {
               // R2: Tự động kích hoạt cơ chế dự phòng số 1 (CDP Trusted Click phần hardware) trước khi chuyển sang giãn cách lùi bước
-              activeWin = await this.handleUnusualActivityRecovery(activeWin);
+              activeWin = await this.handleUnusualActivityRecovery(activeWin, projectId, signal);
             }
             const delay = calculateExponentialBackoffMs(attempt - 1, baseMs, 120000);
-            const waitMs = classified.retryAfterMs ? Math.max(classified.retryAfterMs, delay) : delay;
+            const waitMs = baseMs === 0 ? 0 : (classified.retryAfterMs ? Math.max(classified.retryAfterMs, delay) : delay);
             console.warn(
               `[GoogleFlowRpcClient] Sinh ảnh gặp lỗi [${classified.code}] (attempt ${attempt}/${maxAttempts}). ` +
               `Giãn cách lùi bước: chờ ${Math.round(waitMs / 1000)}s...`
@@ -2188,7 +2194,9 @@ export class GoogleFlowRpcClient {
             rpcName,
             innerPayload,
             CAPTCHA_ACTION_VIDEO,
-            bridgeProjectId
+            bridgeProjectId,
+            undefined,
+            signal
           );
         } catch (bridgeErr: any) {
           throw classifyFlowRpcError(bridgeErr);
@@ -2345,10 +2353,10 @@ export class GoogleFlowRpcClient {
           if (attempt < maxAttempts && (isUnusual || classified.retryable)) {
             if (isUnusual) {
               // R2: Tự động kích hoạt cơ chế dự phòng số 1 (CDP Trusted Click phần hardware) trước khi chuyển sang giãn cách lùi bước
-              activeWin = await this.handleUnusualActivityRecovery(activeWin);
+              activeWin = await this.handleUnusualActivityRecovery(activeWin, projectId, signal);
             }
             const delay = calculateExponentialBackoffMs(attempt - 1, baseMs, 120000);
-            const waitMs = classified.retryAfterMs ? Math.max(classified.retryAfterMs, delay) : delay;
+            const waitMs = baseMs === 0 ? 0 : (classified.retryAfterMs ? Math.max(classified.retryAfterMs, delay) : delay);
             console.warn(
               `[GoogleFlowRpcClient] Sinh video gặp lỗi [${classified.code}] (attempt ${attempt}/${maxAttempts}). ` +
               `Giãn cách lùi bước: chờ ${Math.round(waitMs / 1000)}s...`

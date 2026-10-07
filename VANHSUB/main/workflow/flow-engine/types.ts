@@ -125,6 +125,8 @@ export type FlowErrorCode =
   | 'CLICK_GENERATE_REJECTED'
   | 'PROMPT_NOT_RECOGNIZED_BY_APP'
   | 'IMAGE_REFERENCE_ATTACH_FAILED'
+  | 'PUBLIC_ERROR_UNUSUAL_ACTIVITY'
+  | 'BOT_FLAGGED'
   | 'UNKNOWN_ERROR';
 
 export interface ClassifiedError {

@@ -227,6 +227,26 @@ export class FlowErrorClassifier {
       };
     }
 
+    // 8b. KIỂM TRA BOT-FLAG RECAPTCHA / UNUSUAL ACTIVITY
+    if (
+      lowerMsg.includes('public_error_unusual_activity') ||
+      lowerMsg.includes('unusual_activity') ||
+      lowerMsg.includes('bot_flagged') ||
+      lowerMsg.includes('captcha_score_low') ||
+      lowerMsg.includes('recaptcha evaluation failed')
+    ) {
+      return {
+        category: 'RETRYABLE',
+        code: 'PUBLIC_ERROR_UNUSUAL_ACTIVITY',
+        message: 'Google Flow phát hiện hành vi tự động (PUBLIC_ERROR_UNUSUAL_ACTIVITY). Áp dụng giãn cách lùi bước và phục hồi CDP.',
+        originalError,
+        canRetry: true,
+        suggestedAction: 'RETRY_WITH_BACKOFF',
+        recommendedDelayMs: 20000,
+        details: { rawMsg },
+      };
+    }
+
     // 9. KIỂM TRA LỖI SERVER GOOGLE (SERVER_ERROR_5XX)
     if (
       lowerMsg.includes('500 internal server') ||

@@ -240,10 +240,20 @@ try {
         const entry = { type: 'fetch', url, body, timestamp: Date.now() };
         window.__VANHSUB_SNIFFER__.history.push(entry);
         if (window.__VANHSUB_SNIFFER__.history.length > 100) window.__VANHSUB_SNIFFER__.history.shift();
-        const res = await originalFetch.apply(this, args);
+        let res;
+        try {
+          res = await originalFetch.apply(this, args);
+          entry.status = res.status;
+        } catch (err) {
+          entry.status = 0;
+          entry.error = String(err?.message || err);
+          throw err;
+        }
         try {
           const cloned = res.clone();
-          cloned.text().then((text) => { entry.response = text; });
+          cloned.text().then((text) => { entry.response = text; }).catch((err) => {
+            entry.error = String(err?.message || err);
+          });
         } catch {}
         return res;
       }

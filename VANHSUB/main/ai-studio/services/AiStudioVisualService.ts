@@ -17,6 +17,18 @@ import {
   calculateExponentialBackoffMs,
   isUnusualActivityError,
 } from '../../workflow/flow-engine/rpc/GoogleFlowRpcClient';
+import {
+  extractGeneratedImages,
+  extractOperationStatus,
+  parseBatchResponse,
+} from '../../workflow/flow-engine/rpc/FlowBatchBuilder';
+import {
+  RPC_GEN_IMAGE,
+  RPC_GEN_VIDEO_REFERENCES,
+  RPC_GEN_VIDEO_TEXT,
+  RPC_OPERATION,
+  RPC_MEDIA,
+} from '../../workflow/flow-engine/rpc/FlowBatchConstants';
 import type {
   AiStudioFlowEngineConfig,
   FlowAspectRatio,
@@ -269,8 +281,8 @@ export class AiStudioVisualService {
               isUnusualActivityError(flowErr);
 
             if (isTransient && retry < maxRetries) {
-              // R2: Đối với PUBLIC_ERROR_UNUSUAL_ACTIVITY, chỉ kích hoạt cơ chế dự phòng hardware click trên Electron khi chưa có Chrome Bridge
-              if (!isBridgeConnected && (isUnusualActivityError(flowErr) || errorCode === 'PUBLIC_ERROR_UNUSUAL_ACTIVITY' || errorCode === 'UNUSUAL_ACTIVITY')) {
+              // R2: Đối với PUBLIC_ERROR_UNUSUAL_ACTIVITY, kích hoạt cơ chế dự phòng số 1 (CDP Trusted Click phần hardware)
+              if (isUnusualActivityError(flowErr) || errorCode === 'PUBLIC_ERROR_UNUSUAL_ACTIVITY' || errorCode === 'UNUSUAL_ACTIVITY') {
                 console.warn(
                   `[AiStudioVisualService] Phát hiện PUBLIC_ERROR_UNUSUAL_ACTIVITY ở cảnh ${i + 1}. ` +
                   `Tự động kích hoạt cơ chế dự phòng số 1 (CDP Trusted Click phần hardware)...`
@@ -278,9 +290,9 @@ export class AiStudioVisualService {
                 try {
                   const client = this.getRpcClient();
                   if (typeof (client as any).handleUnusualActivityRecovery === 'function') {
-                    lobbyWin = await (client as any).handleUnusualActivityRecovery(lobbyWin);
+                    lobbyWin = await (client as any).handleUnusualActivityRecovery(lobbyWin, flowConfig.projectId, signal);
                   } else if (typeof (client as any)._handleUnusualActivityAutoRecovery === 'function') {
-                    lobbyWin = await (client as any)._handleUnusualActivityAutoRecovery(lobbyWin);
+                    lobbyWin = await (client as any)._handleUnusualActivityAutoRecovery(lobbyWin, flowConfig.projectId, signal);
                   }
                 } catch (recErr: any) {
                   console.warn('[AiStudioVisualService] Lỗi khi kích hoạt CDP Trusted Click fallback:', recErr?.message || recErr);
@@ -289,7 +301,7 @@ export class AiStudioVisualService {
 
               const baseMs = typeof flowConfig.backoffBaseMs === 'number' ? flowConfig.backoffBaseMs : 10000;
               const backoffMs = calculateExponentialBackoffMs(retry, baseMs, 120000);
-              const waitMs = flowErr.retryAfterMs ? Math.max(flowErr.retryAfterMs, backoffMs) : backoffMs;
+              const waitMs = baseMs === 0 ? 0 : (flowErr.retryAfterMs ? Math.max(flowErr.retryAfterMs, backoffMs) : backoffMs);
               const waitSec = Math.round(waitMs / 1000);
 
               console.warn(
@@ -431,12 +443,7 @@ export class AiStudioVisualService {
       // BỎ QUA HOÀN TOÀN việc mở hay tương tác với cửa sổ Electron lobby,
       // toàn bộ yêu cầu Web RPC và CAPTCHA sẽ được chuyển sang Google Chrome thật!
       if (!effectiveProjectId) {
-        try {
-          const tabInfo = await bridge.getFlowTabInfo(3000);
-          if (tabInfo && tabInfo.projectId) {
-            effectiveProjectId = tabInfo.projectId;
-          }
-        } catch {}
+        throw new GoogleFlowRpcError('Chưa liên kết project Google Flow cho phiên này. Hãy chạy lại bước tạo media để tạo project riêng.', { code: 'INVALID_ARGUMENT', retryable: false });
       }
     } else {
       try {
@@ -503,16 +510,48 @@ export class AiStudioVisualService {
             ? targetPath.replace(/\.mp4$/i, '.png')
             : `${targetPath}_keyframe.png`;
 
-          const imgGenResult = await rpcClient.generateImage({
-            prompt: effectivePrompt,
-            aspectRatio: flowConfig.aspectRatio || '16:9',
-            referenceAssets: refAssets,
-            projectId: effectiveProjectId,
-            win: lobbyWin,
-            signal,
-            maxRetries: 0,
-            backoffBaseMs: typeof flowConfig.backoffBaseMs === 'number' ? flowConfig.backoffBaseMs : 10000,
-          });
+          let imgGenResult: any = null;
+          try {
+            imgGenResult = await rpcClient.generateImage({
+              prompt: effectivePrompt,
+              aspectRatio: flowConfig.aspectRatio || '16:9',
+              referenceAssets: refAssets,
+              projectId: effectiveProjectId,
+              win: lobbyWin,
+              signal,
+              maxRetries: 0,
+              backoffBaseMs: typeof flowConfig.backoffBaseMs === 'number' ? flowConfig.backoffBaseMs : 10000,
+            });
+          } catch (rpcGenErr: any) {
+            const classified = classifyFlowRpcError(rpcGenErr);
+            if (classified.isUnusualActivity && FlowBridgeServer.getInstance().isConnected()) {
+              console.warn(
+                `[AiStudioVisualService] 🛡️ Pure RPC sinh keyframe bị Google chặn [${classified.code}]. ` +
+                `Fallback sang CDP Trusted UI Generation (isTrusted=true)...`
+              );
+              try {
+                const uiRes = await FlowBridgeServer.getInstance().triggerUiGen(effectivePrompt, 45000, effectiveProjectId, 'image', signal);
+                if (uiRes && uiRes.ok && uiRes.capturedRpc?.response) {
+                  let rpcData: any = null;
+                  try {
+                    const parsed = parseBatchResponse(uiRes.capturedRpc.response, RPC_GEN_IMAGE);
+                    if (parsed.ok) rpcData = parsed.data;
+                  } catch {}
+                  const imgs = extractGeneratedImages(rpcData || uiRes.capturedRpc.response, RPC_GEN_IMAGE);
+                  if (imgs && imgs.length > 0) {
+                    imgGenResult = {
+                      images: imgs,
+                      firstImageUrl: imgs[0].url,
+                      projectId: effectiveProjectId,
+                    };
+                  }
+                }
+              } catch (uiErr: any) {
+                console.warn('[AiStudioVisualService] CDP Trusted UI fallback keyframe warning:', uiErr?.message || uiErr);
+              }
+            }
+            if (!imgGenResult) throw rpcGenErr;
+          }
 
           const keyframeUrl = imgGenResult.firstImageUrl || imgGenResult.images?.[0]?.url;
           if (!keyframeUrl) {
@@ -561,17 +600,69 @@ export class AiStudioVisualService {
         onProgress?.(25, 'Bước 2/2 (I2V): Đang gửi yêu cầu tạo video chuyển động Veo (MZZa6b)...');
 
         try {
-          const genResult = await rpcClient.generateVideo({
-            prompt: motionPrompt,
-            aspectRatio: flowConfig.aspectRatio || '16:9',
-            referenceAssets: refAssets,
-            inputImageAsset: resolvedKeyframeAsset,
-            projectId: effectiveProjectId,
-            win: lobbyWin,
-            signal,
-            maxRetries: 0,
-            backoffBaseMs: typeof flowConfig.backoffBaseMs === 'number' ? flowConfig.backoffBaseMs : 10000,
-          });
+          let genResult: any = null;
+          try {
+            genResult = await rpcClient.generateVideo({
+              prompt: motionPrompt,
+              aspectRatio: flowConfig.aspectRatio || '16:9',
+              referenceAssets: refAssets,
+              inputImageAsset: resolvedKeyframeAsset,
+              projectId: effectiveProjectId,
+              win: lobbyWin,
+              signal,
+              maxRetries: 0,
+              backoffBaseMs: typeof flowConfig.backoffBaseMs === 'number' ? flowConfig.backoffBaseMs : 10000,
+            });
+          } catch (rpcVidErr: any) {
+            const classified = classifyFlowRpcError(rpcVidErr);
+            if (classified.isUnusualActivity && FlowBridgeServer.getInstance().isConnected()) {
+              console.warn(
+                `[AiStudioVisualService] 🛡️ Pure RPC sinh video bị Google chặn [${classified.code}]. ` +
+                `Fallback sang CDP Trusted UI Generation (isTrusted=true)...`
+              );
+              try {
+                const uiRes = await FlowBridgeServer.getInstance().triggerUiGen(motionPrompt, 45000, effectiveProjectId, 'video', signal);
+                if (uiRes && uiRes.ok && uiRes.capturedRpc?.response) {
+                  let rpcData: any = null;
+                  try {
+                    const parsed = parseBatchResponse(uiRes.capturedRpc.response, RPC_GEN_VIDEO_REFERENCES);
+                    if (parsed.ok) rpcData = parsed.data;
+                  } catch {}
+                  if (!rpcData) {
+                    try {
+                      const parsed = parseBatchResponse(uiRes.capturedRpc.response, RPC_GEN_VIDEO_TEXT);
+                      if (parsed.ok) rpcData = parsed.data;
+                    } catch {}
+                  }
+                  if (!rpcData) {
+                    try {
+                      const parsed = parseBatchResponse(uiRes.capturedRpc.response, RPC_OPERATION);
+                      if (parsed.ok) rpcData = parsed.data;
+                    } catch {}
+                  }
+                  if (!rpcData) {
+                    try {
+                      const parsed = parseBatchResponse(uiRes.capturedRpc.response, RPC_MEDIA);
+                      if (parsed.ok) rpcData = parsed.data;
+                    } catch {}
+                  }
+                  const opStatus = extractOperationStatus(rpcData || uiRes.capturedRpc.response, RPC_GEN_VIDEO_REFERENCES);
+                  if (opStatus && (opStatus.operationId || opStatus.videoUrl)) {
+                    genResult = {
+                      operationId: opStatus.operationId,
+                      projectId: opStatus.projectId || effectiveProjectId,
+                      status: opStatus.status || 'RUNNING',
+                      done: opStatus.done,
+                      videoUrl: opStatus.videoUrl,
+                    };
+                  }
+                }
+              } catch (uiVidErr: any) {
+                console.warn('[AiStudioVisualService] CDP Trusted UI fallback video warning:', uiVidErr?.message || uiVidErr);
+              }
+            }
+            if (!genResult) throw rpcVidErr;
+          }
 
           let finalVideoUrl = genResult.videoUrl;
 
@@ -652,16 +743,48 @@ export class AiStudioVisualService {
         // Image generation
         onProgress?.(15, 'Đang gửi yêu cầu tạo ảnh (Imagen/Nano RPC)...');
 
-        const genResult = await rpcClient.generateImage({
-          prompt: effectivePrompt,
-          aspectRatio: flowConfig.aspectRatio || '16:9',
-          referenceAssets: refAssets,
-          projectId: effectiveProjectId,
-          win: lobbyWin,
-          signal,
-          maxRetries: 0,
-          backoffBaseMs: typeof flowConfig.backoffBaseMs === 'number' ? flowConfig.backoffBaseMs : 10000,
-        });
+        let genResult: any = null;
+        try {
+          genResult = await rpcClient.generateImage({
+            prompt: effectivePrompt,
+            aspectRatio: flowConfig.aspectRatio || '16:9',
+            referenceAssets: refAssets,
+            projectId: effectiveProjectId,
+            win: lobbyWin,
+            signal,
+            maxRetries: 0,
+            backoffBaseMs: typeof flowConfig.backoffBaseMs === 'number' ? flowConfig.backoffBaseMs : 10000,
+          });
+        } catch (rpcImgErr: any) {
+          const classified = classifyFlowRpcError(rpcImgErr);
+          if (classified.isUnusualActivity && FlowBridgeServer.getInstance().isConnected()) {
+            console.warn(
+              `[AiStudioVisualService] 🛡️ Pure RPC sinh ảnh bị Google chặn [${classified.code}]. ` +
+              `Fallback sang CDP Trusted UI Generation (isTrusted=true)...`
+            );
+            try {
+              const uiRes = await FlowBridgeServer.getInstance().triggerUiGen(effectivePrompt, 45000, effectiveProjectId, 'image', signal);
+              if (uiRes && uiRes.ok && uiRes.capturedRpc?.response) {
+                let rpcData: any = null;
+                try {
+                  const parsed = parseBatchResponse(uiRes.capturedRpc.response, RPC_GEN_IMAGE);
+                  if (parsed.ok) rpcData = parsed.data;
+                } catch {}
+                const imgs = extractGeneratedImages(rpcData || uiRes.capturedRpc.response, RPC_GEN_IMAGE);
+                if (imgs && imgs.length > 0) {
+                  genResult = {
+                    images: imgs,
+                    firstImageUrl: imgs[0].url,
+                    projectId: effectiveProjectId,
+                  };
+                }
+              }
+            } catch (uiErr: any) {
+              console.warn('[AiStudioVisualService] CDP Trusted UI fallback image warning:', uiErr?.message || uiErr);
+            }
+          }
+          if (!genResult) throw rpcImgErr;
+        }
 
         const imageUrl = genResult.firstImageUrl || genResult.images?.[0]?.url;
         if (!imageUrl) {
@@ -1373,9 +1496,8 @@ export class AiStudioVisualService {
             isUnusualActivityError(classified);
 
           if (isTransient && retry < maxRetries) {
-            // R2: Đối với PUBLIC_ERROR_UNUSUAL_ACTIVITY, chỉ kích hoạt cơ chế dự phòng hardware click trên Electron khi chưa có Chrome Bridge
-            const isBridge = FlowBridgeServer.getInstance().isConnected();
-            if (!isBridge && (isUnusualActivityError(classified) || classified.code === 'PUBLIC_ERROR_UNUSUAL_ACTIVITY' || classified.code === 'UNUSUAL_ACTIVITY')) {
+            // R2: Đối với PUBLIC_ERROR_UNUSUAL_ACTIVITY, kích hoạt cơ chế dự phòng hardware click
+            if (isUnusualActivityError(classified) || classified.code === 'PUBLIC_ERROR_UNUSUAL_ACTIVITY' || classified.code === 'UNUSUAL_ACTIVITY') {
               console.warn(
                 `[AiStudioVisualService] regenerateSceneAsset phát hiện PUBLIC_ERROR_UNUSUAL_ACTIVITY. ` +
                 `Tự động kích hoạt cơ chế dự phòng số 1 (CDP Trusted Click phần hardware)...`
@@ -1383,9 +1505,9 @@ export class AiStudioVisualService {
               try {
                 const client = this.getRpcClient();
                 if (typeof (client as any).handleUnusualActivityRecovery === 'function') {
-                  lobbyWin = await (client as any).handleUnusualActivityRecovery(lobbyWin);
+                  lobbyWin = await (client as any).handleUnusualActivityRecovery(lobbyWin, payload.flowConfig?.projectId, signal);
                 } else if (typeof (client as any)._handleUnusualActivityAutoRecovery === 'function') {
-                  lobbyWin = await (client as any)._handleUnusualActivityAutoRecovery(lobbyWin);
+                  lobbyWin = await (client as any)._handleUnusualActivityAutoRecovery(lobbyWin, payload.flowConfig?.projectId, signal);
                 }
               } catch (recErr: any) {
                 console.warn('[AiStudioVisualService] Lỗi khi kích hoạt CDP Trusted Click fallback:', recErr?.message || recErr);
@@ -1398,7 +1520,7 @@ export class AiStudioVisualService {
               ? payload.flowConfig.backoffBaseMs
               : 10000;
             const backoffMs = calculateExponentialBackoffMs(retry, baseMs, 120000);
-            const waitMs = classified.retryAfterMs ? Math.max(classified.retryAfterMs, backoffMs) : backoffMs;
+            const waitMs = baseMs === 0 ? 0 : (classified.retryAfterMs ? Math.max(classified.retryAfterMs, backoffMs) : backoffMs);
             const waitSec = Math.round(waitMs / 1000);
 
             console.warn(

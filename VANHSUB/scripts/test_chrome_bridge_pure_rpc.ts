@@ -84,7 +84,7 @@ async function runTest() {
     };
 
     const outPath = 'D:/DEAN/DEAN/VANHSUB/temp_test_output.png';
-    await visualService.generateViaGoogleFlow(mockScene as any, outPath, { outputMode: 'image' });
+    await visualService.generateViaGoogleFlow(mockScene as any, outPath, { outputMode: 'image', projectId: 'mock-chrome-project-id-12345678' });
 
     assert.strictEqual(openLobbyCalled, false, 'openLobbyWindow của Electron KHÔNG ĐƯỢC gọi khi Chrome Extension đã kết nối!');
     console.log('✓ AiStudioVisualService bỏ qua hoàn toàn Electron Lobby khi Chrome Extension đang kết nối');

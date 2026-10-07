@@ -255,26 +255,30 @@ export function parseBatchResponse(rawText: string, expectedRpcId: string): RpcR
     }
   }
 
-  // Tìm chunk "wrb.fr" chứa payload thực sự (ưu tiên khớp expectedRpcId nếu có nhiều chunk)
+  // Tìm chunk "wrb.fr" chứa payload thực sự (hỗ trợ đệ quy mọi cấp độ lồng mảng)
   let targetInner: unknown[] | null = null;
   let fallbackInner: unknown[] | null = null;
 
-  for (const chunk of chunks) {
-    if (!Array.isArray(chunk)) continue;
-    const entries: unknown[] = Array.isArray(chunk[0]) ? chunk : [chunk];
-
-    for (const entry of entries) {
-      if (!Array.isArray(entry)) continue;
-      if (entry[0] === 'wrb.fr') {
-        if (entry[1] === expectedRpcId) {
-          targetInner = entry;
-          break;
-        }
-        if (!fallbackInner) {
-          fallbackInner = entry;
-        }
+  const findWrbEntries = (node: unknown): void => {
+    if (!Array.isArray(node)) return;
+    if (node[0] === 'wrb.fr') {
+      if (node[1] === expectedRpcId && !targetInner) {
+        targetInner = node;
+      } else if (!fallbackInner) {
+        fallbackInner = node;
+      }
+      return;
+    }
+    for (const item of node) {
+      if (Array.isArray(item)) {
+        findWrbEntries(item);
+        if (targetInner) return;
       }
     }
+  };
+
+  for (const chunk of chunks) {
+    findWrbEntries(chunk);
     if (targetInner) break;
   }
 
@@ -852,10 +856,27 @@ export function buildListProjectMediaPayload(projectId: string): unknown[] {
  * ⚠️  VERIFY P3: Structure của parsed data phụ thuộc vào inner payload format đúng.
  * Nếu payload sai → response structure khác → extract sẽ fail.
  */
-export function extractGeneratedImages(data: unknown): GeneratedImage[] {
+export function extractGeneratedImages(data: unknown, expectedRpcId?: string): GeneratedImage[] {
   const results: GeneratedImage[] = [];
-  if (!data || !Array.isArray(data)) {
-    console.warn('[FlowBatch] extractGeneratedImages: data không phải array:', JSON.stringify(data)?.slice(0, 200));
+  if (!data) return results;
+
+  let currentData: unknown = data;
+  if (typeof currentData === 'string') {
+    try {
+      const parsed = parseBatchResponse(currentData, expectedRpcId || RPC_GEN_IMAGE);
+      if (parsed.ok && parsed.data) {
+        currentData = parsed.data;
+      } else {
+        const clean = currentData.replace(/^\)\]\}'\s*/, '').trim();
+        currentData = JSON.parse(clean);
+      }
+    } catch {
+      // fallback if string is neither batch response nor JSON
+    }
+  }
+
+  if (!currentData || !Array.isArray(currentData)) {
+    console.warn('[FlowBatch] extractGeneratedImages: data không phải array:', JSON.stringify(currentData)?.slice(0, 200));
     return results;
   }
 
@@ -872,7 +893,10 @@ export function extractGeneratedImages(data: unknown): GeneratedImage[] {
           if (
             item.includes('googleusercontent.com') ||
             item.includes('flow-content.google') ||
-            item.startsWith('https://')
+            item.startsWith('https://') ||
+            item.startsWith('http://') ||
+            item.startsWith('file://') ||
+            item.startsWith('data:')
           ) {
             foundUrl = item;
           } else if (UUID_RE.test(item)) {
@@ -883,7 +907,7 @@ export function extractGeneratedImages(data: unknown): GeneratedImage[] {
         }
       }
       if (!foundId && foundUrl && node.length >= 2) {
-        const other = node.find((x) => typeof x === 'string' && x !== foundUrl && !x.startsWith('http')) as string | undefined;
+        const other = node.find((x) => typeof x === 'string' && x !== foundUrl && !x.startsWith('http') && !x.startsWith('file:') && !x.startsWith('data:')) as string | undefined;
         if (other) foundId = other;
       }
       if (foundId && foundUrl) {
@@ -897,7 +921,7 @@ export function extractGeneratedImages(data: unknown): GeneratedImage[] {
     }
   };
 
-  findImages(data);
+  findImages(currentData);
 
   // Fallback: nếu không tìm thấy node cùng chứa cả UUID và URL, gom tất cả UUIDs và URLs riêng lẻ
   if (results.length === 0) {
@@ -912,7 +936,10 @@ export function extractGeneratedImages(data: unknown): GeneratedImage[] {
         } else if (
           (node.includes('googleusercontent.com') ||
             node.includes('flow-content.google') ||
-            node.startsWith('https://')) &&
+            node.startsWith('https://') ||
+            node.startsWith('http://') ||
+            node.startsWith('file://') ||
+            node.startsWith('data:')) &&
           !allUrls.includes(node)
         ) {
           allUrls.push(node);
@@ -922,7 +949,7 @@ export function extractGeneratedImages(data: unknown): GeneratedImage[] {
       }
     };
 
-    collectAll(data);
+    collectAll(currentData);
 
     for (let i = 0; i < Math.max(allUuids.length, allUrls.length); i++) {
       const mediaId = allUuids[i] || allUuids[0] || `img_${i}`;
@@ -952,7 +979,36 @@ export function extractGeneratedImages(data: unknown): GeneratedImage[] {
 export function extractOperationStatus(data: unknown, rpcId: string): OperationStatus {
   console.log(`[FlowBatch] extractOperationStatus (${rpcId}) raw:`, JSON.stringify(data)?.slice(0, 300));
 
-  if (!data || !Array.isArray(data)) {
+  let parsedData = data;
+  if (typeof parsedData === 'string') {
+    try {
+      const parsed = parseBatchResponse(parsedData, rpcId || RPC_GEN_VIDEO_REFERENCES);
+      if (parsed.ok && parsed.data) {
+        parsedData = parsed.data;
+      } else {
+        const clean = parsedData.replace(/^\)\]\}'\s*/, '').trim();
+        parsedData = JSON.parse(clean);
+      }
+    } catch {
+      try {
+        const clean = (parsedData as string).replace(/^\)\]\}'\s*/, '').trim();
+        parsedData = JSON.parse(clean);
+      } catch {}
+    }
+  }
+
+  if (!parsedData || !Array.isArray(parsedData)) {
+    if (typeof data === 'string') {
+      const opMatch = data.match(/operations\/[a-zA-Z0-9_-]+/);
+      if (opMatch) {
+        return { operationId: opMatch[0], done: false };
+      }
+      const urlMatch = data.match(/(?:https?|file):\/\/[^"'\s\\]+(?:\.mp4|\.webm|\/video[^"'\s\\]*)/i) ||
+        data.match(/https:\/\/(?:flow-content\.google|storage\.googleapis\.com)[^"'\s\\]+/);
+      if (urlMatch) {
+        return { operationId: '', videoUrl: urlMatch[0], done: true };
+      }
+    }
     console.warn('[FlowBatch] Operation response không phải array:', data);
     return { operationId: '', done: false, error: 'invalid_response' };
   }
@@ -969,10 +1025,17 @@ export function extractOperationStatus(data: unknown, rpcId: string): OperationS
   const scan = (node: unknown): void => {
     if (!node) return;
     if (typeof node === 'string') {
-      if (node.includes('flow-content.google/video') || (node.includes('flow-content.google') && node.includes('.mp4'))) {
+      if (
+        node.includes('flow-content.google/video') ||
+        (node.includes('flow-content.google') && (node.includes('.mp4') || node.includes('video'))) ||
+        (node.includes('storage.googleapis.com') && (node.includes('.mp4') || node.includes('.webm') || node.includes('video'))) ||
+        ((node.startsWith('http://') || node.startsWith('https://') || node.startsWith('file://')) && (node.includes('.mp4') || node.includes('.webm') || node.includes('/video') || node.includes('video/')))
+      ) {
         foundVideoUrl = node;
       } else if (node.includes('flow-content.google/image')) {
         foundImageUrl = node;
+      } else if (!foundOpId && (node.startsWith('operations/') || UUID_RE.test(node))) {
+        foundOpId = node;
       }
       return;
     }
@@ -990,14 +1053,14 @@ export function extractOperationStatus(data: unknown, rpcId: string): OperationS
         }
 
         if (statusCandidate) {
-          if (!foundOpId || statusCandidate === 'CAE' || UUID_RE.test(opCandidate)) {
+          if (!foundOpId || statusCandidate === 'CAE' || UUID_RE.test(opCandidate) || opCandidate.startsWith('operations/')) {
             foundOpId = opCandidate;
             foundStatus = statusCandidate;
             if (node.length >= 4 && typeof node[1] === 'string' && statusIndex !== 1) {
               foundProjId = node[1];
             }
           }
-        } else if (!foundOpId && UUID_RE.test(opCandidate)) {
+        } else if (!foundOpId && (UUID_RE.test(opCandidate) || opCandidate.startsWith('operations/'))) {
           foundOpId = opCandidate;
           if (typeof node[1] === 'string') foundProjId = node[1];
         }
@@ -1006,7 +1069,7 @@ export function extractOperationStatus(data: unknown, rpcId: string): OperationS
     }
   };
 
-  scan(data);
+  scan(parsedData);
 
   return {
     operationId: foundOpId || '',

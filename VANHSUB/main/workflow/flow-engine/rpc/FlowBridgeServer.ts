@@ -390,32 +390,122 @@ export class FlowBridgeServer {
    * @deprecated Cơ chế DOM Native UI Trigger đã bị loại bỏ hoàn toàn để chuyển sang Pure RPC (sendBatchRpc).
    * Giữ lại interface tối thiểu để tương thích IPC cũ nếu còn component gọi.
    */
-  public async triggerUiGen(prompt: string, timeoutMs = 45000, projectId?: string): Promise<any> {
-    console.warn('[FlowBridgeServer] ⚠️ triggerUiGen đã bị deprecated. Vui lòng chuyển sang Pure RPC (sendBatchRpc).');
+  public async triggerUiGen(
+    prompt: string,
+    timeoutMs = 45000,
+    projectId?: string,
+    mode?: 'image' | 'video',
+    signal?: AbortSignal
+  ): Promise<any> {
+    console.warn('[FlowBridgeServer] ⚠️ triggerUiGen fallback CDP Trusted Click được kích hoạt.');
+    if (signal?.aborted) return { error: 'CANCELLED' };
     if (!this.isConnected()) return { error: 'NOT_CONNECTED' };
     const client = this.getFirstActiveClient();
     if (!client) return { error: 'NO_CLIENT' };
 
     const id = uuidv4();
     return new Promise((resolve) => {
-      const timer = setTimeout(() => {
+      let cleanedUp = false;
+      const cleanup = () => {
+        if (cleanedUp) return;
+        cleanedUp = true;
+        clearTimeout(timer);
         this.pendingRequests.delete(id);
+        signal?.removeEventListener('abort', onAbort);
+      };
+
+      const timer = setTimeout(() => {
+        cleanup();
         resolve({ error: 'TIMEOUT_TRIGGER_UI_GEN' });
       }, timeoutMs);
 
+      const onAbort = () => {
+        cleanup();
+        resolve({ error: 'CANCELLED' });
+      };
+
+      if (signal) {
+        signal.addEventListener('abort', onAbort, { once: true });
+      }
+
       this.pendingRequests.set(id, {
-        resolve: (res: any) => resolve(res),
-        reject: (err: any) => resolve({ error: err?.message || String(err) }),
+        resolve: (res: any) => {
+          cleanup();
+          resolve(res);
+        },
+        reject: (err: any) => {
+          cleanup();
+          resolve({ error: err?.message || String(err) });
+        },
         timer,
         client,
       });
 
       try {
-        client.send(JSON.stringify({ id, method: 'trigger_ui_gen', params: { prompt, projectId } }));
+        client.send(JSON.stringify({ id, method: 'trigger_ui_gen', params: { prompt, projectId, mode } }));
       } catch (sendErr: any) {
+        cleanup();
+        resolve({ error: sendErr?.message || String(sendErr) });
+      }
+    });
+  }
+
+  /**
+   * Kích hoạt phục hồi tương tác người dùng (CDP Trusted Click) trên Chrome Extension khi gặp bot flag.
+   */
+  public async recoverUnusualActivity(
+    timeoutMs = 15000,
+    projectId?: string,
+    signal?: AbortSignal
+  ): Promise<{ ok: boolean; message?: string }> {
+    if (signal?.aborted) return { ok: false, message: 'CANCELLED' };
+    if (!this.isConnected()) return { ok: false, message: 'EXTENSION_NOT_CONNECTED' };
+    const client = this.getFirstActiveClient();
+    if (!client) return { ok: false, message: 'NO_CLIENT' };
+
+    const id = uuidv4();
+    return new Promise((resolve) => {
+      let cleanedUp = false;
+      const cleanup = () => {
+        if (cleanedUp) return;
+        cleanedUp = true;
         clearTimeout(timer);
         this.pendingRequests.delete(id);
-        resolve({ error: sendErr?.message || String(sendErr) });
+        signal?.removeEventListener('abort', onAbort);
+      };
+
+      const timer = setTimeout(() => {
+        cleanup();
+        resolve({ ok: false, message: 'TIMEOUT_RECOVER_UNUSUAL_ACTIVITY' });
+      }, timeoutMs);
+
+      const onAbort = () => {
+        cleanup();
+        resolve({ ok: false, message: 'CANCELLED' });
+      };
+
+      if (signal) {
+        signal.addEventListener('abort', onAbort, { once: true });
+      }
+
+      this.pendingRequests.set(id, {
+        resolve: (res: any) => {
+          cleanup();
+          resolve(res || { ok: true });
+        },
+        reject: (err: any) => {
+          cleanup();
+          resolve({ ok: false, message: err?.message || String(err) });
+        },
+        timer,
+        client,
+      });
+
+      try {
+        client.send(JSON.stringify({ id, method: 'recover_unusual_activity', params: { projectId } }));
+      } catch (sendErr: any) {
+        cleanup();
+        resolve({ ok: false, message: sendErr?.message || String(sendErr) });
       }
     });
   }
@@ -452,6 +542,50 @@ export class FlowBridgeServer {
     });
   }
 
+  public async ensureProject(projectId?: string, signal?: AbortSignal): Promise<{ projectId: string; url: string }> {
+    if (signal?.aborted) throw new Error('CANCELLED: Tác vụ đã bị người dùng huỷ bỏ.');
+    const client = this.getFirstActiveClient();
+    if (!client) throw new Error('Chrome Extension chưa kết nối.');
+    const id = uuidv4();
+    return new Promise((resolve, reject) => {
+      let cleanedUp = false;
+      const cleanup = () => {
+        if (cleanedUp) return;
+        cleanedUp = true;
+        clearTimeout(timer);
+        this.pendingRequests.delete(id);
+        signal?.removeEventListener('abort', onAbort);
+      };
+      const timer = setTimeout(() => {
+        cleanup();
+        reject(new Error('Hết thời gian xác nhận project Flow. Kiểm tra Chrome và cập nhật extension trước khi tiếp tục.'));
+      }, 45000);
+      const onAbort = () => {
+        cleanup();
+        reject(new Error('CANCELLED: Tác vụ đã bị người dùng huỷ bỏ.'));
+      };
+      if (signal) {
+        signal.addEventListener('abort', onAbort, { once: true });
+      }
+      this.pendingRequests.set(id, {
+        resolve: (res: any) => {
+          cleanup();
+          if (!res?.projectId || (projectId && res.projectId !== projectId)) {
+            reject(new Error('Flow trả về project không khớp với tác vụ.'));
+          } else resolve(res);
+        },
+        reject: (err) => {
+          cleanup();
+          reject(err);
+        },
+        timer,
+        client,
+      });
+      try { client.send(JSON.stringify({ id, method: 'ensure_project', params: { projectId, createNew: !projectId } })); }
+      catch (error) { cleanup(); reject(error); }
+    });
+  }
+
   /**
    * Gửi 1 RPC batchexecute qua Chrome Extension và nhận lại chuỗi raw response.
    */
@@ -460,8 +594,12 @@ export class FlowBridgeServer {
     innerPayload: unknown[],
     captchaAction?: string,
     projectId?: string,
-    timeoutMs = 60000
+    timeoutMs = 60000,
+    signal?: AbortSignal
   ): Promise<string> {
+    if (signal?.aborted) {
+      throw new Error('CANCELLED: Tác vụ đã bị người dùng huỷ bỏ.');
+    }
     if (!this.isConnected()) {
       throw new Error(
         'EXTENSION_NOT_CONNECTED: Chưa có Chrome Extension (VanhSub Flow Bridge) nào kết nối tới ứng dụng. ' +
@@ -480,13 +618,32 @@ export class FlowBridgeServer {
     console.log(`[FlowBridgeServer] 📤 Gửi ${rpcid} sang Chrome Extension (action=${captchaAction || 'none'}, id=${id})...`);
 
     return new Promise<string>((resolve, reject) => {
-      const timer = setTimeout(() => {
+      let cleanedUp = false;
+      const cleanup = () => {
+        if (cleanedUp) return;
+        cleanedUp = true;
+        clearTimeout(timer);
         this.pendingRequests.delete(id);
+        signal?.removeEventListener('abort', onAbort);
+      };
+
+      const timer = setTimeout(() => {
+        cleanup();
         reject(new Error(`BRIDGE_TIMEOUT: Chrome Extension không phản hồi sau ${timeoutMs / 1000}s cho RPC ${rpcid}`));
       }, timeoutMs);
 
+      const onAbort = () => {
+        cleanup();
+        reject(new Error('CANCELLED: Tác vụ đã bị người dùng huỷ bỏ.'));
+      };
+
+      if (signal) {
+        signal.addEventListener('abort', onAbort, { once: true });
+      }
+
       this.pendingRequests.set(id, {
         resolve: (res) => {
+          cleanup();
           if (!res || typeof res !== 'object') {
             reject(new Error('BRIDGE_EMPTY_RESPONSE: Phản hồi từ Chrome Extension không hợp lệ.'));
             return;
@@ -503,7 +660,10 @@ export class FlowBridgeServer {
             resolve(res.body);
           }
         },
-        reject,
+        reject: (err) => {
+          cleanup();
+          reject(err);
+        },
         timer,
         client,
       });
@@ -522,8 +682,7 @@ export class FlowBridgeServer {
           })
         );
       } catch (sendErr: any) {
-        clearTimeout(timer);
-        this.pendingRequests.delete(id);
+        cleanup();
         reject(new Error(`BRIDGE_SEND_FAILED: Không thể gửi dữ liệu tới Extension: ${sendErr?.message || sendErr}`));
       }
     });
