@@ -8,6 +8,8 @@
   "scripts": {
     "dev": "nextron",
     "build": "nextron build",
+    "build:main": "tsc --noEmit",
+    "test": "tsx tests/test_srt_ocr_normalizer_and_translation.ts",
     "postinstall": "electron-builder install-app-deps"
   },
   "dependencies": {

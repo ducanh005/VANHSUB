@@ -9,6 +9,7 @@ import { createWindow } from './helpers/create-window'
 import { TaskStore, type CreateTaskInput, type Task } from './store/taskStore'
 import { SettingsStore, type AppSettings } from './store/settingsStore'
 import { polishSubtitleLine, translateSubtitleLine, cleanAndDeduplicateSubtitles } from './ai/geminiClient'
+import { normalizeSrtLines, normalizeSrt } from './lib/srtNormalizer'
 import { TaskRunner } from './asr/taskRunner'
 import { HybridRunner, type HybridRunOptions } from './asr/hybridRunner'
 import { TranslateRunner } from './translate/translateRunner'
@@ -666,6 +667,16 @@ ipcMain.handle(
 // Dọn dẹp & lọc trùng lặp phụ đề OCR bằng Gemini AI
 ipcMain.handle('ai:cleanSubtitles', async (_event, items: any[]) => {
   return cleanAndDeduplicateSubtitles(items)
+})
+
+// Chuẩn hóa file phụ đề SRT lỗi OCR (SRT OCR Normalizer)
+ipcMain.handle('subtitles:normalize', async (_event, input: string | any[], options?: any) => {
+  if (Array.isArray(input)) {
+    return normalizeSrtLines(input, options)
+  } else if (typeof input === 'string') {
+    return normalizeSrt(input, options)
+  }
+  return input
 })
 
 // Quét phụ đề cứng (hardsub) trong video bằng OCR — kết quả là file .srt

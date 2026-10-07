@@ -38,6 +38,8 @@ const vanhsub = {
       ipcRenderer.invoke('ai:translateLine', payload),
     cleanSubtitles: (items: Array<{ startMs: number; endMs: number; text: string }>) =>
       ipcRenderer.invoke('ai:cleanSubtitles', items),
+    normalizeSubtitles: (input: string | any[], options?: any) =>
+      ipcRenderer.invoke('subtitles:normalize', input, options),
   },
   translate: {
     start: (id: string, targetLanguage?: string) =>

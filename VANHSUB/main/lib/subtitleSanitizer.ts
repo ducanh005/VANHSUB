@@ -84,8 +84,10 @@ export function isOcrGarbageLine(line: SrtLine, options?: SanitizeOptions): bool
   const alphanumericOnly = trimmed.replace(/[^\p{L}\p{N}]/gu, '');
 
   // Rule G1: 1 ký tự đơn lẻ (hoặc chỉ có 1 ký tự chữ/số bị bao quanh bởi dấu câu/ký hiệu)
+  // Ngoại lệ: Ký tự chữ tượng hình CJK (Hán tự, Hiragana, Katakana) mang ý nghĩa trọn vẹn của một từ/câu đối thoại (ví dụ: '好', '是', '谁', '等')
   if (removeSingleChars) {
-    if (trimmed.length <= 1 || alphanumericOnly.length <= 1) {
+    const isCjk = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u.test(alphanumericOnly);
+    if (!isCjk && (trimmed.length <= 1 || alphanumericOnly.length <= 1)) {
       return true;
     }
   }

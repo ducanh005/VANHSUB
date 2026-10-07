@@ -11,6 +11,7 @@ import { parseSrt, serializeSrt, type SrtLine } from '../lib/srt';
 import { sanitizeSubtitles } from '../lib/subtitleSanitizer';
 import { deduplicateSubtitlesPipeline, deduplicateProgressiveKaraoke } from '../lib/subtitleDeduplication';
 import { fuseOcrAndWhisper } from './hybridFusionEngine';
+import { normalizeSrtLines } from '../lib/srtNormalizer';
 import { TranslateRunner } from '../translate/translateRunner';
 import { CancelledError, isCancelledError } from '../lib/cancel';
 import { getProjectArtifactPaths } from '../utils/projectFolder';
@@ -221,6 +222,13 @@ export class HybridRunner {
         }
       } catch (sanErr) {
         console.warn(`[HybridRunner] [Sanitizer] Bỏ qua lọc rác do lỗi:`, sanErr);
+      }
+      try {
+        const normResult = normalizeSrtLines(finalSegments, { audioSegments: whisperSegments });
+        finalSegments = normResult.lines;
+        console.log(`[HybridRunner] [Normalizer] Đã chuẩn hoá timeline và câu (${finalSegments.length} dòng).`);
+      } catch (normErr) {
+        console.warn(`[HybridRunner] [Normalizer] Bỏ qua chuẩn hoá timeline do lỗi:`, normErr);
       }
 
       const hybridSrtContent = serializeSrt(finalSegments);

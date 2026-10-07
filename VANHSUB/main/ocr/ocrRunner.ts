@@ -20,6 +20,7 @@ import {
   filterPersistentTopLines,
   segmentsToSrt,
 } from './subtitleBuilder';
+import { normalizeSrtLines } from '../lib/srtNormalizer';
 import {
   checkRapidOcr,
   mapRecLangNames,
@@ -366,7 +367,10 @@ export class OcrRunner {
         mode === 'full'
           ? frameResults
           : filterPersistentTopLines(frameResults, frameIntervalMs, videoHeight);
-      const { segments, stats } = buildSubtitleSegmentsWithStats(cleanedResults, frameIntervalMs);
+      const { segments: rawSegments, stats } = buildSubtitleSegmentsWithStats(cleanedResults, frameIntervalMs);
+      const { lines: segments } = normalizeSrtLines(rawSegments, {
+        maxGapMs: Math.max(1200, frameIntervalMs * 2),
+      });
 
       // In báo cáo debug chi tiết theo Rule 18
       console.log(
