@@ -595,3 +595,47 @@ Integrity mode: development
 - [ ] Nhân vật chính duy trì nhận diện ổn định qua các phân cảnh trên Google Flow.
 - [ ] Nhạc nền BGM tự động ducking mượt mà không lấn át giọng đọc.
 - [ ] File xuất CapCut mở thành công trên CapCut Desktop với đầy đủ các track video, audio và phụ đề.
+
+
+## 2026-10-07T13:43:53Z
+
+This is a single self-contained fix; keep it small and focused.
+
+Working directory: d:\DEAN\DEAN\VANHSUB
+Integrity mode: development
+
+Phát triển module chuẩn hóa file phụ đề SRT bị lỗi do OCR quét (trùng dòng, lệch timeline, xé vụn câu) và tối ưu hóa quy trình dịch thuật bảo toàn ngữ cảnh qua Gemini API cho ứng dụng VANHSUB.
+
+## Requirements
+
+### R1. Bộ lọc và chuẩn hóa timeline SRT lỗi OCR (SRT OCR Normalizer)
+- Tự động phát hiện và xử lý các lỗi đặc thù của phụ đề OCR:
+  - Khử trùng lặp nội dung liên tiếp (exact duplicates) và gộp timeline.
+  - Nhận diện và gộp các dòng phụ đề hiện dần dạng karaoke / progressive text.
+  - Gộp các mảnh câu bị ngắt dở dang thành câu hoàn chỉnh có nghĩa.
+  - Sửa các mốc thời gian bất hợp lý (overlapping, timeline nghịch đảo `startMs >= endMs`, khoảng hiển thị quá ngắn < 200ms).
+
+### R2. Căn chỉnh timeline độ chính xác cao bằng Audio Alignment (Khi có file Audio/Video)
+- Cung cấp tùy chọn đối chiếu với luồng âm thanh gốc (thông qua Whisper / Faster-Whisper ASR):
+  - Tự động căn chỉnh lại mốc bắt đầu và kết thúc (start/end timestamps) của từng câu theo tiếng nói thực tế, triệt tiêu hoàn toàn độ trôi lệch của mắt quét OCR.
+
+### R3. Pipeline dịch phụ đề thông minh bảo toàn ngữ cảnh qua Gemini API
+- Chuẩn hóa cơ chế chia batch kèm cửa sổ ngữ cảnh trượt (sliding window context):
+  - Đưa kèm 2-3 câu thoại đã dịch trước đó làm ngữ cảnh để giữ nhất quán đại từ nhân xưng và mạch phim.
+  - Cấu trúc dữ liệu có ID ánh xạ 1-1 chống sót dòng (0% drop rate), tự động retry leo thang nếu mô hình phản hồi thiếu dòng.
+  - Hỗ trợ lưu checkpoint theo từng batch để khôi phục tiến trình khi xảy ra sự cố mạng.
+
+## Acceptance Criteria
+
+### Tính toàn vẹn của File SRT sau chuẩn hóa
+- [ ] 100% các dòng phụ đề đầu ra có thứ tự thời gian tăng dần hợp lệ (`startMs < endMs` và `endMs[i-1] <= startMs[i]`).
+- [ ] Không còn các đoạn phụ đề bị lặp lại nguyên văn hoặc dạng karaoke trong phạm vi lân cận (gap <= 1200ms).
+- [ ] Các câu bị xé vụn do OCR được gộp lại thành câu hoàn chỉnh và thời lượng hiển thị phù hợp tốc độ đọc (CPS).
+
+### Kiểm thử tự động (Programmatic Verification)
+- [ ] Có bộ test suite tự động kiểm thử với các file SRT mẫu chứa đầy đủ các ca lỗi OCR điển hình (trùng lặp, ngắt dòng vô nghĩa, timeline lệch).
+- [ ] Test suite chạy thành công 100% với lệnh `npm test` hoặc script test độc lập mà không gây lỗi hồi quy (regression) cho các module hiện hữu.
+
+### Cơ chế dịch thuật qua Gemini API
+- [ ] Tỷ lệ dịch đủ 100% số câu trong file test, không bị mất dòng nào ở đầu, giữa hoặc cuối file.
+- [ ] Ánh xạ ID chính xác giữa câu gốc và câu dịch.

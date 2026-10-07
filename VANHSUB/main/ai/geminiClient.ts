@@ -101,6 +101,7 @@ export interface TranslateLinePayload {
   targetLanguage?: string;
   prev?: string;
   next?: string;
+  customClient?: { client: any; model: string };
 }
 
 function buildGlossaryPrompt(): string {
@@ -121,7 +122,7 @@ function buildStyleGuidePrompt(): string {
 }
 
 export async function translateSubtitleLine(payload: TranslateLinePayload): Promise<string> {
-  const { client, model } = createGeminiClient();
+  const { client, model } = payload.customClient || createGeminiClient();
   const targetLang = payload.targetLanguage || SettingsStore.get('targetLanguage') || 'vi';
 
   const contextParts: string[] = [];

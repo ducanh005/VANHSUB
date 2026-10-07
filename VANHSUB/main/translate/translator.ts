@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { jsonrepair } from 'jsonrepair';
-import { createGeminiClient, friendlyGeminiError } from '../ai/geminiClient';
+import { createGeminiClient, friendlyGeminiError, translateSubtitleLine } from '../ai/geminiClient';
 import { SettingsStore } from '../store/settingsStore';
 import { parseSrt, serializeSrt, SrtLine } from '../lib/srt';
 import { CancelledError } from '../lib/cancel';
@@ -152,8 +152,9 @@ QUY TẮC BẮT BUỘC:
    - Các câu ngắn ("Ồ!", "Dạ.", "Vâng!", "Hả?"), câu ngắt quãng hay câu đầu file/giữa file đều PHẢI dịch chính xác sang ngôn ngữ đích, tuyệt đối không bỏ qua hoặc giữ nguyên câu gốc chưa dịch.
 4. BẢO TOÀN ID:
    - Giữ NGUYÊN 100% định dạng và giá trị của trường "i" cho từng dòng tương ứng (ví dụ: "line-0", "line-1"). Không tự ý đổi ID thành số hay chuỗi khác.
-5. NGỮ CẢNH:
-   - Dữ liệu ngữ cảnh câu trước đó (nếu có) chỉ dùng để hiểu mạch thoại. TUYỆT ĐỐI không dịch lại các câu ngữ cảnh đó và không đưa vào mảng kết quả.
+5. CỬA SỔ NGỮ CẢNH TRƯỢT (SLIDING WINDOW CONTEXT):
+   - Dữ liệu ngữ cảnh trong trường "context" (nếu có) cung cấp 2-3 câu thoại đã dịch trước đó để giữ nhất quán đại từ nhân xưng, vai vế nhân vật và mạch phim.
+   - TUYỆT ĐỐI không dịch lại các câu ngữ cảnh đó và không đưa vào mảng kết quả trả về.
 6. VĂN PHONG PHIM — CÔ ĐỌNG, SÚC TÍCH, TỐI ĐA 2 DÒNG HIỂN THỊ (QUAN TRỌNG):
    - Bản dịch phải sát nghĩa, tự nhiên theo văn nói đời thường của phim/video.
    - Câu chữ phải cô đọng, súc tích, độ dài tương xứng với câu gốc và thời lượng hiển thị (CPS chuẩn).
@@ -645,25 +646,31 @@ export function extractAndNormalizeTranslationBatch(
 }
 
 
-export async function translateSrtFile(
-  srtPath: string,
-  targetLanguage: string = 'vi',
-  onProgress?: (percent: number) => void,
-  shouldStop?: () => boolean
-): Promise<{ translatedSrtPath: string }> {
-  if (!fs.existsSync(srtPath)) {
-    throw new Error(`File SRT không tồn tại: ${srtPath}`);
+export interface TranslateSubtitlesOptions {
+  targetLanguage?: string;
+  batchSize?: number;
+  concurrency?: number;
+  onProgress?: (percent: number) => void;
+  shouldStop?: () => boolean;
+  checkpointSrtPath?: string;
+  customClient?: { client: any; model: string };
+}
+
+export async function translateSubtitlesWithContext(
+  lines: SrtLine[],
+  options?: TranslateSubtitlesOptions
+): Promise<SrtLine[]> {
+  if (!lines || lines.length === 0) {
+    return [];
   }
 
-  const srtContent = fs.readFileSync(srtPath, 'utf-8');
-  const lines = parseSrt(srtContent);
-  if (lines.length === 0) {
-    throw new Error('File SRT rỗng hoặc không có dòng phụ đề hợp lệ.');
-  }
-
-  const batchSize = SettingsStore.get('translateBatchSize') || 15;
-  const { client, model } = createGeminiClient();
+  const targetLanguage = options?.targetLanguage || 'vi';
+  const batchSize = options?.batchSize || SettingsStore.get('translateBatchSize') || 15;
+  const { client, model } = options?.customClient || createGeminiClient();
   const systemPrompt = buildSystemPrompt(targetLanguage);
+  const srtPath = options?.checkpointSrtPath || '';
+  const onProgress = options?.onProgress;
+  const shouldStop = options?.shouldStop;
 
   // Tự động nhận diện ngôn ngữ nguồn chủ đạo có phải CJK (Trung, Nhật, Hàn) hay không
   const sampleLines = lines.slice(0, 100);
@@ -673,7 +680,7 @@ export async function translateSrtFile(
   const isSourceCjk = cjkCharsLines > 0 && cjkCharsLines / Math.min(lines.length, 100) >= 0.2;
 
   // Nạp cache từ checkpoint của lần chạy trước (nếu có)
-  const cachedRaw = loadCheckpoint(srtPath, targetLanguage, lines.length, { isSourceCjk });
+  const cachedRaw = srtPath ? loadCheckpoint(srtPath, targetLanguage, lines.length, { isSourceCjk }) : new Map<string, string>();
   // Map id -> bản dịch; chỉ dùng khi text gốc KHÔNG đổi (nếu đổi sẽ dịch lại)
   const cachedTarget = new Map<string, string>();
   const checkpointData: Record<string, { source: string; target: string }> = {};
@@ -736,34 +743,29 @@ export async function translateSrtFile(
     if (itemsToTranslate.length > 0) {
       let previousContext: { original: string; translated: string }[] = [];
       if (b > 0) {
-        const prevLines = lines.slice((b - 1) * batchSize, b * batchSize);
-        const prevTranslated = batchResults[b - 1];
         const validContextItems: { original: string; translated: string }[] = [];
-
-        for (let idx = 0; idx < prevLines.length; idx++) {
-          const orig = prevLines[idx];
+        // Lấy 2-3 câu thoại đã dịch hợp lệ gần nhất ngay trước batch này (sliding window context)
+        for (let idx = b * batchSize - 1; idx >= 0 && validContextItems.length < 3; idx--) {
+          const orig = lines[idx];
+          const bIdx = Math.floor(idx / batchSize);
+          const lIdx = idx % batchSize;
           const transCandidate =
-            prevTranslated?.[idx]?.text ||
+            batchResults[bIdx]?.[lIdx]?.text ||
             cachedTarget.get(orig.id);
 
-          // R2: CHỈ đưa vào context nếu thực sự đã có bản dịch và không phải text gốc chưa dịch.
-          // Tuyệt đối không dùng orig.text thay thế khi batch trước còn đang pending!
-          // Không đưa vào context các dòng mà bản dịch trùng hệt văn bản gốc (tránh mớm context gây model nhại lại)
           if (
             transCandidate &&
             transCandidate.trim() &&
-            !isLineUntranslated(orig.text, transCandidate, glossary) &&
+            !isLineUntranslated(orig.text, transCandidate, glossary, { isSourceCjk }) &&
             transCandidate.trim().toLowerCase() !== orig.text.trim().toLowerCase()
           ) {
-            validContextItems.push({
+            validContextItems.unshift({
               original: orig.text,
               translated: transCandidate,
             });
           }
         }
-
-        // Lấy tối đa 2 dòng hợp lệ gần nhất
-        previousContext = validContextItems.slice(-2);
+        previousContext = validContextItems;
       }
 
       // Nếu không có ngữ cảnh (như batch 0 đầu file hoặc batch trước đang pending khi chạy song song),
@@ -882,7 +884,44 @@ export async function translateSrtFile(
           }
 
           // Kiểm tra xem còn dòng nào trong itemsToTranslate chưa có bản dịch hợp lệ không
-          const unfulfilledItems = itemsToTranslate.filter((item) => !confirmedTranslations.has(item.i));
+          let unfulfilledItems = itemsToTranslate.filter((item) => !confirmedTranslations.has(item.i));
+
+          // Cơ chế cứu hộ leo thang (Escalated Fallback): Nếu qua các lượt thử mà mô hình vẫn bỏ sót dòng,
+          // tiến hành dịch đơn lẻ từng dòng còn thiếu với ngữ cảnh cục bộ để đảm bảo 0% drop rate.
+          if (unfulfilledItems.length > 0 && attempts >= 3) {
+            console.warn(
+              `[Translate] Kích hoạt cơ chế cứu hộ đơn lẻ (single-line fallback) cho ${unfulfilledItems.length} dòng bị bỏ sót...`
+            );
+            for (const item of unfulfilledItems) {
+              try {
+                const srtIdx = lines.findIndex((l) => l.id === item.i);
+                const prevLine = srtIdx > 0 ? (confirmedTranslations.get(lines[srtIdx - 1]?.id) || lines[srtIdx - 1]?.text) : undefined;
+                const nextLine = srtIdx < lines.length - 1 ? lines[srtIdx + 1]?.text : undefined;
+                const singleRes = await translateSubtitleLine({
+                  text: item.text,
+                  targetLanguage,
+                  prev: prevLine,
+                  next: nextLine,
+                  customClient: { client, model },
+                });
+                const trimmedSingle = singleRes?.trim() || '';
+                const hasSourceLetters = /\p{L}/u.test(item.text);
+                const hasTargetLetters = /\p{L}/u.test(trimmedSingle);
+                const isDummyJson = /^\[\s*\]$|^\{\s*\}$/.test(trimmedSingle);
+
+                if (
+                  trimmedSingle &&
+                  !isDummyJson &&
+                  (!hasSourceLetters || hasTargetLetters)
+                ) {
+                  confirmedTranslations.set(item.i, trimmedSingle);
+                }
+              } catch {
+                // Tiếp tục thử các dòng khác
+              }
+            }
+            unfulfilledItems = itemsToTranslate.filter((item) => !confirmedTranslations.has(item.i));
+          }
 
           if (unfulfilledItems.length > 0) {
             const details = unfulfilledItems.map((item) => {
@@ -954,7 +993,9 @@ export async function translateSrtFile(
         cachedTarget.set(line.id, target);
       }
     }
-    saveCheckpoint(srtPath, targetLanguage, checkpointData, lines.length);
+    if (srtPath) {
+      saveCheckpoint(srtPath, targetLanguage, checkpointData, lines.length);
+    }
 
     return batchLines.map((line) => {
       const transText = resultMap.get(line.id) ?? cachedTarget.get(line.id);
@@ -1015,7 +1056,31 @@ export async function translateSrtFile(
   // hiển thị (\n) thuần tuý trong cùng một SrtLine, tuyệt đối KHÔNG xé nhỏ thành nhiều dòng,
   // KHÔNG tính toán lại timestamp và KHÔNG chèn khoảng hở nhân tạo!
   const isVietnamese = !targetLanguage || targetLanguage === 'vi' || targetLanguage.toLowerCase().startsWith('vi');
-  const finalLines = applyVisualLineWrapping(translatedLines, isVietnamese);
+  return applyVisualLineWrapping(translatedLines, isVietnamese);
+}
+
+export async function translateSrtFile(
+  srtPath: string,
+  targetLanguage: string = 'vi',
+  onProgress?: (percent: number) => void,
+  shouldStop?: () => boolean
+): Promise<{ translatedSrtPath: string }> {
+  if (!fs.existsSync(srtPath)) {
+    throw new Error(`File SRT không tồn tại: ${srtPath}`);
+  }
+
+  const srtContent = fs.readFileSync(srtPath, 'utf-8');
+  const lines = parseSrt(srtContent);
+  if (lines.length === 0) {
+    throw new Error('File SRT rỗng hoặc không có dòng phụ đề hợp lệ.');
+  }
+
+  const finalLines = await translateSubtitlesWithContext(lines, {
+    targetLanguage,
+    onProgress,
+    shouldStop,
+    checkpointSrtPath: srtPath,
+  });
 
   const srtDir = path.dirname(srtPath);
   const srtBasename = path.basename(srtPath, '.srt');
