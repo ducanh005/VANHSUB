@@ -431,10 +431,12 @@ export class FlowBridgeServer {
       this.pendingRequests.set(id, {
         resolve: (res: any) => {
           cleanup();
+          console.log(`[FlowBridgeServer] 📥 triggerUiGen kết quả:`, typeof res === 'object' ? JSON.stringify(res)?.slice(0, 250) : res);
           resolve(res);
         },
         reject: (err: any) => {
           cleanup();
+          console.warn(`[FlowBridgeServer] ⚠️ triggerUiGen reject:`, err?.message || String(err));
           resolve({ error: err?.message || String(err) });
         },
         timer,

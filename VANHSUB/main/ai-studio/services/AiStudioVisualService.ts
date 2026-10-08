@@ -531,26 +531,38 @@ export class AiStudioVisualService {
               );
               try {
                 const uiRes = await FlowBridgeServer.getInstance().triggerUiGen(effectivePrompt, 45000, effectiveProjectId, 'image', signal);
-                if (uiRes && uiRes.ok && uiRes.capturedRpc?.response) {
-                  let rpcData: any = null;
-                  const rpcid = uiRes.capturedRpc.rpcid || RPC_GEN_IMAGE;
-                  try {
-                    const parsed = parseBatchResponse(uiRes.capturedRpc.response, rpcid);
-                    if (parsed.ok) rpcData = parsed.data;
-                  } catch {}
-                  if (!rpcData && rpcid !== RPC_GEN_IMAGE) {
-                    try {
-                      const parsed = parseBatchResponse(uiRes.capturedRpc.response, RPC_GEN_IMAGE);
-                      if (parsed.ok) rpcData = parsed.data;
-                    } catch {}
-                  }
-                  const imgs = extractGeneratedImages(rpcData || uiRes.capturedRpc.response, rpcid);
-                  if (imgs && imgs.length > 0) {
+                console.log(
+                  `[AiStudioVisualService] 🔍 Kết quả triggerUiGen keyframe fallback:`,
+                  uiRes ? (uiRes.ok ? `OK (rpcid=${uiRes.capturedRpc?.rpcid || 'dom'})` : `Lỗi (${uiRes.error})`) : 'NULL'
+                );
+                if (uiRes && uiRes.ok) {
+                  if (uiRes.firstImageUrl) {
                     imgGenResult = {
-                      images: imgs,
-                      firstImageUrl: imgs[0].url,
+                      images: [{ url: uiRes.firstImageUrl, mediaId: 'dom-extracted' }],
+                      firstImageUrl: uiRes.firstImageUrl,
                       projectId: effectiveProjectId,
                     };
+                  } else if (uiRes.capturedRpc?.response) {
+                    let rpcData: any = null;
+                    const rpcid = uiRes.capturedRpc.rpcid || RPC_GEN_IMAGE;
+                    try {
+                      const parsed = parseBatchResponse(uiRes.capturedRpc.response, rpcid);
+                      if (parsed.ok) rpcData = parsed.data;
+                    } catch {}
+                    if (!rpcData && rpcid !== RPC_GEN_IMAGE) {
+                      try {
+                        const parsed = parseBatchResponse(uiRes.capturedRpc.response, RPC_GEN_IMAGE);
+                        if (parsed.ok) rpcData = parsed.data;
+                      } catch {}
+                    }
+                    const imgs = extractGeneratedImages(rpcData || uiRes.capturedRpc.response, rpcid);
+                    if (imgs && imgs.length > 0) {
+                      imgGenResult = {
+                        images: imgs,
+                        firstImageUrl: imgs[0].url,
+                        projectId: effectiveProjectId,
+                      };
+                    }
                   }
                 }
               } catch (uiErr: any) {
@@ -629,6 +641,10 @@ export class AiStudioVisualService {
               );
               try {
                 const uiRes = await FlowBridgeServer.getInstance().triggerUiGen(motionPrompt, 45000, effectiveProjectId, 'video', signal);
+                console.log(
+                  `[AiStudioVisualService] 🔍 Kết quả triggerUiGen video fallback:`,
+                  uiRes ? (uiRes.ok ? `OK (rpcid=${uiRes.capturedRpc?.rpcid || 'captured'})` : `Lỗi (${uiRes.error})`) : 'NULL'
+                );
                 if (uiRes && uiRes.ok && uiRes.capturedRpc?.response) {
                   let rpcData: any = null;
                   try {
@@ -771,26 +787,38 @@ export class AiStudioVisualService {
             );
             try {
               const uiRes = await FlowBridgeServer.getInstance().triggerUiGen(effectivePrompt, 45000, effectiveProjectId, 'image', signal);
-              if (uiRes && uiRes.ok && uiRes.capturedRpc?.response) {
-                let rpcData: any = null;
-                const rpcid = uiRes.capturedRpc.rpcid || RPC_GEN_IMAGE;
-                try {
-                  const parsed = parseBatchResponse(uiRes.capturedRpc.response, rpcid);
-                  if (parsed.ok) rpcData = parsed.data;
-                } catch {}
-                if (!rpcData && rpcid !== RPC_GEN_IMAGE) {
-                  try {
-                    const parsed = parseBatchResponse(uiRes.capturedRpc.response, RPC_GEN_IMAGE);
-                    if (parsed.ok) rpcData = parsed.data;
-                  } catch {}
-                }
-                const imgs = extractGeneratedImages(rpcData || uiRes.capturedRpc.response, rpcid);
-                if (imgs && imgs.length > 0) {
+              console.log(
+                `[AiStudioVisualService] 🔍 Kết quả triggerUiGen image fallback:`,
+                uiRes ? (uiRes.ok ? `OK (rpcid=${uiRes.capturedRpc?.rpcid || 'dom'})` : `Lỗi (${uiRes.error})`) : 'NULL'
+              );
+              if (uiRes && uiRes.ok) {
+                if (uiRes.firstImageUrl) {
                   genResult = {
-                    images: imgs,
-                    firstImageUrl: imgs[0].url,
+                    images: [{ url: uiRes.firstImageUrl, mediaId: 'dom-extracted' }],
+                    firstImageUrl: uiRes.firstImageUrl,
                     projectId: effectiveProjectId,
                   };
+                } else if (uiRes.capturedRpc?.response) {
+                  let rpcData: any = null;
+                  const rpcid = uiRes.capturedRpc.rpcid || RPC_GEN_IMAGE;
+                  try {
+                    const parsed = parseBatchResponse(uiRes.capturedRpc.response, rpcid);
+                    if (parsed.ok) rpcData = parsed.data;
+                  } catch {}
+                  if (!rpcData && rpcid !== RPC_GEN_IMAGE) {
+                    try {
+                      const parsed = parseBatchResponse(uiRes.capturedRpc.response, RPC_GEN_IMAGE);
+                      if (parsed.ok) rpcData = parsed.data;
+                    } catch {}
+                  }
+                  const imgs = extractGeneratedImages(rpcData || uiRes.capturedRpc.response, rpcid);
+                  if (imgs && imgs.length > 0) {
+                    genResult = {
+                      images: imgs,
+                      firstImageUrl: imgs[0].url,
+                      projectId: effectiveProjectId,
+                    };
+                  }
                 }
               }
             } catch (uiErr: any) {

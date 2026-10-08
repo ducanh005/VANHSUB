@@ -134,15 +134,45 @@ async function executeWithRetry(sitekey, action, attempts = 2) {
   for (let i = 0; i < attempts; i++) {
     try {
       await waitReady(2500);
-      let widgetId = getExistingWidgetId();
-      if (widgetId === null || isNaN(widgetId)) {
-        widgetId = await ensureWidget(sitekey);
+
+      // Ưu tiên 1: Thực thi trên existing widget ID đã có sẵn trên trang (mang đầy đủ telemetry người dùng)
+      const existingId = getExistingWidgetId();
+      if (existingId !== null && !isNaN(existingId)) {
+        try {
+          const token = await Promise.race([
+            window.grecaptcha.enterprise.execute(existingId, { action: targetAction }),
+            new Promise((_, rej) => setTimeout(() => rej(new Error('execute_hang')), 8000)),
+          ]);
+          if (token && typeof token === 'string' && token.length > 50) {
+            console.log(`[VanhSub:injected] ✅ Đã mint token thành công từ existing widgetId=${existingId} (${token.length} chars)`);
+            return String(token);
+          }
+        } catch (existingErr) {
+          console.warn('[VanhSub:injected] Thử existing widgetId thất bại:', existingErr?.message);
+        }
       }
+
+      // Ưu tiên 2: Gọi trực tiếp execute với sitekey (API chuẩn reCAPTCHA Enterprise)
+      try {
+        const token = await Promise.race([
+          window.grecaptcha.enterprise.execute(sitekey, { action: targetAction }),
+          new Promise((_, rej) => setTimeout(() => rej(new Error('execute_hang')), 8000)),
+        ]);
+        if (token && typeof token === 'string' && token.length > 50) {
+          console.log(`[VanhSub:injected] ✅ Đã mint token thành công từ sitekey trực tiếp (${token.length} chars)`);
+          return String(token);
+        }
+      } catch (sitekeyErr) {
+        console.warn('[VanhSub:injected] Thử execute sitekey trực tiếp thất bại:', sitekeyErr?.message);
+      }
+
+      // Ưu tiên 3: Fallback render invisible widget
+      const widgetId = await ensureWidget(sitekey);
       const token = await Promise.race([
         window.grecaptcha.enterprise.execute(widgetId, { action: targetAction }),
         new Promise((_, rej) => setTimeout(() => rej(new Error('execute_hang')), 8000)),
       ]);
-      if (token) return String(token);
+      if (token && typeof token === 'string') return String(token);
       lastErr = new Error('empty_token');
     } catch (e) {
       lastErr = e;
