@@ -1120,6 +1120,21 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
               let targetFlowProjectId = extractFlowProjectId(session.flowProjectUrl);
               if (FlowBridgeServer.getInstance().isConnected()) {
                 if (signal?.aborted) throw new Error('Tác vụ đã bị huỷ.');
+                // Nếu session chưa liên kết cụ thể, kiểm tra xem Chrome có đang mở sẵn 1 project Flow không
+                if (!targetFlowProjectId) {
+                  try {
+                    const tabInfo = await FlowBridgeServer.getInstance().getFlowTabInfo(2000);
+                    if (tabInfo?.projectId) {
+                      targetFlowProjectId = tabInfo.projectId;
+                      console.log(
+                        `[AiStudioPipelineEngine] 🔗 Tự động liên kết với dự án Google Flow đang mở trên Chrome: ${targetFlowProjectId}`
+                      );
+                    }
+                  } catch (e: any) {
+                    console.warn('[AiStudioPipelineEngine] Không thể tự động lấy projectId từ tab Chrome:', e?.message || e);
+                  }
+                }
+
                 const linked = await GoogleFlowBrowserMutex.getInstance().runExclusive(
                   () => FlowBridgeServer.getInstance().ensureProject(targetFlowProjectId || undefined)
                 );

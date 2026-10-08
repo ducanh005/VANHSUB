@@ -1107,15 +1107,27 @@ async function ensureTabInProject(tab, preferredProjectId, createNew = false) {
         target: { tabId: currentTab.id },
         world: 'MAIN',
         func: () => {
-          const btns = Array.from(document.querySelectorAll('button, a, [role="button"]'));
-          const newProjBtn = btns.find((b) => {
-            const t = (b.innerText || b.getAttribute('aria-label') || '').toLowerCase();
+          const elements = Array.from(
+            document.querySelectorAll(
+              'button, a, [role="button"], [data-testid*="new-project"], [data-testid*="create-project"], .new-project-button, mat-button'
+            )
+          );
+          const newProjBtn = elements.find((b) => {
+            const t = (
+              b.innerText ||
+              b.getAttribute('aria-label') ||
+              b.getAttribute('title') ||
+              b.getAttribute('data-testid') ||
+              ''
+            ).toLowerCase();
             return (
               t.includes('new project') ||
               t.includes('dự án mới') ||
               t.includes('du an moi') ||
               t.includes('tạo dự án') ||
-              t.includes('create project')
+              t.includes('create project') ||
+              t.includes('new-project') ||
+              t.includes('start a new project')
             );
           });
           if (newProjBtn) {

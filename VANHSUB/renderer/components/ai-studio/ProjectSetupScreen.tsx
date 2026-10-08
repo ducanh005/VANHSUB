@@ -17,6 +17,7 @@ import {
   Edit3,
   FolderOpen,
   Link2,
+  Wrench,
   Upload,
   User,
   Palette,
@@ -84,6 +85,49 @@ const STYLE_PRESETS = [
   },
 ];
 
+const FLOW_TOOL_PRESETS = [
+  {
+    id: 'cinematic_16_9',
+    name: '🎬 Phim Điện ảnh 16:9',
+    badge: 'Chuẩn Flow',
+    desc: 'Veo 2 & Imagen 3 cinematic 35mm, ánh sáng kịch tính, camera dolly',
+    aspectRatio: '16:9' as const,
+    duration: '3_5_min' as const,
+    styleId: 'cinematic',
+    promptModifier: 'Cinematic 35mm film photography, volumetric lighting, atmospheric depth of field, 8k',
+  },
+  {
+    id: 'tiktok_9_16',
+    name: '📱 Shorts / TikTok 9:16',
+    badge: 'Viral Dọc',
+    desc: 'Khung dọc 9:16, chuyển động camera dồn dập, màu sắc tương phản cao',
+    aspectRatio: '9:16' as const,
+    duration: '1_3_min' as const,
+    styleId: 'cyberpunk',
+    promptModifier: 'Vertical 9:16 portrait composition, dynamic high-energy framing, vibrant saturation',
+  },
+  {
+    id: 'history_doc',
+    name: '📜 Phóng sự Lịch sử',
+    badge: 'Tư liệu',
+    desc: 'Phong cách tư liệu National Geographic, ánh sáng tự nhiên',
+    aspectRatio: '16:9' as const,
+    duration: '5_8_min' as const,
+    styleId: 'history_doc',
+    promptModifier: 'Authentic documentary style, historic archival textures, realistic atmospheric light',
+  },
+  {
+    id: 'anime_ghibli',
+    name: '🎨 Hoạt họa Anime',
+    badge: 'Mộng mơ',
+    desc: 'Họa phong vẽ tay Ghibli màu nước êm dịu, phong cảnh mộng mơ',
+    aspectRatio: '16:9' as const,
+    duration: '3_5_min' as const,
+    styleId: 'anime_ghibli',
+    promptModifier: 'Miyazaki Ghibli aesthetic, hand-drawn anime animation art, rich watercolors',
+  },
+];
+
 const DURATION_OPTIONS: { id: ChannelLongDuration; label: string }[] = [
   { id: '1_3_min', label: '1 – 3 phút (Ngắn gọn)' },
   { id: '3_5_min', label: '3 – 5 phút (Khuyên dùng)' },
@@ -146,6 +190,46 @@ export default function ProjectSetupScreen({
 
   const [validationError, setValidationError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const [detectedChromeProject, setDetectedChromeProject] = useState<{ id: string; url?: string } | null>(null);
+
+  useEffect(() => {
+    let isMounted = true;
+    const probeChromeTab = async () => {
+      try {
+        if ((window as any).vanhsub?.veo?.bridgeStatus) {
+          const st = await (window as any).vanhsub.veo.bridgeStatus();
+          if (!isMounted) return;
+          if (st?.chromeTab?.projectId) {
+            setDetectedChromeProject({
+              id: st.chromeTab.projectId,
+              url: st.chromeTab.tabUrl || st.chromeTab.url,
+            });
+          } else {
+            const possibleUrl = st?.chromeTab?.tabUrl || st?.chromeTab?.url;
+            if (possibleUrl && possibleUrl.includes('/project/')) {
+              const match = possibleUrl.match(/\/project\/([a-zA-Z0-9_-]+)/);
+              if (match?.[1]) {
+                setDetectedChromeProject({ id: match[1], url: possibleUrl });
+              }
+            }
+          }
+        }
+      } catch {}
+    };
+    probeChromeTab();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const handleApplyFlowToolPreset = (preset: (typeof FLOW_TOOL_PRESETS)[0]) => {
+    setAspectRatio(preset.aspectRatio);
+    setDuration(preset.duration);
+    setSelectedStyleId(preset.styleId);
+    setProjectBackgroundPrompt(preset.promptModifier);
+    setBgPromptToast(`✨ Đã áp dụng mẫu quy trình Google Flow Tool: "${preset.name}"!`);
+  };
 
   const handleApplyPreset = (preset: typeof NICHE_PRESETS[0]) => {
     setChannelNiche(preset.niche);
@@ -746,18 +830,51 @@ export default function ProjectSetupScreen({
               <span className="text-[11px] text-text-muted hidden sm:inline">Chọn mẫu nhanh bên dưới hoặc tự nhập</span>
             </div>
 
+            {/* Quick Presets for Flow Tools */}
+            <div className="space-y-2 pl-8">
+              <div className="flex items-center gap-1.5 text-xs text-text font-semibold">
+                <Wrench className="h-3.5 w-3.5 text-accent" />
+                <span>Mẫu Quy Trình Google Flow Tool (Khuyên Dùng):</span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
+                {FLOW_TOOL_PRESETS.map((fp) => (
+                  <button
+                    key={fp.id}
+                    type="button"
+                    onClick={() => handleApplyFlowToolPreset(fp)}
+                    className="flex flex-col text-left p-2.5 rounded-lg border border-border bg-surface hover:border-accent/50 hover:bg-surface-2 transition cursor-pointer group"
+                  >
+                    <div className="flex items-center justify-between w-full mb-1">
+                      <span className="text-xs font-bold text-white group-hover:text-accent transition">
+                        {fp.name}
+                      </span>
+                      <span className="rounded bg-accent/15 px-1.5 py-0.5 text-[9px] font-semibold text-accent border border-accent/30">
+                        {fp.badge}
+                      </span>
+                    </div>
+                    <span className="text-[11px] text-text-muted line-clamp-2 leading-tight">
+                      {fp.desc}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
             {/* Quick Presets for Niche */}
-            <div className="flex flex-wrap gap-2 pl-8">
-              {NICHE_PRESETS.map((preset, idx) => (
-                <button
-                  key={idx}
-                  type="button"
-                  onClick={() => handleApplyPreset(preset)}
-                  className="rounded-lg border border-border bg-surface px-3 py-1.5 text-xs text-text hover:border-accent/40 hover:text-white hover:bg-surface-2 transition cursor-pointer"
-                >
-                  {preset.label}
-                </button>
-              ))}
+            <div className="space-y-1.5 pl-8">
+              <span className="text-xs text-text-muted">Chọn nhanh theo chủ đề kênh:</span>
+              <div className="flex flex-wrap gap-2">
+                {NICHE_PRESETS.map((preset, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => handleApplyPreset(preset)}
+                    className="rounded-lg border border-border bg-surface px-3 py-1.5 text-xs text-text hover:border-accent/40 hover:text-white hover:bg-surface-2 transition cursor-pointer"
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pl-8">
@@ -800,12 +917,16 @@ export default function ProjectSetupScreen({
                           const st = await (window as any).vanhsub.veo.bridgeStatus();
                           if (st?.chromeTab?.projectId) {
                             setFlowProjectUrl(`https://flow.google.com/project/${st.chromeTab.projectId}`);
+                            setBgPromptToast(`🔗 Đã liên kết dự án Google Flow: ${st.chromeTab.projectId}`);
                             return;
                           }
-                          if (st?.chromeTab?.url && st.chromeTab.url.includes('/project/')) {
-                            setFlowProjectUrl(st.chromeTab.url);
+                          const possibleUrl = st?.chromeTab?.tabUrl || st?.chromeTab?.url;
+                          if (possibleUrl && possibleUrl.includes('/project/')) {
+                            setFlowProjectUrl(possibleUrl);
+                            setBgPromptToast('🔗 Đã liên kết URL dự án Google Flow từ tab Chrome!');
                             return;
                           }
+                          setBgPromptToast('⚠️ Chrome chưa mở dự án Google Flow nào (/project/...).');
                         }
                       } catch (e) {
                         console.warn('Không thể lấy URL từ tab Chrome:', e);
@@ -850,6 +971,27 @@ export default function ProjectSetupScreen({
                   </button>
                 </div>
               </div>
+
+              {detectedChromeProject && !flowProjectUrl && (
+                <div className="flex items-center justify-between p-2.5 rounded-lg bg-blue-500/10 border border-blue-500/30 text-xs">
+                  <div className="flex items-center gap-2">
+                    <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+                    <span className="text-text">Phát hiện tab Google Flow đang mở trên Chrome:</span>
+                    <span className="font-mono text-blue-300 font-semibold">{detectedChromeProject.id}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFlowProjectUrl(`https://flow.google.com/project/${detectedChromeProject.id}`);
+                      setBgPromptToast(`🔗 Đã liên kết dự án: ${detectedChromeProject.id}`);
+                    }}
+                    className="px-2.5 py-1 rounded bg-blue-600 hover:bg-blue-500 text-white font-medium text-[11px] shrink-0 transition cursor-pointer"
+                  >
+                    Liên kết dự án này
+                  </button>
+                </div>
+              )}
+
               <input
                 type="text"
                 value={flowProjectUrl}
@@ -857,6 +999,9 @@ export default function ProjectSetupScreen({
                 placeholder="Để trống để tự động dùng dự án trên Tab Chrome đang mở, hoặc dán link/ID dự án Google Flow..."
                 className="w-full rounded-md border border-border bg-surface px-3.5 py-2.5 text-xs text-white placeholder:text-text-muted focus:border-blue-400 focus:outline-none font-mono"
               />
+              <p className="text-[11px] text-text-muted">
+                💡 <strong>Kinh nghiệm:</strong> Bạn có thể mở một dự án hoặc Flow Tool yêu thích trên Chrome rồi nhấn <em>&quot;Lấy từ Tab Chrome&quot;</em> để tránh hoàn toàn lỗi tạo dự án từ sảnh.
+              </p>
             </div>
 
             {/* AI Provider Cards */}
