@@ -32,7 +32,7 @@ import type {
   AiStudioStageName,
   StoryboardScene,
 } from './types';
-import { getDecryptedAiStudioConfig, resolveAiStudioCwd } from '../store/aiStudioStore';
+import { getDecryptedAiStudioConfig, updateAiStudioConfig, resolveAiStudioCwd } from '../store/aiStudioStore';
 import { aiStudioLlmService } from './services/AiStudioLlmService';
 import { aiStudioTtsService } from './services/AiStudioTtsService';
 import { aiStudioVisualService } from './services/AiStudioVisualService';
@@ -1117,18 +1117,32 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
                 });
               };
 
-              let targetFlowProjectId = extractFlowProjectId(session.flowProjectUrl);
+              let targetFlowProjectId = extractFlowProjectId(
+                session.flowProjectUrl ||
+                activeProject?.flowProjectUrl ||
+                (config.flowEngine?.projectId && config.flowEngine.projectId.trim() ? config.flowEngine.projectId : undefined)
+              );
               if (FlowBridgeServer.getInstance().isConnected()) {
                 if (signal?.aborted) throw new Error('Tác vụ đã bị huỷ.');
-                // Nếu session chưa liên kết cụ thể, kiểm tra xem Chrome có đang mở sẵn 1 project Flow không
+                // Nếu session và activeProject chưa liên kết cụ thể, kiểm tra xem Chrome có đang mở sẵn 1 project Flow không
                 if (!targetFlowProjectId) {
                   try {
                     const tabInfo = await FlowBridgeServer.getInstance().getFlowTabInfo(2000);
                     if (tabInfo?.projectId) {
-                      targetFlowProjectId = tabInfo.projectId;
-                      console.log(
-                        `[AiStudioPipelineEngine] 🔗 Tự động liên kết với dự án Google Flow đang mở trên Chrome: ${targetFlowProjectId}`
+                      // Đảm bảo không chiếm nhầm project Flow của một dự án khác trong VanhSub
+                      const isOwnedByOther = config.savedProjects?.some(
+                        (p) => p.id !== config.activeProjectId && extractFlowProjectId(p.flowProjectUrl) === tabInfo.projectId
                       );
+                      if (!isOwnedByOther) {
+                        targetFlowProjectId = tabInfo.projectId;
+                        console.log(
+                          `[AiStudioPipelineEngine] 🔗 Tự động liên kết với dự án Google Flow đang mở trên Chrome: ${targetFlowProjectId}`
+                        );
+                      } else {
+                        console.log(
+                          `[AiStudioPipelineEngine] 🛡️ Dự án Flow ${tabInfo.projectId} trên Chrome đã thuộc dự án khác trong VanhSub. Sẽ tự động tạo dự án mới riêng biệt trên Flow.`
+                        );
+                      }
                     }
                   } catch (e: any) {
                     console.warn('[AiStudioPipelineEngine] Không thể tự động lấy projectId từ tab Chrome:', e?.message || e);
@@ -1141,6 +1155,24 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
                 targetFlowProjectId = linked.projectId;
                 session.flowProjectUrl = `https://labs.google/fx/vi/tools/flow/project/${linked.projectId}`;
                 this.persistSessionStateAtomic(session);
+
+                // Lưu liên kết lâu dài vào cấu hình activeProject nếu trước đó chưa có
+                if (activeProject && !activeProject.flowProjectUrl) {
+                  activeProject.flowProjectUrl = session.flowProjectUrl;
+                  try {
+                    const currentCfg = getDecryptedAiStudioConfig();
+                    const updatedProjects = (currentCfg.savedProjects || []).map((p) =>
+                      p.id === activeProject.id ? { ...p, flowProjectUrl: session.flowProjectUrl } : p
+                    );
+                    updateAiStudioConfig({
+                      savedProjects: updatedProjects,
+                      ...(currentCfg.activeProjectId === activeProject.id ? { flowProjectUrl: session.flowProjectUrl } : {}),
+                    });
+                    console.log(`[AiStudioPipelineEngine] 💾 Đã lưu liên kết Flow Project ${linked.projectId} vào hồ sơ dự án "${activeProject.name || activeProject.id}"`);
+                  } catch (cfgErr) {
+                    console.warn('[AiStudioPipelineEngine] Cảnh báo lưu flowProjectUrl vào savedProjects:', cfgErr);
+                  }
+                }
               }
               const effectiveFlowEngineConfig: AiStudioFlowEngineConfig = {
                 ...config.flowEngine,
