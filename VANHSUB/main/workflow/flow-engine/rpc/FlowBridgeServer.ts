@@ -392,12 +392,14 @@ export class FlowBridgeServer {
    */
   public async triggerUiGen(
     prompt: string,
-    timeoutMs = 45000,
+    timeoutMs?: number,
     projectId?: string,
     mode?: 'image' | 'video',
     signal?: AbortSignal
   ): Promise<any> {
-    console.warn('[FlowBridgeServer] ⚠️ triggerUiGen fallback CDP Trusted Click được kích hoạt.');
+    const isVideo = mode === 'video';
+    const effTimeout = typeof timeoutMs === 'number' && timeoutMs > 0 ? timeoutMs : (isVideo ? 180000 : 90000);
+    console.warn(`[FlowBridgeServer] ⚠️ triggerUiGen fallback CDP Trusted Click được kích hoạt (mode=${mode || 'image'}, timeout=${effTimeout / 1000}s).`);
     if (signal?.aborted) return { error: 'CANCELLED' };
     if (!this.isConnected()) return { error: 'NOT_CONNECTED' };
     const client = this.getFirstActiveClient();
@@ -417,7 +419,7 @@ export class FlowBridgeServer {
       const timer = setTimeout(() => {
         cleanup();
         resolve({ error: 'TIMEOUT_TRIGGER_UI_GEN' });
-      }, timeoutMs);
+      }, effTimeout);
 
       const onAbort = () => {
         cleanup();
@@ -444,7 +446,7 @@ export class FlowBridgeServer {
       });
 
       try {
-        client.send(JSON.stringify({ id, method: 'trigger_ui_gen', params: { prompt, projectId, mode } }));
+        client.send(JSON.stringify({ id, method: 'trigger_ui_gen', params: { prompt, projectId, mode, timeoutMs: effTimeout } }));
       } catch (sendErr: any) {
         cleanup();
         resolve({ error: sendErr?.message || String(sendErr) });

@@ -904,50 +904,63 @@ async function handleMessage(msg) {
 
           await new Promise((r) => setTimeout(r, 600));
 
-          // 1d. Tìm nút Generate CHÍNH XÁC bên trong promptBox (loại trừ nút cài đặt/mode)
-          let btn = promptBox.querySelector(
-            'flow-generate-icon-button button, button.generate-icon-button, button.submit-button, flow-prompt-box button[type="submit"]'
-          );
+          // 1d. Tìm nút Generate CHÍNH XÁC bên trong promptBox và chờ Angular validate enable nút
+          let btn = null;
+          const waitBtnStart = Date.now();
+          while (Date.now() - waitBtnStart < 3500) {
+            btn = promptBox.querySelector(
+              'flow-generate-icon-button button, button.generate-icon-button, button.submit-button, flow-prompt-box button[type="submit"]'
+            );
 
-          if (!btn) {
-            const boxBtns = Array.from(promptBox.querySelectorAll('button')).filter((b) => {
-              if (b.disabled) return false;
-              if (b.classList.contains('settings-trigger-button') || b.closest('flow-settings-button')) return false;
-              const aria = (b.getAttribute('aria-label') || '').toLowerCase();
-              if (aria.includes('cài đặt') || aria.includes('settings') || aria.includes('chế độ') || aria.includes('tùy chọn')) return false;
-              return true;
-            });
+            if (!btn) {
+              const boxBtns = Array.from(promptBox.querySelectorAll('button')).filter((b) => {
+                if (b.classList.contains('settings-trigger-button') || b.closest('flow-settings-button')) return false;
+                const aria = (b.getAttribute('aria-label') || '').toLowerCase();
+                if (aria.includes('cài đặt') || aria.includes('settings') || aria.includes('chế độ') || aria.includes('tùy chọn')) return false;
+                return true;
+              });
 
-            btn = boxBtns.find((b) => {
-              const aria = (b.getAttribute('aria-label') || '').toLowerCase();
-              const txt = (b.innerText || b.textContent || '').trim().toLowerCase();
-              return (
-                aria.includes('bắt đầu tạo') ||
-                aria.includes('bat dau tao') ||
-                aria.includes('tạo') ||
-                aria.includes('generate') ||
-                aria.includes('create') ||
-                aria.includes('submit') ||
-                aria.includes('start') ||
-                txt === 'arrow_forward' ||
-                txt === 'arrow_upward' ||
-                txt === 'send' ||
-                txt === 'spark' ||
-                b.querySelector('mat-icon')
-              );
-            });
+              btn = boxBtns.find((b) => {
+                const aria = (b.getAttribute('aria-label') || '').toLowerCase();
+                const txt = (b.innerText || b.textContent || '').trim().toLowerCase();
+                return (
+                  aria.includes('bắt đầu tạo') ||
+                  aria.includes('bat dau tao') ||
+                  aria.includes('tạo') ||
+                  aria.includes('generate') ||
+                  aria.includes('create') ||
+                  aria.includes('submit') ||
+                  aria.includes('start') ||
+                  txt === 'arrow_forward' ||
+                  txt === 'arrow_upward' ||
+                  txt === 'send' ||
+                  txt === 'spark' ||
+                  b.querySelector('mat-icon')
+                );
+              });
 
-            if (!btn && boxBtns.length > 0) {
-              btn = boxBtns[boxBtns.length - 1]; // Nút action cuối cùng ở góc phải promptBox
+              if (!btn && boxBtns.length > 0) {
+                btn = boxBtns[boxBtns.length - 1]; // Nút action cuối cùng ở góc phải promptBox
+              }
             }
+
+            if (btn && !btn.disabled && !btn.hasAttribute('disabled') && btn.getAttribute('aria-disabled') !== 'true') {
+              break; // Đã tìm thấy nút enabled!
+            }
+            await new Promise((r) => setTimeout(r, 100));
           }
 
           if (!btn) {
             return { ok: false, error: 'NO_GEN_BUTTON' };
           }
 
+          // Kích hoạt DOM click tức thời
+          try {
+            btn.click();
+          } catch (e) {}
+
           btn.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-          await new Promise((r) => setTimeout(r, 100));
+          await new Promise((r) => setTimeout(r, 80));
           const rect = btn.getBoundingClientRect();
           const cx = Math.round(rect.left + rect.width / 2);
           const cy = Math.round(rect.top + rect.height / 2);
@@ -962,7 +975,7 @@ async function handleMessage(msg) {
         return;
       }
 
-      // Bước 2: Bấm nút bằng CDP Trusted Click và phím Enter hardware (isTrusted=true)
+      // Bước 2: Bấm nút bằng CDP Trusted Click (phần cứng mô phỏng isTrusted=true)
       let cdpSuccess = false;
       let actualClickTimestamp = clickTimestamp;
       try {
@@ -978,7 +991,7 @@ async function handleMessage(msg) {
           x: p1.cx,
           y: p1.cy,
         });
-        await new Promise((r) => setTimeout(r, 50));
+        await new Promise((r) => setTimeout(r, 40));
         actualClickTimestamp = Date.now();
         await chrome.debugger.sendCommand({ tabId: tab.id }, 'Input.dispatchMouseEvent', {
           type: 'mousePressed',
@@ -988,7 +1001,7 @@ async function handleMessage(msg) {
           clickCount: 1,
           modifiers: 0,
         });
-        await new Promise((r) => setTimeout(r, 80));
+        await new Promise((r) => setTimeout(r, 60));
         await chrome.debugger.sendCommand({ tabId: tab.id }, 'Input.dispatchMouseEvent', {
           type: 'mouseReleased',
           x: p1.cx,
@@ -998,26 +1011,8 @@ async function handleMessage(msg) {
           modifiers: 0,
         });
 
-        // Gửi bổ sung phím Enter hardware mô phỏng Angular form submit
-        try {
-          await chrome.debugger.sendCommand({ tabId: tab.id }, 'Input.dispatchKeyEvent', {
-            type: 'rawKeyDown',
-            key: 'Enter',
-            code: 'Enter',
-            windowsVirtualKeyCode: 13,
-            nativeVirtualKeyCode: 13,
-          });
-          await chrome.debugger.sendCommand({ tabId: tab.id }, 'Input.dispatchKeyEvent', {
-            type: 'keyUp',
-            key: 'Enter',
-            code: 'Enter',
-            windowsVirtualKeyCode: 13,
-            nativeVirtualKeyCode: 13,
-          });
-        } catch (keyErr) {}
-
         cdpSuccess = true;
-        log(`🖱️ Đã phát CDP trusted click tại (${p1.cx}, ${p1.cy}) & Enter key cho mode=${targetMode}`);
+        log(`🖱️ Đã phát CDP trusted click tại (${p1.cx}, ${p1.cy}) cho mode=${targetMode}`);
       } catch (cdpErr) {
         warn('CDP click gặp sự cố, fallback sang DOM click:', cdpErr.message);
       } finally {
@@ -1037,27 +1032,23 @@ async function handleMessage(msg) {
               promptBox.querySelector('flow-generate-icon-button button, button.generate-icon-button, button.submit-button, button[type="submit"]') ||
               Array.from(promptBox.querySelectorAll('button')).pop();
             if (b) b.click();
-            const pm = promptBox.querySelector('.ProseMirror, [contenteditable="true"], textarea');
-            if (pm) {
-              pm.focus();
-              pm.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
-              pm.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
-            }
           },
         });
       }
 
-      // Bước 3: Đợi gói tin RPC phản hồi từ Google Flow (tối đa 45s)
+      const clientTimeout = typeof params?.timeoutMs === 'number' && params.timeoutMs > 0 ? params.timeoutMs : 90000;
+
+      // Bước 3: Đợi gói tin RPC phản hồi từ Google Flow
       const [phase3] = await chrome.scripting.executeScript({
         target: { tabId: tab.id },
         world: 'MAIN',
-        args: [{ clickTimestamp: Math.max(0, actualClickTimestamp - 200), targetMode }],
+        args: [{ clickTimestamp: Math.max(0, actualClickTimestamp - 200), targetMode, timeoutMs: clientTimeout - 5000 }],
         func: async (args) => {
           const ts = args.clickTimestamp;
           const mode = (args.targetMode || 'IMAGE').toUpperCase();
-          const deadline = Date.now() + 45000;
+          const deadline = Date.now() + (args.timeoutMs || 85000);
           while (Date.now() < deadline) {
-            await new Promise((r) => setTimeout(r, 600));
+            await new Promise((r) => setTimeout(r, 350));
             const hist = (window.__VANHSUB_SNIFFER__?.history || []).filter((h) => (h.timestamp || 0) >= ts);
             // Ưu tiên RPC khớp chính xác với mode được yêu cầu, ngăn chặn bắt nhầm gói tin chéo mode
             const genRpc = hist.find((h) => {
@@ -1080,10 +1071,10 @@ async function handleMessage(msg) {
               };
             }
 
-            // Fallback cross-mode: nếu sau 15s không có genRpc theo mode mong muốn,
+            // Fallback cross-mode: nếu sau 10s không có genRpc theo mode mong muốn,
             // nhưng đã có RPC media thành công (ví dụ giao diện sinh video kèm thumbnail),
-            // bắt lấy ngay lập tức để trích xuất media thay vì chờ 45s dẫn đến retry trùng lặp
-            if (Date.now() - ts > 15000) {
+            // bắt lấy ngay lập tức để trích xuất media thay vì chờ lâu
+            if (Date.now() - ts > 10000) {
               const fallbackRpc = hist.find((h) => {
                 if (!h.url || h.status !== 200 || !h.response) return false;
                 return (

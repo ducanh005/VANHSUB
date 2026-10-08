@@ -122,6 +122,10 @@ export interface AiStudioFlowEngineConfig {
   backoffBaseMs?: number;
   /** Alias bật fallback tường minh */
   explicitFallback?: boolean;
+  /** Ưu tiên sử dụng Direct UI Generation qua CDP Trusted Click (bỏ qua Pure RPC) */
+  preferUiGen?: boolean;
+  /** Thời gian chờ tối đa cho UI Generation (ms, mặc định 90000ms cho ảnh, 180000ms cho video) */
+  uiTimeoutMs?: number;
 }
 
 export type RenderingResolution = '1080p' | '720p' | '4k';

@@ -132,6 +132,39 @@ export class AiStudioVisualService {
     return getGoogleFlowRpcClient();
   }
 
+  private _preferUiImageGen = false;
+  private _preferUiVideoGen = false;
+
+  public isPreferUiImageGen(): boolean {
+    return this._preferUiImageGen;
+  }
+
+  public isPreferUiVideoGen(): boolean {
+    return this._preferUiVideoGen;
+  }
+
+  public isPreferUiGen(): boolean {
+    return this._preferUiImageGen || this._preferUiVideoGen;
+  }
+
+  public setPreferUiImageGen(prefer: boolean): void {
+    this._preferUiImageGen = prefer;
+  }
+
+  public setPreferUiVideoGen(prefer: boolean): void {
+    this._preferUiVideoGen = prefer;
+  }
+
+  public setPreferUiGen(prefer: boolean): void {
+    this._preferUiImageGen = prefer;
+    this._preferUiVideoGen = prefer;
+  }
+
+  public resetPreferUiGen(): void {
+    this._preferUiImageGen = false;
+    this._preferUiVideoGen = false;
+  }
+
   // ==========================================================================
   // Dimensions Resolution Helper
   // ==========================================================================
@@ -511,65 +544,127 @@ export class AiStudioVisualService {
             : `${targetPath}_keyframe.png`;
 
           let imgGenResult: any = null;
-          try {
-            imgGenResult = await rpcClient.generateImage({
-              prompt: effectivePrompt,
-              aspectRatio: flowConfig.aspectRatio || '16:9',
-              referenceAssets: refAssets,
-              projectId: effectiveProjectId,
-              win: lobbyWin,
-              signal,
-              maxRetries: 0,
-              backoffBaseMs: typeof flowConfig.backoffBaseMs === 'number' ? flowConfig.backoffBaseMs : 10000,
-            });
-          } catch (rpcGenErr: any) {
-            const classified = classifyFlowRpcError(rpcGenErr);
-            if (classified.isUnusualActivity && FlowBridgeServer.getInstance().isConnected()) {
-              console.warn(
-                `[AiStudioVisualService] 🛡️ Pure RPC sinh keyframe bị Google chặn [${classified.code}]. ` +
-                `Fallback sang CDP Trusted UI Generation (isTrusted=true)...`
+
+          const uiTimeoutImage = typeof flowConfig.uiTimeoutMs === 'number' && flowConfig.uiTimeoutMs > 0 ? flowConfig.uiTimeoutMs : 90000;
+          const shouldDirectUiKeyframe =
+            (this._preferUiImageGen || flowConfig.preferUiGen) &&
+            FlowBridgeServer.getInstance().isConnected();
+
+          if (shouldDirectUiKeyframe) {
+            console.log(
+              `[AiStudioVisualService] ⚡ Direct UI Mode: Bỏ qua Pure RPC, trực tiếp sinh ảnh keyframe bằng CDP Trusted UI (isTrusted=true)...`
+            );
+            try {
+              const uiRes = await FlowBridgeServer.getInstance().triggerUiGen(
+                effectivePrompt,
+                uiTimeoutImage,
+                effectiveProjectId,
+                'image',
+                signal
               );
-              try {
-                const uiRes = await FlowBridgeServer.getInstance().triggerUiGen(effectivePrompt, 45000, effectiveProjectId, 'image', signal);
-                console.log(
-                  `[AiStudioVisualService] 🔍 Kết quả triggerUiGen keyframe fallback:`,
-                  uiRes ? (uiRes.ok ? `OK (rpcid=${uiRes.capturedRpc?.rpcid || 'dom'})` : `Lỗi (${uiRes.error})`) : 'NULL'
-                );
-                if (uiRes && uiRes.ok) {
-                  if (uiRes.firstImageUrl) {
-                    imgGenResult = {
-                      images: [{ url: uiRes.firstImageUrl, mediaId: 'dom-extracted' }],
-                      firstImageUrl: uiRes.firstImageUrl,
-                      projectId: effectiveProjectId,
-                    };
-                  } else if (uiRes.capturedRpc?.response) {
-                    let rpcData: any = null;
-                    const rpcid = uiRes.capturedRpc.rpcid || RPC_GEN_IMAGE;
+              console.log(
+                `[AiStudioVisualService] 🔍 Kết quả Direct UI keyframe:`,
+                uiRes ? (uiRes.ok ? `OK (rpcid=${uiRes.capturedRpc?.rpcid || 'dom'})` : `Lỗi (${uiRes.error})`) : 'NULL'
+              );
+              if (uiRes && uiRes.ok) {
+                if (uiRes.firstImageUrl) {
+                  imgGenResult = {
+                    images: [{ url: uiRes.firstImageUrl, mediaId: 'dom-extracted' }],
+                    firstImageUrl: uiRes.firstImageUrl,
+                    projectId: effectiveProjectId,
+                  };
+                } else if (uiRes.capturedRpc?.response) {
+                  let rpcData: any = null;
+                  const rpcid = uiRes.capturedRpc.rpcid || RPC_GEN_IMAGE;
+                  try {
+                    const parsed = parseBatchResponse(uiRes.capturedRpc.response, rpcid);
+                    if (parsed.ok) rpcData = parsed.data;
+                  } catch {}
+                  if (!rpcData && rpcid !== RPC_GEN_IMAGE) {
                     try {
-                      const parsed = parseBatchResponse(uiRes.capturedRpc.response, rpcid);
+                      const parsed = parseBatchResponse(uiRes.capturedRpc.response, RPC_GEN_IMAGE);
                       if (parsed.ok) rpcData = parsed.data;
                     } catch {}
-                    if (!rpcData && rpcid !== RPC_GEN_IMAGE) {
-                      try {
-                        const parsed = parseBatchResponse(uiRes.capturedRpc.response, RPC_GEN_IMAGE);
-                        if (parsed.ok) rpcData = parsed.data;
-                      } catch {}
-                    }
-                    const imgs = extractGeneratedImages(rpcData || uiRes.capturedRpc.response, rpcid);
-                    if (imgs && imgs.length > 0) {
-                      imgGenResult = {
-                        images: imgs,
-                        firstImageUrl: imgs[0].url,
-                        projectId: effectiveProjectId,
-                      };
-                    }
+                  }
+                  const imgs = extractGeneratedImages(rpcData || uiRes.capturedRpc.response, rpcid);
+                  if (imgs && imgs.length > 0) {
+                    imgGenResult = {
+                      images: imgs,
+                      firstImageUrl: imgs[0].url,
+                      projectId: effectiveProjectId,
+                    };
                   }
                 }
-              } catch (uiErr: any) {
-                console.warn('[AiStudioVisualService] CDP Trusted UI fallback keyframe warning:', uiErr?.message || uiErr);
               }
+            } catch (uiKeyErr: any) {
+              console.warn('[AiStudioVisualService] Direct UI keyframe warning:', uiKeyErr?.message || uiKeyErr);
             }
-            if (!imgGenResult) throw rpcGenErr;
+          }
+
+          if (!imgGenResult) {
+            try {
+              imgGenResult = await rpcClient.generateImage({
+                prompt: effectivePrompt,
+                aspectRatio: flowConfig.aspectRatio || '16:9',
+                referenceAssets: refAssets,
+                projectId: effectiveProjectId,
+                win: lobbyWin,
+                signal,
+                maxRetries: 0,
+                backoffBaseMs: typeof flowConfig.backoffBaseMs === 'number' ? flowConfig.backoffBaseMs : 10000,
+              });
+            } catch (rpcGenErr: any) {
+              const classified = classifyFlowRpcError(rpcGenErr);
+              if (classified.isUnusualActivity) {
+                this._preferUiImageGen = true;
+              }
+              if (classified.isUnusualActivity && FlowBridgeServer.getInstance().isConnected()) {
+                console.warn(
+                  `[AiStudioVisualService] 🛡️ Pure RPC sinh keyframe bị Google chặn [${classified.code}]. ` +
+                  `Fallback sang CDP Trusted UI Generation (isTrusted=true)...`
+                );
+                try {
+                  const uiRes = await FlowBridgeServer.getInstance().triggerUiGen(effectivePrompt, uiTimeoutImage, effectiveProjectId, 'image', signal);
+                  console.log(
+                    `[AiStudioVisualService] 🔍 Kết quả triggerUiGen keyframe fallback:`,
+                    uiRes ? (uiRes.ok ? `OK (rpcid=${uiRes.capturedRpc?.rpcid || 'dom'})` : `Lỗi (${uiRes.error})`) : 'NULL'
+                  );
+                  if (uiRes && uiRes.ok) {
+                    if (uiRes.firstImageUrl) {
+                      imgGenResult = {
+                        images: [{ url: uiRes.firstImageUrl, mediaId: 'dom-extracted' }],
+                        firstImageUrl: uiRes.firstImageUrl,
+                        projectId: effectiveProjectId,
+                      };
+                    } else if (uiRes.capturedRpc?.response) {
+                      let rpcData: any = null;
+                      const rpcid = uiRes.capturedRpc.rpcid || RPC_GEN_IMAGE;
+                      try {
+                        const parsed = parseBatchResponse(uiRes.capturedRpc.response, rpcid);
+                        if (parsed.ok) rpcData = parsed.data;
+                      } catch {}
+                      if (!rpcData && rpcid !== RPC_GEN_IMAGE) {
+                        try {
+                          const parsed = parseBatchResponse(uiRes.capturedRpc.response, RPC_GEN_IMAGE);
+                          if (parsed.ok) rpcData = parsed.data;
+                        } catch {}
+                      }
+                      const imgs = extractGeneratedImages(rpcData || uiRes.capturedRpc.response, rpcid);
+                      if (imgs && imgs.length > 0) {
+                        imgGenResult = {
+                          images: imgs,
+                          firstImageUrl: imgs[0].url,
+                          projectId: effectiveProjectId,
+                        };
+                      }
+                    }
+                  }
+                } catch (uiErr: any) {
+                  console.warn('[AiStudioVisualService] CDP Trusted UI fallback keyframe warning:', uiErr?.message || uiErr);
+                }
+              }
+              if (!imgGenResult) throw rpcGenErr;
+            }
           }
 
           const keyframeUrl = imgGenResult.firstImageUrl || imgGenResult.images?.[0]?.url;
@@ -620,71 +715,138 @@ export class AiStudioVisualService {
 
         try {
           let genResult: any = null;
-          try {
-            genResult = await rpcClient.generateVideo({
-              prompt: motionPrompt,
-              aspectRatio: flowConfig.aspectRatio || '16:9',
-              referenceAssets: refAssets,
-              inputImageAsset: resolvedKeyframeAsset,
-              projectId: effectiveProjectId,
-              win: lobbyWin,
-              signal,
-              maxRetries: 0,
-              backoffBaseMs: typeof flowConfig.backoffBaseMs === 'number' ? flowConfig.backoffBaseMs : 10000,
-            });
-          } catch (rpcVidErr: any) {
-            const classified = classifyFlowRpcError(rpcVidErr);
-            if (classified.isUnusualActivity && FlowBridgeServer.getInstance().isConnected()) {
-              console.warn(
-                `[AiStudioVisualService] 🛡️ Pure RPC sinh video bị Google chặn [${classified.code}]. ` +
-                `Fallback sang CDP Trusted UI Generation (isTrusted=true)...`
+
+          const uiTimeoutVideo = typeof flowConfig.uiTimeoutMs === 'number' && flowConfig.uiTimeoutMs > 0 ? flowConfig.uiTimeoutMs : 180000;
+          const shouldDirectUiVideo =
+            (this._preferUiVideoGen || flowConfig.preferUiGen) &&
+            FlowBridgeServer.getInstance().isConnected();
+
+          if (shouldDirectUiVideo) {
+            console.log(
+              `[AiStudioVisualService] ⚡ Direct UI Mode: Bỏ qua Pure RPC, trực tiếp sinh video bằng CDP Trusted UI (isTrusted=true)...`
+            );
+            try {
+              const uiRes = await FlowBridgeServer.getInstance().triggerUiGen(
+                motionPrompt,
+                uiTimeoutVideo,
+                effectiveProjectId,
+                'video',
+                signal
               );
-              try {
-                const uiRes = await FlowBridgeServer.getInstance().triggerUiGen(motionPrompt, 45000, effectiveProjectId, 'video', signal);
-                console.log(
-                  `[AiStudioVisualService] 🔍 Kết quả triggerUiGen video fallback:`,
-                  uiRes ? (uiRes.ok ? `OK (rpcid=${uiRes.capturedRpc?.rpcid || 'captured'})` : `Lỗi (${uiRes.error})`) : 'NULL'
-                );
-                if (uiRes && uiRes.ok && uiRes.capturedRpc?.response) {
-                  let rpcData: any = null;
+              console.log(
+                `[AiStudioVisualService] 🔍 Kết quả Direct UI video:`,
+                uiRes ? (uiRes.ok ? `OK (rpcid=${uiRes.capturedRpc?.rpcid || 'captured'})` : `Lỗi (${uiRes.error})`) : 'NULL'
+              );
+              if (uiRes && uiRes.ok && uiRes.capturedRpc?.response) {
+                let rpcData: any = null;
+                try {
+                  const parsed = parseBatchResponse(uiRes.capturedRpc.response, RPC_GEN_VIDEO_REFERENCES);
+                  if (parsed.ok) rpcData = parsed.data;
+                } catch {}
+                if (!rpcData) {
                   try {
-                    const parsed = parseBatchResponse(uiRes.capturedRpc.response, RPC_GEN_VIDEO_REFERENCES);
+                    const parsed = parseBatchResponse(uiRes.capturedRpc.response, RPC_GEN_VIDEO_TEXT);
                     if (parsed.ok) rpcData = parsed.data;
                   } catch {}
-                  if (!rpcData) {
-                    try {
-                      const parsed = parseBatchResponse(uiRes.capturedRpc.response, RPC_GEN_VIDEO_TEXT);
-                      if (parsed.ok) rpcData = parsed.data;
-                    } catch {}
-                  }
-                  if (!rpcData) {
-                    try {
-                      const parsed = parseBatchResponse(uiRes.capturedRpc.response, RPC_OPERATION);
-                      if (parsed.ok) rpcData = parsed.data;
-                    } catch {}
-                  }
-                  if (!rpcData) {
-                    try {
-                      const parsed = parseBatchResponse(uiRes.capturedRpc.response, RPC_MEDIA);
-                      if (parsed.ok) rpcData = parsed.data;
-                    } catch {}
-                  }
-                  const opStatus = extractOperationStatus(rpcData || uiRes.capturedRpc.response, RPC_GEN_VIDEO_REFERENCES);
-                  if (opStatus && (opStatus.operationId || opStatus.videoUrl)) {
-                    genResult = {
-                      operationId: opStatus.operationId,
-                      projectId: opStatus.projectId || effectiveProjectId,
-                      status: opStatus.status || 'RUNNING',
-                      done: opStatus.done,
-                      videoUrl: opStatus.videoUrl,
-                    };
-                  }
                 }
-              } catch (uiVidErr: any) {
-                console.warn('[AiStudioVisualService] CDP Trusted UI fallback video warning:', uiVidErr?.message || uiVidErr);
+                if (!rpcData) {
+                  try {
+                    const parsed = parseBatchResponse(uiRes.capturedRpc.response, RPC_OPERATION);
+                    if (parsed.ok) rpcData = parsed.data;
+                  } catch {}
+                }
+                if (!rpcData) {
+                  try {
+                    const parsed = parseBatchResponse(uiRes.capturedRpc.response, RPC_MEDIA);
+                    if (parsed.ok) rpcData = parsed.data;
+                  } catch {}
+                }
+                const opStatus = extractOperationStatus(rpcData || uiRes.capturedRpc.response, RPC_GEN_VIDEO_REFERENCES);
+                if (opStatus && (opStatus.operationId || opStatus.videoUrl)) {
+                  genResult = {
+                    operationId: opStatus.operationId,
+                    projectId: opStatus.projectId || effectiveProjectId,
+                    status: opStatus.status || 'RUNNING',
+                    done: opStatus.done,
+                    videoUrl: opStatus.videoUrl,
+                  };
+                }
               }
+            } catch (uiVidDirectErr: any) {
+              console.warn('[AiStudioVisualService] Direct UI video warning:', uiVidDirectErr?.message || uiVidDirectErr);
             }
-            if (!genResult) throw rpcVidErr;
+          }
+
+          if (!genResult) {
+            try {
+              genResult = await rpcClient.generateVideo({
+                prompt: motionPrompt,
+                aspectRatio: flowConfig.aspectRatio || '16:9',
+                referenceAssets: refAssets,
+                inputImageAsset: resolvedKeyframeAsset,
+                projectId: effectiveProjectId,
+                win: lobbyWin,
+                signal,
+                maxRetries: 0,
+                backoffBaseMs: typeof flowConfig.backoffBaseMs === 'number' ? flowConfig.backoffBaseMs : 10000,
+              });
+            } catch (rpcVidErr: any) {
+              const classified = classifyFlowRpcError(rpcVidErr);
+              if (classified.isUnusualActivity) {
+                this._preferUiVideoGen = true;
+              }
+              if (classified.isUnusualActivity && FlowBridgeServer.getInstance().isConnected()) {
+                console.warn(
+                  `[AiStudioVisualService] 🛡️ Pure RPC sinh video bị Google chặn [${classified.code}]. ` +
+                  `Fallback sang CDP Trusted UI Generation (isTrusted=true)...`
+                );
+                try {
+                  const uiRes = await FlowBridgeServer.getInstance().triggerUiGen(motionPrompt, uiTimeoutVideo, effectiveProjectId, 'video', signal);
+                  console.log(
+                    `[AiStudioVisualService] 🔍 Kết quả triggerUiGen video fallback:`,
+                    uiRes ? (uiRes.ok ? `OK (rpcid=${uiRes.capturedRpc?.rpcid || 'captured'})` : `Lỗi (${uiRes.error})`) : 'NULL'
+                  );
+                  if (uiRes && uiRes.ok && uiRes.capturedRpc?.response) {
+                    let rpcData: any = null;
+                    try {
+                      const parsed = parseBatchResponse(uiRes.capturedRpc.response, RPC_GEN_VIDEO_REFERENCES);
+                      if (parsed.ok) rpcData = parsed.data;
+                    } catch {}
+                    if (!rpcData) {
+                      try {
+                        const parsed = parseBatchResponse(uiRes.capturedRpc.response, RPC_GEN_VIDEO_TEXT);
+                        if (parsed.ok) rpcData = parsed.data;
+                      } catch {}
+                    }
+                    if (!rpcData) {
+                      try {
+                        const parsed = parseBatchResponse(uiRes.capturedRpc.response, RPC_OPERATION);
+                        if (parsed.ok) rpcData = parsed.data;
+                      } catch {}
+                    }
+                    if (!rpcData) {
+                      try {
+                        const parsed = parseBatchResponse(uiRes.capturedRpc.response, RPC_MEDIA);
+                        if (parsed.ok) rpcData = parsed.data;
+                      } catch {}
+                    }
+                    const opStatus = extractOperationStatus(rpcData || uiRes.capturedRpc.response, RPC_GEN_VIDEO_REFERENCES);
+                    if (opStatus && (opStatus.operationId || opStatus.videoUrl)) {
+                      genResult = {
+                        operationId: opStatus.operationId,
+                        projectId: opStatus.projectId || effectiveProjectId,
+                        status: opStatus.status || 'RUNNING',
+                        done: opStatus.done,
+                        videoUrl: opStatus.videoUrl,
+                      };
+                    }
+                  }
+                } catch (uiVidErr: any) {
+                  console.warn('[AiStudioVisualService] CDP Trusted UI fallback video warning:', uiVidErr?.message || uiVidErr);
+                }
+              }
+              if (!genResult) throw rpcVidErr;
+            }
           }
 
           let finalVideoUrl = genResult.videoUrl;
@@ -767,65 +929,127 @@ export class AiStudioVisualService {
         onProgress?.(15, 'Đang gửi yêu cầu tạo ảnh (Imagen/Nano RPC)...');
 
         let genResult: any = null;
-        try {
-          genResult = await rpcClient.generateImage({
-            prompt: effectivePrompt,
-            aspectRatio: flowConfig.aspectRatio || '16:9',
-            referenceAssets: refAssets,
-            projectId: effectiveProjectId,
-            win: lobbyWin,
-            signal,
-            maxRetries: 0,
-            backoffBaseMs: typeof flowConfig.backoffBaseMs === 'number' ? flowConfig.backoffBaseMs : 10000,
-          });
-        } catch (rpcImgErr: any) {
-          const classified = classifyFlowRpcError(rpcImgErr);
-          if (classified.isUnusualActivity && FlowBridgeServer.getInstance().isConnected()) {
-            console.warn(
-              `[AiStudioVisualService] 🛡️ Pure RPC sinh ảnh bị Google chặn [${classified.code}]. ` +
-              `Fallback sang CDP Trusted UI Generation (isTrusted=true)...`
+
+        const uiTimeoutImage = typeof flowConfig.uiTimeoutMs === 'number' && flowConfig.uiTimeoutMs > 0 ? flowConfig.uiTimeoutMs : 90000;
+        const shouldDirectUiImage =
+          (this._preferUiImageGen || flowConfig.preferUiGen) &&
+          FlowBridgeServer.getInstance().isConnected();
+
+        if (shouldDirectUiImage) {
+          console.log(
+            `[AiStudioVisualService] ⚡ Direct UI Mode: Bỏ qua Pure RPC, trực tiếp sinh ảnh bằng CDP Trusted UI (isTrusted=true)...`
+          );
+          try {
+            const uiRes = await FlowBridgeServer.getInstance().triggerUiGen(
+              effectivePrompt,
+              uiTimeoutImage,
+              effectiveProjectId,
+              'image',
+              signal
             );
-            try {
-              const uiRes = await FlowBridgeServer.getInstance().triggerUiGen(effectivePrompt, 45000, effectiveProjectId, 'image', signal);
-              console.log(
-                `[AiStudioVisualService] 🔍 Kết quả triggerUiGen image fallback:`,
-                uiRes ? (uiRes.ok ? `OK (rpcid=${uiRes.capturedRpc?.rpcid || 'dom'})` : `Lỗi (${uiRes.error})`) : 'NULL'
-              );
-              if (uiRes && uiRes.ok) {
-                if (uiRes.firstImageUrl) {
-                  genResult = {
-                    images: [{ url: uiRes.firstImageUrl, mediaId: 'dom-extracted' }],
-                    firstImageUrl: uiRes.firstImageUrl,
-                    projectId: effectiveProjectId,
-                  };
-                } else if (uiRes.capturedRpc?.response) {
-                  let rpcData: any = null;
-                  const rpcid = uiRes.capturedRpc.rpcid || RPC_GEN_IMAGE;
+            console.log(
+              `[AiStudioVisualService] 🔍 Kết quả Direct UI ảnh:`,
+              uiRes ? (uiRes.ok ? `OK (rpcid=${uiRes.capturedRpc?.rpcid || 'dom'})` : `Lỗi (${uiRes.error})`) : 'NULL'
+            );
+            if (uiRes && uiRes.ok) {
+              if (uiRes.firstImageUrl) {
+                genResult = {
+                  images: [{ url: uiRes.firstImageUrl, mediaId: 'dom-extracted' }],
+                  firstImageUrl: uiRes.firstImageUrl,
+                  projectId: effectiveProjectId,
+                };
+              } else if (uiRes.capturedRpc?.response) {
+                let rpcData: any = null;
+                const rpcid = uiRes.capturedRpc.rpcid || RPC_GEN_IMAGE;
+                try {
+                  const parsed = parseBatchResponse(uiRes.capturedRpc.response, rpcid);
+                  if (parsed.ok) rpcData = parsed.data;
+                } catch {}
+                if (!rpcData && rpcid !== RPC_GEN_IMAGE) {
                   try {
-                    const parsed = parseBatchResponse(uiRes.capturedRpc.response, rpcid);
+                    const parsed = parseBatchResponse(uiRes.capturedRpc.response, RPC_GEN_IMAGE);
                     if (parsed.ok) rpcData = parsed.data;
                   } catch {}
-                  if (!rpcData && rpcid !== RPC_GEN_IMAGE) {
-                    try {
-                      const parsed = parseBatchResponse(uiRes.capturedRpc.response, RPC_GEN_IMAGE);
-                      if (parsed.ok) rpcData = parsed.data;
-                    } catch {}
-                  }
-                  const imgs = extractGeneratedImages(rpcData || uiRes.capturedRpc.response, rpcid);
-                  if (imgs && imgs.length > 0) {
-                    genResult = {
-                      images: imgs,
-                      firstImageUrl: imgs[0].url,
-                      projectId: effectiveProjectId,
-                    };
-                  }
+                }
+                const imgs = extractGeneratedImages(rpcData || uiRes.capturedRpc.response, rpcid);
+                if (imgs && imgs.length > 0) {
+                  genResult = {
+                    images: imgs,
+                    firstImageUrl: imgs[0].url,
+                    projectId: effectiveProjectId,
+                  };
                 }
               }
-            } catch (uiErr: any) {
-              console.warn('[AiStudioVisualService] CDP Trusted UI fallback image warning:', uiErr?.message || uiErr);
             }
+          } catch (uiDirectErr: any) {
+            console.warn('[AiStudioVisualService] Direct UI ảnh warning:', uiDirectErr?.message || uiDirectErr);
           }
-          if (!genResult) throw rpcImgErr;
+        }
+
+        if (!genResult) {
+          try {
+            genResult = await rpcClient.generateImage({
+              prompt: effectivePrompt,
+              aspectRatio: flowConfig.aspectRatio || '16:9',
+              referenceAssets: refAssets,
+              projectId: effectiveProjectId,
+              win: lobbyWin,
+              signal,
+              maxRetries: 0,
+              backoffBaseMs: typeof flowConfig.backoffBaseMs === 'number' ? flowConfig.backoffBaseMs : 10000,
+            });
+          } catch (rpcImgErr: any) {
+            const classified = classifyFlowRpcError(rpcImgErr);
+            if (classified.isUnusualActivity) {
+              this._preferUiImageGen = true;
+            }
+            if (classified.isUnusualActivity && FlowBridgeServer.getInstance().isConnected()) {
+              console.warn(
+                `[AiStudioVisualService] 🛡️ Pure RPC sinh ảnh bị Google chặn [${classified.code}]. ` +
+                `Fallback sang CDP Trusted UI Generation (isTrusted=true)...`
+              );
+              try {
+                const uiRes = await FlowBridgeServer.getInstance().triggerUiGen(effectivePrompt, uiTimeoutImage, effectiveProjectId, 'image', signal);
+                console.log(
+                  `[AiStudioVisualService] 🔍 Kết quả triggerUiGen image fallback:`,
+                  uiRes ? (uiRes.ok ? `OK (rpcid=${uiRes.capturedRpc?.rpcid || 'dom'})` : `Lỗi (${uiRes.error})`) : 'NULL'
+                );
+                if (uiRes && uiRes.ok) {
+                  if (uiRes.firstImageUrl) {
+                    genResult = {
+                      images: [{ url: uiRes.firstImageUrl, mediaId: 'dom-extracted' }],
+                      firstImageUrl: uiRes.firstImageUrl,
+                      projectId: effectiveProjectId,
+                    };
+                  } else if (uiRes.capturedRpc?.response) {
+                    let rpcData: any = null;
+                    const rpcid = uiRes.capturedRpc.rpcid || RPC_GEN_IMAGE;
+                    try {
+                      const parsed = parseBatchResponse(uiRes.capturedRpc.response, rpcid);
+                      if (parsed.ok) rpcData = parsed.data;
+                    } catch {}
+                    if (!rpcData && rpcid !== RPC_GEN_IMAGE) {
+                      try {
+                        const parsed = parseBatchResponse(uiRes.capturedRpc.response, RPC_GEN_IMAGE);
+                        if (parsed.ok) rpcData = parsed.data;
+                      } catch {}
+                    }
+                    const imgs = extractGeneratedImages(rpcData || uiRes.capturedRpc.response, rpcid);
+                    if (imgs && imgs.length > 0) {
+                      genResult = {
+                        images: imgs,
+                        firstImageUrl: imgs[0].url,
+                        projectId: effectiveProjectId,
+                      };
+                    }
+                  }
+                }
+              } catch (uiErr: any) {
+                console.warn('[AiStudioVisualService] CDP Trusted UI fallback image warning:', uiErr?.message || uiErr);
+              }
+            }
+            if (!genResult) throw rpcImgErr;
+          }
         }
 
         const imageUrl = genResult.firstImageUrl || genResult.images?.[0]?.url;
