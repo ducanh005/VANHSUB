@@ -2683,12 +2683,25 @@ export class GoogleFlowRpcClient {
    */
   public async getMediaUrl(mediaId: string, projectId?: string, win?: any): Promise<string | null> {
     const innerPayload = buildMediaUrlPayload(mediaId);
+    const bridge = FlowBridgeServer.getInstance();
+    if (bridge.isConnected()) {
+      try {
+        const rawText = await bridge.sendBatchRpc(RPC_MEDIA, innerPayload, undefined, projectId);
+        const res = parseBatchResponse(rawText, RPC_MEDIA);
+        const raw = JSON.stringify(res.data);
+        const videoMatch = raw.match(/https:\/\/[^"'\s\\]*(?:\.mp4|\.webm|\/video[^"'\s\\]*)/i) ||
+          raw.match(/https:\/\/(?:flow-content\.google|storage\.googleapis\.com)[^"'\s\\]+/);
+        if (videoMatch) return videoMatch[0];
+      } catch (err: any) {
+        console.warn(`[GoogleFlowRpcClient] getMediaUrl qua Bridge thất bại, fallback callFlowRPC:`, err?.message || err);
+      }
+    }
     const data = await this.callFlowRPC(win || null, RPC_MEDIA, innerPayload, projectId, {
       needsCaptcha: false,
       label: `as29s(mediaUrl:${mediaId.slice(0, 8)})`,
     });
     const rawText = JSON.stringify(data);
-    const m = rawText.match(/https:\/\/[^"'\s\\]+/);
+    const m = rawText.match(/https:\/\/[^"'\s\\]*(?:\.mp4|\.webm|\/video[^"'\s\\]*)/i) || rawText.match(/https:\/\/[^"'\s\\]+/);
     return m ? m[0] : null;
   }
 
@@ -2697,10 +2710,23 @@ export class GoogleFlowRpcClient {
    */
   public async listProjectMedia(projectId: string, win?: any): Promise<MediaUrls[]> {
     const innerPayload = buildListProjectMediaPayload(projectId);
-    const data = await this.callFlowRPC(win || null, RPC_PROJECT_MEDIA, innerPayload, projectId, {
-      needsCaptcha: false,
-      label: `Zzl0ze(listMedia)`,
-    });
+    let data: unknown;
+    const bridge = FlowBridgeServer.getInstance();
+    if (bridge.isConnected()) {
+      try {
+        const rawText = await bridge.sendBatchRpc(RPC_PROJECT_MEDIA, innerPayload, undefined, projectId);
+        const res = parseBatchResponse(rawText, RPC_PROJECT_MEDIA);
+        data = res.data;
+      } catch (err: any) {
+        console.warn(`[GoogleFlowRpcClient] listProjectMedia qua Bridge thất bại, fallback callFlowRPC:`, err?.message || err);
+      }
+    }
+    if (!data) {
+      data = await this.callFlowRPC(win || null, RPC_PROJECT_MEDIA, innerPayload, projectId, {
+        needsCaptcha: false,
+        label: `Zzl0ze(listMedia)`,
+      });
+    }
 
     const results: MediaUrls[] = [];
     const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

@@ -533,11 +533,18 @@ export class AiStudioVisualService {
                 const uiRes = await FlowBridgeServer.getInstance().triggerUiGen(effectivePrompt, 45000, effectiveProjectId, 'image', signal);
                 if (uiRes && uiRes.ok && uiRes.capturedRpc?.response) {
                   let rpcData: any = null;
+                  const rpcid = uiRes.capturedRpc.rpcid || RPC_GEN_IMAGE;
                   try {
-                    const parsed = parseBatchResponse(uiRes.capturedRpc.response, RPC_GEN_IMAGE);
+                    const parsed = parseBatchResponse(uiRes.capturedRpc.response, rpcid);
                     if (parsed.ok) rpcData = parsed.data;
                   } catch {}
-                  const imgs = extractGeneratedImages(rpcData || uiRes.capturedRpc.response, RPC_GEN_IMAGE);
+                  if (!rpcData && rpcid !== RPC_GEN_IMAGE) {
+                    try {
+                      const parsed = parseBatchResponse(uiRes.capturedRpc.response, RPC_GEN_IMAGE);
+                      if (parsed.ok) rpcData = parsed.data;
+                    } catch {}
+                  }
+                  const imgs = extractGeneratedImages(rpcData || uiRes.capturedRpc.response, rpcid);
                   if (imgs && imgs.length > 0) {
                     imgGenResult = {
                       images: imgs,
@@ -766,11 +773,18 @@ export class AiStudioVisualService {
               const uiRes = await FlowBridgeServer.getInstance().triggerUiGen(effectivePrompt, 45000, effectiveProjectId, 'image', signal);
               if (uiRes && uiRes.ok && uiRes.capturedRpc?.response) {
                 let rpcData: any = null;
+                const rpcid = uiRes.capturedRpc.rpcid || RPC_GEN_IMAGE;
                 try {
-                  const parsed = parseBatchResponse(uiRes.capturedRpc.response, RPC_GEN_IMAGE);
+                  const parsed = parseBatchResponse(uiRes.capturedRpc.response, rpcid);
                   if (parsed.ok) rpcData = parsed.data;
                 } catch {}
-                const imgs = extractGeneratedImages(rpcData || uiRes.capturedRpc.response, RPC_GEN_IMAGE);
+                if (!rpcData && rpcid !== RPC_GEN_IMAGE) {
+                  try {
+                    const parsed = parseBatchResponse(uiRes.capturedRpc.response, RPC_GEN_IMAGE);
+                    if (parsed.ok) rpcData = parsed.data;
+                  } catch {}
+                }
+                const imgs = extractGeneratedImages(rpcData || uiRes.capturedRpc.response, rpcid);
                 if (imgs && imgs.length > 0) {
                   genResult = {
                     images: imgs,

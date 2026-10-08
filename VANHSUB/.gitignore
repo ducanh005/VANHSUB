@@ -51,4 +51,6 @@ TEST_READY.md
 sniffer_dump*.json
 flowkit_*
 extension/recaptcha*
+*.har
+
 

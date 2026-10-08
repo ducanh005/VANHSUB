@@ -384,13 +384,19 @@ export function resolveImageModel(key?: string): string {
 /**
  * Resolve video model key thành wire id chính xác.
  */
-export function resolveVideoModel(key?: string): string {
-  if (!key) return VID_MODEL_DEFAULT;
+export function resolveVideoModel(key?: string, isImageToVideo = false): string {
+  if (!key) return isImageToVideo ? 'abra_r2v_8s_360p' : 'abra_t2v_8s_360p';
   if (VID_MODELS.has(key)) return key;
+  if (key.includes('r2v') || key.includes('i2v') || isImageToVideo) {
+    if (key.includes('720p')) return 'abra_r2v_8s_720p';
+    if (key.includes('4s')) return 'abra_r2v_4s_360p';
+    return 'abra_r2v_8s_360p';
+  }
+  if (key.includes('720p')) return 'abra_t2v_8s_720p';
+  if (key.includes('4s')) return 'abra_t2v_4s_360p';
   if (key.includes('ultra')) return 'veo_3_1_i2v_s_fast_ultra';
-  if (key.includes('lite_low_priority')) return 'veo_3_1_i2v_lite_low_priority';
-  if (key.includes('lite')) return 'veo_3_1_i2v_lite';
-  return VID_MODEL_DEFAULT;
+  if (key.includes('lite')) return isImageToVideo ? 'abra_r2v_8s_360p' : 'abra_t2v_8s_360p';
+  return isImageToVideo ? 'abra_r2v_8s_360p' : VID_MODEL_DEFAULT;
 }
 
 /**
@@ -655,11 +661,7 @@ export function buildGenVideoPayload(opts: GenVideoPayloadOptions): unknown[] {
   } = opts;
 
   const aspectInt = resolveVideoAspect(aspectRatio);
-
-  let modelKey = videoModel;
-  if (!modelKey) {
-    modelKey = 'veo_3_1_r2v_lite';
-  }
+  const modelKey = resolveVideoModel(videoModel, true);
 
   const clientUuid1 = uuidv4().toUpperCase();
   const clientUuid2 = uuidv4().toUpperCase();
@@ -667,6 +669,7 @@ export function buildGenVideoPayload(opts: GenVideoPayloadOptions): unknown[] {
 
   const audioConfig = audio ? (typeof audio === 'boolean' ? { enabled: audio } : audio) : null;
 
+  // VERIFIED từ imgtovid.har: cấu trúc taskConfig khớp 100% Google Flow
   const taskConfig = [
     [null, null, [[[prompt]]]],
     [
@@ -676,6 +679,12 @@ export function buildGenVideoPayload(opts: GenVideoPayloadOptions): unknown[] {
     aspectInt,
     audioConfig,
     [null, null, null, null, clientUuid1, clientUuid2],
+    null,
+    null,
+    null,
+    null,
+    null,
+    [4],
   ];
 
   const effectiveProjectId = projectId?.trim() || PROJECT_ID_SLOT;
@@ -714,7 +723,7 @@ export interface GenVideoTextPayloadOptions {
 
 /**
  * Xây inner payload cho RPC_GEN_VIDEO_TEXT (YhhmEf) — text-to-video.
- * === VERIFIED 100% TỪ GÓI TIN MẠNG THỰC TẾ TRÊN GOOGLE FLOW ===
+ * === VERIFIED 100% TỪ GÓI TIN MẠNG THỰC TẾ TRÊN GOOGLE FLOW (texttovid.har) ===
  */
 export function buildGenVideoTextPayload(opts: GenVideoTextPayloadOptions): unknown[] {
   const {
@@ -728,8 +737,7 @@ export function buildGenVideoTextPayload(opts: GenVideoTextPayloadOptions): unkn
   } = opts;
 
   const aspectInt = resolveVideoAspect(aspectRatio);
-
-  const modelKey = videoModel || 'veo_3_1_t2v_lite';
+  const modelKey = resolveVideoModel(videoModel, false);
 
   const clientUuid1 = uuidv4().toUpperCase();
   const clientUuid2 = uuidv4().toUpperCase();
@@ -737,12 +745,16 @@ export function buildGenVideoTextPayload(opts: GenVideoTextPayloadOptions): unkn
 
   const audioConfig = audio ? (typeof audio === 'boolean' ? { enabled: audio } : audio) : null;
 
+  // VERIFIED từ texttovid.har: cấu trúc taskConfig khớp 100% Google Flow
   const taskConfig = [
     [null, null, [[[prompt]]]],
     modelKey,
     aspectInt,
     audioConfig,
     [null, null, null, null, clientUuid1, clientUuid2],
+    null,
+    null,
+    [4],
   ];
 
   const effectiveProjectId = projectId?.trim() || PROJECT_ID_SLOT;
@@ -890,13 +902,15 @@ export function extractGeneratedImages(data: unknown, expectedRpcId?: string): G
       let foundUrl: string | undefined;
       for (const item of node) {
         if (typeof item === 'string') {
+          const isVideoUrl = item.includes('/video/') || item.includes('.mp4') || item.includes('.webm');
           if (
-            item.includes('googleusercontent.com') ||
-            item.includes('flow-content.google') ||
-            item.startsWith('https://') ||
-            item.startsWith('http://') ||
-            item.startsWith('file://') ||
-            item.startsWith('data:')
+            !isVideoUrl &&
+            (item.includes('googleusercontent.com') ||
+              item.includes('flow-content.google') ||
+              item.startsWith('https://') ||
+              item.startsWith('http://') ||
+              item.startsWith('file://') ||
+              item.startsWith('data:'))
           ) {
             foundUrl = item;
           } else if (UUID_RE.test(item)) {
@@ -931,9 +945,11 @@ export function extractGeneratedImages(data: unknown, expectedRpcId?: string): G
     const collectAll = (node: unknown): void => {
       if (!node) return;
       if (typeof node === 'string') {
+        const isVideoUrl = node.includes('/video/') || node.includes('.mp4') || node.includes('.webm');
         if (UUID_RE.test(node) && !allUuids.includes(node)) {
           allUuids.push(node);
         } else if (
+          !isVideoUrl &&
           (node.includes('googleusercontent.com') ||
             node.includes('flow-content.google') ||
             node.startsWith('https://') ||
@@ -1022,6 +1038,23 @@ export function extractOperationStatus(data: unknown, rpcId: string): OperationS
   let foundVideoUrl: string | undefined;
   let foundImageUrl: string | undefined;
 
+  // 1. Kiểm tra pattern Google Flow MZZa6b / YhhmEf chuẩn 2026:
+  // parsedData[3][0][0] là operationId UUID
+  // parsedData[2][0][4] là projectId UUID
+  if (Array.isArray(parsedData) && parsedData.length >= 4) {
+    const jobBlock = parsedData[3];
+    if (Array.isArray(jobBlock) && jobBlock.length > 0 && Array.isArray(jobBlock[0])) {
+      const candidateOpId = jobBlock[0][0];
+      if (typeof candidateOpId === 'string' && UUID_RE.test(candidateOpId)) {
+        foundOpId = candidateOpId;
+      }
+      const candidateProjId = jobBlock[0][1];
+      if (typeof candidateProjId === 'string' && UUID_RE.test(candidateProjId)) {
+        foundProjId = candidateProjId;
+      }
+    }
+  }
+
   const scan = (node: unknown): void => {
     if (!node) return;
     if (typeof node === 'string') {
@@ -1088,7 +1121,25 @@ export function extractOperationStatus(data: unknown, rpcId: string): OperationS
 export function extractPollStatus(data: unknown, expectedOperationId?: string): OperationStatus {
   console.log('[FlowBatch] extractPollStatus raw:', JSON.stringify(data)?.slice(0, 400));
 
-  if (!data || !Array.isArray(data)) {
+  let parsedData = data;
+  if (typeof parsedData === 'string') {
+    try {
+      const parsed = parseBatchResponse(parsedData, RPC_OPERATION);
+      if (parsed.ok && parsed.data) {
+        parsedData = parsed.data;
+      } else {
+        const clean = parsedData.replace(/^\)\]\}'\s*/, '').trim();
+        parsedData = JSON.parse(clean);
+      }
+    } catch {
+      try {
+        const clean = (parsedData as string).replace(/^\)\]\}'\s*/, '').trim();
+        parsedData = JSON.parse(clean);
+      } catch {}
+    }
+  }
+
+  if (!parsedData || !Array.isArray(parsedData)) {
     return { operationId: expectedOperationId ?? '', done: false };
   }
 
@@ -1101,6 +1152,28 @@ export function extractPollStatus(data: unknown, expectedOperationId?: string): 
   let foundStatus: string | undefined;
   let foundError: string | undefined;
   let matchedTargetOp = false;
+
+  // 1. Kiểm tra pattern Google Flow jwpduf chuẩn 2026:
+  // parsedData = [null, <statusNumber>, [[operationId, projectId, assetId, ...]]]
+  if (Array.isArray(parsedData) && parsedData.length >= 3) {
+    const statusNumber = parsedData[1];
+    const items = parsedData[2];
+    if (Array.isArray(items) && items.length > 0 && Array.isArray(items[0])) {
+      const opCandidate = items[0][0];
+      const projCandidate = items[0][1];
+      if (typeof opCandidate === 'string' && (UUID_RE.test(opCandidate) || !expectedOperationId || opCandidate === expectedOperationId)) {
+        foundMediaId = opCandidate;
+        if (typeof projCandidate === 'string' && UUID_RE.test(projCandidate)) {
+          foundProjectId = projCandidate;
+        }
+        // Nếu statusNumber là integer (ví dụ 1783, 1789), video generation đã hoàn tất thành công
+        if (typeof statusNumber === 'number' && Number.isFinite(statusNumber)) {
+          foundStatus = 'CAE';
+          matchedTargetOp = true;
+        }
+      }
+    }
+  }
 
   const scanNode = (node: unknown): void => {
     if (!node) return;
@@ -1184,7 +1257,7 @@ export function extractPollStatus(data: unknown, expectedOperationId?: string): 
     }
   };
 
-  scanNode(data);
+  scanNode(parsedData);
 
   // Video hoàn thành khi xuất hiện link video thật HOẶC status là CAE / COMPLETED / SUCCESS
   const isDone =

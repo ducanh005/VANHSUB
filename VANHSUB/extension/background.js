@@ -811,43 +811,57 @@ async function handleMessage(msg) {
 
           // 1a. Chuyển chế độ (Image vs Video) nếu cần thiết
           const allInitialBtns = Array.from(document.querySelectorAll('button'));
-          const trigger = allInitialBtns.find((b) => {
+          let trigger = allInitialBtns.find((b) => {
             const aria = (b.getAttribute('aria-label') || '').toLowerCase();
+            const txt = (b.innerText || '').toLowerCase();
             return (
+              b.classList.contains('settings-trigger-button') ||
+              b.closest('flow-settings-button') ||
               aria.includes('kích hoạt') ||
-              aria.includes('kich hoat') ||
               aria.includes('cài đặt') ||
-              aria.includes('cai dat') ||
-              aria.includes('settings')
+              aria.includes('settings') ||
+              aria.includes('tùy chọn') ||
+              aria.includes('chế độ') ||
+              txt.includes('video') ||
+              txt.includes('veo') ||
+              txt.includes('imagen') ||
+              txt.includes('hình ảnh') ||
+              txt.includes('ảnh') ||
+              txt.includes('image') ||
+              txt.includes('360p') ||
+              txt.includes('720p') ||
+              txt.includes('giây')
             );
-          }) || document.querySelector('button.settings-trigger-button, flow-settings-button button');
+          }) || document.querySelector('button.settings-trigger-button, flow-settings-button button, flow-prompt-box button');
 
           if (trigger) {
-            const curText = (trigger.innerText || '').toLowerCase();
-            const isVideo = curText.includes('video') || curText.includes('veo') || curText.includes('giây') || curText.includes('giay') || curText.includes('720p') || curText.includes('1080p');
-            const needsSwitch = (reqMode === 'IMAGE' && isVideo) || (reqMode === 'VIDEO' && !isVideo);
+            const curText = ((trigger.innerText || '') + ' ' + (trigger.getAttribute('aria-label') || '')).toLowerCase();
+            const isVideo = curText.includes('video') || curText.includes('veo') || curText.includes('giây') || curText.includes('giay') || curText.includes('720p') || curText.includes('1080p') || curText.includes('360p');
+            const isImage = curText.includes('hình ảnh') || curText.includes('hinh anh') || curText.includes('image') || curText.includes('imagen') || curText.includes('ảnh') || curText.includes('anh');
+            const needsSwitch = (reqMode === 'IMAGE' && (isVideo || !isImage)) || (reqMode === 'VIDEO' && (isImage || !isVideo));
             if (needsSwitch) {
-              console.log(`[VanhSub:UI] 🔄 Đang chuyển chế độ: hiện tại="${curText.slice(0, 30)}" → mục tiêu=${reqMode}...`);
+              console.log(`[VanhSub:UI] 🔄 Đang chuyển chế độ: hiện tại="${curText.slice(0, 40)}" → mục tiêu=${reqMode}...`);
               let pane = document.querySelector('.cdk-overlay-pane, flow-settings-popover');
               if (!pane) {
                 trigger.click();
-                await new Promise((r) => setTimeout(r, 700));
+                await new Promise((r) => setTimeout(r, 600));
                 pane = document.querySelector('.cdk-overlay-pane, flow-settings-popover');
               }
-              const container = document.querySelector('.cdk-overlay-container') || pane;
+              const container = document.querySelector('.cdk-overlay-container') || pane || document.body;
               if (container) {
-                const modeBtns = Array.from(container.querySelectorAll('mat-button-toggle, button, [role="radio"]'));
-                const kw = reqMode === 'IMAGE' ? ['hình ảnh', 'hinh anh', 'image', 'ảnh', 'anh'] : ['video', 'videocam'];
-                const t = modeBtns.find((b) => kw.some((k) => (b.innerText || '').toLowerCase().includes(k)));
+                const modeBtns = Array.from(container.querySelectorAll('mat-button-toggle, button, [role="radio"], [role="menuitem"], [role="tab"]'));
+                const kw = reqMode === 'IMAGE' ? ['hình ảnh', 'hinh anh', 'image', 'imagen', 'ảnh', 'anh'] : ['video', 'videocam', 'veo'];
+                const t = modeBtns.find((b) => kw.some((k) => (b.innerText || b.getAttribute('aria-label') || '').toLowerCase().includes(k)));
                 if (t) {
                   const clickTarget = t.querySelector('button') || t;
                   clickTarget.click();
-                  await new Promise((r) => setTimeout(r, 500));
+                  await new Promise((r) => setTimeout(r, 400));
                 }
               }
               const bd = document.querySelector('.cdk-overlay-backdrop');
               if (bd) bd.click();
-              await new Promise((r) => setTimeout(r, 500));
+              document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+              await new Promise((r) => setTimeout(r, 400));
             }
           }
 
@@ -1021,6 +1035,34 @@ async function handleMessage(msg) {
                   response: genRpc.response,
                 },
               };
+            }
+
+            // Fallback cross-mode: nếu sau 15s không có genRpc theo mode mong muốn,
+            // nhưng đã có RPC media thành công (ví dụ giao diện sinh video kèm thumbnail),
+            // bắt lấy ngay lập tức để trích xuất media thay vì chờ 45s dẫn đến retry trùng lặp
+            if (Date.now() - ts > 15000) {
+              const fallbackRpc = hist.find((h) => {
+                if (!h.url || h.status !== 200 || !h.response) return false;
+                return (
+                  h.url.includes('as29s') ||
+                  h.url.includes('ogiZ0b') ||
+                  h.url.includes('MZZa6b') ||
+                  h.url.includes('YhhmEf')
+                );
+              });
+              if (fallbackRpc) {
+                console.warn('[VanhSub:UI] ⚠️ Bắt được fallback cross-mode RPC:', fallbackRpc.url);
+                return {
+                  ok: true,
+                  crossMode: true,
+                  capturedRpc: {
+                    url: fallbackRpc.url,
+                    rpcid: (fallbackRpc.url.match(/rpcids=([^&]+)/) || [])[1],
+                    status: fallbackRpc.status,
+                    response: fallbackRpc.response,
+                  },
+                };
+              }
             }
           }
           return { ok: false, error: 'TIMEOUT_WAITING_RPC' };
@@ -1378,7 +1420,10 @@ async function runBatchRpc(cmd) {
           }
         }
 
-        const reqid = Math.floor(Math.random() * 900000) + 100000;
+        window.__vanhsub_reqseq = ((window.__vanhsub_reqseq || 0) + 1);
+        const now = new Date();
+        const secondsSinceMidnight = now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds();
+        const reqid = (window.__vanhsub_reqseq * 100000) + secondsSinceMidnight;
         const sourcePath = projectId ? `/project/${projectId}` : (location.pathname || '/');
         const hl = (document.documentElement.lang || navigator.language || 'vi').split('-')[0];
 
@@ -1389,8 +1434,8 @@ async function runBatchRpc(cmd) {
           `&bl=${encodeURIComponent(bl || '')}&f.sid=${encodeURIComponent(sid || '')}` +
           `&hl=${encodeURIComponent(hl)}&_reqid=${reqid}&rt=c`;
 
-        // Chuẩn hoá URLSearchParams envelope và headers tối giản theo chuẩn FlowKit (loại bỏ artificial headers bị Google WAF flag)
-        const body = new URLSearchParams({ 'f.req': finalFreq, at });
+        // Chuẩn hoá POST body với trailing & chuẩn Google batchexecute theo phân tích HAR
+        const body = `f.req=${encodeURIComponent(finalFreq)}&at=${encodeURIComponent(at)}&`;
 
         const headers = {
           'content-type': 'application/x-www-form-urlencoded;charset=UTF-8',

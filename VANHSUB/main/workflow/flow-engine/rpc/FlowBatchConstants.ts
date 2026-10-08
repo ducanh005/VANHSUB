@@ -145,13 +145,20 @@ export const IMG_MODEL_BY_ALIAS: Record<string, string> = {
 
 // ── Video Model Wire IDs ──────────────────────────────────────────────────────
 
-/** Video model mặc định */
-export const VID_MODEL_DEFAULT = 'veo_3_1_i2v_lite_low_priority';
+/** Video model mặc định (Google Flow 2026 wire model từ HAR) */
+export const VID_MODEL_DEFAULT = 'abra_t2v_8s_360p';
 
 /** Tất cả video model wire ids */
 export const VID_MODELS = new Set([
+  'abra_t2v_8s_360p',
+  'abra_r2v_8s_360p',
+  'abra_t2v_4s_360p',
+  'abra_r2v_4s_360p',
+  'abra_t2v_8s_720p',
+  'abra_r2v_8s_720p',
   'veo_3_1_i2v_lite_low_priority',
   'veo_3_1_i2v_lite',
+  'veo_3_1_r2v_lite',
   'veo_3_1_i2v_s_fast_ultra',
 ]);
 
