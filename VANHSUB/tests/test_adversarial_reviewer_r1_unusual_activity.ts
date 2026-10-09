@@ -258,12 +258,11 @@ async function runAdversarialReviewerTests() {
         'Server rejected request: public_error_unusual_activity in batchexecute response',
       ]) {
         const classified = classifyFlowRpcError(new Error(rawCode));
-        assert.strictEqual(classified.retryable, true, `${rawCode} phải có retryable = true`);
-        assert.strictEqual(classified.suggestedAction, 'RETRY_WITH_BACKOFF', `${rawCode} phải đề xuất RETRY_WITH_BACKOFF`);
+        assert.strictEqual(classified.retryable, false, `${rawCode} phải có retryable = false`);
+        assert.strictEqual(classified.suggestedAction, 'ABORT_HALT', `${rawCode} phải đề xuất ABORT_HALT`);
         assert.strictEqual(classified.isUnusualActivity, true, `${rawCode} phải có isUnusualActivity = true`);
-        assert.ok(classified.retryAfterMs && classified.retryAfterMs >= 20000, `${rawCode} phải có retryAfterMs >= 20s`);
       }
-      console.log('  [PASS] 100% các biến thể bot-flag được phân loại thành công sang RETRY_WITH_BACKOFF với retryable: true');
+      console.log('  [PASS] 100% các biến thể bot-flag được phân loại thành công sang ABORT_HALT với retryable: false');
     }
 
     console.log('\n========================================================================');

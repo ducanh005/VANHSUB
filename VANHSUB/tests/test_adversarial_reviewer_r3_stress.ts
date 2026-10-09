@@ -310,13 +310,13 @@ async function runRound3AdversarialSuite() {
 
       for (const alias of aliases) {
         const classified = FlowErrorClassifier.classify(new Error(alias));
-        assert.strictEqual(classified.category, 'RETRYABLE', `Alias "${alias}" phải thuộc RETRYABLE`);
-        assert.strictEqual(classified.canRetry, true, `Alias "${alias}" phải có canRetry = true`);
-        assert.strictEqual(classified.suggestedAction, 'RETRY_WITH_BACKOFF', `Alias "${alias}" phải có RETRY_WITH_BACKOFF`);
+        assert.strictEqual(classified.category, 'NON_RETRYABLE', `Alias "${alias}" phải thuộc NON_RETRYABLE`);
+        assert.strictEqual(classified.canRetry, false, `Alias "${alias}" phải có canRetry = false`);
+        assert.strictEqual(classified.suggestedAction, 'ABORT_HALT', `Alias "${alias}" phải có ABORT_HALT`);
         assert.strictEqual(classified.code, 'PUBLIC_ERROR_UNUSUAL_ACTIVITY', `Alias "${alias}" phải có code PUBLIC_ERROR_UNUSUAL_ACTIVITY`);
       }
 
-      console.log('  [PASS] FlowErrorClassifier chuẩn hoá 100% biến thể bot-flag thành công');
+      console.log('  [PASS] FlowErrorClassifier chuẩn hoá 100% biến thể bot-flag sang NON_RETRYABLE (ABORT_HALT)');
     }
 
     console.log('\n========================================================================');

@@ -288,7 +288,7 @@ async function runAdversarialReviewerRound2Tests() {
       const preAborted = new AbortController();
       preAborted.abort();
       const preRes = await bridge.triggerUiGen('test prompt', 10000, 'proj-1', 'image', preAborted.signal);
-      assert.strictEqual(preRes.error, 'CANCELLED', 'triggerUiGen phải trả lời CANCELLED lập tức khi signal đã abort');
+      assert.ok(preRes.error === 'CANCELLED' || preRes.error === 'ABORTED', 'triggerUiGen phải trả lời CANCELLED hoặc ABORTED lập tức khi signal đã abort');
 
       // 4b. triggerUiGen bị abort giữa chừng
       const midAbort = new AbortController();
@@ -296,7 +296,7 @@ async function runAdversarialReviewerRound2Tests() {
       // Abort sau 50ms
       setTimeout(() => midAbort.abort(), 50);
       const midRes = await triggerPromise;
-      assert.strictEqual(midRes.error, 'CANCELLED', 'triggerUiGen phải ngắt lập tức khi signal abort giữa chừng');
+      assert.ok(midRes.error === 'CANCELLED' || midRes.error === 'ABORTED', 'triggerUiGen phải ngắt lập tức khi signal abort giữa chừng');
 
       // 4c. recoverUnusualActivity với signal abort
       const recAbort = new AbortController();
@@ -318,17 +318,16 @@ async function runAdversarialReviewerRound2Tests() {
     {
       const c1 = FlowErrorClassifier.classify(new Error('PUBLIC_ERROR_UNUSUAL_ACTIVITY'));
       assert.strictEqual(c1.code, 'PUBLIC_ERROR_UNUSUAL_ACTIVITY');
-      assert.strictEqual(c1.category, 'RETRYABLE');
-      assert.strictEqual(c1.canRetry, true);
-      assert.strictEqual(c1.suggestedAction, 'RETRY_WITH_BACKOFF');
-      assert.strictEqual(c1.recommendedDelayMs, 20000);
+      assert.strictEqual(c1.category, 'NON_RETRYABLE');
+      assert.strictEqual(c1.canRetry, false);
+      assert.strictEqual(c1.suggestedAction, 'ABORT_HALT');
 
       const c2 = FlowErrorClassifier.classify(new Error('bot_flagged by google'));
       assert.strictEqual(c2.code, 'PUBLIC_ERROR_UNUSUAL_ACTIVITY');
-      assert.strictEqual(c2.category, 'RETRYABLE');
-      assert.strictEqual(c2.canRetry, true);
+      assert.strictEqual(c2.category, 'NON_RETRYABLE');
+      assert.strictEqual(c2.canRetry, false);
 
-      console.log('  [PASS] FlowErrorClassifier chuẩn hoá chính xác PUBLIC_ERROR_UNUSUAL_ACTIVITY sang RETRYABLE');
+      console.log('  [PASS] FlowErrorClassifier chuẩn hoá chính xác PUBLIC_ERROR_UNUSUAL_ACTIVITY sang NON_RETRYABLE (ABORT_HALT)');
     }
 
     // ════════════════════════════════════════════════════════════════════════

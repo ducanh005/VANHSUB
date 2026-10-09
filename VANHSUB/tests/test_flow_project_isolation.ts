@@ -44,8 +44,8 @@ async function main() {
   await assert.rejects(context.ensure({ id: 1, url }, undefined, true), /FLOW_PROJECT_CREATE_FAILED/);
   for (const code of ['PUBLIC_ERROR_UNUSUAL_ACTIVITY', 'BOT_FLAGGED', 'CAPTCHA_SCORE_LOW']) {
     const error = classifyFlowRpcError(new Error(code));
-    assert.equal(error.retryable, true);
-    assert.equal(error.suggestedAction, 'RETRY_WITH_BACKOFF');
+    assert.equal(error.retryable, false);
+    assert.equal(error.suggestedAction, 'ABORT_HALT');
   }
   assert.equal(classifyFlowRpcError(new Error('HTTP 429 too many requests')).retryable, true);
   const service = new AiStudioVisualService();
@@ -56,8 +56,8 @@ async function main() {
   try {
     await assert.rejects(service.dispatchVisualAssets([{ id: 'scene-1', motionType: 'ken_burns' }] as any,
       { maxRetries: 3, backoffBaseMs: 0 }, temp), /Google Flow từ chối|PUBLIC_ERROR_UNUSUAL_ACTIVITY/);
-    assert.equal(requests, 4, 'Phải có cơ chế retry có kiểm soát với backoff (1 ban đầu + 3 retries)');
+    assert.equal(requests, 1, 'Khi gặp PUBLIC_ERROR_UNUSUAL_ACTIVITY, không được retry mù quáng mà phải dừng ngay');
   } finally { fs.rmSync(temp, { recursive: true }); }
-  console.log('PASS: project creation, resume, missing owner, mismatch, failed creation, 3 activity blocks, rate-limit retry.');
+  console.log('PASS: project creation, resume, missing owner, mismatch, failed creation, 3 activity blocks non-retryable, rate-limit retry.');
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });
