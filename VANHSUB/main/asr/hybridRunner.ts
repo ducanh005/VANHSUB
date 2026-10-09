@@ -12,6 +12,7 @@ import { sanitizeSubtitles } from '../lib/subtitleSanitizer';
 import { deduplicateSubtitlesPipeline, deduplicateProgressiveKaraoke } from '../lib/subtitleDeduplication';
 import { fuseOcrAndWhisper } from './hybridFusionEngine';
 import { normalizeSrtLines } from '../lib/srtNormalizer';
+import { validateSubtitleTimeline } from '../lib/timelineDiagnostics';
 import { TranslateRunner } from '../translate/translateRunner';
 import { CancelledError, isCancelledError } from '../lib/cancel';
 import { getProjectArtifactPaths } from '../utils/projectFolder';
@@ -137,6 +138,13 @@ export class HybridRunner {
       if (fs.existsSync(whisperResult.srtPath)) {
         const whisperSrtContent = fs.readFileSync(whisperResult.srtPath, 'utf-8');
         whisperSegments = parseSrt(whisperSrtContent);
+        for (const line of whisperSegments) {
+          line.source = 'asr';
+          line.speechStartMs = line.startMs;
+          line.speechEndMs = line.endMs;
+          line.words = whisperResult.words?.filter((word) =>
+            word.startMs >= line.startMs - 2 && word.endMs <= line.endMs + 2);
+        }
       }
       console.log(`[HybridRunner] Whisper ASR hoàn tất: ${whisperSegments.length} dòng lời thoại.`);
 
@@ -194,6 +202,7 @@ export class HybridRunner {
         useGeminiAi: options?.useGeminiAi,
         preserveSpeechOnlyWhisper: true,
         deduplicateKaraoke: true,
+        timingSource: 'speech',
       });
 
       console.log(
@@ -224,7 +233,7 @@ export class HybridRunner {
         console.warn(`[HybridRunner] [Sanitizer] Bỏ qua lọc rác do lỗi:`, sanErr);
       }
       try {
-        const normResult = normalizeSrtLines(finalSegments, { audioSegments: whisperSegments });
+        const normResult = normalizeSrtLines(finalSegments, { preserveEvidenceTiming: true });
         finalSegments = normResult.lines;
         console.log(`[HybridRunner] [Normalizer] Đã chuẩn hoá timeline và câu (${finalSegments.length} dòng).`);
       } catch (normErr) {
@@ -232,6 +241,12 @@ export class HybridRunner {
       }
 
       const hybridSrtContent = serializeSrt(finalSegments);
+      const timelineIssues = validateSubtitleTimeline(finalSegments);
+      if (timelineIssues.some((issue) => issue.severity === 'error')) {
+        throw new Error(`Hybrid timeline contains invalid timestamps: ${JSON.stringify(timelineIssues.filter((issue) => issue.severity === 'error'))}`);
+      }
+      fs.writeFileSync(hybridTargetPath.replace(/\.srt$/i, '.timeline.json'),
+        JSON.stringify({ segments: finalSegments, issues: timelineIssues }, null, 2), 'utf-8');
       fs.writeFileSync(hybridTargetPath, hybridSrtContent, 'utf-8');
 
       // Cập nhật TaskStore hoàn thành

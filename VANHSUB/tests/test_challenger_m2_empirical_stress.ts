@@ -294,7 +294,7 @@ nhưng giá cho mỗi hoạt động tính thế nào?
       );
     });
 
-    await challenge('3.2 Flexible Mode Drift Capping: Cumulative drift respects MAX_DRIFT_MS (<= 3000ms) under continuous overrun', async () => {
+    await challenge('3.2 Flexible Mode rejects speech that cannot fit the original dialogue interval', async () => {
       const srtLines: string[] = [];
       const overrunDir = path.join(tempDir, 'tts_overrun_sequence');
       fs.mkdirSync(overrunDir, { recursive: true });
@@ -332,18 +332,11 @@ nhưng giá cho mỗi hoạt động tính thế nào?
       fs.writeFileSync(path.join(overrunDir, 'manifest.json'), JSON.stringify(manifestEntries), 'utf-8');
 
       const overrunMp3 = path.join(tempDir, 'merged_overrun_flexible.mp3');
-      const res = await mergeAudioFiles(overrunSrtPath, overrunDir, overrunMp3, undefined, { mode: 'flexible' });
-      assert.ok(fs.existsSync(res.audioPath));
-
-      const actualDuration = await getMediaDurationSec(overrunMp3);
-      const baselineEndMs = (curMs - 200) + 500;
-      const maxAllowedEndSec = (baselineEndMs + 3500) / 1000; // baseline + 3s max drift + 500ms tolerance
-
-      assert.ok(
-        actualDuration <= maxAllowedEndSec,
-        `Thời lượng flexible không được vượt quá MAX_DRIFT_MS (Thực tế: ${actualDuration.toFixed(2)}s, Ngưỡng cho phép: ${maxAllowedEndSec.toFixed(2)}s)`
+      await assert.rejects(
+        () => mergeAudioFiles(overrunSrtPath, overrunDir, overrunMp3, undefined, { mode: 'flexible' }),
+        /Dubbing timing conflict at subtitle 1/,
       );
-      assert.ok(res.overruns.length > 0, `Phải ghi nhận overruns do câu dài tràn thời lượng (ghi nhận: ${res.overruns.length})`);
+      assert.ok(!fs.existsSync(overrunMp3), 'Invalid continuous overrun must not produce an accepted render');
     });
 
   } finally {

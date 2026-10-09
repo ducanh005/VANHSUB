@@ -1,11 +1,30 @@
 import fs from 'fs';
 import path from 'path';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
 import { OpenAI } from 'openai';
 import { SettingsStore } from '../store/settingsStore';
 import { VoiceSampleStore } from '../store/voiceSampleStore';
 import { getSharedTikTokProvider } from '../tts-providers/tiktok/sessionStores';
 import { EdgeTTSClient } from '../tts-providers/edge/EdgeTTSClient';
 import { CancelledError } from '../lib/cancel';
+import { parseSrtStrict, formatMs } from '../lib/srt';
+import { getFfmpegBinPath, getMediaDurationSec } from '../asr/audioExtractor';
+import { createGeminiClient } from '../ai/geminiClient';
+import { adaptTtsDuration, configuredMaxTempo, type TtsTimingAttempt } from './ttsTiming';
+
+const execFileAsync = promisify(execFile);
+
+async function verifyAudibleAudio(audioPath: string): Promise<void> {
+  const { stderr } = await execFileAsync(getFfmpegBinPath(), [
+    '-hide_banner', '-i', audioPath, '-af', 'volumedetect', '-f', 'null', '-',
+  ]);
+  const match = String(stderr).match(/max_volume:\s*(-?\d+(?:\.\d+)?|-inf)\s*dB/i);
+  const peakDb = match ? Number(match[1]) : Number.NaN;
+  if (!Number.isFinite(peakDb) || peakDb < -60) {
+    throw new Error(`TTS audio is silent or could not be verified: ${audioPath}`);
+  }
+}
 
 /** Engine tạo audio cho lồng tiếng */
 export type TTSEngine = 'viettts' | 'tiktok' | 'edge';
@@ -19,6 +38,8 @@ export interface TTSOptions {
   voiceOverrides?: Record<string, string>;
   /** Trả về true để dừng giữa chừng (huỷ bởi người dùng) — kiểm tra trước mỗi dòng */
   shouldStop?: () => boolean;
+  /** Maximum pitch-preserving tempo in the final merge. */
+  maxTempo?: number;
 }
 
 export interface SubtitleLine {
@@ -125,48 +146,20 @@ export function groupSubtitlesForTts(
 }
 
 /**
- * Chuyển đổi định dạng timecode SRT (HH:MM:SS,mmm) sang milliseconds
- */
-function timeToMs(timeStr: string): number {
-  const [time, ms] = timeStr.split(',');
-  const [h, m, s] = time.split(':').map(Number);
-  return h * 3600000 + m * 60000 + s * 1000 + (ms ? Number(ms) : 0);
-}
-
-/**
  * Parse file SRT thành mảng subtitle lines
  */
 function parseSrtFile(srtPath: string): SubtitleLine[] {
   const content = fs.readFileSync(srtPath, 'utf-8');
-  const blocks = content.split(/\n\s*\n/);
-  const lines: SubtitleLine[] = [];
-
-  for (const block of blocks) {
-    const lines_in_block = block.trim().split('\n');
-    if (lines_in_block.length < 3) continue;
-
-    const index = Number(lines_in_block[0]);
-    const timeLine = lines_in_block[1];
-    const [startTime, endTime] = timeLine.split(' --> ');
-    const text = lines_in_block.slice(2).join('\n').trim();
-
-    if (!startTime || !endTime || !text) continue;
-
-    const startMs = timeToMs(startTime);
-    const endMs = timeToMs(endTime);
-
-    lines.push({
-      index,
-      startTime,
-      endTime,
-      text,
-      startMs,
-      endMs,
-      durationMs: endMs - startMs,
-    });
-  }
-
-  return lines;
+  return parseSrtStrict(content).map((line, index) => ({
+    index: index + 1,
+    startTime: formatMs(line.startMs),
+    endTime: formatMs(line.endMs),
+    text: line.text,
+    startMs: line.startMs,
+    endMs: line.endMs,
+    durationMs: line.endMs - line.startMs,
+    speaker: line.speaker,
+  }));
 }
 
 /**
@@ -332,6 +325,27 @@ export interface TtsManifestEntry {
   isGroupMember?: boolean;
   leaderIndex?: number;
   groupIndices?: number[];
+  sourceTextVerified?: boolean;
+  spokenText?: string;
+  timingAttempts?: TtsTimingAttempt[];
+  slotMs?: number;
+  requiredTempo?: number;
+}
+
+async function shortenForSpeech(text: string, targetRatio: number): Promise<string | null> {
+  if (!SettingsStore.hasGeminiKey()) return null;
+  const { client, model } = createGeminiClient();
+  const reply = await client.chat.completions.create({ model, temperature: 0.2,
+    messages: [
+      { role: 'system', content: 'Shorten this translated dialogue naturally for dubbing. Keep the same language, every factual meaning, negation, number, name, and speaker intent. Return only the shorter spoken line. If meaning cannot be preserved, return the original.' },
+      { role: 'user', content: `Target character ratio about ${targetRatio.toFixed(2)}. Dialogue: ${text}` },
+    ],
+  });
+  const candidate = reply.choices[0]?.message?.content?.trim() ?? '';
+  const protectedTokens = (text.match(/\d+(?:[.,]\d+)*|\b(?:không|chẳng|chưa|đừng|not|never|no)\b/giu) ?? [])
+    .map((token) => token.toLocaleLowerCase());
+  if (!protectedTokens.every((token) => candidate.toLocaleLowerCase().includes(token))) return null;
+  return candidate || null;
 }
 
 const MANIFEST_FILE = 'manifest.json';
@@ -352,6 +366,21 @@ function saveManifest(outputDir: string, manifest: Record<string, TtsManifestEnt
     fs.writeFileSync(path.join(outputDir, MANIFEST_FILE), JSON.stringify(manifest), 'utf-8');
   } catch (err) {
     console.warn('[TTS] Không ghi được manifest cache:', err);
+  }
+}
+
+function recordDubbingTiming(srtPath: string, entry: Record<string, unknown>): void {
+  const timelinePath = srtPath.replace(/\.srt$/i, '.timeline.json');
+  try {
+    const data = fs.existsSync(timelinePath) ? JSON.parse(fs.readFileSync(timelinePath, 'utf8')) : {};
+    const dubbing = Array.isArray(data.dubbing) ? data.dubbing : [];
+    const index = dubbing.findIndex((item: any) => item.startIndex === entry.startIndex);
+    if (index >= 0) dubbing[index] = entry;
+    else dubbing.push(entry);
+    data.dubbing = dubbing;
+    fs.writeFileSync(timelinePath, JSON.stringify(data, null, 2), 'utf8');
+  } catch (err) {
+    console.warn('[TTS] Could not write timeline diagnostics:', err);
   }
 }
 
@@ -390,7 +419,8 @@ export async function regenerateTtsLine(
 
   // Cập nhật manifest cache để lần TTS chạy lại không regenerate dòng này
   const manifest = loadManifest(ttsAudioDir);
-  manifest[String(lineIndex)] = { voice: voiceToUse, speed: speedToUse, text: sub.text, engine: engineToUse };
+  manifest[String(lineIndex)] = { voice: voiceToUse, speed: speedToUse, text: sub.text, engine: engineToUse,
+    sourceTextVerified: true };
   saveManifest(ttsAudioDir, manifest);
 
   console.log(`[TTS] ✓ Đã ghi đè ${audioPath}`);
@@ -439,6 +469,9 @@ export async function generateTtsFromSrt(
     try {
       const masterFileName = `subtitle_${String(group.startIndex).padStart(4, '0')}.mp3`;
       const masterPath = path.join(outputDir, masterFileName);
+      const nextGroup = groups[gIdx + 1];
+      const slotMs = Math.min(group.endMs, nextGroup?.startMs ?? group.endMs) - group.startMs;
+      const maxTempo = options?.maxTempo ?? configuredMaxTempo();
 
       // Cache hit: master file đã tồn tại và khớp cấu hình + text
       const manifestEntry = manifest[String(group.startIndex)];
@@ -451,20 +484,57 @@ export async function generateTtsFromSrt(
         fs.existsSync(masterPath) &&
         fs.statSync(masterPath).size > 0;
 
-      if (!isCacheHit) {
+      let timingAttempts = manifestEntry?.timingAttempts;
+      let spokenText = manifestEntry?.spokenText ?? group.text;
+      let requiredTempo = manifestEntry?.requiredTempo;
+      const cachedDurationMs = isCacheHit ? await getMediaDurationSec(masterPath) * 1000 : 0;
+      if (!isCacheHit || cachedDurationMs > slotMs * maxTempo) {
         console.log(
           `[TTS] Đang xử lý nhóm câu ${gIdx + 1}/${groups.length} (dòng ${group.startIndex}-${group.endIndex}, ${group.voice}): "${group.text.slice(0, 50)}..."`
         );
 
-        // Generate audio từ trọn vẹn group.text trong 1 API call
-        const audioBuffer = await withRetry(() =>
-          generateAudio(group.text, group.voice, group.speed, group.engine)
-        );
-
-        fs.writeFileSync(masterPath, audioBuffer);
-        console.log(`[TTS] ✓ Đã tạo ${masterFileName} (${audioBuffer.length} bytes)`);
+        const candidates: string[] = [];
+        const generated = new Map<string, string>();
+        let first = true;
+        try {
+          const result = await adaptTtsDuration({
+            text: group.text, speed: group.speed, slotMs, maxTempo,
+            supportsRate: group.engine !== 'tiktok',
+            shorten: SettingsStore.hasGeminiKey() ? async (text, ratio) => {
+              try { return await shortenForSpeech(text, ratio); }
+              catch (err) { console.warn('[TTS] Shortening unavailable:', err); return null; }
+            } : undefined,
+            synthesize: async (text, rate) => {
+              const key = `${text}\u0000${rate}`;
+              if (first && isCacheHit && (!manifestEntry?.spokenText || manifestEntry.spokenText === text) && rate === group.speed) {
+                first = false;
+                generated.set(key, masterPath);
+                return cachedDurationMs;
+              }
+              first = false;
+              const candidatePath = path.join(outputDir, `.subtitle_${group.startIndex}_${candidates.length}.mp3`);
+              const audioBuffer = await withRetry(() => generateAudio(text, group.voice, rate, group.engine));
+              fs.writeFileSync(candidatePath, audioBuffer);
+              candidates.push(candidatePath);
+              generated.set(key, candidatePath);
+              return await getMediaDurationSec(candidatePath) * 1000;
+            },
+          });
+          const chosenPath = generated.get(`${result.chosen.text}\u0000${result.chosen.speed}`);
+          if (!chosenPath) throw new Error('TTS timing candidate missing');
+          await verifyAudibleAudio(chosenPath);
+          if (chosenPath !== masterPath) fs.copyFileSync(chosenPath, masterPath);
+          timingAttempts = result.attempts;
+          spokenText = result.chosen.text;
+          requiredTempo = result.requiredTempo;
+          console.log(`[TTS] ✓ ${masterFileName}: ${Math.round(result.chosen.durationMs)} ms / ${slotMs} ms, tempo ${requiredTempo.toFixed(2)}x`);
+        } finally {
+          for (const candidatePath of candidates) fs.rmSync(candidatePath, { force: true });
+        }
       } else {
         cacheHits++;
+        await verifyAudibleAudio(masterPath);
+        requiredTempo = cachedDurationMs / slotMs;
       }
 
       // Cập nhật manifest cho leader
@@ -475,7 +545,15 @@ export async function generateTtsFromSrt(
         engine: group.engine,
         isGroupLeader: group.subtitles.length > 1,
         groupIndices: group.subtitles.map((s) => s.index),
+        sourceTextVerified: true,
+        spokenText,
+        timingAttempts,
+        slotMs,
+        requiredTempo,
       };
+      recordDubbingTiming(srtPath, { startIndex: group.startIndex, endIndex: group.endIndex,
+        sourceStartMs: group.startMs, sourceEndMs: group.endMs, slotMs, spokenText,
+        timingAttempts, requiredTempo, status: 'ready' });
 
       // Cho từng member trong group: ghi nhận manifest và copy audio file
       for (const sub of group.subtitles) {
@@ -504,6 +582,11 @@ export async function generateTtsFromSrt(
       // Ghi manifest sau mỗi câu — app đóng giữa chừng vẫn giữ cache phần đã tạo
       if (++cacheSkipped % 10 === 0) saveManifest(outputDir, manifest);
     } catch (err) {
+      if (String(err).includes('TTS timing conflict')) {
+        recordDubbingTiming(srtPath, { startIndex: group.startIndex, endIndex: group.endIndex,
+          sourceStartMs: group.startMs, sourceEndMs: group.endMs,
+          status: 'conflict', detail: String(err) });
+      }
       console.error(
         `[TTS] ✗ Lỗi tạo audio cho nhóm câu ${gIdx + 1} (dòng ${group.startIndex}-${group.endIndex}):`,
         err

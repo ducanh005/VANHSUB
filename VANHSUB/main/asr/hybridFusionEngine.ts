@@ -3,6 +3,8 @@ import { isOcrGarbageLine } from '../lib/subtitleSanitizer';
 import { deduplicateProgressiveKaraoke, deduplicateExact } from '../lib/subtitleDeduplication';
 
 export interface HybridFusionOptions {
+  /** Matched speech uses ASR timing; OCR-only events retain visual timing. */
+  timingSource?: 'ocr' | 'speech';
   /**
    * Cửa sổ thời gian tìm kiếm ứng viên Whisper xung quanh phân đoạn OCR.
    * [startMs - toleranceMs, endMs + toleranceMs]. Mặc định: 800ms.
@@ -332,7 +334,7 @@ export function alignTokens(
 
 /**
  * Hợp nhất dữ liệu phụ đề giữa Quét OCR và Phiên âm Whisper ASR:
- * 1. Neo mốc thời gian startMs, endMs 100% THEO OCR (khớp tuyệt đối từng khung hình video).
+ * 1. Keep OCR display evidence separate from ASR speech timing when speech mode is selected.
  * 2. Đối chiếu các đoạn văn bản Whisper trong cửa sổ [startMs - 800ms, endMs + 800ms].
  * 3. Sửa lỗi chính tả quang học (1/l, 0/O), phục hồi dấu tiếng Việt và bổ sung từ bị khuất.
  * 4. Bảo toàn nguyên vẹn các banner đồ họa / chữ trên màn hình không có tiếng nói.
@@ -386,6 +388,10 @@ export function fuseOcrAndWhisper(
         endMs: line.endMs,
         text: line.text,
         confidence: line.confidence,
+        source: 'ocr',
+        displayStartMs: line.startMs,
+        displayEndMs: line.endMs,
+        sourceIds: [line.id],
       });
     }
     return { segments: cloned, stats };
@@ -397,7 +403,7 @@ export function fuseOcrAndWhisper(
   for (let idx = 0; idx < ocrToProcess.length; idx++) {
     const ocr = ocrToProcess[idx];
 
-    // QUY TẮC BẤT DI BẤT DỊCH: Neo thời gian 100% khớp mốc OCR
+    // Preserve the observed visual interval even when speech timing wins.
     const anchoredStartMs = ocr.startMs;
     const anchoredEndMs = ocr.endMs;
 
@@ -422,6 +428,10 @@ export function fuseOcrAndWhisper(
         endMs: anchoredEndMs,
         text: ocr.text,
         confidence: ocr.confidence,
+        source: 'ocr',
+        displayStartMs: anchoredStartMs,
+        displayEndMs: anchoredEndMs,
+        sourceIds: [ocr.id],
       });
       continue;
     }
@@ -442,9 +452,22 @@ export function fuseOcrAndWhisper(
       continue;
     }
 
-    // Gom toàn bộ token Whisper từ các ứng viên trong cửa sổ
+    // Select one speech turn. Concatenating every nearby candidate can append the
+    // next sentence to this OCR event and consume its ASR identity.
+    candidates.sort((a, b) => {
+      const score = (w: SrtLine) => {
+        const tokens = w.text.trim().split(/\s+/).filter(Boolean);
+        const similarity = alignTokens(ocrWords, tokens).averageScore;
+        const overlap = Math.max(0, Math.min(ocr.endMs, w.endMs) - Math.max(ocr.startMs, w.startMs));
+        return similarity + 0.1 * overlap / Math.max(1, ocr.endMs - ocr.startMs);
+      };
+      return score(b) - score(a);
+    });
+    const matchedCandidate = candidates[0];
+
+    // Compare only the selected speech turn with this visual event.
     const candidateWhisperTokens: string[] = [];
-    for (const c of candidates) {
+    for (const c of [matchedCandidate]) {
       const words = c.text.trim().split(/\s+/).filter(Boolean);
       candidateWhisperTokens.push(...words);
     }
@@ -470,9 +493,7 @@ export function fuseOcrAndWhisper(
     }
 
     // Đánh dấu các candidates Whisper đã được tiêu thụ
-    for (const c of candidates) {
-      consumedWhisper.add(c);
-    }
+    consumedWhisper.add(matchedCandidate);
 
     // Có sự tương đồng tốt -> Hợp nhất nội dung & sửa lỗi văn bản
     stats.matchedSegments++;
@@ -526,10 +547,22 @@ export function fuseOcrAndWhisper(
 
     resultSegments.push({
       id: ocr.id || `line-${idx}`,
-      startMs: anchoredStartMs,
-      endMs: anchoredEndMs,
+      startMs: options?.timingSource === 'speech' ? matchedCandidate.startMs : anchoredStartMs,
+      endMs: options?.timingSource === 'speech' ? matchedCandidate.endMs : anchoredEndMs,
       text: repairedText,
-      confidence: Math.max(ocr.confidence || 0, 0.95), // Được ASR củng cố độ tin cậy
+      confidence: Math.max(ocr.confidence || 0, matchedCandidate.confidence || 0),
+      evidenceConfidence: {
+        asr: matchedCandidate.confidence,
+        ocr: ocr.confidence === undefined ? undefined : (ocr.confidence > 1 ? ocr.confidence / 100 : ocr.confidence),
+      },
+      source: 'hybrid',
+      originalText: matchedCandidate.text,
+      speechStartMs: matchedCandidate.startMs,
+      speechEndMs: matchedCandidate.endMs,
+      displayStartMs: anchoredStartMs,
+      displayEndMs: anchoredEndMs,
+      sourceIds: [matchedCandidate.id, ocr.id],
+      needsReview: ocr.needsReview || (options?.timingSource === 'speech' && !matchedCandidate.words?.length),
     });
   }
 
@@ -542,6 +575,47 @@ export function fuseOcrAndWhisper(
       }
     }
     resultSegments.sort((a, b) => a.startMs - b.startMs);
+  }
+
+  // A single coarse ASR sentence may correspond to several visual subtitles.
+  // Without word alignment there is no defensible speech boundary for each
+  // phrase. Keep their observed display windows and flag them for review.
+  if (options?.timingSource === 'speech') {
+    const counts = new Map<string, number>();
+    for (const segment of resultSegments) {
+      if (segment.source === 'hybrid' && segment.sourceIds?.[0]) {
+        const id = segment.sourceIds[0];
+        counts.set(id, (counts.get(id) || 0) + 1);
+      }
+    }
+    for (const [sourceId, count] of counts) {
+      if (count <= 1) continue;
+      const speech = whisperSegments.find((item) => item.id === sourceId);
+      const siblings = resultSegments.filter((item) => item.source === 'hybrid' && item.sourceIds?.[0] === sourceId)
+        .sort((a, b) => (a.displayStartMs ?? a.startMs) - (b.displayStartMs ?? b.startMs));
+      let previousWordEnd = -1;
+      for (const segment of siblings) {
+        const visual = ocrToProcess.find((item) => item.id === segment.sourceIds?.[1]);
+        const tokens = visual?.text.trim().split(/\s+/).filter(Boolean) || [];
+        const timedWords = speech?.words || [];
+        const alignment = alignTokens(tokens, timedWords.map((word) => word.word));
+        const matched = alignment.steps.filter((step) => step.ocrIdx >= 0 && step.whisperIdx >= 0 && step.matchType !== 'none')
+          .map((step) => step.whisperIdx);
+        const first = matched.length ? Math.min(...matched) : -1;
+        const last = matched.length ? Math.max(...matched) : -1;
+        if (alignment.averageScore >= minSimilarityThreshold && first > previousWordEnd &&
+            timedWords[first] && timedWords[last]) {
+          segment.startMs = timedWords[first].startMs;
+          segment.endMs = timedWords[last].endMs;
+          previousWordEnd = last;
+        } else {
+          segment.startMs = segment.displayStartMs!;
+          segment.endMs = segment.displayEndMs!;
+          segment.needsReview = true;
+        }
+      }
+    }
+    resultSegments.sort((a, b) => a.startMs - b.startMs || a.endMs - b.endMs);
   }
 
   return {

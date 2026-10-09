@@ -217,12 +217,17 @@ async function run() {
       };
       fs.writeFileSync(path.join(ttsDir, 'manifest.json'), JSON.stringify(orphanManifest), 'utf-8');
 
+      // Keep the audio inside its one-second source turn so this test isolates
+      // malformed manifest recovery from the independent duration guard.
+      await runFfmpeg(['-f', 'lavfi', '-i', 'sine=frequency=400:duration=0.8',
+        '-c:a', 'libmp3lame', '-y', path.join(ttsDir, 'subtitle_0001.mp3')]);
+
       const outMp3 = path.join(tempDir, 'orphan_out.mp3');
       const res = await mergeAudioFiles(srtPath, ttsDir, outMp3, undefined, { mode: 'flexible' });
       assert.ok(fs.existsSync(res.audioPath));
     });
 
-    await runAdversarialTest('ADV-3.3: Missing audio file for group leader produces silence instead of crashing', async () => {
+    await runAdversarialTest('ADV-3.3: Missing audio file for group leader fails explicitly', async () => {
       const srtPath = path.join(tempDir, 'missing_audio.srt');
       fs.writeFileSync(srtPath, `1\n00:00:01,000 --> 00:00:03,000\ncâu không có audio\n`, 'utf-8');
 
@@ -230,8 +235,9 @@ async function run() {
       fs.mkdirSync(emptyTtsDir, { recursive: true });
 
       const outMp3 = path.join(tempDir, 'missing_audio_out.mp3');
-      const res = await mergeAudioFiles(srtPath, emptyTtsDir, outMp3, undefined, { mode: 'flexible' });
-      assert.ok(fs.existsSync(res.audioPath));
+      await assert.rejects(() => mergeAudioFiles(srtPath, emptyTtsDir, outMp3, undefined,
+        { mode: 'flexible' }), /Dubbing missing audio at subtitle 1/);
+      assert.ok(!fs.existsSync(outMp3));
     });
 
   } finally {

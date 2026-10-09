@@ -20,6 +20,8 @@ export interface AudioAlignOptions {
 }
 
 export interface NormalizeSrtOptions {
+  /** Keep observed event boundaries. Invalid events are reported for review, not re-timed. */
+  preserveEvidenceTiming?: boolean;
   /** Khoảng cách tối đa (ms) giữa 2 dòng liên tiếp để gộp (mặc định 1200ms) */
   maxGapMs?: number;
   /** Thời lượng hiển thị tối thiểu (ms) cho 1 dòng phụ đề (mặc định 200ms) */
@@ -517,6 +519,18 @@ export function normalizeSrtLines(
 
   if (!lines || lines.length === 0) {
     return { lines: [], stats };
+  }
+
+  if (options?.preserveEvidenceTiming) {
+    const result = lines.filter((line): line is SrtLine => Boolean(line && line.text?.trim()))
+      .map((line) => ({
+        ...line,
+        needsReview: line.needsReview || !Number.isFinite(line.startMs) ||
+          !Number.isFinite(line.endMs) || line.startMs < 0 || line.endMs <= line.startMs,
+      }))
+      .sort((a, b) => a.startMs - b.startMs || a.endMs - b.endMs);
+    stats.outputCount = result.length;
+    return { lines: result, stats };
   }
 
   // ---------------------------------------------------------------------------

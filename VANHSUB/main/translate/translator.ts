@@ -3,7 +3,7 @@ import path from 'path';
 import { jsonrepair } from 'jsonrepair';
 import { createGeminiClient, friendlyGeminiError, translateSubtitleLine } from '../ai/geminiClient';
 import { SettingsStore } from '../store/settingsStore';
-import { parseSrt, serializeSrt, SrtLine } from '../lib/srt';
+import { parseSrtStrict, serializeSrt, SrtLine } from '../lib/srt';
 import { CancelledError } from '../lib/cancel';
 import { breakVietnameseLines } from '../lib/nlpSegmenter';
 import { isLineUntranslated } from '../lib/subtitleSanitizer';
@@ -1070,7 +1070,7 @@ export async function translateSrtFile(
   }
 
   const srtContent = fs.readFileSync(srtPath, 'utf-8');
-  const lines = parseSrt(srtContent);
+  const lines = parseSrtStrict(srtContent);
   if (lines.length === 0) {
     throw new Error('File SRT rỗng hoặc không có dòng phụ đề hợp lệ.');
   }
@@ -1087,6 +1087,33 @@ export async function translateSrtFile(
   const translatedSrtPath = path.join(srtDir, `${srtBasename}.translated.srt`);
 
   fs.writeFileSync(translatedSrtPath, serializeSrt(finalLines), 'utf-8');
+
+  // Carry extraction evidence through the one-to-one translation only after
+  // verifying each source interval and text. SRT has no metadata channel.
+  const evidencePath = srtPath.replace(/\.srt$/i, '.timeline.json');
+  if (fs.existsSync(evidencePath) && finalLines.length === lines.length) {
+    try {
+      const evidence = JSON.parse(fs.readFileSync(evidencePath, 'utf-8'));
+      const available = Array.isArray(evidence.segments) ? [...evidence.segments] : [];
+      const translatedSegments = finalLines.map((translated, index) => {
+        const original = lines[index];
+        if (translated.startMs !== original.startMs || translated.endMs !== original.endMs) {
+          throw new Error(`Translation changed timestamps at line ${index + 1}`);
+        }
+        const match = available.findIndex((segment: SrtLine) =>
+          segment.startMs === original.startMs && segment.endMs === original.endMs &&
+          segment.text.trim() === original.text.trim());
+        if (match < 0) throw new Error(`Missing timeline evidence at line ${index + 1}`);
+        const [source] = available.splice(match, 1);
+        return { ...source, text: translated.text, originalText: original.text,
+          translationOf: source.id };
+      });
+      fs.writeFileSync(translatedSrtPath.replace(/\.srt$/i, '.timeline.json'),
+        JSON.stringify({ ...evidence, segments: translatedSegments }, null, 2), 'utf-8');
+    } catch (err) {
+      console.warn('[Translate] Timeline evidence could not be propagated:', err);
+    }
+  }
 
   // Dịch hoàn tất — xoá checkpoint (bản dịch đã nằm trong .translated.srt)
   const checkpointFile = getCheckpointPath(srtPath);

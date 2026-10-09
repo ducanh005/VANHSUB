@@ -7,7 +7,8 @@
   "main": "app/main.js",
   "scripts": {
     "dev": "nextron",
-    "build": "nextron build",
+    "build": "npm run build:whisper-cpp && nextron build",
+    "build:whisper-cpp": "cmake -S node_modules/nodejs-whisper/cpp/whisper.cpp -B node_modules/nodejs-whisper/cpp/whisper.cpp/build -DWHISPER_BUILD_EXAMPLES=ON -DWHISPER_BUILD_TESTS=OFF && cmake --build node_modules/nodejs-whisper/cpp/whisper.cpp/build --config Release --target whisper-cli --parallel 4",
     "build:main": "tsc --noEmit",
     "test": "tsx tests/test_srt_ocr_normalizer_and_translation.ts",
     "postinstall": "electron-builder install-app-deps"

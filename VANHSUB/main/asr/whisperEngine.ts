@@ -10,6 +10,7 @@
 
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
 import { execFile, spawn, type ChildProcess } from 'child_process';
 import { promisify } from 'util';
 import { parseSrt, serializeSrt, type SrtLine } from '../lib/srt';
@@ -75,9 +76,14 @@ function getWhisperCppDir(): string {
 }
 
 function getWhisperCliPath(): string {
+  if (process.env.VANHSUB_WHISPER_CLI) {
+    const override = path.resolve(process.env.VANHSUB_WHISPER_CLI);
+    return fs.existsSync(override) ? override : '';
+  }
   const base = getWhisperCppDir();
   const execName = process.platform === 'win32' ? 'whisper-cli.exe' : 'whisper-cli';
   const candidates = [
+    ...(process.resourcesPath ? [path.join(process.resourcesPath, 'whisper', execName)] : []),
     path.join(base, 'build', 'bin', execName), // Unix CMake
     path.join(base, 'build', 'bin', 'Release', execName), // Windows CMake Release
     path.join(base, 'build', 'bin', 'Debug', execName), // Windows CMake Debug
@@ -88,6 +94,9 @@ function getWhisperCliPath(): string {
 function resolveModelFile(modelName: string, modelRootPath?: string): string {
   const file = `ggml-${modelName}.bin`;
   if (modelRootPath) return path.resolve(modelRootPath, file);
+  if (process.resourcesPath && fs.existsSync(path.join(process.resourcesPath, 'app.asar'))) {
+    return path.join(process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local'), 'VANHSUB', 'whisper-models', file);
+  }
   return path.join(getWhisperCppDir(), 'models', file);
 }
 
@@ -204,7 +213,13 @@ async function ensureModelDownloaded(modelName: string, modelRootPath?: string):
 
   const modelsDir = path.dirname(modelFile);
   const scriptName = process.platform === 'win32' ? 'download-ggml-model.cmd' : 'download-ggml-model.sh';
-  const scriptPath = path.join(getWhisperCppDir(), 'models', scriptName);
+  const bundledScriptPath = path.join(getWhisperCppDir(), 'models', scriptName);
+  const scriptPath = process.platform === 'win32' && modelsDir !== path.dirname(bundledScriptPath)
+    ? path.join(modelsDir, 'bin', scriptName) : bundledScriptPath;
+  if (scriptPath !== bundledScriptPath && fs.existsSync(bundledScriptPath)) {
+    fs.mkdirSync(path.dirname(scriptPath), { recursive: true });
+    fs.copyFileSync(bundledScriptPath, scriptPath);
+  }
   if (!fs.existsSync(scriptPath)) {
     throw new Error(
       `Model "${modelName}" chưa có trên đĩa và không tìm thấy script tải model tại: ${scriptPath}`,
@@ -215,21 +230,35 @@ async function ensureModelDownloaded(modelName: string, modelRootPath?: string):
   console.log(`[ASR] Đang tải model ${modelName} về ${modelsDir} (có thể mất vài phút)...`);
 
   await new Promise<void>((resolve, reject) => {
-    const args =
-      process.platform === 'win32'
-        ? ['/c', scriptPath, modelName, modelsDir]
-        : ['bash', scriptPath, modelName, modelsDir];
-    const child = spawn(args[0], args.slice(1), { windowsHide: true });
+    const command = process.platform === 'win32'
+      ? (process.env.ComSpec || 'cmd.exe')
+      : 'bash';
+    // The bundled .cmd script compares %1 literally and uses its own models
+    // directory by default. Quoting the model argument makes that comparison
+    // fail, while quoting %2 breaks its internal path concatenation.
+    const args = process.platform === 'win32'
+      ? ['/d', '/s', '/c', `""${scriptPath}" ${modelName}"`]
+      : [scriptPath, modelName, modelsDir];
+    const child = spawn(command, args, { cwd: modelsDir, windowsHide: true,
+      windowsVerbatimArguments: process.platform === 'win32' });
+    let stdoutTail = '';
     let stderrTail = '';
+    child.stdout?.on('data', (d: Buffer) => {
+      stdoutTail = (stdoutTail + d.toString()).slice(-2000);
+    });
     child.stderr?.on('data', (d: Buffer) => {
       stderrTail = (stderrTail + d.toString()).slice(-2000);
     });
     child.on('error', reject);
     child.on('exit', (code) => {
+      const downloadedFile = path.join(path.dirname(scriptPath), path.basename(modelFile));
+      if (code === 0 && downloadedFile !== modelFile && fs.existsSync(downloadedFile)) {
+        fs.copyFileSync(downloadedFile, modelFile);
+      }
       if (code === 0 && fs.existsSync(modelFile)) return resolve();
       reject(
         new Error(
-          `Tải model ${modelName} thất bại (exit ${code}). ${stderrTail.trim().split('\n').slice(-2).join(' | ')}`,
+          `Tải model ${modelName} thất bại (exit ${code}, file chưa có). ${[stdoutTail, stderrTail].join('\n').trim().split('\n').slice(-4).join(' | ')}`,
         ),
       );
     });
@@ -253,8 +282,7 @@ function runWhisperCli(
     if (!cliPath) {
       return reject(
         new Error(
-          `Không tìm thấy binary whisper-cli — kiểm tra thư mục: ${getWhisperCppDir()}\\build. ` +
-            `Thử xoá node_modules/nodejs-whisper rồi npm install lại để build whisper.cpp.`,
+          `Không tìm thấy binary whisper-cli. Chạy npm run build:whisper-cpp trước khi đóng gói; kiểm tra ${getWhisperCppDir()}\\build.`,
         ),
       );
     }

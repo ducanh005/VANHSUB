@@ -6,6 +6,8 @@ import { transcribeUnified } from './asrRouter';
 import { TranslateRunner } from '../translate/translateRunner';
 import { CancelledError, isCancelledError } from '../lib/cancel';
 import { getProjectArtifactPaths } from '../utils/projectFolder';
+import { parseSrt } from '../lib/srt';
+import { validateSubtitleTimeline } from '../lib/timelineDiagnostics';
 
 export class TaskRunner {
   private static readonly MAX_PARALLEL_ASR = 2;
@@ -186,6 +188,20 @@ export class TaskRunner {
       }
 
       console.log(`[ASR] Phiên âm hoàn tất! Đã lưu file phụ đề: ${finalSrt}`);
+      const asrSegments = parseSrt(fs.readFileSync(finalSrt, 'utf-8')).map((line) => ({
+        ...line,
+        source: 'asr' as const,
+        speechStartMs: line.startMs,
+        speechEndMs: line.endMs,
+        words: result.words?.filter((word) => word.startMs >= line.startMs - 2 && word.endMs <= line.endMs + 2),
+      }));
+      const timelineIssues = validateSubtitleTimeline(asrSegments);
+      if (timelineIssues.some((issue) => issue.severity === 'error')) {
+        throw new Error(`ASR timeline contains invalid timestamps: ${JSON.stringify(timelineIssues.filter((issue) => issue.severity === 'error'))}`);
+      }
+      fs.writeFileSync(finalSrt.replace(/\.srt$/i, '.timeline.json'),
+        JSON.stringify({ engine: result.engineUsed, fallbackTriggered: result.fallbackTriggered,
+          segments: asrSegments, issues: timelineIssues }, null, 2), 'utf-8');
 
       // Giai đoạn 3: Hoàn thành tạo phụ đề .srt
       TaskStore.update(taskId, {

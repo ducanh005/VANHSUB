@@ -275,7 +275,7 @@ export function buildSubtitleSegmentsWithStats(
 
   for (let frameIdx = 0; frameIdx < frames.length; frameIdx++) {
     const f = frames[frameIdx];
-    const timeMs = frameIdx * frameIntervalMs;
+    const timeMs = Math.round(frameIdx * frameIntervalMs);
 
     // Lấy danh sách detection của khung này (đã gộp theo hàng ngang)
     let rawLines = f.lines && f.lines.length > 0 ? f.lines : [];
@@ -383,7 +383,7 @@ export function buildSubtitleSegmentsWithStats(
     if (!text) continue;
 
     const startMs = tr.detections[0].timeMs;
-    const endMs = tr.detections[tr.detections.length - 1].timeMs + frameIntervalMs;
+    const endMs = Math.round(tr.detections[tr.detections.length - 1].timeMs + frameIntervalMs);
     const framesCount = tr.detections.length;
     const needsReview = confidence < 65 || framesCount === 1;
     const stable = framesCount >= 2 && confidence >= 65;
@@ -579,6 +579,9 @@ export function deduplicateSubtitleSegments(
     frames: s.frames,
     stable: s.stable,
     needsReview: s.needsReview,
+    source: 'ocr' as const,
+    displayStartMs: Math.max(0, s.startMs),
+    displayEndMs: s.endMs,
   }));
 }
 
