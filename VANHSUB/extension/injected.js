@@ -251,104 +251,331 @@ window.executeWithRetry = executeWithRetry;
 window.mintCaptcha = mintCaptcha;
 window.waitForGrecaptcha = waitForGrecaptcha;
 
-// ── Non-intrusive Sniffer for batchexecute & TRPC ──────────────────────────────────
+// ── Enhanced Sniffer for batchexecute & TRPC with Early Warning Signals ───────────
 try {
+  const MAX_HISTORY = 100;
+  const MAX_TRPC_HISTORY = 50;
+  const MAX_MEDIA_URLS = 50;
+  const MAX_BODY_SNIPPET = 4096;
+  const MAX_RESPONSE_SNIPPET = 32768;
+  const SENSITIVE_HEADERS = ['cookie', 'set-cookie', 'authorization', 'proxy-authorization', 'x-goog-authuser', 'x-goog-api-key'];
+
   window.__VANHSUB_SNIFFER__ = window.__VANHSUB_SNIFFER__ || {
     history: [],
+    trpcHistory: [],
+    mediaUrls: [],
+    lastError: null,
+    lastWarning: null,
+    botFlagged: false,
   };
+
+  function sanitizeHeaders(rawHeaders) {
+    if (!rawHeaders || typeof rawHeaders !== 'object') return {};
+    const clean = {};
+    for (const [k, v] of Object.entries(rawHeaders)) {
+      const lower = k.toLowerCase();
+      if (!SENSITIVE_HEADERS.includes(lower)) {
+        clean[lower] = String(v);
+      }
+    }
+    return clean;
+  }
+
+  function inspectAndNotifyError(entry, source) {
+    const status = entry.status || 0;
+    const url = entry.url || '';
+    const text = entry.response || '';
+    const lowerText = text.toLowerCase();
+
+    let code = null;
+    let message = null;
+
+    // 1. Bot activity / Unusual activity / CAPTCHA flag
+    if (
+      text.includes('PUBLIC_ERROR_UNUSUAL_ACTIVITY') ||
+      lowerText.includes('unusual_activity') ||
+      lowerText.includes('bot_flagged') ||
+      lowerText.includes('captcha_score_low')
+    ) {
+      code = 'PUBLIC_ERROR_UNUSUAL_ACTIVITY';
+      message = 'Google Flow detected automated activity (PUBLIC_ERROR_UNUSUAL_ACTIVITY)';
+    } else if (
+      lowerText.includes('recaptcha evaluation failed') ||
+      lowerText.includes('recaptcha challenge') ||
+      lowerText.includes('captcha_required')
+    ) {
+      code = 'RECAPTCHA_REQUIRED';
+      message = 'reCAPTCHA challenge or evaluation required';
+    } else if (status === 429 || lowerText.includes('rate_limit_exceeded') || lowerText.includes('too many requests')) {
+      code = 'RATE_LIMITED';
+      message = `Rate limit exceeded (status ${status || 429})`;
+    } else if (status === 403) {
+      code = 'FORBIDDEN';
+      message = 'HTTP 403: Access forbidden or bot challenge required';
+    } else if (status === 401) {
+      code = 'SESSION_EXPIRED';
+      message = 'HTTP 401: Google session expired';
+    } else if (status === 400 && (lowerText.includes('invalid_session') || lowerText.includes('auth'))) {
+      code = 'SESSION_EXPIRED';
+      message = 'HTTP 400: Session or authentication invalid';
+    }
+
+    // 2. TRPC JSON error evaluation
+    if (!code && url.includes('/fx/api/trpc/')) {
+      try {
+        const parsed = JSON.parse(text);
+        const trpcErr = parsed?.error || (Array.isArray(parsed) && parsed[0]?.error);
+        if (trpcErr) {
+          const errMsg = trpcErr.message || trpcErr.json?.message || '';
+          const lowerErrMsg = errMsg.toLowerCase();
+          if (lowerErrMsg.includes('unusual') || lowerErrMsg.includes('bot') || lowerErrMsg.includes('captcha')) {
+            code = 'PUBLIC_ERROR_UNUSUAL_ACTIVITY';
+            message = `TRPC Error: ${errMsg}`;
+          } else if (lowerErrMsg.includes('rate') || trpcErr.json?.data?.httpStatus === 429) {
+            code = 'RATE_LIMITED';
+            message = `TRPC Rate Limited: ${errMsg}`;
+          } else if (trpcErr.json?.data?.httpStatus === 401 || lowerErrMsg.includes('unauthorized')) {
+            code = 'SESSION_EXPIRED';
+            message = `TRPC Session Expired: ${errMsg}`;
+          }
+        }
+      } catch {}
+    }
+
+    if (code) {
+      const warning = {
+        timestamp: Date.now(),
+        code,
+        status,
+        url,
+        message,
+        source,
+      };
+      window.__VANHSUB_SNIFFER__.lastError = warning;
+      window.__VANHSUB_SNIFFER__.lastWarning = warning;
+      if (code === 'PUBLIC_ERROR_UNUSUAL_ACTIVITY' || code === 'RECAPTCHA_REQUIRED') {
+        window.__VANHSUB_SNIFFER__.botFlagged = true;
+      }
+
+      try {
+        window.dispatchEvent(new CustomEvent('VANHSUB_EARLY_WARNING', { detail: warning }));
+      } catch {}
+      console.warn(`[VanhSub:injected] 🚨 Early warning detected (${code}):`, message);
+      return warning;
+    }
+    return null;
+  }
+
+  function inspectMediaUrls(url, text) {
+    if (!text || typeof text !== 'string') return;
+    const matches = [];
+    const gcsRegex = /https:\/\/storage\.googleapis\.com\/ai-sandbox-[a-zA-Z0-9_\-\.\/]+/g;
+    const flowContentRegex = /https:\/\/flow-content\.google\/[a-zA-Z0-9_\-\.\/]+/g;
+    const googleUserContentRegex = /https:\/\/[a-zA-Z0-9_\-\.]*googleusercontent\.com\/[a-zA-Z0-9_\-\.\/]+/g;
+
+    let m;
+    while ((m = gcsRegex.exec(text)) !== null) matches.push(m[0]);
+    while ((m = flowContentRegex.exec(text)) !== null) matches.push(m[0]);
+    while ((m = googleUserContentRegex.exec(text)) !== null) matches.push(m[0]);
+
+    if (matches.length > 0) {
+      const list = window.__VANHSUB_SNIFFER__.mediaUrls;
+      for (const mUrl of matches) {
+        if (!list.includes(mUrl)) {
+          list.push(mUrl);
+          if (list.length > MAX_MEDIA_URLS) list.shift();
+        }
+      }
+
+      if (text.includes('storage.googleapis.com/ai-sandbox-videofx/')) {
+        try {
+          window.dispatchEvent(new CustomEvent('TRPC_MEDIA_URLS', { detail: { url, body: text, mediaUrls: matches } }));
+        } catch {}
+      }
+
+      try {
+        window.dispatchEvent(new CustomEvent('VANHSUB_MEDIA_DETECTED', { detail: { url, mediaUrls: matches, firstMediaUrl: matches[0] } }));
+      } catch {}
+    }
+  }
+
+  function recordTrpcEntry(type, url, body, status, responseText, headers, error) {
+    const trpcPath = (url.split('/fx/api/trpc/')[1] || '').split('?')[0];
+    const trpcEntry = {
+      type,
+      trpcPath,
+      url,
+      body: body ? String(body).slice(0, MAX_BODY_SNIPPET) : '',
+      status: status || 0,
+      response: responseText ? String(responseText).slice(0, MAX_RESPONSE_SNIPPET) : undefined,
+      headers: sanitizeHeaders(headers),
+      error: error || undefined,
+      timestamp: Date.now(),
+    };
+
+    const trpcHist = window.__VANHSUB_SNIFFER__.trpcHistory;
+    trpcHist.push(trpcEntry);
+    if (trpcHist.length > MAX_TRPC_HISTORY) trpcHist.shift();
+
+    const hist = window.__VANHSUB_SNIFFER__.history;
+    hist.push({
+      type: 'trpc',
+      url,
+      body: trpcEntry.body,
+      status: trpcEntry.status,
+      response: trpcEntry.response,
+      timestamp: trpcEntry.timestamp,
+      error: trpcEntry.error,
+    });
+    if (hist.length > MAX_HISTORY) hist.shift();
+
+    if (responseText) {
+      inspectMediaUrls(url, responseText);
+      inspectAndNotifyError(trpcEntry, 'trpc');
+    } else if (status >= 400 || error) {
+      inspectAndNotifyError(trpcEntry, 'trpc');
+    }
+
+    return trpcEntry;
+  }
 
   if (!window.__VANHSUB_SNIFFER_HOOKS_INSTALLED__) {
     window.__VANHSUB_SNIFFER_HOOKS_INSTALLED__ = true;
 
     // 1. Hook fetch
     if (typeof window.fetch === 'function') {
-    const originalFetch = window.fetch;
-    window.fetch = async function(...args) {
-      const url = typeof args[0] === 'string' ? args[0] : (args[0]?.url || args[0]?.href || String(args[0] || ''));
-      if (url.includes('batchexecute')) {
-        const body = String((args[1] && args[1].body) || (args[0] && args[0].body) || '');
-        const entry = { type: 'fetch', url, body, timestamp: Date.now() };
-        window.__VANHSUB_SNIFFER__.history.push(entry);
-        if (window.__VANHSUB_SNIFFER__.history.length > 100) window.__VANHSUB_SNIFFER__.history.shift();
-        let res;
-        try {
-          res = await originalFetch.apply(this, args);
-          entry.status = res.status;
-        } catch (err) {
-          entry.status = 0;
-          entry.error = String(err?.message || err);
-          throw err;
-        }
-        try {
-          const cloned = res.clone();
-          cloned.text().then((text) => { entry.response = text; }).catch((err) => {
+      const originalFetch = window.fetch;
+      window.fetch = async function(...args) {
+        const url = typeof args[0] === 'string' ? args[0] : (args[0]?.url || args[0]?.href || String(args[0] || ''));
+
+        // Batchexecute RPC monitor
+        if (url.includes('batchexecute')) {
+          const body = String((args[1] && args[1].body) || (args[0] && args[0].body) || '');
+          const entry = { type: 'fetch', url, body, timestamp: Date.now() };
+          window.__VANHSUB_SNIFFER__.history.push(entry);
+          if (window.__VANHSUB_SNIFFER__.history.length > MAX_HISTORY) window.__VANHSUB_SNIFFER__.history.shift();
+          let res;
+          try {
+            res = await originalFetch.apply(this, args);
+            entry.status = res.status;
+          } catch (err) {
+            entry.status = 0;
             entry.error = String(err?.message || err);
-          });
-        } catch {}
-        return res;
-      }
-      // TRPC Media URL Monitor
-      if (url.includes('/fx/api/trpc/')) {
-        const res = await originalFetch.apply(this, args);
-        if (res.ok) {
+            inspectAndNotifyError(entry, 'batchexecute');
+            throw err;
+          }
+          try {
+            const cloned = res.clone();
+            cloned.text().then((text) => {
+              entry.response = text;
+              inspectMediaUrls(url, text);
+              inspectAndNotifyError(entry, 'batchexecute');
+            }).catch((err) => {
+              entry.error = String(err?.message || err);
+              inspectAndNotifyError(entry, 'batchexecute');
+            });
+          } catch {}
+          return res;
+        }
+
+        // TRPC Endpoint monitor
+        if (url.includes('/fx/api/trpc/')) {
+          const body = (args[1] && args[1].body) || (args[0] && args[0].body) || '';
+          let res;
+          try {
+            res = await originalFetch.apply(this, args);
+          } catch (err) {
+            recordTrpcEntry('fetch', url, body, 0, undefined, args[1]?.headers || args[0]?.headers, String(err?.message || err));
+            throw err;
+          }
           try {
             const clone = res.clone();
             clone.text().then((text) => {
-              if (text.includes('storage.googleapis.com/ai-sandbox-videofx/')) {
-                window.dispatchEvent(new CustomEvent('TRPC_MEDIA_URLS', {
-                  detail: { url, body: text },
-                }));
-              }
-            }).catch(() => {});
+              recordTrpcEntry('fetch', url, body, res.status, text, args[1]?.headers || args[0]?.headers);
+            }).catch((err) => {
+              recordTrpcEntry('fetch', url, body, res.status, undefined, args[1]?.headers || args[0]?.headers, String(err?.message || err));
+            });
           } catch {}
+          return res;
         }
-        return res;
-      }
-      return originalFetch.apply(this, args);
-    };
-  }
 
-  // 2. Hook XMLHttpRequest (Google Closure XhrIo uses this)
-  if (typeof XMLHttpRequest !== 'undefined' && XMLHttpRequest.prototype) {
-    const origXhrOpen = XMLHttpRequest.prototype.open;
-    const origXhrSend = XMLHttpRequest.prototype.send;
-    const origXhrSetHeader = XMLHttpRequest.prototype.setRequestHeader;
-
-  XMLHttpRequest.prototype.open = function(method, url, ...rest) {
-    this._vanhsubUrl = String(url || '');
-    this._vanhsubMethod = method;
-    this._vanhsubHeaders = {};
-    return origXhrOpen.call(this, method, url, ...rest);
-  };
-
-  XMLHttpRequest.prototype.setRequestHeader = function(header, value) {
-    if (!this._vanhsubHeaders) this._vanhsubHeaders = {};
-    const key = String(header || '').toLowerCase();
-    this._vanhsubHeaders[key] = value;
-    return origXhrSetHeader.call(this, header, value);
-  };
-
-  XMLHttpRequest.prototype.send = function(body) {
-    if (this._vanhsubUrl && this._vanhsubUrl.includes('batchexecute')) {
-      const entry = {
-        type: 'xhr',
-        url: this._vanhsubUrl,
-        body: String(body || ''),
-        headers: this._vanhsubHeaders || {},
-        timestamp: Date.now()
+        return originalFetch.apply(this, args);
       };
-      window.__VANHSUB_SNIFFER__.history.push(entry);
-      if (window.__VANHSUB_SNIFFER__.history.length > 100) window.__VANHSUB_SNIFFER__.history.shift();
-      this.addEventListener('load', function() {
-        try {
-          entry.status = this.status;
-          entry.response = this.responseText;
-        } catch {}
-      });
     }
-    return origXhrSend.call(this, body);
-    };
-  }
+
+    // 2. Hook XMLHttpRequest (Google Closure XhrIo uses this)
+    if (typeof XMLHttpRequest !== 'undefined' && XMLHttpRequest.prototype) {
+      const origXhrOpen = XMLHttpRequest.prototype.open;
+      const origXhrSend = XMLHttpRequest.prototype.send;
+      const origXhrSetHeader = XMLHttpRequest.prototype.setRequestHeader;
+
+      XMLHttpRequest.prototype.open = function(method, url, ...rest) {
+        this._vanhsubUrl = String(url || '');
+        this._vanhsubMethod = method;
+        this._vanhsubHeaders = {};
+        return origXhrOpen.call(this, method, url, ...rest);
+      };
+
+      XMLHttpRequest.prototype.setRequestHeader = function(header, value) {
+        if (!this._vanhsubHeaders) this._vanhsubHeaders = {};
+        const key = String(header || '').toLowerCase();
+        this._vanhsubHeaders[key] = value;
+        return origXhrSetHeader.call(this, header, value);
+      };
+
+      XMLHttpRequest.prototype.send = function(body) {
+        const self = this;
+        if (this._vanhsubUrl && this._vanhsubUrl.includes('batchexecute')) {
+          const entry = {
+            type: 'xhr',
+            url: this._vanhsubUrl,
+            body: String(body || ''),
+            headers: sanitizeHeaders(this._vanhsubHeaders),
+            timestamp: Date.now()
+          };
+          window.__VANHSUB_SNIFFER__.history.push(entry);
+          if (window.__VANHSUB_SNIFFER__.history.length > MAX_HISTORY) window.__VANHSUB_SNIFFER__.history.shift();
+          this.addEventListener('load', function() {
+            try {
+              entry.status = self.status;
+              entry.response = self.responseText;
+              inspectMediaUrls(self._vanhsubUrl, self.responseText);
+              inspectAndNotifyError(entry, 'batchexecute');
+            } catch {}
+          });
+          this.addEventListener('error', function() {
+            entry.status = 0;
+            entry.error = 'XHR_NETWORK_ERROR';
+            inspectAndNotifyError(entry, 'batchexecute');
+          });
+          this.addEventListener('timeout', function() {
+            entry.status = 0;
+            entry.error = 'XHR_TIMEOUT';
+            inspectAndNotifyError(entry, 'batchexecute');
+          });
+        }
+
+        if (this._vanhsubUrl && this._vanhsubUrl.includes('/fx/api/trpc/')) {
+          this.addEventListener('load', function() {
+            try {
+              recordTrpcEntry('xhr', self._vanhsubUrl, body, self.status, self.responseText, self._vanhsubHeaders);
+            } catch {}
+          });
+          this.addEventListener('error', function() {
+            try {
+              recordTrpcEntry('xhr', self._vanhsubUrl, body, 0, undefined, self._vanhsubHeaders, 'XHR_NETWORK_ERROR');
+            } catch {}
+          });
+          this.addEventListener('timeout', function() {
+            try {
+              recordTrpcEntry('xhr', self._vanhsubUrl, body, 0, undefined, self._vanhsubHeaders, 'XHR_TIMEOUT');
+            } catch {}
+          });
+        }
+
+        return origXhrSend.call(this, body);
+      };
+    }
   }
 } catch (e) {
   console.warn('[VanhSub:injected] Sniffer init error:', e.message);

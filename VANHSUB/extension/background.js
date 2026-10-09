@@ -17,6 +17,25 @@ const CAPTCHA_SLOT = '__CAPTCHA__';
 let ws = null;
 let reconnectTimer = null;
 
+// Quản lý các tác vụ UI generation đang chạy để hỗ trợ hủy tức thì (cancel_ui_gen)
+const activeUiGenTasks = new Map();
+
+// Quản lý các tab thuộc quyền sở hữu của automation (được tạo hoặc gán cho tác vụ tự động)
+// Map<tabId, { tabId, projectId, jobId, createdAt, lastUsedAt, purpose }>
+const automationOwnedTabs = new Map();
+
+// Tự động dọn dẹp registry khi tab bị đóng và ngắt tác vụ đang gắn với tab đó
+chrome.tabs.onRemoved.addListener((closedTabId) => {
+  automationOwnedTabs.delete(closedTabId);
+  for (const [taskId, task] of activeUiGenTasks.entries()) {
+    if (task.tabId === closedTabId) {
+      log(`🛑 Tab ${closedTabId} bị đóng trong khi đang chạy task ${taskId}`);
+      task.cancelled = true;
+      task.abortReason = 'TAB_CLOSED_BY_USER';
+    }
+  }
+});
+
 function log(...args) {
   console.log('[VanhSub:background]', ...args);
 }
@@ -152,33 +171,150 @@ async function reviveTabIfNeeded(tab) {
   }
 }
 
-async function getFlowTab(autoCreate = false, preferredProjectId = null) {
-  const tabs = await chrome.tabs.query({ url: FLOW_URLS });
-  if (!tabs || tabs.length === 0) {
-    if (!autoCreate) return null;
-    const validPid = isValidProjectId(preferredProjectId) ? preferredProjectId.trim() : null;
-    const targetUrl = validPid
-      ? `https://labs.google/fx/vi/tools/flow/project/${validPid}`
-      : 'https://labs.google/fx/vi/tools/flow';
-    log(`🌐 Tự động mở tab Google Flow mới: ${targetUrl}`);
-    const created = await chrome.tabs.create({ url: targetUrl, active: true });
-    await waitForTabReady(created.id, 15000);
-    return await chrome.tabs.get(created.id);
-  }
-  // Ưu tiên 1: Tab khớp chính xác preferredProjectId (khi người dùng mở nhiều tab Flow khác project)
+async function getFlowTab(autoCreate = false, preferredProjectId = null, options = {}) {
+  const { jobId = null, targetTabId = null, allowUserTabFallback = false } = options;
   const validPid = isValidProjectId(preferredProjectId) ? preferredProjectId.trim() : null;
+
+  // 1. Nếu có chỉ định targetTabId cụ thể, ưu tiên kiểm tra tab đó trước
+  if (typeof targetTabId === 'number' && targetTabId > 0) {
+    try {
+      const specifiedTab = await chrome.tabs.get(targetTabId);
+      if (specifiedTab && specifiedTab.url && FLOW_URLS.some((u) => {
+        const prefix = u.replace(/\*$/, '');
+        return specifiedTab.url.startsWith(prefix);
+      })) {
+        automationOwnedTabs.set(specifiedTab.id, {
+          tabId: specifiedTab.id,
+          projectId: validPid || extractProjectIdFromUrl(specifiedTab.url),
+          jobId,
+          lastUsedAt: Date.now(),
+        });
+        return await reviveTabIfNeeded(specifiedTab);
+      }
+    } catch {}
+  }
+
+  // 2. Tìm trong automationOwnedTabs registry xem có tab nào đang giữ đúng projectId này không
   if (validPid) {
-    const matchingTab = tabs.find((t) => t.url && t.url.includes(`/project/${validPid}`));
-    if (matchingTab) {
-      return await reviveTabIfNeeded(matchingTab);
+    for (const [tId, meta] of automationOwnedTabs.entries()) {
+      if (meta.projectId === validPid) {
+        try {
+          const regTab = await chrome.tabs.get(tId);
+          if (regTab && regTab.url && regTab.url.includes(`/project/${validPid}`)) {
+            meta.lastUsedAt = Date.now();
+            if (jobId) meta.jobId = jobId;
+            return await reviveTabIfNeeded(regTab);
+          }
+        } catch {
+          automationOwnedTabs.delete(tId);
+        }
+      }
     }
   }
 
-  // Ưu tiên 2: tab đang active hoặc tab không bị discarded
-  const activeTab = tabs.find((t) => t.active);
+  const tabs = await chrome.tabs.query({ url: FLOW_URLS });
+  if (!tabs || tabs.length === 0) {
+    if (!autoCreate) return null;
+    const targetUrl = validPid
+      ? `https://labs.google/fx/vi/tools/flow/project/${validPid}`
+      : 'https://labs.google/fx/vi/tools/flow';
+    log(`🌐 Tự động mở tab Google Flow mới ở chế độ nền: ${targetUrl}`);
+    const created = await chrome.tabs.create({ url: targetUrl, active: false });
+    await waitForTabReady(created.id, 15000);
+    automationOwnedTabs.set(created.id, {
+      tabId: created.id,
+      projectId: validPid,
+      jobId,
+      createdAt: Date.now(),
+      lastUsedAt: Date.now(),
+      purpose: 'automation',
+    });
+    return await chrome.tabs.get(created.id);
+  }
+
+  // 3. Nếu có preferredProjectId: Tìm tab khớp chính xác URL /project/${validPid}
+  if (validPid) {
+    // 3a. Ưu tiên tab trong automationOwnedTabs hoặc tab không active (người dùng không thao tác)
+    const matchingTabs = tabs.filter((t) => t.url && t.url.includes(`/project/${validPid}`));
+    if (matchingTabs.length > 0) {
+      const ownedMatch = matchingTabs.find((t) => automationOwnedTabs.has(t.id));
+      const bgMatch = matchingTabs.find((t) => !t.active);
+      const chosen = ownedMatch || bgMatch || matchingTabs[0];
+
+      automationOwnedTabs.set(chosen.id, {
+        tabId: chosen.id,
+        projectId: validPid,
+        jobId,
+        createdAt: Date.now(),
+        lastUsedAt: Date.now(),
+        purpose: 'automation',
+      });
+      return await reviveTabIfNeeded(chosen);
+    }
+
+    // 3b. Nếu có preferredProjectId nhưng KHÔNG tab nào khớp:
+    // TUYỆT ĐỐI KHÔNG cướp tab khác project của người dùng! Mở tab riêng cho project này ở chế độ nền!
+    if (autoCreate) {
+      const targetUrl = `https://labs.google/fx/vi/tools/flow/project/${validPid}`;
+      log(`🌐 Tự động mở tab riêng cho project "${validPid}" ở chế độ nền: ${targetUrl}`);
+      const created = await chrome.tabs.create({ url: targetUrl, active: false });
+      await waitForTabReady(created.id, 15000);
+      automationOwnedTabs.set(created.id, {
+        tabId: created.id,
+        projectId: validPid,
+        jobId,
+        createdAt: Date.now(),
+        lastUsedAt: Date.now(),
+        purpose: 'automation',
+      });
+      return await chrome.tabs.get(created.id);
+    }
+  }
+
+  // 4. Khi không có preferredProjectId (ví dụ lệnh get_status hoặc lệnh tổng quát)
+  // Ưu tiên 1: Tab trong automationOwnedTabs
+  for (const [tId, meta] of automationOwnedTabs.entries()) {
+    try {
+      const regTab = await chrome.tabs.get(tId);
+      if (regTab && !regTab.discarded) {
+        meta.lastUsedAt = Date.now();
+        return await reviveTabIfNeeded(regTab);
+      }
+    } catch {
+      automationOwnedTabs.delete(tId);
+    }
+  }
+
+  // Ưu tiên 2: Tab không active để không can thiệp vào tab người dùng đang xem
+  const backgroundTab = tabs.find((t) => !t.active && !t.discarded);
   const readyTab = tabs.find((t) => !t.discarded);
-  const target = activeTab || readyTab || tabs[0];
-  return await reviveTabIfNeeded(target);
+  if (backgroundTab || readyTab) {
+    const target = backgroundTab || readyTab;
+    return await reviveTabIfNeeded(target);
+  }
+
+  // Nếu chỉ có tab active của người dùng và allowUserTabFallback cho phép (chỉ dùng đọc thông tin)
+  if (allowUserTabFallback && tabs.length > 0) {
+    return await reviveTabIfNeeded(tabs[0]);
+  }
+
+  if (autoCreate) {
+    const targetUrl = 'https://labs.google/fx/vi/tools/flow';
+    log(`🌐 Tự động mở tab Google Flow ở chế độ nền: ${targetUrl}`);
+    const created = await chrome.tabs.create({ url: targetUrl, active: false });
+    await waitForTabReady(created.id, 15000);
+    automationOwnedTabs.set(created.id, {
+      tabId: created.id,
+      projectId: null,
+      jobId,
+      createdAt: Date.now(),
+      lastUsedAt: Date.now(),
+      purpose: 'automation',
+    });
+    return await chrome.tabs.get(created.id);
+  }
+
+  return tabs[0] || null;
 }
 
 // ── Message Handlers ───────────────────────────────────────────────────────────
@@ -504,7 +640,8 @@ async function handleMessage(msg) {
         }
 
         // Phase 2: CDP trusted click (isTrusted=true)
-        const clickTimestamp = Date.now();
+        const actualClickTimestamp = Date.now();
+        const clickTimestamp = actualClickTimestamp;
         try {
           await chrome.debugger.attach({ tabId: tab.id }, '1.3');
         } catch (e) {
@@ -557,7 +694,7 @@ async function handleMessage(msg) {
             const deadline = ctx.clickTimestamp + 120000;
             while (Date.now() < deadline) {
               await new Promise((r) => setTimeout(r, 800));
-              const hist = (window.__VANHSUB_SNIFFER__?.history || []).filter((h) => (h.timestamp || 0) >= ctx.clickTimestamp);
+              const hist = (window.__VANHSUB_SNIFFER__?.history || []).filter((h) => (h.timestamp || 0) >= (ctx.clickTimestamp || actualClickTimestamp - 200));
               if (ctx.targetMode === 'IMAGE') {
                 const hit = hist.find((h) => h.url && h.url.includes('ogiZ0b') && h.status === 200 && h.response);
                 if (hit) {
@@ -670,78 +807,16 @@ async function handleMessage(msg) {
   }
 
   if (method === 'recover_unusual_activity') {
-    log('🛡️ Kích hoạt recover_unusual_activity: Mô phỏng tương tác người dùng tự nhiên (CDP Trusted Click isTrusted=true)...');
+    log('🛡️ Kích hoạt recover_unusual_activity: Kiểm tra trạng thái an toàn (không can thiệp UI hoặc cuộn tab)...');
     const tab = await getFlowTab(false, params?.projectId);
     if (!tab) {
       send({ id, error: 'NO_FLOW_TAB' });
       return;
     }
+    // Safeguard: Detach debugger nếu còn sót, không tự ý di chuột hay cuộn trang làm gián đoạn người dùng
     try {
-      let cdpAttached = false;
-      try {
-        await chrome.debugger.attach({ tabId: tab.id }, '1.3');
-        cdpAttached = true;
-      } catch (e) {
-        if (e && e.message && e.message.includes('already attached')) {
-          cdpAttached = true;
-        } else {
-          warn('Debugger attach warn:', e && e.message);
-        }
-      }
-
-      if (cdpAttached) {
-        try {
-          const jitterMoves = [
-            { x: 450, y: 350 },
-            { x: 520, y: 380 },
-            { x: 480, y: 420 },
-            { x: 400, y: 300 },
-          ];
-          for (const m of jitterMoves) {
-            await chrome.debugger.sendCommand({ tabId: tab.id }, 'Input.dispatchMouseEvent', {
-              type: 'mouseMoved',
-              x: m.x,
-              y: m.y,
-            });
-            await new Promise((r) => setTimeout(r, 60));
-          }
-          await chrome.debugger.sendCommand({ tabId: tab.id }, 'Input.dispatchMouseEvent', {
-            type: 'mousePressed',
-            x: 480,
-            y: 420,
-            button: 'left',
-            clickCount: 1,
-            modifiers: 0,
-          });
-          await new Promise((r) => setTimeout(r, 80));
-          await chrome.debugger.sendCommand({ tabId: tab.id }, 'Input.dispatchMouseEvent', {
-            type: 'mouseReleased',
-            x: 480,
-            y: 420,
-            button: 'left',
-            clickCount: 1,
-            modifiers: 0,
-          });
-          log('🖱️ Đã phát CDP trusted mouse interaction trên tab Flow');
-        } catch (dbgErr) {
-          warn('CDP mouse simulation error:', dbgErr && dbgErr.message);
-        } finally {
-          try { await chrome.debugger.detach({ tabId: tab.id }); } catch {}
-        }
-      }
-
-      try {
-        await chrome.scripting.executeScript({
-          target: { tabId: tab.id },
-          world: 'MAIN',
-          func: () => {
-            window.scrollBy({ top: 50, behavior: 'smooth' });
-            setTimeout(() => window.scrollBy({ top: -50, behavior: 'smooth' }), 300);
-          },
-        });
-      } catch {}
-
-      send({ id, result: { ok: true } });
+      try { await chrome.debugger.detach({ tabId: tab.id }); } catch {}
+      send({ id, result: { ok: true, safe: true } });
     } catch (err) {
       send({ id, error: err.message });
     }
@@ -785,23 +860,94 @@ async function handleMessage(msg) {
     return;
   }
 
-  // @deprecated: trigger_ui_gen đã bị bãi bỏ, ưu tiên batch_rpc Pure RPC
+  // Hủy UI generation task đang chạy theo id
+  if (method === 'cancel_ui_gen') {
+    const targetId = params?.id || id;
+    const task = activeUiGenTasks.get(targetId);
+    if (task) {
+      log(`🛑 Hủy UI generation task: ${targetId} (lý do: ${params?.reason || 'user_requested'})`);
+      task.cancelled = true;
+      task.abortReason = params?.reason || 'USER_CANCELLED';
+      if (task.tabId) {
+        try { chrome.debugger.detach({ tabId: task.tabId }); } catch {}
+      }
+      activeUiGenTasks.delete(targetId);
+      send({ id, result: { ok: true, cancelled: true, targetId } });
+    } else {
+      send({ id, result: { ok: true, cancelled: false, message: 'TASK_NOT_FOUND_OR_ALREADY_FINISHED', targetId } });
+    }
+    return;
+  }
+
+  // UI Generation Fallback (CDP Trusted Click + Multi-Stage Observation Engine)
   if (method === 'trigger_ui_gen') {
-    warn('⚠️ trigger_ui_gen fallback CDP Trusted Click được kích hoạt');
-    let tab = await getFlowTab(true, params?.projectId);
+    log('🚀 trigger_ui_gen được kích hoạt với multi-stage observation engine');
+    let tab = await getFlowTab(true, params?.projectId, {
+      jobId: params?.jobId || id,
+      targetTabId: params?.tabId,
+      allowUserTabFallback: false,
+    });
     if (!tab) {
-      send({ id, error: 'NO_FLOW_TAB' });
+      send({ id, result: { ok: false, state: 'FAILED', error: 'NO_FLOW_TAB', errorCode: 'UI_AUTOMATION_FAILED' } });
       return;
     }
+
+    const taskState = { id, tabId: tab.id, cancelled: false, abortReason: null, startedAt: Date.now() };
+    activeUiGenTasks.set(id, taskState);
+
     try {
       const ensured = await ensureTabInProject(tab, params?.projectId);
       tab = ensured.tab;
-      const promptText = params.prompt || 'a drone shot over ocean waves';
-      const targetMode = (params.mode || 'IMAGE').toUpperCase();
-      const clickTimestamp = Date.now();
+      taskState.tabId = tab.id;
+      const promptText = params?.prompt || 'a drone shot over ocean waves';
+      const targetMode = (params?.mode || 'IMAGE').toUpperCase();
+      const isVideo = targetMode === 'VIDEO';
 
-      // Bước 1: Chuyển chế độ (Image vs Video nếu cần), điền prompt vào ô ProseMirror và lấy tọa độ nút tạo
-      const [phase1] = await chrome.scripting.executeScript({
+      // Cấu hình Staged Timeouts
+      const submissionTimeoutMs = typeof params?.submissionTimeoutMs === 'number' && params.submissionTimeoutMs > 0 ? params.submissionTimeoutMs : 6000;
+      const defaultProcTimeout = isVideo ? 120000 : 40000; // 40s ảnh, 120s video
+      const maxProcTimeout = isVideo ? 135000 : 50000;     // Hard cap 50s ảnh, 135s video
+      const requestedTimeout = typeof params?.timeoutMs === 'number' && params.timeoutMs > 0 ? params.timeoutMs : defaultProcTimeout;
+      const processingTimeoutMs = Math.min(requestedTimeout, maxProcTimeout);
+
+      // ══════════════════════════════════════════════════════════════════════════
+      // STAGE 0: Pre-Flight Baseline Snapshot (trước khi gõ prompt & click)
+      // ══════════════════════════════════════════════════════════════════════════
+      const [preFlightExec] = await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        world: 'MAIN',
+        func: () => {
+          const cards = Array.from(document.querySelectorAll('flow-asset-card, flow-media-tile, mat-card, [data-asset-id], .asset-item'));
+          const cardIds = cards.map((c) => c.getAttribute('data-asset-id') || c.getAttribute('data-id') || c.id).filter(Boolean);
+
+          const imgUrls = Array.from(document.querySelectorAll('img'))
+            .map((im) => im.src || im.currentSrc)
+            .filter((s) => s && (s.includes('googleusercontent.com') || s.includes('ai-sandbox') || s.startsWith('blob:')));
+
+          const videoUrls = [];
+          document.querySelectorAll('video').forEach((v) => {
+            if (v.src) videoUrls.push(v.src);
+            if (v.currentSrc) videoUrls.push(v.currentSrc);
+            v.querySelectorAll('source').forEach((s) => { if (s.src) videoUrls.push(s.src); });
+          });
+
+          const snifferHistoryLen = (window.__VANHSUB_SNIFFER__?.history || []).length;
+          const preFlightTimestamp = Date.now();
+
+          return { cardIds, imgUrls, videoUrls, snifferHistoryLen, preFlightTimestamp };
+        },
+      });
+      const preFlight = preFlightExec?.result || { cardIds: [], imgUrls: [], videoUrls: [], snifferHistoryLen: 0, preFlightTimestamp: Date.now() };
+
+      if (taskState.cancelled) {
+        send({ id, result: { ok: false, state: 'TIMED_OUT', error: 'CANCELLED', errorCode: 'UI_AUTOMATION_FAILED' } });
+        return;
+      }
+
+      // ══════════════════════════════════════════════════════════════════════════
+      // STAGE 1 (Part A): Input Preparation (ProseMirror & Locate Button)
+      // ══════════════════════════════════════════════════════════════════════════
+      const [prepExec] = await chrome.scripting.executeScript({
         target: { tabId: tab.id },
         world: 'MAIN',
         args: [{ promptText, targetMode }],
@@ -839,7 +985,6 @@ async function handleMessage(msg) {
               curText.includes('anh');
             const needsSwitch = (reqMode === 'IMAGE' && (isVideo || !isImage)) || (reqMode === 'VIDEO' && (isImage || !isVideo));
             if (needsSwitch) {
-              console.log(`[VanhSub:UI] 🔄 Đang chuyển chế độ: hiện tại="${curText.slice(0, 40)}" → mục tiêu=${reqMode}...`);
               let pane = document.querySelector('.cdk-overlay-pane, flow-settings-popover');
               if (!pane) {
                 trigger.click();
@@ -881,7 +1026,6 @@ async function handleMessage(msg) {
             });
           }
           if (!pm) {
-            console.error('[VanhSub:UI] ❌ Không tìm thấy ô nhập prompt!');
             return { ok: false, error: 'NO_PROSEMIRROR' };
           }
 
@@ -904,7 +1048,7 @@ async function handleMessage(msg) {
 
           await new Promise((r) => setTimeout(r, 600));
 
-          // 1d. Tìm nút Generate CHÍNH XÁC bên trong promptBox và chờ Angular validate enable nút
+          // 1d. Tìm nút Generate và chờ Angular validate enable
           let btn = null;
           const waitBtnStart = Date.now();
           while (Date.now() - waitBtnStart < 3500) {
@@ -940,12 +1084,12 @@ async function handleMessage(msg) {
               });
 
               if (!btn && boxBtns.length > 0) {
-                btn = boxBtns[boxBtns.length - 1]; // Nút action cuối cùng ở góc phải promptBox
+                btn = boxBtns[boxBtns.length - 1];
               }
             }
 
             if (btn && !btn.disabled && !btn.hasAttribute('disabled') && btn.getAttribute('aria-disabled') !== 'true') {
-              break; // Đã tìm thấy nút enabled!
+              break;
             }
             await new Promise((r) => setTimeout(r, 100));
           }
@@ -954,11 +1098,7 @@ async function handleMessage(msg) {
             return { ok: false, error: 'NO_GEN_BUTTON' };
           }
 
-          // Kích hoạt DOM click tức thời
-          try {
-            btn.click();
-          } catch (e) {}
-
+          // Lưu ý: KHÔNG click DOM ở đây để tránh race condition với CDP Trusted Click!
           btn.scrollIntoView({ block: 'nearest', inline: 'nearest' });
           await new Promise((r) => setTimeout(r, 80));
           const rect = btn.getBoundingClientRect();
@@ -969,15 +1109,22 @@ async function handleMessage(msg) {
         },
       });
 
-      const p1 = phase1?.result;
-      if (!p1?.ok) {
-        send({ id, result: p1 || { ok: false, error: 'PHASE1_FAILED' } });
+      const prep = prepExec?.result;
+      if (!prep?.ok) {
+        send({ id, result: { ok: false, state: 'FAILED', error: prep?.error || 'PREP_FAILED', errorCode: 'UI_AUTOMATION_FAILED' } });
         return;
       }
 
-      // Bước 2: Bấm nút bằng CDP Trusted Click (phần cứng mô phỏng isTrusted=true)
+      if (taskState.cancelled) {
+        send({ id, result: { ok: false, state: 'TIMED_OUT', error: 'CANCELLED', errorCode: 'UI_AUTOMATION_FAILED' } });
+        return;
+      }
+
+      // ══════════════════════════════════════════════════════════════════════════
+      // STAGE 1 (Part B): CDP Trusted Click Dispatch & Fallback
+      // ══════════════════════════════════════════════════════════════════════════
       let cdpSuccess = false;
-      let actualClickTimestamp = clickTimestamp;
+      const submissionTimestamp = Date.now();
       try {
         try {
           await chrome.debugger.attach({ tabId: tab.id }, '1.3');
@@ -988,15 +1135,14 @@ async function handleMessage(msg) {
         }
         await chrome.debugger.sendCommand({ tabId: tab.id }, 'Input.dispatchMouseEvent', {
           type: 'mouseMoved',
-          x: p1.cx,
-          y: p1.cy,
+          x: prep.cx,
+          y: prep.cy,
         });
         await new Promise((r) => setTimeout(r, 40));
-        actualClickTimestamp = Date.now();
         await chrome.debugger.sendCommand({ tabId: tab.id }, 'Input.dispatchMouseEvent', {
           type: 'mousePressed',
-          x: p1.cx,
-          y: p1.cy,
+          x: prep.cx,
+          y: prep.cy,
           button: 'left',
           clickCount: 1,
           modifiers: 0,
@@ -1004,24 +1150,23 @@ async function handleMessage(msg) {
         await new Promise((r) => setTimeout(r, 60));
         await chrome.debugger.sendCommand({ tabId: tab.id }, 'Input.dispatchMouseEvent', {
           type: 'mouseReleased',
-          x: p1.cx,
-          y: p1.cy,
+          x: prep.cx,
+          y: prep.cy,
           button: 'left',
           clickCount: 1,
           modifiers: 0,
         });
 
         cdpSuccess = true;
-        log(`🖱️ Đã phát CDP trusted click tại (${p1.cx}, ${p1.cy}) cho mode=${targetMode}`);
+        log(`🖱️ Đã phát CDP trusted click tại (${prep.cx}, ${prep.cy}) cho mode=${targetMode}`);
       } catch (cdpErr) {
-        warn('CDP click gặp sự cố, fallback sang DOM click:', cdpErr.message);
+        warn('CDP click gặp sự cố, fallback sang DOM click tức thì:', cdpErr.message);
       } finally {
         try { await chrome.debugger.detach({ tabId: tab.id }); } catch {}
       }
 
       if (!cdpSuccess) {
-        // Fallback DOM click & Enter event
-        actualClickTimestamp = Date.now();
+        // Fallback DOM click
         await chrome.scripting.executeScript({
           target: { tabId: tab.id },
           world: 'MAIN',
@@ -1036,102 +1181,357 @@ async function handleMessage(msg) {
         });
       }
 
-      const clientTimeout = typeof params?.timeoutMs === 'number' && params.timeoutMs > 0 ? params.timeoutMs : 90000;
+      // ══════════════════════════════════════════════════════════════════════════
+      // STAGE 1 (Part C): Submission Confirmation Verification (< 6 seconds)
+      // ══════════════════════════════════════════════════════════════════════════
+      let submissionConfirmed = false;
+      const subDeadline = Date.now() + submissionTimeoutMs;
+      while (Date.now() < subDeadline) {
+        if (taskState.cancelled) {
+          send({ id, result: { ok: false, state: 'TIMED_OUT', error: 'CANCELLED', errorCode: 'UI_AUTOMATION_FAILED' } });
+          return;
+        }
+        await new Promise((r) => setTimeout(r, 300));
 
-      // Bước 3: Đợi gói tin RPC phản hồi từ Google Flow
-      const [phase3] = await chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        world: 'MAIN',
-        args: [{ clickTimestamp: Math.max(0, actualClickTimestamp - 200), targetMode, timeoutMs: clientTimeout - 5000 }],
-        func: async (args) => {
-          const ts = args.clickTimestamp;
-          const mode = (args.targetMode || 'IMAGE').toUpperCase();
-          const deadline = Date.now() + (args.timeoutMs || 85000);
-          while (Date.now() < deadline) {
-            await new Promise((r) => setTimeout(r, 350));
-            const hist = (window.__VANHSUB_SNIFFER__?.history || []).filter((h) => (h.timestamp || 0) >= ts);
-            // Ưu tiên RPC khớp chính xác với mode được yêu cầu, ngăn chặn bắt nhầm gói tin chéo mode
+        const [subProbeExec] = await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          world: 'MAIN',
+          args: [{ submissionTimestamp }],
+          func: (args) => {
+            // 1. Kiểm tra reCAPTCHA challenge modal hoặc toast cảnh báo
+            const captchaIframe = document.querySelector('iframe[src*="bframe"], iframe[src*="recaptcha/enterprise/bframe"], .g-recaptcha-bubble-arrow');
+            if (captchaIframe) {
+              return { accepted: false, challenge: true, error: 'RECAPTCHA_CHALLENGE_DISPLAYED' };
+            }
+
+            const toasts = Array.from(document.querySelectorAll('mat-snack-bar-container, .toast, .error-banner, [role="alert"], flow-toast'));
+            const botToast = toasts.find((t) => {
+              const txt = (t.innerText || t.textContent || '').toLowerCase();
+              return txt.includes('unusual activity') || txt.includes('bất thường') || txt.includes('quota') || txt.includes('blocked');
+            });
+            if (botToast) {
+              return { accepted: false, challenge: true, error: 'PUBLIC_ERROR_UNUSUAL_ACTIVITY', message: botToast.innerText };
+            }
+
+            // 2. Kiểm tra tín hiệu input đã được submit
+            const promptBox = document.querySelector('flow-prompt-box, flow-base-prompt-box, .prompt-box-container');
+            const btn = promptBox?.querySelector('flow-generate-icon-button button, button.generate-icon-button, button.submit-button, button[type="submit"]');
+            const isBtnDisabled = btn ? (btn.disabled || btn.hasAttribute('disabled') || btn.getAttribute('aria-disabled') === 'true') : false;
+            const hasSpinner = !!document.querySelector('mat-progress-spinner, mat-spinner, .loading-spinner, flow-loading-indicator, mat-progress-bar');
+            const pmText = document.querySelector('.ProseMirror')?.innerText?.trim() || '';
+            const isPromptCleared = pmText.length === 0;
+
+            const hasRecentRpc = (window.__VANHSUB_SNIFFER__?.history || []).some((h) => (h.timestamp || 0) >= (args.submissionTimestamp - 500));
+
+            const accepted = isBtnDisabled || hasSpinner || (isPromptCleared && pmText !== '') || hasRecentRpc;
+            return { accepted, isBtnDisabled, hasSpinner, hasRecentRpc };
+          },
+        });
+
+        const subResult = subProbeExec?.result;
+        if (subResult?.challenge) {
+          send({
+            id,
+            result: {
+              ok: false,
+              state: 'BLOCKED_REQUIRES_USER',
+              error: subResult.error,
+              errorCode: 'BLOCKED_REQUIRES_USER',
+              message: subResult.message || 'Phát hiện yêu cầu xác minh bảo mật từ Google Flow',
+            },
+          });
+          return;
+        }
+
+        if (subResult?.accepted) {
+          submissionConfirmed = true;
+          break;
+        }
+
+        // Nếu sau 3 giây chưa được accept, thử một lần DOM click retry
+        if (Date.now() - submissionTimestamp > 3000 && !subResult?.accepted) {
+          await chrome.scripting.executeScript({
+            target: { tabId: tab.id },
+            world: 'MAIN',
+            func: () => {
+              const b = document.querySelector('flow-generate-icon-button button, button.generate-icon-button, button.submit-button');
+              if (b && !b.disabled) b.click();
+            },
+          });
+        }
+      }
+
+      if (!submissionConfirmed) {
+        send({
+          id,
+          result: {
+            ok: false,
+            state: 'TIMED_OUT',
+            error: 'TIMEOUT_SUBMITTING: Giao diện Flow không chấp nhận lệnh tạo sau 6s',
+            errorCode: 'TIMEOUT_SUBMITTING',
+          },
+        });
+        return;
+      }
+
+      // ══════════════════════════════════════════════════════════════════════════
+      // STAGE 2: Multi-Channel Observation Loop
+      // ══════════════════════════════════════════════════════════════════════════
+      const procDeadline = Date.now() + processingTimeoutMs;
+      let observationCompleted = false;
+
+      while (Date.now() < procDeadline) {
+        if (taskState.cancelled) {
+          send({ id, result: { ok: false, state: 'TIMED_OUT', error: 'CANCELLED', errorCode: 'UI_AUTOMATION_FAILED' } });
+          return;
+        }
+        await new Promise((r) => setTimeout(r, 400));
+
+        const [obsExec] = await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          world: 'MAIN',
+          args: [{ preFlight, targetMode, submissionTimestamp }],
+          func: (args) => {
+            const mode = (args.targetMode || 'IMAGE').toUpperCase();
+            const pre = args.preFlight || { cardIds: [], imgUrls: [], videoUrls: [], preFlightTimestamp: 0 };
+
+            // ── Kênh C: Fast Challenge & Error Toast Detection (< 500ms) + Sniffer Early Warning ──
+            const earlyWarning = window.__VANHSUB_SNIFFER__?.lastWarning;
+            if (earlyWarning && (earlyWarning.timestamp || 0) >= pre.preFlightTimestamp) {
+              if (earlyWarning.code === 'PUBLIC_ERROR_UNUSUAL_ACTIVITY' || earlyWarning.code === 'RECAPTCHA_REQUIRED' || earlyWarning.code === 'FORBIDDEN') {
+                return { status: 'BLOCKED_REQUIRES_USER', error: earlyWarning.code, message: earlyWarning.message };
+              }
+              if (earlyWarning.code === 'RATE_LIMITED') {
+                return { status: 'RATE_LIMITED', error: earlyWarning.code, message: earlyWarning.message };
+              }
+            }
+
+            const captchaIframe = document.querySelector('iframe[src*="bframe"], iframe[src*="recaptcha/enterprise/bframe"], .g-recaptcha-bubble-arrow');
+            if (captchaIframe) {
+              return { status: 'BLOCKED_REQUIRES_USER', error: 'RECAPTCHA_CHALLENGE_DISPLAYED' };
+            }
+
+            const toasts = Array.from(document.querySelectorAll('mat-snack-bar-container, .toast, .error-banner, [role="alert"], flow-toast'));
+            const botToast = toasts.find((t) => {
+              const txt = (t.innerText || t.textContent || '').toLowerCase();
+              return (
+                txt.includes('unusual activity') ||
+                txt.includes('hoạt động bất thường') ||
+                txt.includes('try again later') ||
+                txt.includes('thử lại sau') ||
+                txt.includes('blocked') ||
+                txt.includes('bị chặn')
+              );
+            });
+            if (botToast) {
+              return { status: 'BLOCKED_REQUIRES_USER', error: 'PUBLIC_ERROR_UNUSUAL_ACTIVITY', message: botToast.innerText };
+            }
+
+            const quotaDialog = Array.from(document.querySelectorAll('mat-dialog-container')).find((d) => {
+              const txt = (d.innerText || d.textContent || '').toLowerCase();
+              return txt.includes('quota') || txt.includes('limit') || txt.includes('credits') || txt.includes('hạn ngạch');
+            });
+            if (quotaDialog) {
+              return { status: 'RATE_LIMITED', error: 'RESOURCE_EXHAUSTED', message: quotaDialog.innerText };
+            }
+
+            // ── Kênh B: Sniffer History (RPC & TRPC) ──
+            const hist = (window.__VANHSUB_SNIFFER__?.history || []).filter((h) => (h.timestamp || 0) >= pre.preFlightTimestamp);
+
+            const errRpc = hist.find((h) => h.status === 403 || h.status === 429 || (h.response && (h.response.includes('PUBLIC_ERROR_UNUSUAL_ACTIVITY') || h.response.includes('RESOURCE_EXHAUSTED'))));
+            if (errRpc) {
+              return {
+                status: errRpc.status === 429 ? 'RATE_LIMITED' : 'BLOCKED_REQUIRES_USER',
+                error: errRpc.response?.includes('RESOURCE_EXHAUSTED') ? 'RESOURCE_EXHAUSTED' : 'PUBLIC_ERROR_UNUSUAL_ACTIVITY',
+              };
+            }
+
             const genRpc = hist.find((h) => {
               if (!h.url || h.status !== 200 || !h.response) return false;
               if (mode === 'IMAGE') {
                 return h.url.includes('ogiZ0b');
               } else {
-                return h.url.includes('as29s') || h.url.includes('MZZa6b') || h.url.includes('YhhmEf') || h.url.includes('eb1hJf');
+                return h.url.includes('as29s') || h.url.includes('MZZa6b') || h.url.includes('YhhmEf') || h.url.includes('eb1hJf') || h.url.includes('/fx/api/trpc/');
               }
             });
             if (genRpc) {
               return {
-                ok: true,
+                status: 'COMPLETED',
                 capturedRpc: {
                   url: genRpc.url,
-                  rpcid: (genRpc.url.match(/rpcids=([^&]+)/) || [])[1],
+                  rpcid: (genRpc.url.match(/rpcids=([^&]+)/) || [])[1] || (mode === 'IMAGE' ? 'ogiZ0b' : 'as29s'),
                   status: genRpc.status,
                   response: genRpc.response,
                 },
               };
             }
 
-            // Fallback cross-mode: nếu sau 10s không có genRpc theo mode mong muốn,
-            // nhưng đã có RPC media thành công (ví dụ giao diện sinh video kèm thumbnail),
-            // bắt lấy ngay lập tức để trích xuất media thay vì chờ lâu
-            if (Date.now() - ts > 10000) {
-              const fallbackRpc = hist.find((h) => {
-                if (!h.url || h.status !== 200 || !h.response) return false;
-                return (
-                  h.url.includes('as29s') ||
-                  h.url.includes('ogiZ0b') ||
-                  h.url.includes('MZZa6b') ||
-                  h.url.includes('YhhmEf')
-                );
+            // ── Kênh A: DOM Gallery Delta Observation (Strict Container & Dimension Validation) ──
+            const galleryContainer = document.querySelector('flow-gallery, flow-project-view, flow-stage, flow-canvas, .gallery-container, .main-content') || document.body;
+            const currentCards = Array.from(galleryContainer.querySelectorAll('flow-asset-card, flow-media-tile, mat-card, [data-asset-id], .asset-item'));
+            const existingIds = new Set(pre.cardIds || []);
+            const existingImgs = new Set(pre.imgUrls || []);
+            const existingVideos = new Set(pre.videoUrls || []);
+
+            const isParentGenerating = (el) => {
+              const card = el.closest('flow-asset-card, flow-media-tile, mat-card, [data-asset-id], .asset-item');
+              if (!card) return false;
+              return !!card.querySelector('mat-progress-spinner, mat-spinner, flow-loading-indicator, mat-progress-bar, .loading') || card.classList.contains('generating');
+            };
+
+            // Kiểm tra thẻ đang sinh (progress spinner)
+            const isCardGenerating = currentCards.some((c) => {
+              const cid = c.getAttribute('data-asset-id') || c.getAttribute('data-id') || c.id;
+              if (cid && !existingIds.has(cid)) {
+                return !!c.querySelector('mat-progress-spinner, mat-spinner, flow-loading-indicator, mat-progress-bar') || c.classList.contains('generating');
+              }
+              return false;
+            });
+
+            if (mode === 'IMAGE') {
+              // Strictly restrict to asset card containers (exclude generic <img>, avatars, tool icons)
+              const allImgs = Array.from(galleryContainer.querySelectorAll('flow-asset-card img, flow-media-tile img, mat-card img, [data-asset-id] img, .asset-item img'));
+              const targetImg = allImgs.find((im) => {
+                const s = im.src || im.currentSrc || '';
+                if (!s || existingImgs.has(s)) return false;
+                const isValid = s.includes('googleusercontent.com') || s.includes('ai-sandbox') || s.startsWith('blob:') || s.startsWith('data:image');
+                const isNotIcon = !s.includes('avatar') && !s.includes('icon') && !s.includes('.svg') && !s.includes('thumb_small') && !s.includes('placeholder');
+                // Ensure image meets minimum resolution (>= 200px) to reject tiny preview thumbnails
+                const isDecentSize = (im.naturalWidth >= 200 && im.naturalHeight >= 200) || (im.width >= 180 && im.height >= 180);
+                const cardDone = !isParentGenerating(im);
+                return isValid && isNotIcon && isDecentSize && cardDone && (im.naturalWidth > 0 || im.complete);
               });
-              if (fallbackRpc) {
-                console.warn('[VanhSub:UI] ⚠️ Bắt được fallback cross-mode RPC:', fallbackRpc.url);
+
+              if (targetImg && !isCardGenerating) {
                 return {
-                  ok: true,
-                  crossMode: true,
-                  capturedRpc: {
-                    url: fallbackRpc.url,
-                    rpcid: (fallbackRpc.url.match(/rpcids=([^&]+)/) || [])[1],
-                    status: fallbackRpc.status,
-                    response: fallbackRpc.response,
-                  },
+                  status: 'COMPLETED',
+                  domFallback: true,
+                  firstImageUrl: targetImg.src || targetImg.currentSrc,
+                };
+              }
+            } else {
+              // Mode VIDEO: strictly restrict to asset cards, ignore tutorial or background videos
+              const allVideos = Array.from(galleryContainer.querySelectorAll('flow-asset-card video, flow-media-tile video, mat-card video, [data-asset-id] video, .asset-item video'));
+              const targetVideo = allVideos.find((v) => {
+                const s = v.src || v.currentSrc || v.querySelector('source')?.src || '';
+                if (!s || existingVideos.has(s)) return false;
+                const isValid = s.includes('googlevideo.com') || s.includes('storage.googleapis.com') || s.includes('googleusercontent.com') || s.includes('ai-sandbox') || s.startsWith('blob:');
+                const cardDone = !isParentGenerating(v);
+                return isValid && cardDone;
+              });
+
+              if (targetVideo && !isCardGenerating) {
+                const src = targetVideo.src || targetVideo.currentSrc || targetVideo.querySelector('source')?.src;
+                return {
+                  status: 'COMPLETED',
+                  domFallback: true,
+                  videoUrl: src,
                 };
               }
 
-              // Fallback DOM inspect: nếu RPC sniffer không đón được (do cache/stream),
-              // tìm kiếm asset card mới nhất xuất hiện trên gallery của Flow
-              const mediaImgs = Array.from(
-                document.querySelectorAll('flow-asset-card img, flow-media-tile img, mat-card img, [data-asset-id] img')
-              );
-              const targetImg = mediaImgs.find((im) => {
-                const s = im.src || '';
-                return s.includes('googleusercontent.com') || s.includes('ai-sandbox');
+              // Kiểm tra thẻ download link hoặc blob link video mới
+              const downloadLink = Array.from(galleryContainer.querySelectorAll('flow-asset-card a[download], flow-media-tile a[download], a[download]')).find((a) => {
+                const h = a.href || '';
+                if (!h || existingVideos.has(h)) return false;
+                return h.includes('storage.googleapis.com') || h.includes('googlevideo') || h.startsWith('blob:');
               });
-              if (targetImg) {
-                const src = targetImg.src;
-                console.log('[VanhSub:UI] 🖼️ Phát hiện ảnh mới trực tiếp trên DOM của Flow:', src.slice(0, 80));
-                const rpcid = mode === 'IMAGE' ? 'ogiZ0b' : 'as29s';
+              if (downloadLink && !isCardGenerating) {
                 return {
-                  ok: true,
+                  status: 'COMPLETED',
                   domFallback: true,
-                  firstImageUrl: src,
-                  capturedRpc: {
-                    url: 'DOM_EXTRACTED',
-                    rpcid,
-                    status: 200,
-                    response: `)]}'\n\n100\n[["wrb.fr","${rpcid}",${JSON.stringify(JSON.stringify([null, [[null, null, null, null, null, null, null, null, null, null, null, null, null, null, src]]]))},"generic"]]\n`,
-                  },
+                  videoUrl: downloadLink.href,
                 };
               }
             }
-          }
-          return { ok: false, error: 'TIMEOUT_WAITING_RPC' };
+
+            return { status: 'PROCESSING', isCardGenerating };
+          },
+        });
+
+        const obs = obsExec?.result;
+        if (obs?.status === 'COMPLETED') {
+          observationCompleted = true;
+          const rpcid = targetMode === 'IMAGE' ? 'ogiZ0b' : 'as29s';
+          const mediaUrl = obs.firstImageUrl || obs.videoUrl;
+          const fallbackResponse = `)]}'\n\n100\n[["wrb.fr","${rpcid}",${JSON.stringify(JSON.stringify([null, [[null, null, null, null, null, null, null, null, null, null, null, null, null, null, mediaUrl]]]))},"generic"]]\n`;
+
+          send({
+            id,
+            result: {
+              ok: true,
+              state: 'COMPLETED',
+              jobId: params?.jobId || id,
+              projectId: params?.projectId || null,
+              sceneId: params?.sceneId || null,
+              capturedRpc: obs.capturedRpc || {
+                url: 'DOM_EXTRACTED',
+                rpcid,
+                status: 200,
+                response: fallbackResponse,
+              },
+              firstImageUrl: obs.firstImageUrl,
+              videoUrl: obs.videoUrl,
+              domFallback: obs.domFallback || false,
+            },
+          });
+          return;
+        }
+
+        if (obs?.status === 'BLOCKED_REQUIRES_USER') {
+          send({
+            id,
+            result: {
+              ok: false,
+              state: 'BLOCKED_REQUIRES_USER',
+              error: obs.error || 'PUBLIC_ERROR_UNUSUAL_ACTIVITY',
+              errorCode: 'BLOCKED_REQUIRES_USER',
+              message: obs.message || 'Phát hiện cơ chế chặn bot từ Google Flow',
+            },
+          });
+          return;
+        }
+
+        if (obs?.status === 'RATE_LIMITED') {
+          send({
+            id,
+            result: {
+              ok: false,
+              state: 'FAILED',
+              error: obs.error || 'RESOURCE_EXHAUSTED',
+              errorCode: 'RATE_LIMITED',
+              message: obs.message || 'Hạn ngạch tạo media của tài khoản đã hết',
+            },
+          });
+          return;
+        }
+      }
+
+      // ══════════════════════════════════════════════════════════════════════════
+      // STAGE 3: Timeout Expiration
+      // ══════════════════════════════════════════════════════════════════════════
+      if (!observationCompleted) {
+        send({
+          id,
+          result: {
+            ok: false,
+            state: 'TIMED_OUT',
+            error: `TIMEOUT_PROCESSING: Quá thời gian tạo ${targetMode} (${Math.round(processingTimeoutMs / 1000)}s)`,
+            errorCode: 'TIMEOUT_PROCESSING',
+          },
+        });
+      }
+    } catch (err) {
+      send({
+        id,
+        result: {
+          ok: false,
+          state: 'FAILED',
+          error: err.message,
+          errorCode: 'UI_AUTOMATION_FAILED',
         },
       });
-
-      send({ id, result: phase3?.result || { ok: false, error: 'NO_PHASE3_RESULT' } });
-    } catch (err) {
-      send({ id, error: err.message });
+    } finally {
+      activeUiGenTasks.delete(id);
     }
     return;
   }
@@ -1179,10 +1579,32 @@ async function ensureTabInProject(tab, preferredProjectId, createNew = false) {
   if (!validPreferredId && !createNew) {
     throw new Error('FLOW_PROJECT_REQUIRED: Chưa liên kết project Flow cho tác vụ. Không sử dụng project đang mở.');
   }
+
+  // Quyết định an toàn: Kiểm tra biến môi trường và tab sở hữu
+  const isAutoOwned = typeof automationOwnedTabs !== 'undefined' && automationOwnedTabs
+    ? automationOwnedTabs.has(currentTab?.id)
+    : false;
+
   if (createNew) {
-    await chrome.tabs.update(currentTab.id, { url: 'https://labs.google/fx/vi/tools/flow' });
-    await waitForTabReady(currentTab.id, 15000);
-    currentTab = await chrome.tabs.get(currentTab.id);
+    if (chrome?.tabs?.create && !isAutoOwned && currentTab?.active) {
+      log('🌐 Mở tab riêng ở chế độ nền để tạo project mới (bảo vệ tab người dùng)...');
+      const created = await chrome.tabs.create({ url: 'https://labs.google/fx/vi/tools/flow', active: false });
+      await waitForTabReady(created.id, 15000);
+      currentTab = await chrome.tabs.get(created.id);
+      if (typeof automationOwnedTabs !== 'undefined' && automationOwnedTabs) {
+        automationOwnedTabs.set(currentTab.id, {
+          tabId: currentTab.id,
+          projectId: null,
+          createdAt: Date.now(),
+          lastUsedAt: Date.now(),
+          purpose: 'automation',
+        });
+      }
+    } else {
+      await chrome.tabs.update(currentTab.id, { url: 'https://labs.google/fx/vi/tools/flow' });
+      await waitForTabReady(currentTab.id, 15000);
+      currentTab = await chrome.tabs.get(currentTab.id);
+    }
     tabProjectId = extractProjectIdFromUrl(currentTab.url);
     if (tabProjectId) throw new Error('FLOW_PROJECT_CREATE_FAILED: Không mở được trang tạo project mới.');
   }
@@ -1193,11 +1615,39 @@ async function ensureTabInProject(tab, preferredProjectId, createNew = false) {
     const baseOrigin = currentTab.url && currentTab.url.includes('labs.google')
       ? 'https://labs.google/fx/vi/tools/flow/project/'
       : 'https://flow.google.com/project/';
-    log(`🎯 Điều hướng tab tới project được chỉ định: "${tabProjectId}"...`);
-    await chrome.tabs.update(currentTab.id, { url: `${baseOrigin}${tabProjectId}` });
-    await waitForTabReady(currentTab.id, 10000);
-    currentTab = await chrome.tabs.get(currentTab.id);
-    tabProjectId = extractProjectIdFromUrl(currentTab?.url);
+    const targetUrl = `${baseOrigin}${validPreferredId}`;
+
+    if (chrome?.tabs?.create && !isAutoOwned && currentTab?.active) {
+      // Tab hiện tại là của người dùng thủ công hoặc tab active: Mở tab riêng ở chế độ nền
+      log(`🌐 Tab hiện tại thuộc người dùng thủ công, mở tab riêng cho project "${validPreferredId}" ở chế độ nền: ${targetUrl}`);
+      const created = await chrome.tabs.create({ url: targetUrl, active: false });
+      await waitForTabReady(created.id, 15000);
+      currentTab = await chrome.tabs.get(created.id);
+      if (typeof automationOwnedTabs !== 'undefined' && automationOwnedTabs) {
+        automationOwnedTabs.set(currentTab.id, {
+          tabId: currentTab.id,
+          projectId: validPreferredId,
+          createdAt: Date.now(),
+          lastUsedAt: Date.now(),
+          purpose: 'automation',
+        });
+      }
+      tabProjectId = extractProjectIdFromUrl(currentTab?.url);
+    } else {
+      // Tab do automation quản lý: Cho phép cập nhật URL an toàn
+      log(`🎯 Điều hướng tab tới project được chỉ định: "${validPreferredId}"...`);
+      await chrome.tabs.update(currentTab.id, { url: targetUrl });
+      await waitForTabReady(currentTab.id, 10000);
+      currentTab = await chrome.tabs.get(currentTab.id);
+      tabProjectId = extractProjectIdFromUrl(currentTab?.url);
+      if (typeof automationOwnedTabs !== 'undefined' && automationOwnedTabs) {
+        const meta = automationOwnedTabs.get(currentTab.id);
+        if (meta) {
+          meta.projectId = validPreferredId;
+          meta.lastUsedAt = Date.now();
+        }
+      }
+    }
     if (tabProjectId !== validPreferredId) throw new Error('FLOW_PROJECT_MISMATCH: Không mở được đúng project đã liên kết.');
   }
 
@@ -1261,7 +1711,11 @@ async function ensureTabInProject(tab, preferredProjectId, createNew = false) {
 }
 
 async function runBatchRpc(cmd) {
-  let tab = await getFlowTab(true, cmd?.projectId);
+  let tab = await getFlowTab(true, cmd?.projectId, {
+    jobId: cmd?.jobId,
+    targetTabId: cmd?.tabId,
+    allowUserTabFallback: false,
+  });
   if (!tab) {
     return {
       error: 'NO_FLOW_TAB: Vui lòng mở 1 tab https://flow.google.com/ trên Google Chrome để thực hiện request.',
