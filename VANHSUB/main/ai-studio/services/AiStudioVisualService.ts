@@ -9,6 +9,9 @@ import ffprobeInstaller from '@ffprobe-installer/ffprobe';
 import { GoogleVeoSessionManager } from '../../veo/GoogleVeoSessionManager';
 import { GoogleFlowBrowserMutex } from '../../workflow/dispatcher/GoogleFlowBrowserMutex';
 import { FlowBridgeServer } from '../../workflow/flow-engine/rpc/FlowBridgeServer';
+import { VisualProviderRouter } from '../providers/VisualProviderRouter';
+import { BrowserAutomationAdapter } from '../../browser-automation/BrowserAutomationAdapter';
+import { BrowserProcessManager } from '../../browser-automation/BrowserProcessManager';
 import {
   getGoogleFlowRpcClient,
   GoogleFlowRpcClient,
@@ -132,6 +135,18 @@ export class AiStudioVisualService {
     return getGoogleFlowRpcClient();
   }
 
+  public getVisualProviderRouter(): VisualProviderRouter {
+    return VisualProviderRouter.getInstance();
+  }
+
+  public getBrowserAutomationAdapter(): BrowserAutomationAdapter {
+    return BrowserAutomationAdapter.getInstance();
+  }
+
+  public getBrowserProcessManager(): BrowserProcessManager {
+    return BrowserProcessManager.getInstance();
+  }
+
   private _preferUiImageGen = false;
   private _preferUiVideoGen = false;
 
@@ -163,6 +178,31 @@ export class AiStudioVisualService {
   public resetPreferUiGen(): void {
     this._preferUiImageGen = false;
     this._preferUiVideoGen = false;
+  }
+
+  /**
+   * Dispatches UI generation request to either Chrome Extension Bridge (port 9222) or
+   * BrowserAutomationAdapter Playwright session (port 9224).
+   */
+  public async executeUiGeneration(
+    prompt: string,
+    timeoutMs: number,
+    projectId: string | undefined,
+    mode: 'image' | 'video',
+    signal?: AbortSignal
+  ): Promise<any> {
+    const bridge = FlowBridgeServer.getInstance();
+    if (bridge.isConnected()) {
+      return await bridge.triggerUiGen(prompt, timeoutMs, projectId, mode, signal);
+    }
+    const adapter = BrowserAutomationAdapter.getInstance();
+    return await adapter.executeFlowGeneration({
+      prompt,
+      timeoutMs,
+      projectId,
+      mode,
+      signal,
+    });
   }
 
   // ==========================================================================
@@ -304,33 +344,23 @@ export class AiStudioVisualService {
               throw flowErr;
             }
             const errorCode = flowErr.code;
+            const isUnusual = isUnusualActivityError(flowErr) || errorCode === 'PUBLIC_ERROR_UNUSUAL_ACTIVITY' || errorCode === 'UNUSUAL_ACTIVITY';
             const isTransient =
-              flowErr.retryable ||
-              errorCode === 'RATE_LIMITED' ||
-              errorCode === 'PUBLIC_ERROR_UNUSUAL_ACTIVITY' ||
-              errorCode === 'UNUSUAL_ACTIVITY' ||
-              errorCode === 'UPSTREAM_ERROR' ||
-              errorCode === 'TIMEOUT' ||
-              isUnusualActivityError(flowErr);
+              !isUnusual &&
+              (flowErr.retryable ||
+                errorCode === 'RATE_LIMITED' ||
+                errorCode === 'UPSTREAM_ERROR' ||
+                errorCode === 'TIMEOUT');
+
+            if (isUnusual) {
+              console.warn(
+                `[AiStudioVisualService] Phát hiện PUBLIC_ERROR_UNUSUAL_ACTIVITY ở cảnh ${i + 1}. ` +
+                `Dừng retry tự động (ABORT_HALT) để bảo vệ tài khoản người dùng.`
+              );
+              throw flowErr;
+            }
 
             if (isTransient && retry < maxRetries) {
-              // R2: Đối với PUBLIC_ERROR_UNUSUAL_ACTIVITY, kích hoạt cơ chế dự phòng số 1 (CDP Trusted Click phần hardware)
-              if (isUnusualActivityError(flowErr) || errorCode === 'PUBLIC_ERROR_UNUSUAL_ACTIVITY' || errorCode === 'UNUSUAL_ACTIVITY') {
-                console.warn(
-                  `[AiStudioVisualService] Phát hiện PUBLIC_ERROR_UNUSUAL_ACTIVITY ở cảnh ${i + 1}. ` +
-                  `Tự động kích hoạt cơ chế dự phòng số 1 (CDP Trusted Click phần hardware)...`
-                );
-                try {
-                  const client = this.getRpcClient();
-                  if (typeof (client as any).handleUnusualActivityRecovery === 'function') {
-                    lobbyWin = await (client as any).handleUnusualActivityRecovery(lobbyWin, flowConfig.projectId, signal);
-                  } else if (typeof (client as any)._handleUnusualActivityAutoRecovery === 'function') {
-                    lobbyWin = await (client as any)._handleUnusualActivityAutoRecovery(lobbyWin, flowConfig.projectId, signal);
-                  }
-                } catch (recErr: any) {
-                  console.warn('[AiStudioVisualService] Lỗi khi kích hoạt CDP Trusted Click fallback:', recErr?.message || recErr);
-                }
-              }
 
               const baseMs = typeof flowConfig.backoffBaseMs === 'number' ? flowConfig.backoffBaseMs : 10000;
               const backoffMs = calculateExponentialBackoffMs(retry, baseMs, 120000);
@@ -371,14 +401,25 @@ export class AiStudioVisualService {
 
             // Kiểm tra xem phân cảnh đã có ảnh keyframe thực tế hay chưa
             if (scene.imagePath && fs.existsSync(scene.imagePath)) {
-              console.log(
-                `[AiStudioVisualService] 📸 Phân cảnh ${i + 1} đã có ảnh keyframe thực tế. Tự động chuyển sang ảnh tĩnh Ken Burns thay vì thẻ chữ giả lập.`
-              );
-              finalPath = scene.imagePath;
-              scene.assetPath = scene.imagePath;
-              scene.motionType = 'ken_burns';
-              delete scene.videoPath;
-              break;
+              if (flowConfig.allowKenBurnsFallback) {
+                console.log(
+                  `[AiStudioVisualService] 📸 Phân cảnh ${i + 1} đã có ảnh keyframe thực tế. Chuyển sang ảnh tĩnh Ken Burns theo cấu hình allowKenBurnsFallback.`
+                );
+                onProgress?.(
+                  sceneBasePct,
+                  `[Cảnh ${i + 1}/${scenes.length}] Sinh video AI thất bại. Đã chuyển sang ảnh tĩnh Ken Burns theo cấu hình dự phòng.`
+                );
+                finalPath = scene.imagePath;
+                scene.assetPath = scene.imagePath;
+                scene.motionType = 'ken_burns';
+                delete scene.videoPath;
+                break;
+              } else {
+                console.warn(
+                  `[AiStudioVisualService] ⚠️ Sinh video AI cho cảnh ${i + 1} thất bại. allowKenBurnsFallback=false: Báo lỗi chính xác, không tự ý thay video bằng Ken Burns.`
+                );
+                throw lastFlowErr || flowErr;
+              }
             }
 
             // Hoàn toàn không có ảnh keyframe thực tế -> Ném lỗi có cấu trúc để ActionableErrorBanner xử lý
@@ -423,15 +464,28 @@ export class AiStudioVisualService {
           continue;
         }
 
-        // Nếu không có finalPath: sử dụng ảnh keyframe thật nếu có, ngược lại ném lỗi
+        // Nếu không có finalPath: sử dụng ảnh keyframe thật nếu có và được phép bởi allowKenBurnsFallback
         if (scene.imagePath && fs.existsSync(scene.imagePath)) {
-          scene.assetPath = scene.imagePath;
-          delete scene.videoPath;
-          scene.motionType = 'ken_burns';
-          scene.status = 'ready';
-          googleFlowSuccessCount++;
-          await onSceneComplete?.(scene, i);
-          continue;
+          if (flowConfig.allowKenBurnsFallback) {
+            scene.assetPath = scene.imagePath;
+            delete scene.videoPath;
+            scene.motionType = 'ken_burns';
+            scene.status = 'ready';
+            googleFlowSuccessCount++;
+            await onSceneComplete?.(scene, i);
+            continue;
+          } else {
+            console.warn(
+              `[AiStudioVisualService] ⚠️ Sinh video AI cho cảnh ${i + 1} thất bại. allowKenBurnsFallback=false: Báo lỗi chính xác, không tự ý thay video bằng Ken Burns.`
+            );
+            throw (
+              lastFlowErr ||
+              new GoogleFlowRpcError(
+                `Sinh video AI cho cảnh ${i + 1} thất bại và allowKenBurnsFallback=false.`,
+                { code: 'UPSTREAM_ERROR', retryable: false }
+              )
+            );
+          }
         }
 
         throw (
@@ -480,6 +534,14 @@ export class AiStudioVisualService {
       }
     } else {
       try {
+        const procMgr = BrowserProcessManager.getInstance();
+        const flowProfile = procMgr.getProfileDir('flow');
+        procMgr.cleanupStaleLockFiles(flowProfile);
+      } catch (lockErr) {
+        console.warn('[AiStudioVisualService] cleanupStaleLockFiles notice:', lockErr);
+      }
+
+      try {
         const sessionMgr = GoogleVeoSessionManager.getInstance();
         lobbyWin = sessionMgr.getLobbyWindow();
         if (!lobbyWin || lobbyWin.isDestroyed()) {
@@ -500,6 +562,8 @@ export class AiStudioVisualService {
     }
 
     const isVideo = scene.motionType === 'video' || flowConfig.outputMode === 'video';
+    const isPlaywrightEngine = flowConfig.engine === 'browser_automation' || flowConfig.engine === 'playwright';
+    const isAutomationAvailable = FlowBridgeServer.getInstance().isConnected() || isPlaywrightEngine || BrowserAutomationAdapter.getInstance().isConnected('flow');
 
     // Normalize output path extension safely without destroying directory names containing dots
     const desiredExt = isVideo ? '.mp4' : '.png';
@@ -514,23 +578,53 @@ export class AiStudioVisualService {
     }
     fs.mkdirSync(path.dirname(targetPath), { recursive: true });
 
-    const mutex = GoogleFlowBrowserMutex.getInstance();
-    return await mutex.runExclusive(async () => {
-      if (signal?.aborted) {
-        throw new GoogleFlowRpcError('Tác vụ đã bị người dùng huỷ bỏ.', { code: 'CANCELLED', retryable: false });
-      }
+    let effectivePrompt = (scene.visualPrompt || scene.lineText || '').trim();
+    if (!effectivePrompt) {
+      throw new GoogleFlowRpcError('Prompt tạo media không được để trống.', {
+        code: 'INVALID_ARGUMENT',
+        retryable: false,
+      });
+    }
 
-      const refAssets = (scene as any).referenceAssets ||
-        (scene.referenceImagePath ? [scene.referenceImagePath] : undefined) ||
-        (flowConfig.referenceImagePath ? [flowConfig.referenceImagePath] : undefined);
+    const router = VisualProviderRouter.getInstance();
+    const sceneIndex = typeof scene.sceneNumber === 'number' ? scene.sceneNumber : (scene.lineIndex ?? 0);
+    const idempotencyKey = router.generateIdempotencyKey({
+      projectId: effectiveProjectId,
+      sceneId: scene.id,
+      sceneIndex,
+      prompt: effectivePrompt,
+      motionPrompt: (scene as any).motionPrompt || (scene as any).cameraMovement,
+      negativePrompt: scene.negativePrompt || flowConfig.negativePrompt,
+      mediaType: isVideo ? 'video' : 'image',
+      aspectRatio: flowConfig.aspectRatio || '16:9',
+      model: flowConfig.engine,
+      inputAsset: (scene as any).inputImageAsset || (scene as any).input_image_asset,
+      referenceImage: scene.referenceImagePath || flowConfig.referenceImagePath,
+      stylePrefix: flowConfig.stylePromptPrefix,
+    });
 
-      let effectivePrompt = (scene.visualPrompt || scene.lineText || '').trim();
-      if (!effectivePrompt) {
-        throw new GoogleFlowRpcError('Prompt tạo media không được để trống.', {
-          code: 'INVALID_ARGUMENT',
-          retryable: false,
-        });
-      }
+    const routerResult = await router.executeWithIdempotency(
+      {
+        idempotencyKey,
+        mediaType: isVideo ? 'video' : 'image',
+        prompt: effectivePrompt,
+        aspectRatio: flowConfig.aspectRatio || '16:9',
+        projectId: effectiveProjectId,
+        targetPath,
+        apiKey: flowConfig.apiKey,
+        signal,
+        onProgress,
+      },
+      async (req) => {
+        const mutex = GoogleFlowBrowserMutex.getInstance();
+        const producedPath = await mutex.runExclusive(async () => {
+          if (signal?.aborted) {
+            throw new GoogleFlowRpcError('Tác vụ đã bị người dùng huỷ bỏ.', { code: 'CANCELLED', retryable: false });
+          }
+
+          const refAssets = (scene as any).referenceAssets ||
+            (scene.referenceImagePath ? [scene.referenceImagePath] : undefined) ||
+            (flowConfig.referenceImagePath ? [flowConfig.referenceImagePath] : undefined);
 
       if (isVideo) {
         let resolvedKeyframeAsset = (scene as any).inputImageAsset || (scene as any).input_image_asset;
@@ -546,16 +640,14 @@ export class AiStudioVisualService {
           let imgGenResult: any = null;
 
           const uiTimeoutImage = typeof flowConfig.uiTimeoutMs === 'number' && flowConfig.uiTimeoutMs > 0 ? flowConfig.uiTimeoutMs : 90000;
-          const shouldDirectUiKeyframe =
-            (this._preferUiImageGen || flowConfig.preferUiGen) &&
-            FlowBridgeServer.getInstance().isConnected();
+          const shouldDirectUiKeyframe = (this._preferUiImageGen || flowConfig.preferUiGen || isPlaywrightEngine) && isAutomationAvailable;
 
           if (shouldDirectUiKeyframe) {
             console.log(
               `[AiStudioVisualService] ⚡ Direct UI Mode: Bỏ qua Pure RPC, trực tiếp sinh ảnh keyframe bằng CDP Trusted UI (isTrusted=true)...`
             );
             try {
-              const uiRes = await FlowBridgeServer.getInstance().triggerUiGen(
+              const uiRes = await this.executeUiGeneration(
                 effectivePrompt,
                 uiTimeoutImage,
                 effectiveProjectId,
@@ -595,13 +687,21 @@ export class AiStudioVisualService {
                     };
                   }
                 }
+              } else if (uiRes && (uiRes.state === 'BLOCKED_REQUIRES_USER' || uiRes.errorCode === 'BLOCKED_REQUIRES_USER')) {
+                throw new GoogleFlowRpcError(
+                  'Google Flow chặn tác vụ do phát hiện hành vi tự động (BLOCKED_REQUIRES_USER). Cần người dùng tương tác mở tab Chrome để xác minh.',
+                  { code: 'PUBLIC_ERROR_UNUSUAL_ACTIVITY', retryable: false, suggestedAction: 'ABORT_HALT' }
+                );
               }
             } catch (uiKeyErr: any) {
+              if (isUnusualActivityError(uiKeyErr) || uiKeyErr?.code === 'PUBLIC_ERROR_UNUSUAL_ACTIVITY') {
+                throw uiKeyErr;
+              }
               console.warn('[AiStudioVisualService] Direct UI keyframe warning:', uiKeyErr?.message || uiKeyErr);
             }
           }
 
-          if (!imgGenResult) {
+          if (!imgGenResult && !this._preferUiImageGen) {
             try {
               imgGenResult = await rpcClient.generateImage({
                 prompt: effectivePrompt,
@@ -618,15 +718,15 @@ export class AiStudioVisualService {
               if (classified.isUnusualActivity) {
                 this._preferUiImageGen = true;
               }
-              if (classified.isUnusualActivity && FlowBridgeServer.getInstance().isConnected()) {
+              if (classified.isUnusualActivity && isAutomationAvailable) {
                 console.warn(
                   `[AiStudioVisualService] 🛡️ Pure RPC sinh keyframe bị Google chặn [${classified.code}]. ` +
                   `Fallback sang CDP Trusted UI Generation (isTrusted=true)...`
                 );
                 try {
-                  const uiRes = await FlowBridgeServer.getInstance().triggerUiGen(effectivePrompt, uiTimeoutImage, effectiveProjectId, 'image', signal);
+                  const uiRes = await this.executeUiGeneration(effectivePrompt, uiTimeoutImage, effectiveProjectId, 'image', signal);
                   console.log(
-                    `[AiStudioVisualService] 🔍 Kết quả triggerUiGen keyframe fallback:`,
+                    `[AiStudioVisualService] 🔍 Kết quả UI keyframe fallback:`,
                     uiRes ? (uiRes.ok ? `OK (rpcid=${uiRes.capturedRpc?.rpcid || 'dom'})` : `Lỗi (${uiRes.error})`) : 'NULL'
                   );
                   if (uiRes && uiRes.ok) {
@@ -658,13 +758,28 @@ export class AiStudioVisualService {
                         };
                       }
                     }
+                  } else if (uiRes && (uiRes.state === 'BLOCKED_REQUIRES_USER' || uiRes.errorCode === 'BLOCKED_REQUIRES_USER')) {
+                    throw new GoogleFlowRpcError(
+                      'Google Flow chặn tác vụ do phát hiện hành vi tự động (BLOCKED_REQUIRES_USER). Cần người dùng tương tác mở tab Chrome để xác minh.',
+                      { code: 'PUBLIC_ERROR_UNUSUAL_ACTIVITY', retryable: false, suggestedAction: 'ABORT_HALT' }
+                    );
                   }
                 } catch (uiErr: any) {
+                  if (isUnusualActivityError(uiErr) || uiErr?.code === 'PUBLIC_ERROR_UNUSUAL_ACTIVITY') {
+                    throw uiErr;
+                  }
                   console.warn('[AiStudioVisualService] CDP Trusted UI fallback keyframe warning:', uiErr?.message || uiErr);
                 }
               }
               if (!imgGenResult) throw rpcGenErr;
             }
+          }
+
+          if (!imgGenResult) {
+            throw new GoogleFlowRpcError('Không nhận được kết quả sinh ảnh keyframe từ Google Flow.', {
+              code: 'UPSTREAM_ERROR',
+              retryable: true,
+            });
           }
 
           const keyframeUrl = imgGenResult.firstImageUrl || imgGenResult.images?.[0]?.url;
@@ -717,16 +832,14 @@ export class AiStudioVisualService {
           let genResult: any = null;
 
           const uiTimeoutVideo = typeof flowConfig.uiTimeoutMs === 'number' && flowConfig.uiTimeoutMs > 0 ? flowConfig.uiTimeoutMs : 180000;
-          const shouldDirectUiVideo =
-            (this._preferUiVideoGen || flowConfig.preferUiGen) &&
-            FlowBridgeServer.getInstance().isConnected();
+          const shouldDirectUiVideo = (this._preferUiVideoGen || flowConfig.preferUiGen || isPlaywrightEngine) && isAutomationAvailable;
 
           if (shouldDirectUiVideo) {
             console.log(
               `[AiStudioVisualService] ⚡ Direct UI Mode: Bỏ qua Pure RPC, trực tiếp sinh video bằng CDP Trusted UI (isTrusted=true)...`
             );
             try {
-              const uiRes = await FlowBridgeServer.getInstance().triggerUiGen(
+              const uiRes = await this.executeUiGeneration(
                 motionPrompt,
                 uiTimeoutVideo,
                 effectiveProjectId,
@@ -737,47 +850,65 @@ export class AiStudioVisualService {
                 `[AiStudioVisualService] 🔍 Kết quả Direct UI video:`,
                 uiRes ? (uiRes.ok ? `OK (rpcid=${uiRes.capturedRpc?.rpcid || 'captured'})` : `Lỗi (${uiRes.error})`) : 'NULL'
               );
-              if (uiRes && uiRes.ok && uiRes.capturedRpc?.response) {
-                let rpcData: any = null;
-                try {
-                  const parsed = parseBatchResponse(uiRes.capturedRpc.response, RPC_GEN_VIDEO_REFERENCES);
-                  if (parsed.ok) rpcData = parsed.data;
-                } catch {}
-                if (!rpcData) {
-                  try {
-                    const parsed = parseBatchResponse(uiRes.capturedRpc.response, RPC_GEN_VIDEO_TEXT);
-                    if (parsed.ok) rpcData = parsed.data;
-                  } catch {}
-                }
-                if (!rpcData) {
-                  try {
-                    const parsed = parseBatchResponse(uiRes.capturedRpc.response, RPC_OPERATION);
-                    if (parsed.ok) rpcData = parsed.data;
-                  } catch {}
-                }
-                if (!rpcData) {
-                  try {
-                    const parsed = parseBatchResponse(uiRes.capturedRpc.response, RPC_MEDIA);
-                    if (parsed.ok) rpcData = parsed.data;
-                  } catch {}
-                }
-                const opStatus = extractOperationStatus(rpcData || uiRes.capturedRpc.response, RPC_GEN_VIDEO_REFERENCES);
-                if (opStatus && (opStatus.operationId || opStatus.videoUrl)) {
+              if (uiRes && uiRes.ok) {
+                if (uiRes.videoUrl) {
                   genResult = {
-                    operationId: opStatus.operationId,
-                    projectId: opStatus.projectId || effectiveProjectId,
-                    status: opStatus.status || 'RUNNING',
-                    done: opStatus.done,
-                    videoUrl: opStatus.videoUrl,
+                    operationId: 'dom-extracted-video',
+                    projectId: effectiveProjectId,
+                    status: 'COMPLETED',
+                    done: true,
+                    videoUrl: uiRes.videoUrl,
                   };
+                } else if (uiRes.capturedRpc?.response) {
+                  let rpcData: any = null;
+                  try {
+                    const parsed = parseBatchResponse(uiRes.capturedRpc.response, RPC_GEN_VIDEO_REFERENCES);
+                    if (parsed.ok) rpcData = parsed.data;
+                  } catch {}
+                  if (!rpcData) {
+                    try {
+                      const parsed = parseBatchResponse(uiRes.capturedRpc.response, RPC_GEN_VIDEO_TEXT);
+                      if (parsed.ok) rpcData = parsed.data;
+                    } catch {}
+                  }
+                  if (!rpcData) {
+                    try {
+                      const parsed = parseBatchResponse(uiRes.capturedRpc.response, RPC_OPERATION);
+                      if (parsed.ok) rpcData = parsed.data;
+                    } catch {}
+                  }
+                  if (!rpcData) {
+                    try {
+                      const parsed = parseBatchResponse(uiRes.capturedRpc.response, RPC_MEDIA);
+                      if (parsed.ok) rpcData = parsed.data;
+                    } catch {}
+                  }
+                  const opStatus = extractOperationStatus(rpcData || uiRes.capturedRpc.response, RPC_GEN_VIDEO_REFERENCES);
+                  if (opStatus && (opStatus.operationId || opStatus.videoUrl)) {
+                    genResult = {
+                      operationId: opStatus.operationId,
+                      projectId: opStatus.projectId || effectiveProjectId,
+                      status: opStatus.status || 'RUNNING',
+                      done: opStatus.done,
+                      videoUrl: opStatus.videoUrl,
+                    };
+                  }
                 }
+              } else if (uiRes && (uiRes.state === 'BLOCKED_REQUIRES_USER' || uiRes.errorCode === 'BLOCKED_REQUIRES_USER')) {
+                throw new GoogleFlowRpcError(
+                  'Google Flow chặn tác vụ do phát hiện hành vi tự động (BLOCKED_REQUIRES_USER). Cần người dùng tương tác mở tab Chrome để xác minh.',
+                  { code: 'PUBLIC_ERROR_UNUSUAL_ACTIVITY', retryable: false, suggestedAction: 'ABORT_HALT' }
+                );
               }
             } catch (uiVidDirectErr: any) {
+              if (isUnusualActivityError(uiVidDirectErr) || uiVidDirectErr?.code === 'PUBLIC_ERROR_UNUSUAL_ACTIVITY') {
+                throw uiVidDirectErr;
+              }
               console.warn('[AiStudioVisualService] Direct UI video warning:', uiVidDirectErr?.message || uiVidDirectErr);
             }
           }
 
-          if (!genResult) {
+          if (!genResult && !this._preferUiVideoGen) {
             try {
               genResult = await rpcClient.generateVideo({
                 prompt: motionPrompt,
@@ -795,58 +926,83 @@ export class AiStudioVisualService {
               if (classified.isUnusualActivity) {
                 this._preferUiVideoGen = true;
               }
-              if (classified.isUnusualActivity && FlowBridgeServer.getInstance().isConnected()) {
+              if (classified.isUnusualActivity && isAutomationAvailable) {
                 console.warn(
                   `[AiStudioVisualService] 🛡️ Pure RPC sinh video bị Google chặn [${classified.code}]. ` +
                   `Fallback sang CDP Trusted UI Generation (isTrusted=true)...`
                 );
                 try {
-                  const uiRes = await FlowBridgeServer.getInstance().triggerUiGen(motionPrompt, uiTimeoutVideo, effectiveProjectId, 'video', signal);
+                  const uiRes = await this.executeUiGeneration(motionPrompt, uiTimeoutVideo, effectiveProjectId, 'video', signal);
                   console.log(
-                    `[AiStudioVisualService] 🔍 Kết quả triggerUiGen video fallback:`,
+                    `[AiStudioVisualService] 🔍 Kết quả UI video fallback:`,
                     uiRes ? (uiRes.ok ? `OK (rpcid=${uiRes.capturedRpc?.rpcid || 'captured'})` : `Lỗi (${uiRes.error})`) : 'NULL'
                   );
-                  if (uiRes && uiRes.ok && uiRes.capturedRpc?.response) {
-                    let rpcData: any = null;
-                    try {
-                      const parsed = parseBatchResponse(uiRes.capturedRpc.response, RPC_GEN_VIDEO_REFERENCES);
-                      if (parsed.ok) rpcData = parsed.data;
-                    } catch {}
-                    if (!rpcData) {
-                      try {
-                        const parsed = parseBatchResponse(uiRes.capturedRpc.response, RPC_GEN_VIDEO_TEXT);
-                        if (parsed.ok) rpcData = parsed.data;
-                      } catch {}
-                    }
-                    if (!rpcData) {
-                      try {
-                        const parsed = parseBatchResponse(uiRes.capturedRpc.response, RPC_OPERATION);
-                        if (parsed.ok) rpcData = parsed.data;
-                      } catch {}
-                    }
-                    if (!rpcData) {
-                      try {
-                        const parsed = parseBatchResponse(uiRes.capturedRpc.response, RPC_MEDIA);
-                        if (parsed.ok) rpcData = parsed.data;
-                      } catch {}
-                    }
-                    const opStatus = extractOperationStatus(rpcData || uiRes.capturedRpc.response, RPC_GEN_VIDEO_REFERENCES);
-                    if (opStatus && (opStatus.operationId || opStatus.videoUrl)) {
+                  if (uiRes && uiRes.ok) {
+                    if (uiRes.videoUrl) {
                       genResult = {
-                        operationId: opStatus.operationId,
-                        projectId: opStatus.projectId || effectiveProjectId,
-                        status: opStatus.status || 'RUNNING',
-                        done: opStatus.done,
-                        videoUrl: opStatus.videoUrl,
+                        operationId: 'dom-extracted-video',
+                        projectId: effectiveProjectId,
+                        status: 'COMPLETED',
+                        done: true,
+                        videoUrl: uiRes.videoUrl,
                       };
+                    } else if (uiRes.capturedRpc?.response) {
+                      let rpcData: any = null;
+                      try {
+                        const parsed = parseBatchResponse(uiRes.capturedRpc.response, RPC_GEN_VIDEO_REFERENCES);
+                        if (parsed.ok) rpcData = parsed.data;
+                      } catch {}
+                      if (!rpcData) {
+                        try {
+                          const parsed = parseBatchResponse(uiRes.capturedRpc.response, RPC_GEN_VIDEO_TEXT);
+                          if (parsed.ok) rpcData = parsed.data;
+                        } catch {}
+                      }
+                      if (!rpcData) {
+                        try {
+                          const parsed = parseBatchResponse(uiRes.capturedRpc.response, RPC_OPERATION);
+                          if (parsed.ok) rpcData = parsed.data;
+                        } catch {}
+                      }
+                      if (!rpcData) {
+                        try {
+                          const parsed = parseBatchResponse(uiRes.capturedRpc.response, RPC_MEDIA);
+                          if (parsed.ok) rpcData = parsed.data;
+                        } catch {}
+                      }
+                      const opStatus = extractOperationStatus(rpcData || uiRes.capturedRpc.response, RPC_GEN_VIDEO_REFERENCES);
+                      if (opStatus && (opStatus.operationId || opStatus.videoUrl)) {
+                        genResult = {
+                          operationId: opStatus.operationId,
+                          projectId: opStatus.projectId || effectiveProjectId,
+                          status: opStatus.status || 'RUNNING',
+                          done: opStatus.done,
+                          videoUrl: opStatus.videoUrl,
+                        };
+                      }
                     }
+                  } else if (uiRes && (uiRes.state === 'BLOCKED_REQUIRES_USER' || uiRes.errorCode === 'BLOCKED_REQUIRES_USER')) {
+                    throw new GoogleFlowRpcError(
+                      'Google Flow chặn tác vụ do phát hiện hành vi tự động (BLOCKED_REQUIRES_USER). Cần người dùng tương tác mở tab Chrome để xác minh.',
+                      { code: 'PUBLIC_ERROR_UNUSUAL_ACTIVITY', retryable: false, suggestedAction: 'ABORT_HALT' }
+                    );
                   }
                 } catch (uiVidErr: any) {
+                  if (isUnusualActivityError(uiVidErr) || uiVidErr?.code === 'PUBLIC_ERROR_UNUSUAL_ACTIVITY') {
+                    throw uiVidErr;
+                  }
                   console.warn('[AiStudioVisualService] CDP Trusted UI fallback video warning:', uiVidErr?.message || uiVidErr);
                 }
               }
               if (!genResult) throw rpcVidErr;
             }
+          }
+
+          if (!genResult) {
+            throw new GoogleFlowRpcError('Không nhận được kết quả sinh video từ Google Flow.', {
+              code: 'UPSTREAM_ERROR',
+              retryable: true,
+            });
           }
 
           let finalVideoUrl = genResult.videoUrl;
@@ -908,17 +1064,25 @@ export class AiStudioVisualService {
           // DISPATCH Task 3: Nếu sinh video Veo thất bại nhưng đã có ảnh keyframe thật,
           // sử dụng ảnh keyframe thật (kèm hiệu ứng Ken Burns) làm hình ảnh phân cảnh
           if (keyframePath && fs.existsSync(keyframePath)) {
-            console.warn(
-              `[AiStudioVisualService] ⚠️ Sinh video Veo thất bại: ${veoErr?.message || veoErr}. ` +
-              `Tự động fallback sang ảnh keyframe thực tế đã tạo kèm hiệu ứng Ken Burns: ${keyframePath}`
-            );
-            scene.imagePath = keyframePath;
-            scene.assetPath = keyframePath;
-            delete scene.videoPath;
-            scene.motionType = 'ken_burns';
-            scene.status = 'ready';
-            onProgress?.(100, 'Đã chuyển sang ảnh keyframe thực tế (Ken Burns animation).');
-            return keyframePath;
+            if (flowConfig.allowKenBurnsFallback) {
+              console.warn(
+                `[AiStudioVisualService] ⚠️ Sinh video Veo thất bại: ${veoErr?.message || veoErr}. ` +
+                `Fallback sang ảnh keyframe thực tế kèm hiệu ứng Ken Burns theo cấu hình allowKenBurnsFallback: ${keyframePath}`
+              );
+              scene.imagePath = keyframePath;
+              scene.assetPath = keyframePath;
+              delete scene.videoPath;
+              scene.motionType = 'ken_burns';
+              scene.status = 'ready';
+              onProgress?.(100, 'Đã chuyển sang ảnh keyframe thực tế (Ken Burns animation) theo cấu hình dự phòng.');
+              return keyframePath;
+            } else {
+              console.warn(
+                `[AiStudioVisualService] ⚠️ Sinh video Veo thất bại: ${veoErr?.message || veoErr}. ` +
+                `allowKenBurnsFallback=false: Báo lỗi chính xác, không tự ý thay video bằng Ken Burns.`
+              );
+              throw veoErr;
+            }
           }
 
           // Hoàn toàn không có ảnh keyframe thật -> ném lỗi có cấu trúc
@@ -931,16 +1095,14 @@ export class AiStudioVisualService {
         let genResult: any = null;
 
         const uiTimeoutImage = typeof flowConfig.uiTimeoutMs === 'number' && flowConfig.uiTimeoutMs > 0 ? flowConfig.uiTimeoutMs : 90000;
-        const shouldDirectUiImage =
-          (this._preferUiImageGen || flowConfig.preferUiGen) &&
-          FlowBridgeServer.getInstance().isConnected();
+        const shouldDirectUiImage = (this._preferUiImageGen || flowConfig.preferUiGen || isPlaywrightEngine) && isAutomationAvailable;
 
         if (shouldDirectUiImage) {
           console.log(
             `[AiStudioVisualService] ⚡ Direct UI Mode: Bỏ qua Pure RPC, trực tiếp sinh ảnh bằng CDP Trusted UI (isTrusted=true)...`
           );
           try {
-            const uiRes = await FlowBridgeServer.getInstance().triggerUiGen(
+            const uiRes = await this.executeUiGeneration(
               effectivePrompt,
               uiTimeoutImage,
               effectiveProjectId,
@@ -980,76 +1142,99 @@ export class AiStudioVisualService {
                   };
                 }
               }
-            }
-          } catch (uiDirectErr: any) {
-            console.warn('[AiStudioVisualService] Direct UI ảnh warning:', uiDirectErr?.message || uiDirectErr);
-          }
-        }
-
-        if (!genResult) {
-          try {
-            genResult = await rpcClient.generateImage({
-              prompt: effectivePrompt,
-              aspectRatio: flowConfig.aspectRatio || '16:9',
-              referenceAssets: refAssets,
-              projectId: effectiveProjectId,
-              win: lobbyWin,
-              signal,
-              maxRetries: 0,
-              backoffBaseMs: typeof flowConfig.backoffBaseMs === 'number' ? flowConfig.backoffBaseMs : 10000,
-            });
-          } catch (rpcImgErr: any) {
-            const classified = classifyFlowRpcError(rpcImgErr);
-            if (classified.isUnusualActivity) {
-              this._preferUiImageGen = true;
-            }
-            if (classified.isUnusualActivity && FlowBridgeServer.getInstance().isConnected()) {
-              console.warn(
-                `[AiStudioVisualService] 🛡️ Pure RPC sinh ảnh bị Google chặn [${classified.code}]. ` +
-                `Fallback sang CDP Trusted UI Generation (isTrusted=true)...`
-              );
-              try {
-                const uiRes = await FlowBridgeServer.getInstance().triggerUiGen(effectivePrompt, uiTimeoutImage, effectiveProjectId, 'image', signal);
-                console.log(
-                  `[AiStudioVisualService] 🔍 Kết quả triggerUiGen image fallback:`,
-                  uiRes ? (uiRes.ok ? `OK (rpcid=${uiRes.capturedRpc?.rpcid || 'dom'})` : `Lỗi (${uiRes.error})`) : 'NULL'
+              } else if (uiRes && (uiRes.state === 'BLOCKED_REQUIRES_USER' || uiRes.errorCode === 'BLOCKED_REQUIRES_USER')) {
+                throw new GoogleFlowRpcError(
+                  'Google Flow chặn tác vụ do phát hiện hành vi tự động (BLOCKED_REQUIRES_USER). Cần người dùng tương tác mở tab Chrome để xác minh.',
+                  { code: 'PUBLIC_ERROR_UNUSUAL_ACTIVITY', retryable: false, suggestedAction: 'ABORT_HALT' }
                 );
-                if (uiRes && uiRes.ok) {
-                  if (uiRes.firstImageUrl) {
-                    genResult = {
-                      images: [{ url: uiRes.firstImageUrl, mediaId: 'dom-extracted' }],
-                      firstImageUrl: uiRes.firstImageUrl,
-                      projectId: effectiveProjectId,
-                    };
-                  } else if (uiRes.capturedRpc?.response) {
-                    let rpcData: any = null;
-                    const rpcid = uiRes.capturedRpc.rpcid || RPC_GEN_IMAGE;
-                    try {
-                      const parsed = parseBatchResponse(uiRes.capturedRpc.response, rpcid);
-                      if (parsed.ok) rpcData = parsed.data;
-                    } catch {}
-                    if (!rpcData && rpcid !== RPC_GEN_IMAGE) {
-                      try {
-                        const parsed = parseBatchResponse(uiRes.capturedRpc.response, RPC_GEN_IMAGE);
-                        if (parsed.ok) rpcData = parsed.data;
-                      } catch {}
-                    }
-                    const imgs = extractGeneratedImages(rpcData || uiRes.capturedRpc.response, rpcid);
-                    if (imgs && imgs.length > 0) {
+              }
+            } catch (uiDirectErr: any) {
+              if (isUnusualActivityError(uiDirectErr) || uiDirectErr?.code === 'PUBLIC_ERROR_UNUSUAL_ACTIVITY') {
+                throw uiDirectErr;
+              }
+              console.warn('[AiStudioVisualService] Direct UI ảnh warning:', uiDirectErr?.message || uiDirectErr);
+            }
+          }
+
+          if (!genResult && !this._preferUiImageGen) {
+            try {
+              genResult = await rpcClient.generateImage({
+                prompt: effectivePrompt,
+                aspectRatio: flowConfig.aspectRatio || '16:9',
+                referenceAssets: refAssets,
+                projectId: effectiveProjectId,
+                win: lobbyWin,
+                signal,
+                maxRetries: 0,
+                backoffBaseMs: typeof flowConfig.backoffBaseMs === 'number' ? flowConfig.backoffBaseMs : 10000,
+              });
+            } catch (rpcImgErr: any) {
+              const classified = classifyFlowRpcError(rpcImgErr);
+              if (classified.isUnusualActivity) {
+                this._preferUiImageGen = true;
+              }
+              if (classified.isUnusualActivity && isAutomationAvailable) {
+                console.warn(
+                  `[AiStudioVisualService] 🛡️ Pure RPC sinh ảnh bị Google chặn [${classified.code}]. ` +
+                  `Fallback sang CDP Trusted UI Generation (isTrusted=true)...`
+                );
+                try {
+                  const uiRes = await this.executeUiGeneration(effectivePrompt, uiTimeoutImage, effectiveProjectId, 'image', signal);
+                  console.log(
+                    `[AiStudioVisualService] 🔍 Kết quả UI image fallback:`,
+                    uiRes ? (uiRes.ok ? `OK (rpcid=${uiRes.capturedRpc?.rpcid || 'dom'})` : `Lỗi (${uiRes.error})`) : 'NULL'
+                  );
+                  if (uiRes && uiRes.ok) {
+                    if (uiRes.firstImageUrl) {
                       genResult = {
-                        images: imgs,
-                        firstImageUrl: imgs[0].url,
+                        images: [{ url: uiRes.firstImageUrl, mediaId: 'dom-extracted' }],
+                        firstImageUrl: uiRes.firstImageUrl,
                         projectId: effectiveProjectId,
                       };
+                    } else if (uiRes.capturedRpc?.response) {
+                      let rpcData: any = null;
+                      const rpcid = uiRes.capturedRpc.rpcid || RPC_GEN_IMAGE;
+                      try {
+                        const parsed = parseBatchResponse(uiRes.capturedRpc.response, rpcid);
+                        if (parsed.ok) rpcData = parsed.data;
+                      } catch {}
+                      if (!rpcData && rpcid !== RPC_GEN_IMAGE) {
+                        try {
+                          const parsed = parseBatchResponse(uiRes.capturedRpc.response, RPC_GEN_IMAGE);
+                          if (parsed.ok) rpcData = parsed.data;
+                        } catch {}
+                      }
+                      const imgs = extractGeneratedImages(rpcData || uiRes.capturedRpc.response, rpcid);
+                      if (imgs && imgs.length > 0) {
+                        genResult = {
+                          images: imgs,
+                          firstImageUrl: imgs[0].url,
+                          projectId: effectiveProjectId,
+                        };
+                      }
                     }
+                  } else if (uiRes && (uiRes.state === 'BLOCKED_REQUIRES_USER' || uiRes.errorCode === 'BLOCKED_REQUIRES_USER')) {
+                    throw new GoogleFlowRpcError(
+                      'Google Flow chặn tác vụ do phát hiện hành vi tự động (BLOCKED_REQUIRES_USER). Cần người dùng tương tác mở tab Chrome để xác minh.',
+                      { code: 'PUBLIC_ERROR_UNUSUAL_ACTIVITY', retryable: false, suggestedAction: 'ABORT_HALT' }
+                    );
                   }
+                } catch (uiErr: any) {
+                  if (isUnusualActivityError(uiErr) || uiErr?.code === 'PUBLIC_ERROR_UNUSUAL_ACTIVITY') {
+                    throw uiErr;
+                  }
+                  console.warn('[AiStudioVisualService] CDP Trusted UI fallback image warning:', uiErr?.message || uiErr);
                 }
-              } catch (uiErr: any) {
-                console.warn('[AiStudioVisualService] CDP Trusted UI fallback image warning:', uiErr?.message || uiErr);
               }
+              if (!genResult) throw rpcImgErr;
             }
-            if (!genResult) throw rpcImgErr;
           }
+
+        if (!genResult) {
+          throw new GoogleFlowRpcError('Không nhận được kết quả sinh ảnh từ Google Flow.', {
+            code: 'UPSTREAM_ERROR',
+            retryable: true,
+          });
         }
 
         const imageUrl = genResult.firstImageUrl || genResult.images?.[0]?.url;
@@ -1082,6 +1267,17 @@ export class AiStudioVisualService {
         return targetPath;
       }
     }, `ai_studio_visual_service_${scene.id}`);
+
+        return {
+          provider: (producedPath.endsWith('.mp4') ? 'google_flow_rpc' : (isVideo ? 'ken_burns_fallback' : 'google_flow_rpc')) as any,
+          mediaType: req.mediaType,
+          localPath: producedPath,
+          state: 'COMPLETED',
+        };
+      }
+    );
+
+    return routerResult.localPath;
   }
 
   // ==========================================================================
@@ -1752,33 +1948,24 @@ export class AiStudioVisualService {
           if (classified.code === 'CANCELLED') {
             throw classified;
           }
+          const errorCode = classified.code;
+          const isUnusual = isUnusualActivityError(classified) || errorCode === 'PUBLIC_ERROR_UNUSUAL_ACTIVITY' || errorCode === 'UNUSUAL_ACTIVITY';
           const isTransient =
-            classified.retryable ||
-            classified.code === 'RATE_LIMITED' ||
-            classified.code === 'PUBLIC_ERROR_UNUSUAL_ACTIVITY' ||
-            classified.code === 'UNUSUAL_ACTIVITY' ||
-            classified.code === 'UPSTREAM_ERROR' ||
-            classified.code === 'TIMEOUT' ||
-            isUnusualActivityError(classified);
+            !isUnusual &&
+            (classified.retryable ||
+              errorCode === 'RATE_LIMITED' ||
+              errorCode === 'UPSTREAM_ERROR' ||
+              errorCode === 'TIMEOUT');
+
+          if (isUnusual) {
+            console.warn(
+              `[AiStudioVisualService] regenerateSceneAsset phát hiện PUBLIC_ERROR_UNUSUAL_ACTIVITY. ` +
+              `Dừng retry tự động (ABORT_HALT) để bảo vệ tài khoản người dùng.`
+            );
+            throw classified;
+          }
 
           if (isTransient && retry < maxRetries) {
-            // R2: Đối với PUBLIC_ERROR_UNUSUAL_ACTIVITY, kích hoạt cơ chế dự phòng hardware click
-            if (isUnusualActivityError(classified) || classified.code === 'PUBLIC_ERROR_UNUSUAL_ACTIVITY' || classified.code === 'UNUSUAL_ACTIVITY') {
-              console.warn(
-                `[AiStudioVisualService] regenerateSceneAsset phát hiện PUBLIC_ERROR_UNUSUAL_ACTIVITY. ` +
-                `Tự động kích hoạt cơ chế dự phòng số 1 (CDP Trusted Click phần hardware)...`
-              );
-              try {
-                const client = this.getRpcClient();
-                if (typeof (client as any).handleUnusualActivityRecovery === 'function') {
-                  lobbyWin = await (client as any).handleUnusualActivityRecovery(lobbyWin, payload.flowConfig?.projectId, signal);
-                } else if (typeof (client as any)._handleUnusualActivityAutoRecovery === 'function') {
-                  lobbyWin = await (client as any)._handleUnusualActivityAutoRecovery(lobbyWin, payload.flowConfig?.projectId, signal);
-                }
-              } catch (recErr: any) {
-                console.warn('[AiStudioVisualService] Lỗi khi kích hoạt CDP Trusted Click fallback:', recErr?.message || recErr);
-              }
-            }
 
             const baseMs = typeof flowConfig.backoffBaseMs === 'number'
               ? flowConfig.backoffBaseMs

@@ -132,30 +132,55 @@ export async function normalizeDouyinUrl(url: string): Promise<string> {
   let clean = extractCleanUrl(url);
   if (!clean) return '';
 
+  const mobileUA =
+    'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1';
+
   // 1. Resolve short URL (v.douyin.com)
   if (/v\.douyin\.com/i.test(clean)) {
     try {
+      // Ưu tiên trích xuất header location từ redirect 301/302 mà không follow redirect
+      // để tránh bị chặn bởi Cloudflare / SecSdk JavaScript challenge của Desktop Douyin
       const res = await axios.get(clean, {
-        timeout: 12_000,
-        maxRedirects: 10,
+        timeout: 10_000,
+        maxRedirects: 0,
         validateStatus: (status) => status >= 200 && status < 400,
         headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'User-Agent': mobileUA,
           'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         },
       });
-      const finalUrl: string =
-        (res.request as any)?.res?.responseUrl ||
-        (res.request as any)?.responseURL ||
-        (res.headers as any)?.location ||
-        clean;
-      if (finalUrl && finalUrl !== clean) {
-        clean = finalUrl;
+      const location = (res.headers as any)?.location;
+      if (location) {
+        clean = location;
       }
     } catch (err: any) {
       const redirected = err?.response?.headers?.location || (err?.request as any)?.res?.responseUrl;
       if (redirected) {
         clean = redirected;
+      } else {
+        // Fallback: Nếu không lấy được qua 302 trực tiếp, cho phép follow redirects với mobile UA
+        try {
+          const resFollow = await axios.get(clean, {
+            timeout: 12_000,
+            maxRedirects: 5,
+            validateStatus: (status) => status >= 200 && status < 400,
+            headers: {
+              'User-Agent': mobileUA,
+              'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            },
+          });
+          const finalUrl: string =
+            (resFollow.request as any)?.res?.responseUrl ||
+            (resFollow.request as any)?.responseURL ||
+            (resFollow.headers as any)?.location ||
+            clean;
+          if (finalUrl && finalUrl !== clean) {
+            clean = finalUrl;
+          }
+        } catch (followErr: any) {
+          const fallbackLoc = followErr?.response?.headers?.location || (followErr?.request as any)?.res?.responseUrl;
+          if (fallbackLoc) clean = fallbackLoc;
+        }
       }
     }
   }
@@ -171,29 +196,22 @@ export async function normalizeDouyinUrl(url: string): Promise<string> {
 
 /**
  * Trích xuất video ID từ nhiều định dạng Douyin URL.
+ * Hỗ trợ /video/, /note/, /slides/, /item/, query parameters modal_id, item_id, aweme_id.
  */
 export function extractDouyinVideoId(url: string): string | null {
   if (!url) return null;
 
-  // Douyin: /video/VIDEO_ID
-  const douyinMatch = url.match(/douyin\.com\/video\/(\d+)/i);
-  if (douyinMatch) return douyinMatch[1];
+  // 1. Các định dạng đường dẫn: /video/ID, /note/ID, /slides/ID, /item/ID, /share/(video|note|slides|item)/ID
+  const pathMatch = url.match(/(?:video|note|slides|item|share\/(?:video|note|slides|item))\/(\d+)/i);
+  if (pathMatch) return pathMatch[1];
 
-  // Douyin: /note/VIDEO_ID
-  const noteMatch = url.match(/douyin\.com\/note\/(\d+)/i);
-  if (noteMatch) return noteMatch[1];
+  // 2. Query parameters: modal_id, item_id, item_ids, aweme_id
+  const queryMatch = url.match(/[?&](?:modal_id|item_id|item_ids|aweme_id)=(\d+)/i);
+  if (queryMatch) return queryMatch[1];
 
-  // Douyin modal_id=VIDEO_ID
-  const modalMatch = url.match(/[?&]modal_id=(\d+)/i);
-  if (modalMatch) return modalMatch[1];
-
-  // iesdouyin.com/(share/)?video/VIDEO_ID
-  const iesMatch = url.match(/iesdouyin\.com\/(?:share\/)?video\/(\d+)/i);
-  if (iesMatch) return iesMatch[1];
-
-  // Pattern số 18-20 chữ số trong URL douyin/iesdouyin
-  if (url.includes('douyin.com') || url.includes('iesdouyin.com')) {
-    const numMatch = url.match(/\/(\d{18,20})(?:[/?#]|$)/);
+  // 3. Pattern chuỗi số 18-20 chữ số (chuẩn aweme ID của ByteDance) trong URL douyin/iesdouyin/snssdk
+  if (url.includes('douyin.com') || url.includes('iesdouyin.com') || url.includes('snssdk.com')) {
+    const numMatch = url.match(/(?:\/|=)(\d{18,20})(?:[/?&#]|$)/);
     if (numMatch) return numMatch[1];
   }
 
@@ -398,6 +416,7 @@ export interface DouyinMediaData {
   duration: number;
   thumbnail: string;
   noWatermarkUrl: string;
+  backupUrls?: string[];
 }
 
 let cachedTtwid = '';
@@ -446,95 +465,189 @@ export async function getByteDanceTtwid(): Promise<string> {
  * Trích xuất video Douyin chính xác không watermark thông qua giao thức Server-Side Rendering (SSR) chính thức.
  *
  * Phương pháp này:
- *  1. Khắc phục triệt để lỗi "tải random video" do các public feed endpoint cũ của ByteDance trả về video ngẫu nhiên.
- *  2. Khắc phục triệt để lỗi "MaxListenersExceededWarning" và "Quá thời gian phân tích video Douyin (timeout)"
- *     do chạy Chromium BrowserWindow ẩn bị chặn bởi ArgusSecurityPlugin / Login modal của Douyin Desktop.
- *  3. Bóc tách trực tiếp luồng MP4 HD gốc 1080p/720p từ CDN của Douyin (zjcdn.com / douyinvod.com / bytevcloud)
- *     với tốc độ phản hồi cực nhanh (~500ms).
+ *  1. Hỗ trợ đa dạng các biến thể trang: /share/video/, /share/slides/, /share/note/
+ *  2. Bóc tách linh hoạt loaderData và hỗ trợ nhận diện bài đăng album ảnh thay vì crash
+ *  3. Cung cấp cả direct MP4 không watermark và danh sách backupUrls dự phòng
+ *  4. Bóc tách trực tiếp luồng MP4 HD gốc 1080p/720p từ CDN của Douyin với tốc độ phản hồi cực nhanh (~500ms).
  */
 export async function extractDouyinMediaData(
   targetUrl: string,
   awemeId: string,
-  timeoutMs = 10_000
+  timeoutMs = 12_000
 ): Promise<DouyinMediaData> {
   const ttwid = await getByteDanceTtwid();
   const mobileUA =
     'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1';
 
-  const shareUrl = `https://www.iesdouyin.com/share/video/${awemeId}/`;
+  // Danh sách các share endpoint có thể có trên máy chủ ByteDance
+  const candidateEndpoints = [
+    `https://www.iesdouyin.com/share/video/${awemeId}/`,
+    `https://www.iesdouyin.com/share/slides/${awemeId}/`,
+    `https://www.iesdouyin.com/share/note/${awemeId}/`,
+  ];
 
-  let responseData = '';
-  try {
-    const res = await axios.get(shareUrl, {
-      headers: {
-        'User-Agent': mobileUA,
-        ...(ttwid ? { 'Cookie': ttwid } : {}),
-        'Referer': 'https://www.iesdouyin.com/',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'zh-CN,zh;q=0.9',
-      },
-      timeout: Math.min(timeoutMs, 10_000),
-    });
-    responseData = res.data;
-  } catch (err: any) {
-    throw new Error(`Không thể kết nối tới máy chủ Douyin (${err?.message || err}).`);
-  }
+  let lastError: Error | null = null;
 
-  // Bóc tách window._ROUTER_DATA từ SSR HTML
-  const match =
-    responseData.match(/_ROUTER_DATA\s*=\s*(\{[\s\S]*?\})<\/script>/) ||
-    responseData.match(/<script[^>]*>([\s\S]*?_ROUTER_DATA[\s\S]*?)<\/script>/i);
-
-  if (!match) {
-    throw new Error('Không thể phân tích dữ liệu video từ trang Douyin (không tìm thấy router data).');
-  }
-
-  let jsonStr = match[1];
-  if (jsonStr.includes('window._ROUTER_DATA =')) {
-    const subMatch = jsonStr.match(/window\._ROUTER_DATA\s*=\s*(\{[\s\S]*\})/);
-    if (subMatch) jsonStr = subMatch[1];
-  }
-
-  let data: any;
-  try {
-    data = JSON.parse(jsonStr);
-  } catch {
-    throw new Error('Dữ liệu JSON từ máy chủ Douyin bị lỗi định dạng.');
-  }
-
-  const info = data.loaderData?.['video_(id)/page']?.videoInfoRes;
-  const item = info?.item_list?.[0];
-
-  if (!item) {
-    const filter = info?.filter_list?.[0];
-    const reason = filter?.filter_reason;
-    if (reason === 'SYSTEM_ITEM_NOT_EXIST') {
-      throw new Error('Video Douyin này không tồn tại, đã bị tác giả xóa hoặc đặt ở chế độ riêng tư.');
+  for (const shareUrl of candidateEndpoints) {
+    let responseData = '';
+    try {
+      const res = await axios.get(shareUrl, {
+        headers: {
+          'User-Agent': mobileUA,
+          ...(ttwid ? { 'Cookie': ttwid } : {}),
+          'Referer': 'https://www.iesdouyin.com/',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'Accept-Language': 'zh-CN,zh;q=0.9',
+        },
+        timeout: Math.min(timeoutMs, 8_000),
+      });
+      responseData = typeof res.data === 'string' ? res.data : JSON.stringify(res.data);
+    } catch (err: any) {
+      lastError = new Error(`Không thể kết nối tới máy chủ Douyin (${err?.message || err}).`);
+      continue;
     }
-    throw new Error(`Không tìm thấy thông tin video Douyin (${reason || 'video không công khai hoặc bị giới hạn'}).`);
+
+    // Bóc tách JSON từ SSR HTML (hỗ trợ _ROUTER_DATA, _SSR_DATA, RENDER_DATA)
+    const match =
+      responseData.match(/_ROUTER_DATA\s*=\s*(\{[\s\S]*?\})<\/script>/) ||
+      responseData.match(/<script[^>]*>([\s\S]*?_ROUTER_DATA[\s\S]*?)<\/script>/i) ||
+      responseData.match(/_SSR_DATA\s*=\s*(\{[\s\S]*?\})<\/script>/) ||
+      responseData.match(/RENDER_DATA\s*=\s*(\{[\s\S]*?\})<\/script>/);
+
+    if (!match) {
+      lastError = new Error('Không thể phân tích dữ liệu video từ trang Douyin (không tìm thấy router data).');
+      continue;
+    }
+
+    let jsonStr = match[1];
+    if (jsonStr.includes('window._ROUTER_DATA =')) {
+      const subMatch = jsonStr.match(/window\._ROUTER_DATA\s*=\s*(\{[\s\S]*\})/);
+      if (subMatch) jsonStr = subMatch[1];
+    }
+
+    let data: any;
+    try {
+      data = JSON.parse(jsonStr);
+    } catch {
+      lastError = new Error('Dữ liệu JSON từ máy chủ Douyin bị lỗi định dạng.');
+      continue;
+    }
+
+    // Tìm kiếm linh hoạt videoInfoRes trong tất cả các entries của loaderData
+    let info = data.loaderData?.['video_(id)/page']?.videoInfoRes;
+    if (!info && data.loaderData && typeof data.loaderData === 'object') {
+      for (const k of Object.keys(data.loaderData)) {
+        const val = data.loaderData[k];
+        if (val?.videoInfoRes) {
+          info = val.videoInfoRes;
+          break;
+        }
+        if (val?.noteInfoRes) {
+          info = val.noteInfoRes;
+          break;
+        }
+        if (val?.slidesInfoRes) {
+          info = val.slidesInfoRes;
+          break;
+        }
+      }
+    }
+
+    let item = info?.item_list?.[0];
+    if (!item && data.aweme_detail) {
+      item = data.aweme_detail;
+    }
+    if (!item && Array.isArray(data.item_list) && data.item_list.length > 0) {
+      item = data.item_list[0];
+    }
+
+    if (!item) {
+      const filter = info?.filter_list?.[0];
+      const reason = filter?.filter_reason;
+      if (reason === 'SYSTEM_ITEM_NOT_EXIST') {
+        lastError = new Error('Video Douyin này không tồn tại, đã bị tác giả xóa hoặc đặt ở chế độ riêng tư.');
+        continue;
+      }
+      if (reason === 'status_self_see') {
+        lastError = new Error('Video Douyin này đã được tác giả đặt ở chế độ riêng tư (chỉ mình tác giả xem được).');
+        continue;
+      }
+      lastError = new Error(`Không tìm thấy thông tin video Douyin (${reason || 'video không công khai hoặc bị giới hạn'}).`);
+      continue;
+    }
+
+    // Kiểm tra trường hợp đặc biệt: bài đăng bộ ảnh/slideshow không chứa video MP4
+    const hasPlayAddr = Boolean(item.video?.play_addr?.url_list?.length || item.video?.play_addr?.uri);
+    if (!hasPlayAddr && Array.isArray(item.images) && item.images.length > 0) {
+      throw new Error(
+        `Liên kết này là bài viết bộ ảnh Douyin (chứa ${item.images.length} hình ảnh), không phải video thông thường.\n` +
+        'Vui lòng chọn liên kết video để tải.'
+      );
+    }
+
+    let rawPlayUrl = item.video?.play_addr?.url_list?.[0] || '';
+    if (!rawPlayUrl && item.video?.play_addr?.uri) {
+      rawPlayUrl = `https://aweme.snssdk.com/aweme/v1/play/?video_id=${item.video.play_addr.uri}&ratio=1080p&line=0`;
+    }
+
+    if (!rawPlayUrl) {
+      lastError = new Error('Không tìm thấy đường dẫn phát video Douyin.');
+      continue;
+    }
+
+    // Chuẩn hóa protocol-relative URLs
+    if (rawPlayUrl.startsWith('//')) {
+      rawPlayUrl = `https:${rawPlayUrl}`;
+    }
+
+    // Thu thập danh sách backup URLs để dự phòng
+    const backupUrlsSet = new Set<string>();
+    backupUrlsSet.add(rawPlayUrl);
+
+    if (Array.isArray(item.video?.play_addr?.url_list)) {
+      for (const u of item.video.play_addr.url_list) {
+        if (typeof u === 'string' && u.trim()) {
+          const formatted = u.startsWith('//') ? `https:${u}` : u;
+          backupUrlsSet.add(formatted);
+          backupUrlsSet.add(formatted.replace('playwm', 'play'));
+        }
+      }
+    }
+
+    if (Array.isArray(item.video?.bit_rate)) {
+      for (const br of item.video.bit_rate) {
+        if (Array.isArray(br?.play_addr?.url_list)) {
+          for (const bu of br.play_addr.url_list) {
+            if (typeof bu === 'string' && bu.trim()) {
+              const formatted = bu.startsWith('//') ? `https:${bu}` : bu;
+              backupUrlsSet.add(formatted);
+              backupUrlsSet.add(formatted.replace('playwm', 'play'));
+            }
+          }
+        }
+      }
+    }
+
+    // Thay thế watermark playwm -> play để lấy direct MP4 không watermark chuẩn HD gốc
+    const noWatermarkUrl = rawPlayUrl.replace('playwm', 'play');
+    const durSec = item.video?.duration ? Math.round(item.video.duration / 1000) : 0;
+    const cover =
+      item.video?.cover?.url_list?.[0] ||
+      item.video?.dynamic_cover?.url_list?.[0] ||
+      item.video?.origin_cover?.url_list?.[0] ||
+      '';
+
+    return {
+      title: item.desc ? item.desc.trim() : `douyin_${awemeId}`,
+      author: item.author?.nickname || 'Douyin Creator',
+      duration: durSec,
+      thumbnail: cover,
+      noWatermarkUrl,
+      backupUrls: Array.from(backupUrlsSet).filter((u) => u !== noWatermarkUrl),
+    };
   }
 
-  const rawPlayUrl = item.video?.play_addr?.url_list?.[0] || '';
-  if (!rawPlayUrl) {
-    throw new Error('Không tìm thấy đường dẫn phát video Douyin.');
-  }
-
-  // Thay thế watermark playwm -> play để lấy direct MP4 không watermark chuẩn HD gốc
-  const noWatermarkUrl = rawPlayUrl.replace('playwm', 'play');
-  const durSec = item.video?.duration ? Math.round(item.video.duration / 1000) : 0;
-  const cover =
-    item.video?.cover?.url_list?.[0] ||
-    item.video?.dynamic_cover?.url_list?.[0] ||
-    item.video?.origin_cover?.url_list?.[0] ||
-    '';
-
-  return {
-    title: item.desc ? item.desc.trim() : `douyin_${awemeId}`,
-    author: item.author?.nickname || 'Douyin Creator',
-    duration: durSec,
-    thumbnail: cover,
-    noWatermarkUrl,
-  };
+  throw lastError || new Error('Không thể phân tích video Douyin sau khi đã thử tất cả các cổng máy chủ.');
 }
 
 export interface TikwmVideoData {
@@ -845,12 +958,17 @@ function finalizeDownload(
  * Tải Douyin không watermark bằng cách stream MP4 trực tiếp qua axios.
  * Video CDN Douyin là MP4 hoàn chỉnh độ nét cao gốc.
  */
+/**
+ * Tải Douyin không watermark bằng cách stream MP4 trực tiếp qua axios.
+ * Tự động hỗ trợ thử lại nhiều cấp độ headers và danh sách backup URLs.
+ */
 export async function downloadDouyinNoWatermark(
   noWatermarkUrl: string,
   title: string,
   baseFolder: string,
   onProgress?: (p: DownloadProgress) => void,
-  entry?: ActiveDownloadEntry
+  entry?: ActiveDownloadEntry,
+  backupUrls?: string[]
 ): Promise<string> {
   onProgress?.({
     percent: 5,
@@ -864,104 +982,160 @@ export async function downloadDouyinNoWatermark(
     entry.tempFiles.add(tempFilePath);
   }
 
-  const abortController = new AbortController();
-  if (entry) {
-    entry.abortController = abortController;
+  // Danh sách các URL để thử stream: ưu tiên noWatermarkUrl, sau đó là các backupUrls
+  const urlsToTry: string[] = [noWatermarkUrl];
+  if (Array.isArray(backupUrls)) {
+    for (const bUrl of backupUrls) {
+      if (bUrl && !urlsToTry.includes(bUrl)) {
+        urlsToTry.push(bUrl);
+      }
+    }
   }
 
-  try {
-    const res = await axios.get(noWatermarkUrl, {
-      responseType: 'stream',
-      timeout: 1800_000, // 30 phút tối đa
-      maxRedirects: 10,
-      signal: abortController.signal,
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1',
+  const mobileUA =
+    'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1';
+
+  let lastStreamError: Error | null = null;
+
+  for (let uIdx = 0; uIdx < urlsToTry.length; uIdx++) {
+    const currentUrl = urlsToTry[uIdx];
+    if (entry?.cancelled) throw new CancelledError();
+
+    // Mỗi URL thử 2 biến thể headers:
+    // Biến thể 1: Referer: https://www.douyin.com/
+    // Biến thể 2: Referer: https://www.iesdouyin.com/
+    const headerVariants = [
+      {
+        'User-Agent': mobileUA,
         'Referer': 'https://www.douyin.com/',
         'Accept': '*/*',
       },
-    });
+      {
+        'User-Agent': mobileUA,
+        'Referer': 'https://www.iesdouyin.com/',
+        'Accept': '*/*',
+      },
+    ];
 
-    const totalBytes = parseInt(String(res.headers['content-length'] ?? '0'), 10);
-    let downloadedBytes = 0;
-    let lastReportedPercent = 5;
+    for (let hIdx = 0; hIdx < headerVariants.length; hIdx++) {
+      if (entry?.cancelled) throw new CancelledError();
 
-    const writer = fs.createWriteStream(tempFilePath);
+      const abortController = new AbortController();
+      if (entry) {
+        entry.abortController = abortController;
+      }
 
-    await new Promise<void>((resolve, reject) => {
-      res.data.on('data', (chunk: Buffer) => {
-        if (entry?.cancelled) {
-          writer.close();
-          try { if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath); } catch {}
-          return reject(new CancelledError());
+      try {
+        const res = await axios.get(currentUrl, {
+          responseType: 'stream',
+          timeout: 1800_000,
+          maxRedirects: 10,
+          signal: abortController.signal,
+          headers: headerVariants[hIdx],
+        });
+
+        // Kiểm tra xem phản hồi có phải là stream video thật (không phải trang chặn HTML hay 403)
+        const contentType = String(res.headers['content-type'] || '').toLowerCase();
+        if (contentType.includes('text/html') || contentType.includes('application/json')) {
+          throw new Error('Máy chủ trả về trang xác thực thay vì luồng video');
         }
-        downloadedBytes += chunk.length;
-        if (totalBytes > 0) {
-          const rawPercent = (downloadedBytes / totalBytes) * 93 + 5; // 5% → 98%
-          const percent = Math.min(98, Math.round(rawPercent));
-          if (percent > lastReportedPercent) {
-            lastReportedPercent = percent;
-            const speedKb = Math.round(downloadedBytes / 1024);
-            onProgress?.({
-              percent,
-              speed: speedKb > 0 ? `${speedKb} KB/s` : undefined,
-              status: 'downloading',
-              stageDescription: `Đang tải video Douyin (${percent}%)...`,
-            });
-          }
-        } else {
-          onProgress?.({
-            percent: 50,
-            status: 'downloading',
-            stageDescription: `Đang tải video Douyin (${(downloadedBytes / (1024 * 1024)).toFixed(1)} MB)...`,
+
+        const totalBytes = parseInt(String(res.headers['content-length'] ?? '0'), 10);
+        let downloadedBytes = 0;
+        let lastReportedPercent = 5;
+
+        const writer = fs.createWriteStream(tempFilePath);
+
+        await new Promise<void>((resolve, reject) => {
+          res.data.on('data', (chunk: Buffer) => {
+            if (entry?.cancelled) {
+              writer.close();
+              try { if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath); } catch {}
+              return reject(new CancelledError());
+            }
+            downloadedBytes += chunk.length;
+            if (totalBytes > 0) {
+              const rawPercent = (downloadedBytes / totalBytes) * 93 + 5; // 5% → 98%
+              const percent = Math.min(98, Math.round(rawPercent));
+              if (percent > lastReportedPercent) {
+                lastReportedPercent = percent;
+                const speedKb = Math.round(downloadedBytes / 1024);
+                onProgress?.({
+                  percent,
+                  speed: speedKb > 0 ? `${speedKb} KB/s` : undefined,
+                  status: 'downloading',
+                  stageDescription: `Đang tải video Douyin (${percent}%)...`,
+                });
+              }
+            } else {
+              onProgress?.({
+                percent: 50,
+                status: 'downloading',
+                stageDescription: `Đang tải video Douyin (${(downloadedBytes / (1024 * 1024)).toFixed(1)} MB)...`,
+              });
+            }
           });
-        }
-      });
-      res.data.pipe(writer);
-      writer.on('finish', () => {
-        if (entry?.cancelled) {
-          try { if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath); } catch {}
-          return reject(new CancelledError());
-        }
-        resolve();
-      });
-      writer.on('error', (err: any) => {
-        writer.close();
-        if (fs.existsSync(tempFilePath)) {
-          try { fs.unlinkSync(tempFilePath); } catch {}
-        }
-        if (entry?.cancelled || axios.isCancel(err) || isCancelledError(err)) {
-          return reject(new CancelledError());
-        }
-        reject(err);
-      });
-      res.data.on('error', (err: any) => {
-        writer.close();
-        if (fs.existsSync(tempFilePath)) {
-          try { fs.unlinkSync(tempFilePath); } catch {}
-        }
-        if (entry?.cancelled || axios.isCancel(err) || isCancelledError(err)) {
-          return reject(new CancelledError());
-        }
-        reject(err);
-      });
-    });
 
-    if (entry?.cancelled) {
-      try { if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath); } catch {}
-      throw new CancelledError();
-    }
+          res.data.pipe(writer);
 
-    return tempFilePath;
-  } catch (err: any) {
-    if (fs.existsSync(tempFilePath)) {
-      try { fs.unlinkSync(tempFilePath); } catch {}
+          writer.on('finish', () => {
+            if (entry?.cancelled) {
+              try { if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath); } catch {}
+              return reject(new CancelledError());
+            }
+            resolve();
+          });
+
+          writer.on('error', (err: any) => {
+            writer.close();
+            if (fs.existsSync(tempFilePath)) {
+              try { fs.unlinkSync(tempFilePath); } catch {}
+            }
+            if (entry?.cancelled || axios.isCancel(err) || isCancelledError(err)) {
+              return reject(new CancelledError());
+            }
+            reject(err);
+          });
+
+          res.data.on('error', (err: any) => {
+            writer.close();
+            if (fs.existsSync(tempFilePath)) {
+              try { fs.unlinkSync(tempFilePath); } catch {}
+            }
+            if (entry?.cancelled || axios.isCancel(err) || isCancelledError(err)) {
+              return reject(new CancelledError());
+            }
+            reject(err);
+          });
+        });
+
+        // Đảm bảo tệp tải về có dung lượng hợp lệ (> 10KB)
+        if (fs.existsSync(tempFilePath)) {
+          const stats = fs.statSync(tempFilePath);
+          if (stats.size > 10_000) {
+            return tempFilePath;
+          } else {
+            try { fs.unlinkSync(tempFilePath); } catch {}
+            throw new Error('Tệp video tải về không hợp lệ hoặc quá nhỏ');
+          }
+        }
+      } catch (err: any) {
+        if (entry?.cancelled || axios.isCancel(err) || isCancelledError(err)) {
+          if (fs.existsSync(tempFilePath)) {
+            try { fs.unlinkSync(tempFilePath); } catch {}
+          }
+          throw new CancelledError();
+        }
+        lastStreamError = err;
+        continue;
+      }
     }
-    if (entry?.cancelled || axios.isCancel(err) || isCancelledError(err)) {
-      throw new CancelledError();
-    }
-    throw err;
   }
+
+  if (fs.existsSync(tempFilePath)) {
+    try { fs.unlinkSync(tempFilePath); } catch {}
+  }
+  throw lastStreamError || new Error('Không thể tải luồng video Douyin từ CDN máy chủ.');
 }
 
 /**
@@ -1151,33 +1325,61 @@ export async function downloadVideoFromUrl(options: DownloadVideoOptions): Promi
   try {
     if (entry.cancelled) throw new CancelledError();
 
-    // ── Douyin — stream MP4 không watermark ──────────────────────────────────
+    // ── Douyin — stream MP4 không watermark với cơ chế Fresh Stream URL ──────────
     if (platform === 'douyin') {
       const quality = options.quality;
       const userTitle = cleanCustomFileName(options.customFileName);
       const targetTitle = userTitle || extractDouyinTitle(cleanUrl);
 
-      // ─ Lấy URL không watermark (từ inspect nếu đã có, hoặc gọi lại API)
-      let noWmUrl = options.noWatermarkUrl;
-      if (!noWmUrl) {
-        const normalizedUrl = await normalizeDouyinUrl(cleanUrl);
-        const awemeId = extractDouyinVideoId(normalizedUrl);
-        if (!awemeId) {
-          throw new Error('Không thể trích xuất ID video Douyin từ liên kết này.');
-        }
-        const info = await extractDouyinMediaData(normalizedUrl, awemeId);
-        noWmUrl = info.noWatermarkUrl;
+      const normalizedUrl = await normalizeDouyinUrl(cleanUrl);
+      const awemeId = extractDouyinVideoId(normalizedUrl);
+      if (!awemeId) {
+        throw new Error('Không thể trích xuất ID video Douyin từ liên kết này.');
       }
 
-      if (entry.cancelled) throw new CancelledError();
+      let tempFilePath = '';
+      let downloadSuccess = false;
 
-      const tempFilePath = await downloadDouyinNoWatermark(
-        noWmUrl,
-        targetTitle,
-        baseFolder,
-        options.onProgress,
-        entry
-      );
+      // Tier 1: Nếu người dùng đã truyền noWatermarkUrl từ inspect, thử stream trước
+      if (options.noWatermarkUrl) {
+        try {
+          tempFilePath = await downloadDouyinNoWatermark(
+            options.noWatermarkUrl,
+            targetTitle,
+            baseFolder,
+            options.onProgress,
+            entry
+          );
+          downloadSuccess = true;
+        } catch (streamErr: any) {
+          if (entry.cancelled || isCancelledError(streamErr) || axios.isCancel(streamErr)) {
+            throw new CancelledError();
+          }
+          console.warn('[downloadVideoFromUrl] URL noWatermark cũ có thể đã hết hạn, tự động làm mới link từ Douyin CDN...', streamErr?.message || streamErr);
+          options.onProgress?.({
+            percent: 5,
+            status: 'downloading',
+            stageDescription: 'Đang làm mới liên kết tải video Douyin...',
+          });
+        }
+      }
+
+      // Tier 2: Nếu chưa tải thành công (hoặc chưa có noWatermarkUrl), lấy Fresh URL mới nhất kèm backupUrls
+      if (!downloadSuccess) {
+        if (entry.cancelled) throw new CancelledError();
+        const info = await extractDouyinMediaData(normalizedUrl, awemeId);
+        if (entry.cancelled) throw new CancelledError();
+
+        tempFilePath = await downloadDouyinNoWatermark(
+          info.noWatermarkUrl,
+          targetTitle,
+          baseFolder,
+          options.onProgress,
+          entry,
+          info.backupUrls
+        );
+        downloadSuccess = true;
+      }
 
       if (entry.cancelled) throw new CancelledError();
 

@@ -126,6 +126,10 @@ export interface AiStudioFlowEngineConfig {
   preferUiGen?: boolean;
   /** Thời gian chờ tối đa cho UI Generation (ms, mặc định 90000ms cho ảnh, 180000ms cho video) */
   uiTimeoutMs?: number;
+  /** Cho phép tự động hạ cấp sang hiệu ứng Ken Burns khi sinh video AI thất bại (mặc định: false - không tự ý thay thế) */
+  allowKenBurnsFallback?: boolean;
+  /** API Key cho Official Gemini / Veo API (tùy chọn) */
+  apiKey?: string;
 }
 
 export type RenderingResolution = '1080p' | '720p' | '4k';
@@ -607,6 +611,8 @@ export interface StoryboardScene {
   id: string;
   shotId?: string;
   sceneId?: string;
+  sceneNumber?: number;
+  index?: number;
   lineIndex: number;
   startMs: number;
   endMs: number;
