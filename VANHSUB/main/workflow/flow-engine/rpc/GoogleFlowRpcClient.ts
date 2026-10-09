@@ -340,13 +340,13 @@ export function classifyFlowRpcError(
           : 'UNUSUAL_ACTIVITY');
     return new GoogleFlowRpcError(
       'Google Flow tạm thời chặn lệnh tạo do phát hiện hành vi tự động (PUBLIC_ERROR_UNUSUAL_ACTIVITY - reCAPTCHA bot flag). ' +
-      'Đã kích hoạt cơ chế tự động phục hồi và giãn cách lùi bước (Exponential Backoff).',
+      'Dừng retry tự động mù quáng để tránh bị khoá phiên; chuyển sang trạng thái cần người dùng xác minh (BLOCKED_REQUIRES_USER).',
       {
         code,
-        retryable: true,
-        retryAfterMs: 20000,
-        suggestedAction: 'RETRY_WITH_BACKOFF',
-        details: { rawMsg, context, isUnusualActivity: true },
+        retryable: false,
+        retryAfterMs: 0,
+        suggestedAction: 'ABORT_HALT',
+        details: { rawMsg, context, isUnusualActivity: true, state: 'BLOCKED_REQUIRES_USER' },
         cause: err,
       }
     );
@@ -2001,11 +2001,16 @@ export class GoogleFlowRpcClient {
           }
           const isUnusual = isUnusualActivityError(err);
 
-          if (attempt < maxAttempts && (isUnusual || classified.retryable)) {
-            if (isUnusual) {
-              // R2: Tự động kích hoạt cơ chế dự phòng số 1 (CDP Trusted Click phần hardware) trước khi chuyển sang giãn cách lùi bước
-              activeWin = await this.handleUnusualActivityRecovery(activeWin, projectId, signal);
-            }
+          // PUBLIC_ERROR_UNUSUAL_ACTIVITY là tín hiệu bot challenge từ Google: Dừng an toàn, không retry
+          if (isUnusual) {
+            console.warn(
+              `[GoogleFlowRpcClient] 🛡️ Phát hiện PUBLIC_ERROR_UNUSUAL_ACTIVITY (attempt ${attempt}/${maxAttempts}). ` +
+              `Dừng workflow an toàn (ABORT_HALT), không retry tự động để bảo vệ tài khoản.`
+            );
+            throw classified;
+          }
+
+          if (attempt < maxAttempts && classified.retryable) {
             const delay = calculateExponentialBackoffMs(attempt - 1, baseMs, 120000);
             const waitMs = baseMs === 0 ? 0 : (classified.retryAfterMs ? Math.max(classified.retryAfterMs, delay) : delay);
             console.warn(
@@ -2350,11 +2355,16 @@ export class GoogleFlowRpcClient {
           }
           const isUnusual = isUnusualActivityError(err);
 
-          if (attempt < maxAttempts && (isUnusual || classified.retryable)) {
-            if (isUnusual) {
-              // R2: Tự động kích hoạt cơ chế dự phòng số 1 (CDP Trusted Click phần hardware) trước khi chuyển sang giãn cách lùi bước
-              activeWin = await this.handleUnusualActivityRecovery(activeWin, projectId, signal);
-            }
+          // PUBLIC_ERROR_UNUSUAL_ACTIVITY là tín hiệu bot challenge từ Google: Dừng an toàn, không retry
+          if (isUnusual) {
+            console.warn(
+              `[GoogleFlowRpcClient] 🛡️ Phát hiện PUBLIC_ERROR_UNUSUAL_ACTIVITY (attempt ${attempt}/${maxAttempts}). ` +
+              `Dừng workflow an toàn (ABORT_HALT), không retry tự động để bảo vệ tài khoản.`
+            );
+            throw classified;
+          }
+
+          if (attempt < maxAttempts && classified.retryable) {
             const delay = calculateExponentialBackoffMs(attempt - 1, baseMs, 120000);
             const waitMs = baseMs === 0 ? 0 : (classified.retryAfterMs ? Math.max(classified.retryAfterMs, delay) : delay);
             console.warn(

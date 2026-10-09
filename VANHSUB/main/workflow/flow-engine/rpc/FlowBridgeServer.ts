@@ -13,6 +13,7 @@ import path from 'path';
 import { WebSocketServer, WebSocket } from 'ws';
 import { v4 as uuidv4 } from 'uuid';
 import { BRIDGE_WS_PORT } from './FlowBatchConstants';
+import type { JobState } from '../../../browser-automation/types';
 
 export interface SnifferEntry {
   type: string;
@@ -46,6 +47,179 @@ export interface SnifferVerificationReport {
     error?: string;
   }>;
 }
+
+/**
+ * Staged timeout constants for UI Generation fallback.
+ */
+export const TIMEOUT_SUBMISSION_MS = 6000;              // 6s for UI submission confirmation
+export const DEFAULT_IMAGE_PROCESSING_TIMEOUT_MS = 40000; // 40s default for image generation
+export const MAX_IMAGE_PROCESSING_TIMEOUT_MS = 50000;     // 50s hard cap for image generation
+export const DEFAULT_VIDEO_PROCESSING_TIMEOUT_MS = 120000; // 120s (2 min) default for video generation
+export const MAX_VIDEO_PROCESSING_TIMEOUT_MS = 135000;     // 135s (2 min 15s) hard cap for video generation
+export const SERVER_IPC_GUARD_BUFFER_MS = 3000;          // 3s safety buffer for IPC/WS transport
+
+/**
+ * Interface contract matching PROJECT.md § Interface Contracts
+ */
+export interface TriggerUiGenParams {
+  prompt: string;
+  projectId?: string;
+  mode: 'image' | 'video';
+  timeoutMs?: number;
+  idempotencyKey?: string;
+  submissionTimeoutMs?: number;
+  processingTimeoutMs?: number;
+  jobId?: string;
+  sceneId?: string;
+  tabId?: number;
+}
+
+export interface CancelUiGenParams {
+  id: string;
+  reason?: string;
+}
+
+export interface TriggerUiGenResponse {
+  ok: boolean;
+  state: JobState;
+  jobId?: string;
+  projectId?: string;
+  sceneId?: string;
+  capturedRpc?: {
+    url: string;
+    rpcid: string;
+    status: number;
+    response: string;
+  };
+  firstImageUrl?: string;
+  videoUrl?: string;
+  domFallback?: boolean;
+  error?: string;
+  errorCode?:
+    | 'TIMEOUT_SUBMITTING'
+    | 'TIMEOUT_PROCESSING'
+    | 'BLOCKED_REQUIRES_USER'
+    | 'RATE_LIMITED'
+    | 'UI_AUTOMATION_FAILED';
+}
+
+export interface CalculatedUiGenTimeouts {
+  submissionTimeoutMs: number;
+  processingTimeoutMs: number;
+  totalClientTimeoutMs: number;
+  serverGuardTimeoutMs: number;
+}
+
+export function calculateUiGenTimeouts(
+  mode: 'image' | 'video' = 'image',
+  customTimeoutMs?: number,
+  customSubmissionTimeoutMs?: number
+): CalculatedUiGenTimeouts {
+  const isVideo = mode === 'video';
+  const submissionTimeoutMs =
+    typeof customSubmissionTimeoutMs === 'number' && customSubmissionTimeoutMs > 0
+      ? customSubmissionTimeoutMs
+      : TIMEOUT_SUBMISSION_MS;
+
+  let processingTimeoutMs: number;
+  if (isVideo) {
+    if (typeof customTimeoutMs === 'number' && customTimeoutMs > 0) {
+      processingTimeoutMs = Math.min(customTimeoutMs, MAX_VIDEO_PROCESSING_TIMEOUT_MS);
+    } else {
+      processingTimeoutMs = DEFAULT_VIDEO_PROCESSING_TIMEOUT_MS;
+    }
+  } else {
+    if (typeof customTimeoutMs === 'number' && customTimeoutMs > 0) {
+      processingTimeoutMs = Math.min(customTimeoutMs, MAX_IMAGE_PROCESSING_TIMEOUT_MS);
+    } else {
+      processingTimeoutMs = DEFAULT_IMAGE_PROCESSING_TIMEOUT_MS;
+    }
+  }
+
+  const totalClientTimeoutMs = submissionTimeoutMs + processingTimeoutMs;
+  const serverGuardTimeoutMs = totalClientTimeoutMs + SERVER_IPC_GUARD_BUFFER_MS;
+
+  return {
+    submissionTimeoutMs,
+    processingTimeoutMs,
+    totalClientTimeoutMs,
+    serverGuardTimeoutMs,
+  };
+}
+
+export function normalizeUiGenResponse(raw: any): TriggerUiGenResponse {
+  if (!raw || typeof raw !== 'object') {
+    return {
+      ok: false,
+      state: 'FAILED',
+      errorCode: 'UI_AUTOMATION_FAILED',
+      error: 'Empty or invalid response from Extension Bridge',
+    };
+  }
+
+  // Already conformant
+  if (typeof raw.ok === 'boolean' && raw.state && raw.errorCode !== undefined) {
+    return raw as TriggerUiGenResponse;
+  }
+
+  if (raw.ok === true || (!raw.error && (raw.firstImageUrl || raw.videoUrl || raw.capturedRpc))) {
+    return {
+      ok: true,
+      state: 'COMPLETED',
+      jobId: raw.jobId,
+      projectId: raw.projectId,
+      sceneId: raw.sceneId,
+      capturedRpc: raw.capturedRpc,
+      firstImageUrl: raw.firstImageUrl,
+      videoUrl: raw.videoUrl,
+      domFallback: raw.domFallback,
+    };
+  }
+
+  const rawErr = String(raw.error || raw.message || 'Unknown error');
+  let errorCode: TriggerUiGenResponse['errorCode'] = 'UI_AUTOMATION_FAILED';
+  let state: JobState = 'FAILED';
+
+  if (rawErr.includes('TIMEOUT_SUBMITTING') || rawErr.includes('NO_GEN_BUTTON') || rawErr.includes('PHASE1_FAILED')) {
+    errorCode = 'TIMEOUT_SUBMITTING';
+    state = 'TIMED_OUT';
+  } else if (
+    rawErr.includes('TIMEOUT_PROCESSING') ||
+    rawErr.includes('TIMEOUT_WAITING_RPC') ||
+    rawErr.includes('TIMEOUT_TRIGGER_UI_GEN') ||
+    rawErr.includes('timeout')
+  ) {
+    errorCode = 'TIMEOUT_PROCESSING';
+    state = 'TIMED_OUT';
+  } else if (
+    rawErr.includes('PUBLIC_ERROR_UNUSUAL_ACTIVITY') ||
+    rawErr.includes('UNUSUAL_ACTIVITY') ||
+    rawErr.includes('recaptcha') ||
+    rawErr.includes('challenge') ||
+    rawErr.includes('BLOCKED_REQUIRES_USER')
+  ) {
+    errorCode = 'BLOCKED_REQUIRES_USER';
+    state = 'BLOCKED_REQUIRES_USER';
+  } else if (rawErr.includes('RATE_LIMITED') || rawErr.includes('429') || rawErr.includes('quota') || rawErr.includes('RESOURCE_EXHAUSTED')) {
+    errorCode = 'RATE_LIMITED';
+    state = 'FAILED';
+  } else if (rawErr === 'ABORTED' || rawErr === 'CANCELLED') {
+    errorCode = 'UI_AUTOMATION_FAILED';
+    state = 'TIMED_OUT';
+  }
+
+  return {
+    ok: false,
+    state,
+    errorCode,
+    error: rawErr,
+    jobId: raw.jobId,
+    projectId: raw.projectId,
+    sceneId: raw.sceneId,
+    domFallback: raw.domFallback,
+  };
+}
+
 
 interface PendingRequest {
   resolve: (value: any) => void;
@@ -387,69 +561,221 @@ export class FlowBridgeServer {
   }
 
   /**
-   * @deprecated Cơ chế DOM Native UI Trigger đã bị loại bỏ hoàn toàn để chuyển sang Pure RPC (sendBatchRpc).
-   * Giữ lại interface tối thiểu để tương thích IPC cũ nếu còn component gọi.
+   * Huỷ một tác vụ UI Generation đang thực thi trên Chrome Extension.
+   * Gửi message WebSocket `cancel_ui_gen` để yêu cầu Extension dừng ngay lập tức.
    */
+  public cancelUiGen(params: CancelUiGenParams): boolean;
+  public cancelUiGen(id: string, reason?: string): boolean;
+  public cancelUiGen(idOrParams: string | CancelUiGenParams, reason?: string): boolean {
+    const id = typeof idOrParams === 'string' ? idOrParams : idOrParams.id;
+    const effReason = typeof idOrParams === 'string' ? reason : idOrParams.reason;
+    const client = this.getFirstActiveClient();
+    if (client && client.readyState === WebSocket.OPEN) {
+      try {
+        client.send(
+          JSON.stringify({
+            id: uuidv4(),
+            method: 'cancel_ui_gen',
+            type: 'cancel_ui_gen',
+            params: {
+              id,
+              reason: effReason || 'Aborted by FlowBridgeServer',
+            },
+          })
+        );
+        return true;
+      } catch (err: any) {
+        console.warn(`[FlowBridgeServer] Không thể gửi cancel_ui_gen cho task ${id}:`, err?.message || err);
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Kích hoạt sinh ảnh/video qua giao diện người dùng (DOM / CDP Trusted Click)
+   * trên Google Flow với kiến trúc timeout phân tầng và huỷ 2 chiều (bi-directional AbortSignal).
+   */
+  public async triggerUiGen(
+    params: TriggerUiGenParams,
+    signal?: AbortSignal
+  ): Promise<TriggerUiGenResponse>;
   public async triggerUiGen(
     prompt: string,
     timeoutMs?: number,
     projectId?: string,
     mode?: 'image' | 'video',
     signal?: AbortSignal
-  ): Promise<any> {
-    const isVideo = mode === 'video';
-    const effTimeout = typeof timeoutMs === 'number' && timeoutMs > 0 ? timeoutMs : (isVideo ? 180000 : 90000);
-    console.warn(`[FlowBridgeServer] ⚠️ triggerUiGen fallback CDP Trusted Click được kích hoạt (mode=${mode || 'image'}, timeout=${effTimeout / 1000}s).`);
-    if (signal?.aborted) return { error: 'CANCELLED' };
-    if (!this.isConnected()) return { error: 'NOT_CONNECTED' };
+  ): Promise<TriggerUiGenResponse>;
+  public async triggerUiGen(
+    paramsOrPrompt: TriggerUiGenParams | string,
+    timeoutMsOrSignal?: number | AbortSignal,
+    projectId?: string,
+    mode?: 'image' | 'video',
+    signal?: AbortSignal
+  ): Promise<TriggerUiGenResponse> {
+    let effParams: TriggerUiGenParams;
+    let effSignal: AbortSignal | undefined;
+
+    if (typeof paramsOrPrompt === 'object' && paramsOrPrompt !== null) {
+      effParams = paramsOrPrompt;
+      effSignal = timeoutMsOrSignal instanceof AbortSignal ? timeoutMsOrSignal : signal;
+    } else {
+      effParams = {
+        prompt: paramsOrPrompt,
+        timeoutMs: typeof timeoutMsOrSignal === 'number' ? timeoutMsOrSignal : undefined,
+        projectId,
+        mode: mode || 'image',
+      };
+      effSignal = signal;
+    }
+
+    const { prompt: promptText, projectId: targetProjectId, mode: targetMode, idempotencyKey } = effParams;
+    const timeouts = calculateUiGenTimeouts(targetMode, effParams.timeoutMs, effParams.submissionTimeoutMs);
+
+    console.warn(
+      `[FlowBridgeServer] ⚠️ triggerUiGen fallback được kích hoạt (mode=${targetMode}, ` +
+      `submitTimeout=${timeouts.submissionTimeoutMs / 1000}s, ` +
+      `procTimeout=${timeouts.processingTimeoutMs / 1000}s, ` +
+      `guardTimeout=${timeouts.serverGuardTimeoutMs / 1000}s).`
+    );
+
+    if (effSignal?.aborted) {
+      return {
+        ok: false,
+        state: 'TIMED_OUT',
+        error: 'ABORTED',
+        errorCode: 'UI_AUTOMATION_FAILED',
+      };
+    }
+
+    if (!this.isConnected()) {
+      return {
+        ok: false,
+        state: 'FAILED',
+        error: 'NOT_CONNECTED: Extension Bridge chưa kết nối',
+        errorCode: 'UI_AUTOMATION_FAILED',
+      };
+    }
+
     const client = this.getFirstActiveClient();
-    if (!client) return { error: 'NO_CLIENT' };
+    if (!client) {
+      return {
+        ok: false,
+        state: 'FAILED',
+        error: 'NO_CLIENT: Không tìm thấy client WebSocket hoạt động',
+        errorCode: 'UI_AUTOMATION_FAILED',
+      };
+    }
 
     const id = uuidv4();
-    return new Promise((resolve) => {
+
+    return new Promise<TriggerUiGenResponse>((resolve) => {
       let cleanedUp = false;
+
       const cleanup = () => {
         if (cleanedUp) return;
         cleanedUp = true;
         clearTimeout(timer);
         this.pendingRequests.delete(id);
-        signal?.removeEventListener('abort', onAbort);
+        if (effSignal) {
+          effSignal.removeEventListener('abort', onAbort);
+        }
       };
 
       const timer = setTimeout(() => {
         cleanup();
-        resolve({ error: 'TIMEOUT_TRIGGER_UI_GEN' });
-      }, effTimeout);
+        console.warn(`[FlowBridgeServer] ⏱️ triggerUiGen server guard timeout (${timeouts.serverGuardTimeoutMs / 1000}s) vượt ngưỡng.`);
+        resolve({
+          ok: false,
+          state: 'TIMED_OUT',
+          errorCode: 'TIMEOUT_PROCESSING',
+          error: `UI generation processing timed out after ${timeouts.processingTimeoutMs / 1000}s`,
+        });
+      }, timeouts.serverGuardTimeoutMs);
 
       const onAbort = () => {
+        const reason = effSignal?.reason ? String(effSignal.reason) : 'Aborted by caller';
+        console.warn(`[FlowBridgeServer] 🛑 triggerUiGen nhận tín hiệu huỷ (id=${id}, reason="${reason}"). Gửi cancel_ui_gen sang Extension...`);
         cleanup();
-        resolve({ error: 'CANCELLED' });
+
+        // Bi-directional propagation to Extension over WebSocket:
+        if (client && client.readyState === WebSocket.OPEN) {
+          try {
+            client.send(
+              JSON.stringify({
+                id: uuidv4(),
+                method: 'cancel_ui_gen',
+                type: 'cancel_ui_gen',
+                params: {
+                  id,
+                  reason,
+                },
+              })
+            );
+          } catch (cancelErr: any) {
+            console.warn('[FlowBridgeServer] Lỗi khi gửi cancel_ui_gen tới Extension:', cancelErr?.message || cancelErr);
+          }
+        }
+
+        resolve({
+          ok: false,
+          state: 'TIMED_OUT',
+          error: 'ABORTED',
+          errorCode: 'UI_AUTOMATION_FAILED',
+        });
       };
 
-      if (signal) {
-        signal.addEventListener('abort', onAbort, { once: true });
+      if (effSignal) {
+        effSignal.addEventListener('abort', onAbort, { once: true });
       }
 
       this.pendingRequests.set(id, {
         resolve: (res: any) => {
           cleanup();
-          console.log(`[FlowBridgeServer] 📥 triggerUiGen kết quả:`, typeof res === 'object' ? JSON.stringify(res)?.slice(0, 250) : res);
-          resolve(res);
+          const normalized = normalizeUiGenResponse(res);
+          console.log(
+            `[FlowBridgeServer] 📥 triggerUiGen hoàn tất: ok=${normalized.ok}, state=${normalized.state}, ` +
+            `error=${normalized.error || 'none'}`
+          );
+          resolve(normalized);
         },
         reject: (err: any) => {
           cleanup();
-          console.warn(`[FlowBridgeServer] ⚠️ triggerUiGen reject:`, err?.message || String(err));
-          resolve({ error: err?.message || String(err) });
+          const errStr = err?.message || String(err);
+          console.warn(`[FlowBridgeServer] ⚠️ triggerUiGen reject:`, errStr);
+          resolve(normalizeUiGenResponse({ ok: false, error: errStr }));
         },
         timer,
         client,
       });
 
       try {
-        client.send(JSON.stringify({ id, method: 'trigger_ui_gen', params: { prompt, projectId, mode, timeoutMs: effTimeout } }));
+        client.send(
+          JSON.stringify({
+            id,
+            method: 'trigger_ui_gen',
+            params: {
+              prompt: promptText,
+              projectId: targetProjectId,
+              mode: targetMode,
+              idempotencyKey,
+              jobId: effParams.jobId || id,
+              sceneId: effParams.sceneId,
+              tabId: effParams.tabId,
+              timeoutMs: timeouts.processingTimeoutMs,
+              submissionTimeoutMs: timeouts.submissionTimeoutMs,
+              processingTimeoutMs: timeouts.processingTimeoutMs,
+            },
+          })
+        );
       } catch (sendErr: any) {
         cleanup();
-        resolve({ error: sendErr?.message || String(sendErr) });
+        resolve({
+          ok: false,
+          state: 'FAILED',
+          errorCode: 'UI_AUTOMATION_FAILED',
+          error: `SEND_FAILED: ${sendErr?.message || String(sendErr)}`,
+        });
       }
     });
   }

@@ -227,23 +227,23 @@ export class FlowErrorClassifier {
       };
     }
 
-    // 8b. KIỂM TRA BOT-FLAG RECAPTCHA / UNUSUAL ACTIVITY
+    // 8b. KIỂM TRA BOT-FLAG RECAPTCHA / UNUSUAL ACTIVITY (NON_RETRYABLE - BLOCKED_REQUIRES_USER)
     if (
       lowerMsg.includes('public_error_unusual_activity') ||
       lowerMsg.includes('unusual_activity') ||
       lowerMsg.includes('bot_flagged') ||
       lowerMsg.includes('captcha_score_low') ||
-      lowerMsg.includes('recaptcha evaluation failed')
+      lowerMsg.includes('recaptcha evaluation failed') ||
+      lowerMsg.includes('blocked_requires_user')
     ) {
       return {
-        category: 'RETRYABLE',
+        category: 'NON_RETRYABLE',
         code: 'PUBLIC_ERROR_UNUSUAL_ACTIVITY',
-        message: 'Google Flow phát hiện hành vi tự động (PUBLIC_ERROR_UNUSUAL_ACTIVITY). Áp dụng giãn cách lùi bước và phục hồi CDP.',
+        message: 'Google Flow chặn tác vụ do phát hiện hành vi tự động (PUBLIC_ERROR_UNUSUAL_ACTIVITY - reCAPTCHA bot flag). Dừng thử lại tự động để tránh khoá tài khoản; yêu cầu người dùng xác minh trên tab Chrome hoặc chuyển đổi provider.',
         originalError,
-        canRetry: true,
-        suggestedAction: 'RETRY_WITH_BACKOFF',
-        recommendedDelayMs: 20000,
-        details: { rawMsg },
+        canRetry: false,
+        suggestedAction: 'ABORT_HALT',
+        details: { rawMsg, requiresUserVerification: true, state: 'BLOCKED_REQUIRES_USER' },
       };
     }
 
