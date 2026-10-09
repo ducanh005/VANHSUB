@@ -4,6 +4,8 @@ import { breakVietnameseLines } from '../lib/nlpSegmenter';
 export type { SrtLine, SrtWord };
 
 export interface WordSegmenterOptions {
+  /** Split short complete sentences when the next word starts a new sentence. */
+  splitShortTerminalBeforeCapital?: boolean;
   /** Khoảng lặng tối thiểu giữa hai từ liên tiếp để ngắt phân đoạn (ms). Mặc định 350ms */
   minPauseMs?: number;
   /** Khoảng lặng lớn ngắt vô điều kiện (ms). Mặc định 700ms */
@@ -229,6 +231,7 @@ export function segmentWordsToSubtitles(
     minClauseCjkChars = 12,
     maxCharsPerLine = 37,
     enableVisualWrap = true,
+    splitShortTerminalBeforeCapital = true,
   } = options;
 
   // Lọc và chuẩn hóa dữ liệu từ
@@ -346,7 +349,10 @@ export function segmentWordsToSubtitles(
     // Tiêu chí 4: Dấu câu kết thúc câu (. ? ! 。 ？ ！ …)
     // Ngắt khi phân đoạn đã đạt >= 1500ms HOẶC >= 4 từ/ký tự
     if (hasTerminalPunctuation(currentWord.word)) {
+      const abbreviation = /^(?:mr|mrs|ms|dr|prof|st|jr|sr|vs|etc|e\.g|i\.e|tp|ts|pgs)\.$/i.test(currentWord.word);
+      const nextStartsSentence = /^[\p{Lu}\u3000-\u9fff]/u.test(nextWord.word.trim());
       if (
+        (splitShortTerminalBeforeCapital && nextStartsSentence && !abbreviation) ||
         currentDuration >= minTerminalDurationMs ||
         unitCount >= minTerminalWords ||
         projectedDuration > idealMaxDurationMs ||
@@ -390,7 +396,8 @@ export function segmentWordsToSubtitles(
   for (let i = 0; i < lines.length - 1; i++) {
     const curLine = lines[i];
     const nextLine = lines[i + 1];
-    if (curLine && nextLine && curLine.endMs > nextLine.startMs) {
+    if (curLine && nextLine && curLine.endMs > nextLine.startMs &&
+        (!curLine.speaker || !nextLine.speaker || curLine.speaker === nextLine.speaker)) {
       curLine.endMs = nextLine.startMs;
       const wList = curLine.words;
       if (wList && wList.length > 0) {

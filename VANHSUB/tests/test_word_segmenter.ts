@@ -96,8 +96,10 @@ async function runTests() {
       { word: 'đi.', startMs: 820, endMs: 1100 },
     ];
     const linesShort = segmentWordsToSubtitles(shortUtterance);
-    // Vì 'Đợi đã!' chỉ 500ms (< 1500ms) và 2 từ (< 4 từ) với khoảng lặng 50ms, nó được giữ chung thành câu tự nhiên
-    assert(linesShort.length === 1, `Không băm vụn câu ngắn dưới 1.5s và dưới 4 từ nếu không có khoảng lặng, nhận ${linesShort.length}`);
+    // The current default preserves the explicit sentence boundary before the capitalized next turn.
+    assert(linesShort.length === 2, `Cần giữ ranh giới câu ngắn trước chữ hoa, nhận ${linesShort.length}`);
+    const legacyJoined = segmentWordsToSubtitles(shortUtterance, { splitShortTerminalBeforeCapital: false });
+    assert(legacyJoined.length === 1, `Tuỳ chọn cũ vẫn giữ hai câu ngắn chung một khối, nhận ${legacyJoined.length}`);
     console.log('  -> PASS: Đã tách câu chính xác theo dấu câu kết thúc và giữ ngữ cảnh câu ngắn.');
   }
 

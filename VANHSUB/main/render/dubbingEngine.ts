@@ -4,56 +4,29 @@ import os from 'os';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import ffmpeg from 'fluent-ffmpeg';
-import { parseSrt, serializeSrt, type SrtLine } from '../lib/srt';
+import { parseSrt, parseSrtStrict, serializeSrt, formatMs, type SrtLine } from '../lib/srt';
 import { getFfmpegBinPath, getMediaDurationSec, extractFullQualityAudio } from '../asr/audioExtractor';
 import { separateVocals } from '../audio/vocalSeparation';
 import { groupSubtitlesForTts, type SubtitleLine } from './ttsEngine';
+import { configuredMaxTempo } from './ttsTiming';
 
 const execFileAsync = promisify(execFile);
-
-/**
- * Chuyển đổi định dạng timecode SRT (HH:MM:SS,mmm) sang milliseconds
- */
-function timeToMs(timeStr: string): number {
-  const [time, ms] = timeStr.split(',');
-  const [h, m, s] = time.split(':').map(Number);
-  return h * 3600000 + m * 60000 + s * 1000 + (ms ? Number(ms) : 0);
-}
 
 /**
  * Parse file SRT thành mảng subtitle lines
  */
 function parseSrtFile(srtPath: string): SubtitleLine[] {
   const content = fs.readFileSync(srtPath, 'utf-8');
-  const blocks = content.split(/\n\s*\n/);
-  const lines: SubtitleLine[] = [];
-
-  for (const block of blocks) {
-    const lines_in_block = block.trim().split('\n');
-    if (lines_in_block.length < 3) continue;
-
-    const index = Number(lines_in_block[0]);
-    const timeLine = lines_in_block[1];
-    const [startTime, endTime] = timeLine.split(' --> ');
-    const text = lines_in_block.slice(2).join('\n').trim();
-
-    if (!startTime || !endTime || !text) continue;
-
-    const startMs = timeToMs(startTime);
-    const endMs = timeToMs(endTime);
-
-    lines.push({
-      index,
-      startTime,
-      endTime,
-      text,
-      startMs,
-      endMs,
-      durationMs: endMs - startMs,
-    });
-  }
-
-  return lines;
+  return parseSrtStrict(content).map((line, index) => ({
+    index: index + 1,
+    startTime: formatMs(line.startMs),
+    endTime: formatMs(line.endMs),
+    text: line.text,
+    startMs: line.startMs,
+    endMs: line.endMs,
+    durationMs: line.endMs - line.startMs,
+    speaker: line.speaker,
+  }));
 }
 
 /**
@@ -73,6 +46,22 @@ export async function runFfmpeg(args: string[]): Promise<void> {
 /** Cache duration audio theo đường dẫn — 1 file chỉ probe 1 lần mỗi lần dub */
 type DurationCache = Map<string, number>;
 
+function updateDubTimeline(srtPath: string, schedule?: Record<string, unknown>[], issue?: Record<string, unknown>): void {
+  const timelinePath = srtPath.replace(/\.srt$/i, '.timeline.json');
+  try {
+    const data = fs.existsSync(timelinePath) ? JSON.parse(fs.readFileSync(timelinePath, 'utf8')) : {};
+    if (schedule) data.dubbingSchedule = schedule;
+    if (issue) {
+      const issues = Array.isArray(data.issues) ? data.issues : [];
+      issues.push(issue);
+      data.issues = issues;
+    }
+    fs.writeFileSync(timelinePath, JSON.stringify(data, null, 2), 'utf8');
+  } catch (err) {
+    console.warn('[Dubbing] Could not write timeline diagnostics:', err);
+  }
+}
+
 async function probeAudioDurationSec(audioFile: string, cache: DurationCache): Promise<number> {
   const cached = cache.get(audioFile);
   if (cached !== undefined) return cached;
@@ -83,25 +72,21 @@ async function probeAudioDurationSec(audioFile: string, cache: DurationCache): P
 
 // =========================================================================
 // CHẾ ĐỘ ĐỒNG BỘ AUDIO-VIDEO
-// - 'strict'        : audio nén/pad theo đúng timeline SRT (như trước đây)
-// - 'flexible'      : câu dài được tràn vào khoảng lặng phía sau, các câu sau
-//                     tự động dịch lùi — tổng trượt tối đa MAX_DRIFT_MS,
-//                     vượt ngưỡng mới nén atempo (giảm cảm giác đọc gấp)
+// - 'strict'        : audio nén/pad theo timeline SRT
+// - 'flexible'      : giữ lựa chọn UI cũ, vẫn cố định mốc thoại gốc
 // - 'video-stretch' : kéo giãn toàn bộ video (setpts) để mỗi khung phụ đề
 //                     đủ chỗ cho audio ở tốc độ đọc tự nhiên, hệ số ≤ 1.25
 // =========================================================================
 
 export type SyncMode = 'strict' | 'flexible' | 'video-stretch';
 
-const MAX_DRIFT_MS = 3000;
-/** Chỉ tăng tốc khi tràn quá 5% — sai số vài chục ms không đáng đổi tốc độ đọc */
-const TEMPO_THRESHOLD = 1.05;
+/** Any real overrun must be stretched; otherwise the fixed-length chunk cuts speech. */
+const TEMPO_THRESHOLD = 1.0;
 /** Tăng tốc tối đa trước khi cắt bớt audio */
 const MAX_TEMPO = 1.5;
 /** Hệ số kéo giãn video tối đa (quá làm video chậm khó chịu) */
 const MAX_STRETCH_FACTOR = 1.25;
 /** Đuôi thêm sau mỗi câu trước khi sang câu kế */
-const TAIL_MS = 120;
 
 /**
  * Kéo giãn toàn bộ timestamp SRT theo hệ số (hàm thuần — dùng cho video-stretch)
@@ -216,12 +201,8 @@ export interface TtsOverrun {
 /**
  * Ghép các audio files thành 1 file audio duy nhất đúng timeline SRT.
  *
- * mode 'strict': mỗi dòng chiếm đúng [start, start dòng kế) — audio dài hơn
- * bị nén atempo (≤1.5x) rồi cắt, ngắn hơn được lấp im lặng.
- *
- * mode 'flexible': câu dài được tràn qua khoảng lặng phía sau (các câu sau
- * tự động dịch lùi theo cursor), tổng trượt tối đa MAX_DRIFT_MS; vượt ngưỡng
- * mới nén atempo. Audio đầu ra có thể dài hơn video tối đa ~3s.
+ * Each group is anchored to its source start. A conflict beyond 1.5x fails
+ * explicitly so later speech is never delayed or silently truncated.
  */
 interface SentenceAudioGroup {
   startIndex: number;
@@ -301,9 +282,11 @@ export async function mergeAudioFiles(
   ttsAudioDir: string,
   outputAudioPath: string,
   onProgress?: (percent: number) => void,
-  opts?: { mode?: SyncMode }
+  opts?: { mode?: SyncMode; mediaDurationMs?: number; maxTempo?: number }
 ): Promise<{ audioPath: string; overruns: TtsOverrun[] }> {
   const mode = opts?.mode ?? 'strict';
+  const maxTempo = opts?.maxTempo ?? MAX_TEMPO;
+  if (!(maxTempo >= 1 && maxTempo <= MAX_TEMPO)) throw new Error('Invalid dubbing maxTempo');
   const subtitles = parseSrtFile(srtPath);
   if (subtitles.length === 0) {
     throw new Error('File SRT không có dòng phụ đề hợp lệ để ghép audio.');
@@ -321,6 +304,17 @@ export async function mergeAudioFiles(
   }
 
   const groups = buildAudioGroups(subtitles, ttsAudioDir, manifest);
+  for (const group of groups) {
+    const entry = manifest[String(group.startIndex)];
+    if (!entry?.sourceTextVerified || typeof entry.text !== 'string') continue;
+    const expectedText = group.subtitles.map((sub) => sub.text.trim()).join(' ').replace(/\s+/g, ' ').trim();
+    if (entry.text.trim().replace(/\s+/g, ' ') !== expectedText) {
+      throw new Error(`TTS manifest text differs from subtitle ${group.startIndex}; regenerate TTS before dubbing`);
+    }
+    if (!fs.existsSync(group.audioFile)) {
+      throw new Error(`TTS audio missing for subtitle ${group.startIndex}: ${group.audioFile}`);
+    }
+  }
 
   const workDir = path.join(
     path.dirname(outputAudioPath),
@@ -337,92 +331,57 @@ export async function mergeAudioFiles(
 
     const segPaths: string[] = [];
     const overruns: TtsOverrun[] = [];
-    let cursorMs = 0; // thời điểm kết thúc segment trước (mode flexible)
-    let driftMs = 0; // tổng độ trượt đã dùng
+    const schedule: Record<string, unknown>[] = [];
+    let cursorMs = 0;
 
     for (let i = 0; i < groups.length; i++) {
       const group = groups[i];
       const next = groups[i + 1];
-      const slotEndMs = next ? Math.max(next.startMs, group.startMs + 200) : group.endMs + 500;
+      const slotEndMs = next ? next.startMs : (opts?.mediaDurationMs ?? group.endMs + 500);
 
       const audioFile = group.audioFile;
       const hasAudio = fs.existsSync(audioFile);
+      if (!hasAudio) {
+        throw new Error(`Dubbing missing audio at subtitle ${group.startIndex}: ${audioFile}`);
+      }
       const audioDurMs = hasAudio
         ? (await probeAudioDurationSec(audioFile, durationCache)) * 1000
         : 0;
 
       const segPath = path.join(workDir, `seg_${String(i).padStart(5, '0')}.wav`);
       let tempo = 1;
-      let truncated = false;
-
-      if (mode === 'flexible') {
-        // Audio bắt đầu tại max(start SRT, điểm trượt tới) — câu trước tràn
-        // sang thì câu này bắt đầu ngay sau đó (dịch lùi tự nhiên)
-        const audioStartMs = Math.max(group.startMs, cursorMs);
-        const naturalEndMs = audioStartMs + audioDurMs + TAIL_MS;
-
-        if (naturalEndMs <= slotEndMs) {
-          // Vừa slot → pad im lặng tới slotEnd (không đổi rhythm)
-          const segDurationSec = Math.max((slotEndMs - cursorMs) / 1000, 0.05);
-          await buildSegment(hasAudio ? audioFile : null, segDurationSec, segPath, {
-            delayMs: audioStartMs - cursorMs,
-          });
-          cursorMs = slotEndMs;
-        } else {
-          const budgetMs = Math.max(0, MAX_DRIFT_MS - driftMs);
-          const allowedEndMs = slotEndMs + budgetMs;
-          if (naturalEndMs <= allowedEndMs) {
-            // Tràn vào khoảng lặng phía sau (drift)
-            const segDurationSec = Math.max((naturalEndMs - cursorMs) / 1000, 0.05);
-            await buildSegment(audioFile, segDurationSec, segPath, {
-              delayMs: audioStartMs - cursorMs,
-            });
-            driftMs += naturalEndMs - slotEndMs;
-            cursorMs = naturalEndMs;
-          } else {
-            // Vượt ngưỡng trượt → nén audio để vừa vùng cho phép
-            const targetAudioDurSec = Math.max(
-              (allowedEndMs - audioStartMs - TAIL_MS) / 1000,
-              0.05
-            );
-            const rawTempo = audioDurMs / 1000 / targetAudioDurSec;
-            tempo = Math.min(Math.max(rawTempo, 1), MAX_TEMPO);
-            truncated = rawTempo > MAX_TEMPO;
-            const segDurationSec = Math.max((allowedEndMs - cursorMs) / 1000, 0.05);
-            await buildSegment(audioFile, segDurationSec, segPath, {
-              tempo,
-              delayMs: audioStartMs - cursorMs,
-            });
-            driftMs = MAX_DRIFT_MS;
-            cursorMs = allowedEndMs;
-          }
-          if (tempo > TEMPO_THRESHOLD) {
-            overruns.push({ index: group.startIndex, tempo, truncated });
-          }
-        }
-      } else {
-        // strict: segment = [segStart, slotEnd) cố định, audio nén nếu tràn.
-        // Câu ĐẦU TIÊN phải phủ cả khoảng lặng [0, start) trước câu 1 (audio
-        // được adelay tới đúng start) — nếu không, toàn bộ timeline bị dí sớm
-        // lên đầu video đúng bằng start của câu 1, voice lệch sớm so với phụ đề.
-        const segStartMs = i === 0 ? 0 : group.startMs;
-        const segDurationSec = Math.max((slotEndMs - segStartMs) / 1000, 0.05);
-        // Khung thời gian cho audio vẫn tính từ start của câu (im lặng đầu không
-        // tính vào khung — tempo không bị nén oan vì khoảng lặng)
-        const audioWindowSec = Math.max((slotEndMs - group.startMs) / 1000, 0.05);
-        const audioDurSec = audioDurMs / 1000;
-        if (hasAudio && audioDurSec > audioWindowSec * TEMPO_THRESHOLD) {
-          const rawTempo = audioDurSec / audioWindowSec;
-          tempo = Math.min(Math.max(rawTempo, 1), MAX_TEMPO);
-          truncated = rawTempo > MAX_TEMPO;
-          overruns.push({ index: group.startIndex, tempo, truncated });
-        }
-        await buildSegment(hasAudio ? audioFile : null, segDurationSec, segPath, {
-          tempo,
-          delayMs: group.startMs - segStartMs,
-        });
-        cursorMs = group.startMs + audioWindowSec * 1000;
+      if (next && next.startMs < group.endMs) {
+        throw new Error(`Dubbing timing conflict at subtitle ${group.startIndex}: overlapping dialogue requires separate audio tracks`);
       }
+
+      // Each rendered chunk covers a fixed position on the original media
+      // timeline. A long TTS file may be sped up moderately, but never shifts
+      // the next voice or gets silently cut by ffmpeg's -t.
+      if (group.startMs < cursorMs || slotEndMs <= group.startMs ||
+          (opts?.mediaDurationMs !== undefined && group.endMs > opts.mediaDurationMs)) {
+        throw new Error(`Dubbing timing conflict at subtitle ${group.startIndex}: overlapping speech requires separate tracks`);
+      }
+      // Speech belongs to its measured dialogue interval. The remainder of
+      // the slot is silence; it must not be borrowed to hide an overlong dub.
+      const audioWindowMs = group.endMs - group.startMs;
+      const requiredTempo = hasAudio ? audioDurMs / audioWindowMs : 1;
+      if (requiredTempo > maxTempo) {
+        throw new Error(`Dubbing timing conflict at subtitle ${group.startIndex}: TTS ${Math.round(audioDurMs)} ms exceeds ${Math.round(audioWindowMs)} ms slot (needs ${requiredTempo.toFixed(2)}x; shorten translation or regenerate TTS)`);
+      }
+      if (requiredTempo > TEMPO_THRESHOLD) {
+        tempo = Math.min(maxTempo, requiredTempo * 1.005);
+        overruns.push({ index: group.startIndex, tempo, truncated: false });
+      }
+      await buildSegment(hasAudio ? audioFile : null, (slotEndMs - cursorMs) / 1000, segPath, {
+        tempo,
+        delayMs: group.startMs - cursorMs,
+      });
+      schedule.push({ startIndex: group.startIndex, endIndex: group.endIndex,
+        sourceStartMs: group.startMs, sourceEndMs: group.endMs,
+        renderStartMs: group.startMs, slotEndMs,
+        inputAudioDurationMs: Math.round(audioDurMs), requiredTempo,
+        appliedTempo: tempo, predictedEndMs: Math.round(group.startMs + audioDurMs / tempo) });
+      cursorMs = slotEndMs;
 
       segPaths.push(segPath);
 
@@ -448,17 +407,18 @@ export async function mergeAudioFiles(
     onProgress?.(100);
 
     if (overruns.length > 0) {
-      const truncatedList = overruns.filter((o) => o.truncated);
-      console.log(
-        `[Dubbing] Đã tăng tốc ${overruns.length}/${subtitles.length} câu để vừa timeline` +
-          (truncatedList.length > 0
-            ? ` — ${truncatedList.length} câu tràn quá 1.5x còn bị cắt phần cuối: dòng ${truncatedList.map((o) => o.index).join(', ')}. Nên rút gọn text những dòng này rồi tạo lại audio.`
-            : '')
-      );
+      console.log(`[Dubbing] Đã tăng tốc ${overruns.length}/${subtitles.length} câu để vừa timeline`);
     }
     console.log(`[Dubbing] ✓ Audio merge successful: ${outputAudioPath}`);
+    updateDubTimeline(srtPath, schedule);
     return { audioPath: outputAudioPath, overruns };
   } catch (err) {
+    const detail = String(err);
+    if (/Dubbing timing conflict|Dubbing missing audio/.test(detail)) {
+      updateDubTimeline(srtPath, undefined, { severity: 'error',
+        code: detail.includes('missing audio') ? 'missing_tts_audio' : 'tts_duration_conflict',
+        detail });
+    }
     console.error(`[Dubbing] ✗ Audio merge failed:`, err);
     throw new Error(`Không thể ghép audio: ${err}`);
   } finally {
@@ -625,6 +585,10 @@ export async function dubVideo(
     console.log(`[Dubbing] Starting full dubbing pipeline (mode ${syncMode})...`);
 
     let mergeSrtPath = srtPath;
+    const sourceDurationSec = await getMediaDurationSec(videoPath);
+    if (!(sourceDurationSec > 0)) {
+      throw new Error('Cannot validate dubbing against source media duration');
+    }
 
     // video-stretch: tính hệ số giãn, ghi SRT đã scale ra tạm rồi merge theo đó
     if (syncMode === 'video-stretch') {
@@ -668,7 +632,8 @@ export async function dubVideo(
       (p) => {
         onProgress?.(Math.round((backgroundAudioPath ? 15 : 5) + p * (backgroundAudioPath ? 0.35 : 0.4)));
       },
-      { mode: syncMode === 'flexible' ? 'flexible' : 'strict' }
+      { mode: syncMode === 'flexible' ? 'flexible' : 'strict',
+        mediaDurationMs: sourceDurationSec * 1000 * stretchFactor, maxTempo: configuredMaxTempo() }
     );
 
     if (options?.shouldStop?.()) {

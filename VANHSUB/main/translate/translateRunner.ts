@@ -92,6 +92,15 @@ export class TranslateRunner {
           fs.copyFileSync(rawTranslatedPath, expectedPath);
           fs.unlinkSync(rawTranslatedPath);
           finalTranslated = expectedPath;
+          const rawTimeline = rawTranslatedPath.replace(/\.srt$/i, '.timeline.json');
+          if (fs.existsSync(rawTimeline)) {
+            try {
+              fs.copyFileSync(rawTimeline, expectedPath.replace(/\.srt$/i, '.timeline.json'));
+              fs.unlinkSync(rawTimeline);
+            } catch (e) {
+              console.warn('[TranslateRunner] Could not copy timeline evidence:', e);
+            }
+          }
         } catch {}
       }
 

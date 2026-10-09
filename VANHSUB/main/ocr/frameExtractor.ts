@@ -126,7 +126,9 @@ export function extractFrames(
           resolve({
             framesDir,
             framePaths,
-            frameIntervalMs: Math.round(1000 / fps),
+            // Keep the rational sampling interval. Rounding each frame to an integer
+            // accumulates drift (at 3 fps, 333 ms loses 1 ms every three frames).
+            frameIntervalMs: 1000 / fps,
             width,
             height,
             offsetRatio,

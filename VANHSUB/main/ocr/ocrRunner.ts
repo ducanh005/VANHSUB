@@ -21,6 +21,7 @@ import {
   segmentsToSrt,
 } from './subtitleBuilder';
 import { normalizeSrtLines } from '../lib/srtNormalizer';
+import { validateSubtitleTimeline } from '../lib/timelineDiagnostics';
 import {
   checkRapidOcr,
   mapRecLangNames,
@@ -370,6 +371,7 @@ export class OcrRunner {
       const { segments: rawSegments, stats } = buildSubtitleSegmentsWithStats(cleanedResults, frameIntervalMs);
       const { lines: segments } = normalizeSrtLines(rawSegments, {
         maxGapMs: Math.max(1200, frameIntervalMs * 2),
+        preserveEvidenceTiming: true,
       });
 
       // In báo cáo debug chi tiết theo Rule 18
@@ -378,6 +380,10 @@ export class OcrRunner {
       );
 
       const srtContent = segmentsToSrt(segments);
+      const timelineIssues = validateSubtitleTimeline(segments);
+      if (timelineIssues.some((issue) => issue.severity === 'error')) {
+        throw new Error(`OCR timeline contains invalid timestamps: ${JSON.stringify(timelineIssues.filter((issue) => issue.severity === 'error'))}`);
+      }
       if (!srtContent) {
         throw new Error(
           'Không nhận diện được phụ đề nào — kiểm tra ngôn ngữ quét trong Cài đặt hoặc thử vùng quét "Toàn khung".',
@@ -389,6 +395,8 @@ export class OcrRunner {
       const base = path.basename(task.filePath, path.extname(task.filePath));
       const targetPath = nextAvailablePath(path.join(videoDir, `${base}_ocr.srt`));
       fs.writeFileSync(targetPath, srtContent, 'utf-8');
+      fs.writeFileSync(targetPath.replace(/\.srt$/i, '.timeline.json'),
+        JSON.stringify({ segments, issues: timelineIssues, frameIntervalMs }, null, 2), 'utf-8');
       console.log(`[OCR] Đã ghi ${segments.length} dòng phụ đề vào ${targetPath}`);
 
       writeDiagnosticDump(

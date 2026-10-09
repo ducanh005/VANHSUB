@@ -18,6 +18,15 @@ export interface SrtLine {
   frames?: number;
   stable?: boolean;
   needsReview?: boolean;
+  /** In-memory evidence; SRT itself cannot serialize these fields. */
+  source?: 'asr' | 'ocr' | 'hybrid';
+  originalText?: string;
+  speechStartMs?: number;
+  speechEndMs?: number;
+  displayStartMs?: number;
+  displayEndMs?: number;
+  sourceIds?: string[];
+  evidenceConfidence?: { asr?: number; ocr?: number };
 }
 
 const SRT_TIME_RE = /^(\d{1,3}):(\d{1,2}):(\d{1,2})[,.](\d{1,3})$/;
@@ -125,6 +134,22 @@ export function parseSrt(srtText: string): SrtLine[] {
   }
 
   return result;
+}
+
+/** Strict import for stages that must never silently drop or re-time speech. */
+export function parseSrtStrict(srtText: string): SrtLine[] {
+  const expected = srtText.replace(/\r\n/g, '\n').split('\n').filter((row) => row.includes('-->')).length;
+  const lines = parseSrt(srtText);
+  if (lines.length !== expected) {
+    throw new Error(`Malformed SRT: parsed ${lines.length} of ${expected} timecoded events`);
+  }
+  for (const line of lines) {
+    if (!Number.isFinite(line.startMs) || !Number.isFinite(line.endMs) ||
+        line.startMs < 0 || line.endMs <= line.startMs) {
+      throw new Error(`Malformed SRT timestamp at ${line.id}: ${line.startMs}..${line.endMs}`);
+    }
+  }
+  return lines;
 }
 
 /** Ghép danh sách dòng phụ đề thành nội dung file .srt chuẩn, bao gồm nhãn speaker nếu có. */

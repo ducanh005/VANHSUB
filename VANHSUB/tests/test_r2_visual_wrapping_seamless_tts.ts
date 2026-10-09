@@ -131,7 +131,10 @@ async function runTestSuite() {
   });
 
   await runTest('1.4 Benchmark Sentence: segmentSubtitlesNetflix integrates pre-consolidation without timecode drift', () => {
-    const netflixBlocks = segmentSubtitlesNetflix(benchmarkBlocks);
+    // Consolidation is opt-in in this deprecated legacy helper. Keeping the
+    // default separate avoids merging distinct spoken turns without evidence.
+    assert.strictEqual(segmentSubtitlesNetflix(benchmarkBlocks).length, 3);
+    const netflixBlocks = segmentSubtitlesNetflix(benchmarkBlocks, { consolidateClauses: true });
     assert.ok(netflixBlocks.length <= 2, `Netflix standard gom thành <= 2 khối (thực tế: ${netflixBlocks.length})`);
     assert.strictEqual(netflixBlocks[0].startMs, 1000);
     for (const b of netflixBlocks) {

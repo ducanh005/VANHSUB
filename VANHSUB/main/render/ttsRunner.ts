@@ -7,6 +7,7 @@ import { getSharedTikTokProvider } from '../tts-providers/tiktok/sessionStores';
 import { isCancelledError } from '../lib/cancel';
 import { getOrCreateProjectDir, getProjectArtifactPaths } from '../utils/projectFolder';
 import { mergeAudioFiles } from './dubbingEngine';
+import { configuredMaxTempo } from './ttsTiming';
 
 export class TTSRunner {
   private static runningTasks = new Set<string>();
@@ -116,7 +117,7 @@ export class TTSRunner {
         ttsAudioDir,
         outputPath,
         undefined,
-        { mode }
+        { mode, maxTempo: configuredMaxTempo() }
       );
       if (overruns && overruns.length > 0) {
         TaskStore.update(taskId, { ttsOverruns: overruns });
@@ -217,7 +218,7 @@ export class TTSRunner {
           ttsAudioDir,
           mergedMp3Path,
           undefined,
-          { mode: 'flexible' }
+          { mode: 'flexible', maxTempo: configuredMaxTempo() }
         );
         if (fs.existsSync(audioPath)) {
           finalMergedPath = audioPath;
@@ -226,7 +227,7 @@ export class TTSRunner {
           TaskStore.update(taskId, { ttsOverruns: overruns });
         }
       } catch (mergeErr) {
-        console.warn(`[TTS] Cảnh báo: Tự động ghép MP3 tổng hợp gặp lỗi:`, mergeErr);
+        throw new Error(`TTS timing conflict during audio merge: ${mergeErr}`);
       }
 
       const updated = TaskStore.update(taskId, {

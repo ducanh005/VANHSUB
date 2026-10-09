@@ -21,6 +21,11 @@ asarUnpack:
     - node_modules/nodejs-whisper/**
 # Sidecar Python PaddleOCR (rapidocr) — spawn bằng đường dẫn thật trên đĩa
 extraResources:
+    - from: node_modules/nodejs-whisper/cpp/whisper.cpp/build/bin/Release
+      to: whisper
+      filter:
+          - whisper-cli.exe
+          - "*.dll"
     - from: main/ocr/paddle
       to: paddle
       filter:

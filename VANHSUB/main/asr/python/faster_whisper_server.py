@@ -251,7 +251,10 @@ def segment_words_naturally(words: list, max_chars_per_line: int = 37) -> list:
 
         # 4. Dấu câu kết thúc (. ? ! 。 ？ ！ …)
         if has_terminal_punct(cur_word["word"]):
-            if cur_dur >= 1500 or unit_count >= 4 or proj_dur > 5000 or pause >= 200:
+            abbreviation = re.match(r"^(?:mr|mrs|ms|dr|prof|st|jr|sr|vs|etc|e\.g|i\.e|tp|ts|pgs)\.$", cur_word["word"], re.I)
+            next_starts_sentence = bool(next_word["word"].strip() and
+                (next_word["word"].strip()[0].isupper() or is_cjk_text(next_word["word"].strip()[0])))
+            if (next_starts_sentence and not abbreviation) or cur_dur >= 1500 or unit_count >= 4 or proj_dur > 5000 or pause >= 200:
                 flush_chunk()
                 continue
 
@@ -275,7 +278,7 @@ def segment_words_naturally(words: list, max_chars_per_line: int = 37) -> list:
 
     # Đảm bảo bất biến segments[i].endMs <= segments[i+1].startMs luôn đúng
     for i in range(len(segments) - 1):
-        if segments[i]["endMs"] > segments[i + 1]["startMs"]:
+        if segments[i]["endMs"] > segments[i + 1]["startMs"] and (not segments[i].get("speaker") or not segments[i + 1].get("speaker") or segments[i]["speaker"] == segments[i + 1]["speaker"]):
             segments[i]["endMs"] = segments[i + 1]["startMs"]
             segments[i]["end"] = segments[i]["endMs"] / 1000.0
             if segments[i]["words"]:
