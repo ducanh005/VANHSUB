@@ -639,3 +639,56 @@ Phát triển module chuẩn hóa file phụ đề SRT bị lỗi do OCR quét (
 ### Cơ chế dịch thuật qua Gemini API
 - [ ] Tỷ lệ dịch đủ 100% số câu trong file test, không bị mất dòng nào ở đầu, giữa hoặc cuối file.
 - [ ] Ánh xạ ID chính xác giữa câu gốc và câu dịch.
+
+
+## 2026-10-09T02:29:16Z
+
+Comprehensive audit, repair, and upgrade of the browser automation and AI image/video generation pipeline in the VANHSUB desktop application (Nextron / Electron + TypeScript), fixing `PUBLIC_ERROR_UNUSUAL_ACTIVITY` handling, resolving the `TIMEOUT_WAITING_RPC` failure cascade in UI fallbacks, and standardizing browser automation with Playwright.
+
+Working directory: d:\DEAN\DEAN\VANHSUB
+Integrity mode: development
+
+## Requirements
+
+### R1. Playwright Audit & Browser Automation Adapter
+- Audit existing `playwright-core` (currently installed at v1.63.0) and CDP integration in `package.json` and codebase.
+- Establish a clean, reusable Browser Automation Adapter that encapsulates CDP / Playwright browser lifecycle management, session reuse, tab discovery, and connection recovery.
+- Maintain compatibility with the Chrome Extension Bridge (`FlowBridgeServer`) while decoupling automation capabilities so direct browser control does not rely solely on extension message passing.
+
+### R2. Root-Cause Fix for `TIMEOUT_WAITING_RPC` & UI Fallback Decoupling
+- Eliminate the circular dependency where UI automation (`trigger_ui_gen` in `extension/background.js` and `FlowBridgeServer.ts`) waits for a specific HTTP 200 RPC event in sniffer history (`ogiZ0b`, `as29s`) even when UI generation executes via DOM or is flagged.
+- Re-architect UI generation to track completion via real output evidence (DOM gallery observation, asset card creation, canvas/blob download, or network events) rather than stalling until `TIMEOUT_WAITING_RPC`.
+- Implement staged timeouts tailored to image vs video generation, with proper AbortSignal propagation and state transitions.
+
+### R3. `PUBLIC_ERROR_UNUSUAL_ACTIVITY` Anti-Bot & Error Recovery Protocol
+- Gracefully handle Google Flow anti-bot responses (`PUBLIC_ERROR_UNUSUAL_ACTIVITY`). Never enter infinite retry loops or cause duplicate generation requests.
+- When unusual activity or CAPTCHA is detected, transition the job state cleanly to `BLOCKED_REQUIRES_USER` or trigger legitimate user-assisted recovery rather than blind retries.
+- Implement idempotency and job state machine: `QUEUED` -> `SUBMITTING` -> `SUBMITTED` -> `PROCESSING` -> `COMPLETED` / `FAILED` / `TIMED_OUT` / `BLOCKED_REQUIRES_USER`.
+
+### R4. Pipeline Integrity Preservation & Official API Survey
+- Preserve all existing core generation capabilities: Text-to-Image, Image-to-Video (I2V), Text-to-Video, keyframe generation, Ken Burns fallback, multi-scene sequencing, and media export in `AiStudioVisualService.ts` and `AiStudioPipelineEngine.ts`.
+- Survey any official Google Gemini / Veo API integrations in the project to establish a clean fallback / provider router interface without altering prompts, aspect ratios, or configurations unnecessarily.
+
+### R5. Comprehensive Validation & Test Suite
+- Validate TypeScript compilation (`npm run build:main` / `tsc --noEmit`).
+- Implement and run regression unit/integration tests using `tsx` (covering RPC error classification, UI fallback state transitions, timeout behaviors, and duplicate prevention).
+- Provide a structured final report detailing Playwright audit, root cause evidence, file modifications, test outcomes, and final architectural flow.
+
+## Acceptance Criteria
+
+### Browser & Dependencies
+- [ ] `playwright-core` / Playwright configuration verified, integrated, and building without dependency conflicts.
+- [ ] TypeScript build passes cleanly (`npm run build:main` exits 0 with zero errors).
+
+### Fallback & Timeout Fixes
+- [ ] `trigger_ui_gen` and `FlowBridgeServer` no longer fail with `TIMEOUT_WAITING_RPC` when UI generation proceeds or fails upstream.
+- [ ] UI generation status is determined by verifiable output or multi-stage observation (DOM + network), not a single fragile RPC sniffer loop.
+- [ ] `Direct UI Mode` in `AiStudioVisualService.ts` transitions correctly and does not loop endlessly on `PUBLIC_ERROR_UNUSUAL_ACTIVITY`.
+
+### Job State & Error Handling
+- [ ] `PUBLIC_ERROR_UNUSUAL_ACTIVITY` is classified and pauses automated retries, avoiding rate limit escalation and duplicate generation.
+- [ ] No regression in keyframe generation, scene sequencing, Ken Burns fallback, or video assembly.
+
+### Verification Suite
+- [ ] Automated tests executed via `tsx` validating state transitions, timeout handling, and RPC classification with 100% passing results.
+- [ ] Final report delivered covering Sections A through E as requested.
