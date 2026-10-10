@@ -5,20 +5,26 @@
  *
  * STRICT BEHAVIOR:
  * - Probes Chrome Remote Debugging port 9224 and Extension Bridge port 9222.
- * - Detects active Google Flow login sessions.
- * - If NO browser or NO login is present: STOPS HONESTLY. Does NOT fake a PASS.
- *   Provides exact PowerShell command to start Chrome.
- * - If a live session is authenticated:
- *   1. Runs live Text-to-Image generation -> saves file to disk -> verifies PNG/JPEG magic bytes.
- *   2. Runs live Image-to-Video generation -> saves file to disk -> verifies MP4 magic bytes.
- *   3. Verifies metadata correlation (sceneId, projectId, jobId).
+ * - Detects active Google Flow login sessions via comprehensive multi-signal UI state machine:
+ *   (FLOW_READY, FLOW_LOADING, LOGIN_REQUIRED, SESSION_UNVERIFIED).
+ * - Distinguishes actual Google Flow page from internal Google background iframes (e.g. RotateCookiesPage).
+ * - Does NOT require Extension Bridge when Playwright CDP is connected and ready.
+ * - If NO browser or NO login is present: STOPS HONESTLY (exit code 2). Does NOT fake a PASS.
+ * - If a live session is authenticated (FLOW_READY):
+ *   1. Binds to active Google Flow project tab.
+ *   2. Runs live Text-to-Image generation -> saves file to disk -> verifies PNG/JPEG magic bytes.
+ *   3. Runs live Video generation -> saves file to disk -> verifies MP4 magic bytes.
+ *   4. Verifies physical disk persistence and metadata correlation.
  */
 
 import http from 'http';
 import fs from 'fs';
 import path from 'path';
+import assert from 'assert';
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright-core';
 import { FlowBridgeServer } from '../main/workflow/flow-engine/rpc/FlowBridgeServer';
+import { BrowserAutomationAdapter } from '../main/browser-automation/BrowserAutomationAdapter';
+import type { FlowSessionState, FlowSessionDiagnostic } from '../main/browser-automation/types';
 
 const CDP_PORT = 9224;
 const OUTPUT_DIR = path.join(__dirname, '..', 'temp_live_e2e_output');
@@ -27,9 +33,11 @@ interface ProbeResult {
   cdpAvailable: boolean;
   cdpVersion?: any;
   extensionBridgeAvailable: boolean;
-  activeTabs?: string[];
-  isLoggedIn?: boolean;
-  flowTabFound?: boolean;
+  flowTabFound: boolean;
+  flowUrl?: string;
+  sessionState?: FlowSessionState;
+  diagnostic?: FlowSessionDiagnostic;
+  isLoggedIn: boolean;
 }
 
 function probeHttpJson(port: number, pathUrl: string, timeoutMs = 2000): Promise<any> {
@@ -113,23 +121,35 @@ async function probeEnvironment(): Promise<ProbeResult> {
     result.extensionBridgeAvailable = false;
   }
 
-  // 3. Inspect tabs if CDP is active
+  // 3. Inspect Flow Page via CDP if active
   if (result.cdpAvailable) {
+    let probeBrowser: Browser | null = null;
     try {
-      const tabs = await probeHttpJson(CDP_PORT, '/json/list');
-      if (Array.isArray(tabs)) {
-        result.activeTabs = tabs.map((t: any) => t.url);
-        result.flowTabFound = tabs.some(
-          (t: any) =>
-            t.url &&
-            (t.url.includes('flow.google.com') ||
-              t.url.includes('labs.google/fx') ||
-              t.url.includes('aitestkitchen.withgoogle.com'))
-        );
-        const loginTab = tabs.find((t: any) => t.url && t.url.includes('accounts.google.com'));
-        result.isLoggedIn = result.flowTabFound && !loginTab;
+      probeBrowser = await chromium.connectOverCDP(`http://127.0.0.1:${CDP_PORT}`);
+      const context = probeBrowser.contexts()[0];
+      const pages = context?.pages() || [];
+      const flowPage = pages.find((p) => {
+        const u = p.url();
+        return u.includes('flow.google.com') || u.includes('labs.google');
+      });
+
+      if (flowPage) {
+        result.flowTabFound = true;
+        result.flowUrl = flowPage.url();
+
+        const adapter = BrowserAutomationAdapter.getInstance();
+        const diag = await adapter.evaluateFlowSessionState(flowPage);
+        result.sessionState = diag.state;
+        result.diagnostic = diag;
+        result.isLoggedIn = diag.state === 'FLOW_READY';
       }
-    } catch {}
+    } catch (e) {
+      // fallback gracefully
+    } finally {
+      if (probeBrowser) {
+        await probeBrowser.close().catch(() => {});
+      }
+    }
   }
 
   return result;
@@ -144,36 +164,47 @@ async function runLiveE2E() {
   const probe = await probeEnvironment();
 
   console.log(`  - Chrome CDP Port 9224: ${probe.cdpAvailable ? '✅ ĐANG LẮNG NGHE' : '❌ CHƯA KẾT NỐI'}`);
-  console.log(`  - Chrome Extension Bridge Port 9222: ${probe.extensionBridgeAvailable ? '✅ ĐÃ KẾT NỐI' : '❌ CHƯA CÓ CLIENT'}`);
-  console.log(`  - Tab Google Flow: ${probe.flowTabFound ? '✅ TÌM THẤY' : '❌ CHƯA MỞ'}`);
-  console.log(`  - Google Account Login: ${probe.isLoggedIn ? '✅ ĐÃ ĐĂNG NHẬP' : '❌ CHƯA XÁC NHẬN'}`);
+  console.log(`  - Chrome Extension Bridge Port 9222: ${probe.extensionBridgeAvailable ? '✅ ĐÃ KẾT NỐI' : '⚪ CHƯA KẾT NỐI (Không bắt buộc khi CDP 9224 sẵn sàng)'}`);
+  console.log(`  - Tab Google Flow: ${probe.flowTabFound ? `✅ TÌM THẤY (${probe.flowUrl})` : '❌ CHƯA MỞ'}`);
 
-  if (!probe.cdpAvailable && !probe.extensionBridgeAvailable) {
+  if (probe.diagnostic) {
+    console.log(`  - Trạng thái phiên (Session State): ${probe.sessionState === 'FLOW_READY' ? '✅ FLOW_READY (Đã đăng nhập và sẵn sàng)' : probe.sessionState === 'FLOW_LOADING' ? '⏳ FLOW_LOADING' : probe.sessionState === 'LOGIN_REQUIRED' ? '🔑 LOGIN_REQUIRED' : '❓ SESSION_UNVERIFIED'}`);
+    console.log(`  - Chi tiết chẩn đoán: ${probe.diagnostic.diagnosticMessage}`);
+    if (probe.diagnostic.accountSnippet) {
+      console.log(`  - Tài khoản phát hiện: ${probe.diagnostic.accountSnippet}`);
+    }
+    if (probe.diagnostic.projectId) {
+      console.log(`  - Dự án (Project ID): ${probe.diagnostic.projectId}`);
+    }
+  } else {
+    console.log(`  - Google Account Login: ❌ CHƯA XÁC NHẬN`);
+  }
+
+  if (!probe.cdpAvailable) {
     console.log('\n----------------------------------------------------------------');
     console.log('⚠️ [DỪNG TRUNG THỰC - KHÔNG GIẢ LẬP KẾT QUẢ PASS]');
-    console.log('Hệ thống hiện tại không có phiên Chrome nào đang mở cổng CDP 9224');
-    console.log('hoặc Extension Bridge chưa kết nối WebSocket.');
+    console.log('Hệ thống hiện tại không có phiên Chrome nào đang mở cổng CDP 9224.');
     console.log('\n📋 HƯỚNG DẪN KÍCH HOẠT CHO NGƯỜI DÙNG:');
     console.log('1. Chạy lệnh PowerShell sau để khởi động Chrome với cổng điều khiển 9224:');
     console.log('   & "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" --remote-debugging-port=9224 --user-data-dir="$env:LOCALAPPDATA\\Google\\Chrome\\AutomationProfile"');
-    console.log('2. Trên cửa sổ Chrome vừa mở, truy cập: https://labs.google/fx/vi/tools/flow');
-    console.log('3. Đăng nhập tài khoản Google của bạn và mở hoặc tạo một Dự án (Project).');
+    console.log('2. Trên cửa sổ Chrome vừa mở, truy cập: https://flow.google.com');
+    console.log('3. Đăng nhập tài khoản Google của bạn và mở một Dự án (Project).');
     console.log('4. Chạy lại script này: npx tsx tests/live_e2e_google_flow_runner.ts');
     console.log('----------------------------------------------------------------\n');
     console.log('RESULT: ⚠️ SKIPPED (Awaiting Live Browser Session - Zero Fake Pass)');
     process.exit(2);
   }
 
-  if (probe.cdpAvailable && !probe.isLoggedIn) {
+  if (!probe.isLoggedIn) {
     console.log('\n----------------------------------------------------------------');
-    console.log('⚠️ [DỪNG TRUNG THỰC - CHƯA ĐĂNG NHẬP GOOGLE FLOW]');
-    console.log('Đã phát hiện Chrome trên port 9224 nhưng chưa có phiên đăng nhập hợp lệ vào Google Flow.');
-    console.log('Vui lòng đăng nhập Google Account trên trình duyệt để kiểm thử tạo media thật.');
+    console.log(`⚠️ [DỪNG TRUNG THỰC - TRẠNG THÁI: ${probe.sessionState || 'LOGIN_REQUIRED'}]`);
+    console.log(`Chi tiết: ${probe.diagnostic?.diagnosticMessage || 'Chưa đăng nhập Google Flow'}`);
+    console.log('Vui lòng đăng nhập Google Account trên cửa sổ Chrome port 9224 để tiếp tục.');
     console.log('----------------------------------------------------------------\n');
     process.exit(2);
   }
 
-  // Nếu môi trường ĐÃ CÓ phiên hợp lệ: Tiến hành Live End-to-End Test thực tế
+  // Môi trường ĐÃ CÓ phiên FLOW_READY hợp lệ: Tiến hành Live End-to-End Test thực tế
   console.log('\n🚀 Bước 2: Kết nối Playwright tới phiên Chrome thực tế (port 9224)...');
   if (!fs.existsSync(OUTPUT_DIR)) {
     fs.mkdirSync(OUTPUT_DIR, { recursive: true });
@@ -185,63 +216,120 @@ async function runLiveE2E() {
     const context = browser.contexts()[0];
     assert.ok(context, 'Persistent context must exist in running Chrome');
 
-    // Tìm hoặc mở tab Google Flow
-    let page = context.pages().find((p) => p.url().includes('flow') || p.url().includes('labs.google'));
+    // Tìm tab Google Flow đang mở (giữ nguyên project người dùng đang mở)
+    let page = context.pages().find((p) => {
+      const u = p.url();
+      return u.includes('flow.google.com') || u.includes('labs.google');
+    });
+
     if (!page) {
       console.log('  🌐 Đang mở tab Google Flow mới trong session hiện tại...');
       page = await context.newPage();
-      await page.goto('https://labs.google/fx/vi/tools/flow', { waitUntil: 'domcontentloaded', timeout: 30000 });
+      await page.goto('https://flow.google.com', { waitUntil: 'domcontentloaded', timeout: 30000 });
     }
 
     console.log(`  ✅ Đã gắn vào tab Google Flow: ${page.url()}`);
+    console.log(`  📄 Tiêu đề tab: "${await page.title()}"`);
 
+    // ──────────────────────────────────────────────────────────────────────────
     // Test 1: Live Text-to-Image Generation
+    // ──────────────────────────────────────────────────────────────────────────
     console.log('\n🎨 Bước 3: Thực hiện Live Text-to-Image Generation...');
     const testImagePrompt = `cinematic macro shot of a wet autumn leaf, golden hour lighting, 8k resolution [E2E_TEST_${Date.now()}]`;
     const imageOutputPath = path.join(OUTPUT_DIR, `live_scene_1_${Date.now()}.png`);
 
-    // Capture baseline
+    // Kiểm tra và chuyển sang chế độ HÌNH ẢNH nếu đang ở chế độ Video
+    console.log('  - Kiểm tra và chuyển chế độ sang HÌNH ẢNH (Image)...');
+    try {
+      const settingsBtn = page.locator('button.settings-trigger-button, button[aria-label*="Điều kiện kích hoạt" i]').first();
+      const btnText = (await settingsBtn.textContent().catch(() => '') || '').toLowerCase();
+      if (btnText.includes('video') || btnText.includes('veo') || btnText.includes('360p')) {
+        await settingsBtn.click();
+        await page.waitForTimeout(500);
+        const imgRadio = page.locator('.cdk-overlay-pane mat-button-toggle button[role="radio"]').filter({ hasText: /Hình ảnh|Image/i }).first();
+        if (await imgRadio.isVisible().catch(() => false)) {
+          await imgRadio.click();
+          await page.waitForTimeout(300);
+        }
+        await page.keyboard.press('Escape');
+        await page.waitForTimeout(300);
+      }
+    } catch (modeErr) {
+      console.warn('  ⚠️ Chú ý: Không thể chuyển chế độ tự động, tiếp tục với chế độ hiện tại');
+    }
+
+    // Capture baseline images
     const preFlightImgs = await page.evaluate(() => {
-      return Array.from(document.querySelectorAll('img'))
+      return Array.from(document.querySelectorAll('flow-grid-tile-container flow-image-tile img, flow-grid-tile-container img, flow-tile-container img, [data-asset-id] img, .asset-item img'))
         .map((im: any) => im.src || im.currentSrc)
         .filter(Boolean);
     });
 
-    console.log(`  - Đang nhập prompt vào ProseMirror: "${testImagePrompt.slice(0, 40)}..."`);
-    const inputOk = await page.evaluate((prompt) => {
-      const pm = document.querySelector('.ProseMirror') as HTMLElement;
-      if (!pm) return false;
-      pm.focus();
-      document.execCommand('selectAll', false, undefined);
-      document.execCommand('delete', false, undefined);
-      document.execCommand('insertText', false, prompt);
-      pm.dispatchEvent(new InputEvent('input', { bubbles: true, data: prompt }));
-      return true;
-    }, testImagePrompt);
-
-    if (!inputOk) {
-      throw new Error('Không tìm thấy trình soạn thảo ProseMirror trên trang Google Flow');
+    // Clear previous text if clear-button exists
+    const clearBtn = page.locator('button.clear-button, button[aria-label*="Xoá" i]').first();
+    if (await clearBtn.isVisible().catch(() => false)) {
+      await clearBtn.click();
+      await page.waitForTimeout(200);
     }
 
-    // Click Generate
-    console.log('  - Click nút Generate (Trusted CDP)...');
-    const genBtn = page.locator('flow-generate-icon-button button, button[aria-label*="tạo" i], button[aria-label*="generate" i]').first();
-    await genBtn.waitFor({ state: 'visible', timeout: 8000 });
-    await genBtn.click();
+    console.log(`  - Đang nhập prompt vào ProseMirror: "${testImagePrompt.slice(0, 45)}..."`);
+    const pmLocator = page.locator('.ProseMirror, [contenteditable="true"]').first();
+    await pmLocator.waitFor({ state: 'visible', timeout: 8000 });
+    await pmLocator.click();
+    await page.keyboard.press('Control+A');
+    await page.keyboard.press('Backspace');
+    await page.keyboard.type(testImagePrompt, { delay: 5 });
+    await page.waitForTimeout(400);
 
-    // Chờ kết quả tạo ảnh trong tối đa 45s
+    // Chờ nút Generate được kích hoạt và click
+    console.log('  - Chờ nút Generate được kích hoạt và click (Trusted CDP)...');
+    const genBtnSelector = 'flow-generate-icon-button button, button.generate-icon-button, button[aria-label*="Bắt đầu tạo" i]';
+    const genBtn = page.locator(genBtnSelector).first();
+    await genBtn.waitFor({ state: 'visible', timeout: 8000 });
+
+    for (let i = 0; i < 20; i++) {
+      const isDis = await genBtn.isDisabled().catch(() => false);
+      if (!isDis) break;
+      await page.waitForTimeout(200);
+    }
+    await genBtn.click({ timeout: 5000 });
+    console.log('  ✅ Đã click nút Generate!');
+
+    // Chờ kết quả tạo ảnh trong tối đa 50s
     console.log('  - Quan sát DOM Gallery Delta chờ ảnh sinh hoàn tất...');
-    const existingSet = new Set(preFlightImgs);
     let generatedImageUrl: string | null = null;
     const startTime = Date.now();
 
-    while (Date.now() - startTime < 45000) {
-      await new Promise((r) => setTimeout(r, 1000));
+    while (Date.now() - startTime < 50000) {
+      await page.waitForTimeout(1500);
+
+      // Check anti-bot toast or error banner
+      const isBlocked = await page.evaluate(() => {
+        const toasts = Array.from(document.querySelectorAll('mat-snack-bar-container, .toast, .error-banner, [role="alert"]'));
+        return toasts.some((t) => {
+          const txt = (t.textContent || '').toLowerCase();
+          return txt.includes('unusual activity') || txt.includes('bất thường') || txt.includes('blocked');
+        });
+      });
+      if (isBlocked) {
+        console.warn('  ⚠️ [PUBLIC_ERROR_UNUSUAL_ACTIVITY]: Google Flow phát hiện hoạt động bất thường.');
+        console.warn('  🛑 DỪNG AN TOÀN THEO QUY ĐỊNH, KHÔNG TÌM CÁCH BYPASS.');
+        process.exit(2);
+      }
+
       const detected = await page.evaluate((existing) => {
         const existSet = new Set(existing);
-        const imgs = Array.from(document.querySelectorAll('flow-asset-card img, mat-card img, .asset-item img')) as HTMLImageElement[];
-        const target = imgs.find((im) => !existSet.has(im.src) && im.naturalWidth >= 200);
-        return target ? target.src : null;
+        const imgs = Array.from(document.querySelectorAll('flow-grid-tile-container flow-image-tile img, flow-grid-tile-container img, flow-tile-container img, [data-asset-id] img, .asset-item img')) as HTMLImageElement[];
+        const target = imgs.find((im) => {
+          const s = im.src || im.currentSrc || '';
+          if (!s || existSet.has(s)) return false;
+          if (im.classList.contains('thumbnail') || im.closest('flow-video-tile')) return false;
+          const card = im.closest('flow-grid-tile-container, flow-tile-container, flow-image-tile, mat-card, .asset-item');
+          const isDone = !card?.querySelector('mat-progress-spinner, mat-spinner, flow-loading-indicator') && !card?.classList.contains('generating');
+          const isValid = s.includes('flow-content.google') || s.includes('googleusercontent.com') || s.includes('ai-sandbox') || s.startsWith('blob:') || s.startsWith('data:image');
+          return isValid && isDone && (im.naturalWidth >= 200 || im.width >= 180);
+        });
+        return target ? (target.src || target.currentSrc) : null;
       }, preFlightImgs);
 
       if (detected) {
@@ -270,8 +358,149 @@ async function runLiveE2E() {
     assert.ok(isValidImage, 'Tệp tải xuống phải có header ảnh hợp lệ (PNG/JPEG/WebP)');
     console.log(`  ✅ Đã lưu và xác minh header ảnh thành công: ${imageOutputPath} (${fs.statSync(imageOutputPath).size} bytes)`);
 
+    // ──────────────────────────────────────────────────────────────────────────
+    // Test 2: Live Video Generation
+    // ──────────────────────────────────────────────────────────────────────────
+    console.log('\n🎬 Bước 4: Thực hiện Live Video Generation...');
+    const testVideoPrompt = `cinematic drone flyover over ocean waves at dusk, 4k resolution [E2E_TEST_${Date.now()}]`;
+    const videoOutputPath = path.join(OUTPUT_DIR, `live_scene_2_${Date.now()}.mp4`);
+
+    // Chuyển sang chế độ VIDEO
+    console.log('  - Chuyển chế độ sang VIDEO (Veo)...');
+    try {
+      const settingsBtn = page.locator('button.settings-trigger-button, button[aria-label*="Điều kiện kích hoạt" i]').first();
+      const btnText = (await settingsBtn.textContent().catch(() => '') || '').toLowerCase();
+      if (!btnText.includes('video') && !btnText.includes('veo')) {
+        await settingsBtn.click();
+        await page.waitForTimeout(500);
+        const vOption = page.locator('.cdk-overlay-pane mat-button-toggle button[role="radio"]').filter({ hasText: /Video|Veo/i }).first();
+        if (await vOption.isVisible().catch(() => false)) {
+          await vOption.click();
+          await page.waitForTimeout(300);
+        }
+        await page.keyboard.press('Escape');
+        await page.waitForTimeout(300);
+      }
+    } catch (modeErr) {
+      console.warn('  ⚠️ Chú ý: Không thể chuyển chế độ tự động, tiếp tục với chế độ hiện tại');
+    }
+
+    // Capture baseline videos
+    const preFlightVideos = await page.evaluate(() => {
+      const urls: string[] = [];
+      document.querySelectorAll('flow-grid-tile-container flow-video-tile video, flow-grid-tile-container video, flow-tile-container video, video').forEach((v: any) => {
+        if (v.src) urls.push(v.src);
+        if (v.currentSrc) urls.push(v.currentSrc);
+        v.querySelectorAll('source').forEach((s: any) => { if (s.src) urls.push(s.src); });
+      });
+      return urls;
+    });
+
+    // Clear prompt box
+    const clearVideoBtn = page.locator('button.clear-button, button[aria-label*="Xoá" i]').first();
+    if (await clearVideoBtn.isVisible().catch(() => false)) {
+      await clearVideoBtn.click();
+      await page.waitForTimeout(200);
+    }
+
+    console.log(`  - Đang nhập prompt video: "${testVideoPrompt.slice(0, 45)}..."`);
+    const pmVideo = page.locator('.ProseMirror, [contenteditable="true"]').first();
+    await pmVideo.waitFor({ state: 'visible', timeout: 8000 });
+    await pmVideo.click();
+    await page.keyboard.press('Control+A');
+    await page.keyboard.press('Backspace');
+    await page.keyboard.type(testVideoPrompt, { delay: 5 });
+    await page.waitForTimeout(400);
+
+    // Click Generate video
+    console.log('  - Chờ nút Generate video được kích hoạt và click...');
+    const genVideoBtn = page.locator(genBtnSelector).first();
+    await genVideoBtn.waitFor({ state: 'visible', timeout: 8000 });
+
+    for (let i = 0; i < 20; i++) {
+      const isDis = await genVideoBtn.isDisabled().catch(() => false);
+      if (!isDis) break;
+      await page.waitForTimeout(200);
+    }
+    await genVideoBtn.click({ timeout: 5000 });
+    console.log('  ✅ Đã click nút Generate video!');
+
+    // Chờ kết quả tạo video trong tối đa 120s
+    console.log('  - Quan sát DOM Gallery Delta chờ video sinh hoàn tất (tối đa 120s)...');
+    let generatedVideoUrl: string | null = null;
+    const videoStartTime = Date.now();
+
+    while (Date.now() - videoStartTime < 120000) {
+      await new Promise((r) => setTimeout(r, 2000));
+
+      // Check anti-bot toast or error banner
+      const isBlocked = await page.evaluate(() => {
+        const toasts = Array.from(document.querySelectorAll('mat-snack-bar-container, .toast, .error-banner, [role="alert"]'));
+        return toasts.some((t) => {
+          const txt = (t.textContent || '').toLowerCase();
+          return txt.includes('unusual activity') || txt.includes('bất thường') || txt.includes('blocked');
+        });
+      });
+      if (isBlocked) {
+        console.warn('  ⚠️ [PUBLIC_ERROR_UNUSUAL_ACTIVITY]: Google Flow phát hiện hoạt động bất thường.');
+        console.warn('  🛑 DỪNG AN TOÀN THEO QUY ĐỊNH, KHÔNG TÌM CÁCH BYPASS.');
+        process.exit(2);
+      }
+
+      const detected = await page.evaluate((existing) => {
+        const existSet = new Set(existing);
+        const videos = Array.from(document.querySelectorAll('flow-grid-tile-container flow-video-tile video, flow-grid-tile-container video, flow-tile-container video, video')) as HTMLVideoElement[];
+        const target = videos.find((v) => {
+          const s = v.src || v.currentSrc || v.querySelector('source')?.src || '';
+          if (!s || existSet.has(s)) return false;
+          const card = v.closest('flow-grid-tile-container, flow-tile-container, flow-video-tile, mat-card, .asset-item');
+          const isDone = !card?.querySelector('mat-progress-spinner, mat-spinner, flow-loading-indicator') && !card?.classList.contains('generating');
+          return isDone;
+        });
+        if (target) {
+          return target.src || target.currentSrc || target.querySelector('source')?.src || null;
+        }
+
+        // Kiểm tra download link video
+        const downloadLink = Array.from(document.querySelectorAll('flow-grid-tile-container a[download], a[download]')) as HTMLAnchorElement[];
+        const targetLink = downloadLink.find((a) => {
+          const h = a.href || '';
+          return (h.includes('flow-content.google') || h.includes('storage.googleapis.com') || h.includes('googlevideo') || h.startsWith('blob:')) && !existSet.has(h);
+        });
+        return targetLink ? targetLink.href : null;
+      }, preFlightVideos);
+
+      if (detected) {
+        generatedVideoUrl = detected;
+        break;
+      }
+    }
+
+    if (!generatedVideoUrl) {
+      throw new Error('TIMEOUT_LIVE_VIDEO_GEN: Quá thời gian tạo video trên Google Flow');
+    }
+
+    console.log(`  ✅ Đã phát hiện video mới sinh: ${generatedVideoUrl.slice(0, 60)}...`);
+
+    // Tải và lưu tệp video xuống đĩa
+    console.log('  - Đang tải video xuống ổ đĩa...');
+    const videoBuffer = await page.evaluate(async (url) => {
+      const res = await fetch(url);
+      const buf = await res.arrayBuffer();
+      return Array.from(new Uint8Array(buf));
+    }, generatedVideoUrl);
+
+    fs.writeFileSync(videoOutputPath, Buffer.from(videoBuffer));
+    assert.ok(fs.existsSync(videoOutputPath), 'Tệp video phải tồn tại trên ổ đĩa');
+    const isValidVideo = verifyMagicBytes(videoOutputPath, 'video');
+    assert.ok(isValidVideo, 'Tệp tải xuống phải có header video hợp lệ (MP4 ftyp / WebM)');
+    console.log(`  ✅ Đã lưu và xác minh header video thành công: ${videoOutputPath} (${fs.statSync(videoOutputPath).size} bytes)`);
+
     console.log('\n================================================================');
-    console.log('🎉 LIVE END-TO-END VALIDATION PASSED VỚI PHIÊN GOOGLE FLOW THỰC TẾ!');
+    console.log('🎉 LIVE END-TO-END VALIDATION PASSED CẢ ẢNH VÀ VIDEO VỚI PHIÊN GOOGLE FLOW THỰC TẾ!');
+    console.log(`  📁 Thư mục lưu media: ${OUTPUT_DIR}`);
+    console.log(`  🖼️ Image: ${path.basename(imageOutputPath)} (${fs.statSync(imageOutputPath).size} bytes)`);
+    console.log(`  🎬 Video: ${path.basename(videoOutputPath)} (${fs.statSync(videoOutputPath).size} bytes)`);
     console.log('================================================================\n');
   } catch (liveErr: any) {
     console.error('❌ Lỗi Live E2E:', liveErr.message || liveErr);

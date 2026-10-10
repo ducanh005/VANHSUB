@@ -163,16 +163,26 @@ async function main() {
     // Ensure disconnected
     await adapter.disconnect('flow').catch(() => {});
 
-    // Try executing when no Chrome instance is running on port 9224
-    const result = await adapter.executeFlowGeneration({
-      prompt: 'A golden sunset over calm ocean',
-      mode: 'image',
-      timeoutMs: 1000,
-    });
+    // Stub adapter.connect to simulate closed port if Chrome happens to be active on host
+    const origConnect = adapter.connect.bind(adapter);
+    (adapter as any).connect = async () => {
+      throw new Error('connect ECONNREFUSED 127.0.0.1:9224');
+    };
 
-    assert.strictEqual(result.ok, false, 'Must not claim success when Chrome is closed');
-    assert.strictEqual(result.state, 'FAILED');
-    assert.ok(result.error?.includes('Failed to connect Playwright to Chrome on port 9224'), 'Must give informative error');
+    try {
+      // Try executing when port 9224 is unreachable
+      const result = await adapter.executeFlowGeneration({
+        prompt: 'A golden sunset over calm ocean',
+        mode: 'image',
+        timeoutMs: 1000,
+      });
+
+      assert.strictEqual(result.ok, false, 'Must not claim success when Chrome is closed');
+      assert.strictEqual(result.state, 'FAILED');
+      assert.ok(result.error?.includes('Failed to connect Playwright to Chrome on port 9224'), 'Must give informative error');
+    } finally {
+      adapter.connect = origConnect;
+    }
   });
 
   await runTest('3.2 executeFlowGeneration respects pre-aborted signal immediately', async () => {
