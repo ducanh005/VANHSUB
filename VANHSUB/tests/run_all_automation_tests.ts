@@ -48,11 +48,17 @@ for (const suite of SUITES) {
   if (res.status === 0) {
     suitesPassed++;
     const out = res.stdout || '';
+    const cleanOut = out.replace(/\x1b\[[0-9;]*m/g, '');
     const match =
-      out.match(/(\d+)\/(\d+)\s+TESTS?\s+PASSED/i) ||
-      out.match(/Passed:\s*(\d+)/i) ||
-      out.match(/(\d+)\s+tests passed/i);
-    const count = match ? parseInt(match[1]) : 1;
+      cleanOut.match(/RESULTS:\s*Passed:\s*(\d+)/i) ||
+      cleanOut.match(/(\d+)\/(\d+)\s+TESTS?\s+PASSED/i) ||
+      cleanOut.match(/Passed\s*:\s*(\d+)/i) ||
+      cleanOut.match(/(\d+)\s+tests passed/i);
+    let count = match ? parseInt(match[1], 10) : 0;
+    if (count === 0) {
+      console.warn(`  ⚠️ Warning: Could not parse exact test count for ${suite}`);
+      count = 1;
+    }
     totalTestsCount += count;
     console.log(`  ✅ [PASS] ${suite.padEnd(55)} (${count} tests)`);
   } else {

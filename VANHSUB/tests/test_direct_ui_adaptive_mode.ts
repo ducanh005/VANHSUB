@@ -198,6 +198,7 @@ async function runDirectUiAdaptiveTests() {
     console.log('\n========================================================================');
     console.log('  TẤT CẢ TEST DIRECT UI ADAPTIVE MODE ĐÃ PASS 100%!                     ');
     console.log('========================================================================');
+    console.log('RESULTS: Passed: 3 | Failed: 0');
   } finally {
     try {
       fs.rmSync(tmpDir, { recursive: true, force: true });

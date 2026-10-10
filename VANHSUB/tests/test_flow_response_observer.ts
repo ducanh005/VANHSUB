@@ -28,5 +28,6 @@ async function main() {
   assert.equal(calls, 3, 'Observer must not retry or generate extra requests');
   assert.equal(window.__VANHSUB_SNIFFER__.history.length, 3);
   console.log('PASS: captures HTTP success, HTTP rejection, network failure; no extra requests.');
+  console.log('RESULTS: Passed: 3 | Failed: 0');
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });

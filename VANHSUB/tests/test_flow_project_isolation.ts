@@ -59,5 +59,6 @@ async function main() {
     assert.equal(requests, 1, 'Khi gặp PUBLIC_ERROR_UNUSUAL_ACTIVITY, không được retry mù quáng mà phải dừng ngay');
   } finally { fs.rmSync(temp, { recursive: true }); }
   console.log('PASS: project creation, resume, missing owner, mismatch, failed creation, 3 activity blocks non-retryable, rate-limit retry.');
+  console.log('RESULTS: Passed: 8 | Failed: 0');
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });

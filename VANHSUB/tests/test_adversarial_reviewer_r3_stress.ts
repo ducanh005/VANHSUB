@@ -322,6 +322,7 @@ async function runRound3AdversarialSuite() {
     console.log('\n========================================================================');
     console.log('  TẤT CẢ 6 BÀI KIỂM THỬ ADVERSARIAL REVIEWER ROUND 3 ĐÃ PASS 100%!       ');
     console.log('========================================================================\n');
+    console.log('RESULTS: Passed: 6 | Failed: 0');
   } finally {
     try {
       fs.rmSync(tmpDir, { recursive: true, force: true });
