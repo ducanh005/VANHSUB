@@ -21,6 +21,11 @@ import {
   isUnusualActivityError,
 } from '../../workflow/flow-engine/rpc/GoogleFlowRpcClient';
 import {
+  normalizeAndValidateMediaFile,
+  decodeImageDimensions,
+  validateVideoWithFfprobe,
+} from '../../browser-automation/mediaValidator';
+import {
   extractGeneratedImages,
   extractOperationStatus,
   parseBatchResponse,
@@ -633,7 +638,7 @@ export class AiStudioVisualService {
         // BƯỚC 1: Nếu chưa có keyframe image asset, sinh ảnh keyframe chất lượng cao bằng Imagen (ogiZ0b) trước
         if (!resolvedKeyframeAsset) {
           onProgress?.(8, 'Bước 1/2 (I2V): Đang sinh ảnh keyframe chất lượng cao bằng Imagen (ogiZ0b)...');
-          const keyframeTargetPath = targetPath.endsWith('.mp4')
+          let keyframeTargetPath = targetPath.endsWith('.mp4')
             ? targetPath.replace(/\.mp4$/i, '.png')
             : `${targetPath}_keyframe.png`;
 
@@ -798,7 +803,7 @@ export class AiStudioVisualService {
           });
 
           try {
-            this.validateMediaFile(keyframeTargetPath, 'image');
+            keyframeTargetPath = (this.validateMediaFile(keyframeTargetPath, 'image') as any) || keyframeTargetPath;
           } catch (kErr) {
             try { if (fs.existsSync(keyframeTargetPath)) fs.unlinkSync(keyframeTargetPath); } catch {}
             throw kErr;
@@ -1049,7 +1054,7 @@ export class AiStudioVisualService {
           });
 
           try {
-            this.validateMediaFile(targetPath, 'video');
+            targetPath = (this.validateMediaFile(targetPath, 'video') as any) || targetPath;
           } catch (vErr) {
             try { if (fs.existsSync(targetPath)) fs.unlinkSync(targetPath); } catch {}
             throw vErr;
@@ -1253,7 +1258,7 @@ export class AiStudioVisualService {
         });
 
         try {
-          this.validateMediaFile(targetPath, 'image');
+          targetPath = (this.validateMediaFile(targetPath, 'image') as any) || targetPath;
         } catch (iErr) {
           try { if (fs.existsSync(targetPath)) fs.unlinkSync(targetPath); } catch {}
           throw iErr;
@@ -1720,7 +1725,7 @@ export class AiStudioVisualService {
   /**
    * Xác minh tính hợp lệ và định dạng của tệp media tải về.
    */
-  public validateMediaFile(filePath: string, type: 'image' | 'video'): void {
+  public validateMediaFile(filePath: string, type: 'image' | 'video'): string {
     if (!fs.existsSync(filePath)) {
       throw new Error(`Tệp media không tồn tại: ${filePath}`);
     }
@@ -1742,6 +1747,8 @@ export class AiStudioVisualService {
       throw new Error(`Tệp media quá nhỏ (${bytesRead} bytes): ${filePath}`);
     }
 
+    let finalPath = filePath;
+
     if (type === 'image') {
       const isPng = header[0] === 0x89 && header[1] === 0x50 && header[2] === 0x4e && header[3] === 0x47;
       const isJpeg = header[0] === 0xff && header[1] === 0xd8 && header[2] === 0xff;
@@ -1751,6 +1758,37 @@ export class AiStudioVisualService {
       const isGif = header[0] === 0x47 && header[1] === 0x49 && header[2] === 0x46;
       if (!isPng && !isJpeg && !isWebp && !isGif) {
         throw new Error(`Tệp không phải định dạng ảnh hợp lệ (PNG/JPEG/WebP): ${filePath}`);
+      }
+
+      // Format normalization: if JPEG downloaded to .png, rename to .jpg
+      const currentExt = path.extname(filePath).toLowerCase();
+      let correctExt = currentExt;
+      if (isJpeg) correctExt = '.jpg';
+      else if (isPng) correctExt = '.png';
+      else if (isWebp) correctExt = '.webp';
+      else if (isGif) correctExt = '.gif';
+
+      if (currentExt !== correctExt && (currentExt === '.png' || currentExt === '.jpg' || currentExt === '.jpeg' || currentExt === '.webp')) {
+        finalPath = filePath.slice(0, -currentExt.length) + correctExt;
+        try {
+          fs.renameSync(filePath, finalPath);
+        } catch {
+          finalPath = filePath;
+        }
+      }
+
+      if (stat.size >= 24) {
+        try {
+          const buf = fs.readFileSync(finalPath);
+          const decoded = decodeImageDimensions(buf);
+          if (decoded.width <= 0 || decoded.height <= 0) {
+            throw new Error(`Kích thước ảnh không hợp lệ (${decoded.width}x${decoded.height}): ${finalPath}`);
+          }
+        } catch (dimErr: any) {
+          if (!dimErr.message.includes('Truncated') && !dimErr.message.includes('insufficient') && !dimErr.message.includes('Failed to decode valid dimensions')) {
+            throw dimErr;
+          }
+        }
       }
     } else if (type === 'video') {
       if (stat.size < 24) {
@@ -1765,6 +1803,8 @@ export class AiStudioVisualService {
         throw new Error(`Tệp không phải định dạng video hợp lệ (MP4/WebM): ${filePath}`);
       }
     }
+
+    return finalPath;
   }
 
   // ==========================================================================
