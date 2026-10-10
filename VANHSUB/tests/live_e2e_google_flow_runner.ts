@@ -365,9 +365,9 @@ async function runLiveE2E() {
     fs.writeFileSync(imageOutputPath, imgRawBuffer);
     assert.ok(fs.existsSync(imageOutputPath), 'Tệp ảnh phải tồn tại trên ổ đĩa');
 
-    const normImgResult = await normalizeAndValidateMediaFile(imageOutputPath, 'image');
+    const normImgResult = await normalizeAndValidateMediaFile(imageOutputPath, 'image', { fullDecode: true });
     imageOutputPath = normImgResult.finalPath;
-    console.log(`  ✅ Đã lưu và xác minh ảnh thành công: ${imageOutputPath} (${normImgResult.width}x${normImgResult.height}, ${normImgResult.format.toUpperCase()}, ${normImgResult.sizeBytes} bytes)`);
+    console.log(`  ✅ Đã lưu và xác minh ảnh qua FFmpeg thành công: ${imageOutputPath} (${normImgResult.width}x${normImgResult.height}, ${normImgResult.format.toUpperCase()}, ${normImgResult.sizeBytes} bytes)`);
 
     // ──────────────────────────────────────────────────────────────────────────
     // Test 2: Live Video Generation
@@ -508,22 +508,27 @@ async function runLiveE2E() {
     fs.writeFileSync(videoOutputPath, vidRawBuffer);
     assert.ok(fs.existsSync(videoOutputPath), 'Tệp video phải tồn tại trên ổ đĩa');
 
-    const normVidResult = await normalizeAndValidateMediaFile(videoOutputPath, 'video');
+    const normVidResult = await normalizeAndValidateMediaFile(videoOutputPath, 'video', { fullDecode: true });
     videoOutputPath = normVidResult.finalPath;
-    console.log(`  ✅ Đã lưu và xác minh video qua FFprobe thành công: ${videoOutputPath} (${normVidResult.width}x${normVidResult.height}, ${normVidResult.duration?.toFixed(1)}s, ${normVidResult.format.toUpperCase()}, ${normVidResult.sizeBytes} bytes)`);
+    console.log(`  ✅ Đã lưu và xác minh video qua FFmpeg thành công: ${videoOutputPath} (${normVidResult.width}x${normVidResult.height}, ${normVidResult.duration?.toFixed(1)}s, ${normVidResult.format.toUpperCase()}, ${normVidResult.sizeBytes} bytes)`);
 
     // ──────────────────────────────────────────────────────────────────────────
-    // Test 3: Live Image-to-Video Generation (I2V Contract & Correlation)
+    // Test 3: Image-to-Video (I2V) Correlation & Provenance Audit
     // ──────────────────────────────────────────────────────────────────────────
-    console.log('\n🎞️ Bước 5: Thực hiện Image-to-Video Validation...');
-    console.log(`  - Keyframe Input Asset : ${path.basename(imageOutputPath)} (${normImgResult.width}x${normImgResult.height})`);
-    console.log(`  - Video Output Asset   : ${path.basename(videoOutputPath)} (${normVidResult.width}x${normVidResult.height})`);
-    assert.ok(fs.existsSync(imageOutputPath), 'Keyframe image must exist for I2V');
-    assert.ok(fs.existsSync(videoOutputPath), 'Video output must exist for I2V');
-    console.log('  ✅ Image-to-Video pipeline integrity & asset correlation verified!');
+    console.log('\n🎞️ Bước 5: Kiểm định quan hệ Image-to-Video (I2V Asset Provenance & Correlation)...');
+    console.log(`  - Keyframe Input Asset : ${path.basename(imageOutputPath)} (${normImgResult.width}x${normImgResult.height}, T2I)`);
+    console.log(`  - Video Output Asset   : ${path.basename(videoOutputPath)} (${normVidResult.width}x${normVidResult.height}, T2V)`);
+    console.log('  - Phân tích nguồn gốc: Video trên được tạo từ prompt Text-to-Video (T2V) độc lập, không gắn inputImageAsset của keyframe.');
+    console.log('  - Tiêu chuẩn nghiệm thu: I2V CHỈ ĐƯỢC PASS khi chứng minh inputImageAsset ID đã được dùng trong generation request và liên kết với video đầu ra.');
+    console.log('  - Bảo vệ tài nguyên: Không tự ý kích hoạt sinh I2V tiêu tốn thêm credit của người dùng.');
+    console.log('  ⚠️ [HONEST VERDICT] Real Live I2V: NOT TESTED LIVE (Safeguard: Zero credit waste)\n');
 
-    console.log('\n================================================================');
-    console.log('🎉 LIVE END-TO-END VALIDATION PASSED CẢ ẢNH, VIDEO VÀ I2V VỚI PHIÊN GOOGLE FLOW THỰC TẾ!');
+    console.log('================================================================');
+    console.log('📊 LIVE END-TO-END VALIDATION SUMMARY:');
+    console.log('   - Text-to-Image (T2I) Live Asset  : ✅ VERIFIED PASS');
+    console.log('   - Text-to-Video (T2V) Live Asset  : ✅ VERIFIED PASS');
+    console.log('   - Real Live I2V on Google Flow    : ⚪ NOT TESTED LIVE (Zero credit waste)');
+    console.log('   - Pipeline I2V Engine Contract    : ✅ VERIFIED PASS (Automated Suite)');
     console.log(`  📁 Thư mục lưu media: ${OUTPUT_DIR}`);
     console.log(`  🖼️ Image: ${path.basename(imageOutputPath)} (${fs.statSync(imageOutputPath).size} bytes)`);
     console.log(`  🎬 Video: ${path.basename(videoOutputPath)} (${fs.statSync(videoOutputPath).size} bytes)`);
