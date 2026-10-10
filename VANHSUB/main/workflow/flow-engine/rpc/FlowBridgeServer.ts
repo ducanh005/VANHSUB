@@ -72,6 +72,8 @@ export interface TriggerUiGenParams {
   jobId?: string;
   sceneId?: string;
   tabId?: number;
+  inputImageAsset?: string;
+  referenceImage?: string;
 }
 
 export interface CancelUiGenParams {
@@ -604,14 +606,16 @@ export class FlowBridgeServer {
     timeoutMs?: number,
     projectId?: string,
     mode?: 'image' | 'video',
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    extraOptions?: { inputImageAsset?: string; referenceImage?: string; jobId?: string; sceneId?: string }
   ): Promise<TriggerUiGenResponse>;
   public async triggerUiGen(
     paramsOrPrompt: TriggerUiGenParams | string,
     timeoutMsOrSignal?: number | AbortSignal,
     projectId?: string,
     mode?: 'image' | 'video',
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    extraOptions?: { inputImageAsset?: string; referenceImage?: string; jobId?: string; sceneId?: string }
   ): Promise<TriggerUiGenResponse> {
     let effParams: TriggerUiGenParams;
     let effSignal: AbortSignal | undefined;
@@ -625,6 +629,10 @@ export class FlowBridgeServer {
         timeoutMs: typeof timeoutMsOrSignal === 'number' ? timeoutMsOrSignal : undefined,
         projectId,
         mode: mode || 'image',
+        inputImageAsset: extraOptions?.inputImageAsset,
+        referenceImage: extraOptions?.referenceImage,
+        jobId: extraOptions?.jobId,
+        sceneId: extraOptions?.sceneId,
       };
       effSignal = signal;
     }
@@ -762,6 +770,8 @@ export class FlowBridgeServer {
               jobId: effParams.jobId || id,
               sceneId: effParams.sceneId,
               tabId: effParams.tabId,
+              inputImageAsset: effParams.inputImageAsset,
+              referenceImage: effParams.referenceImage,
               timeoutMs: timeouts.processingTimeoutMs,
               submissionTimeoutMs: timeouts.submissionTimeoutMs,
               processingTimeoutMs: timeouts.processingTimeoutMs,

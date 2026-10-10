@@ -194,11 +194,24 @@ export class AiStudioVisualService {
     timeoutMs: number,
     projectId: string | undefined,
     mode: 'image' | 'video',
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    options?: {
+      inputImageAsset?: string;
+      referenceImage?: string;
+      jobId?: string;
+      sceneId?: string;
+    }
   ): Promise<any> {
     const bridge = FlowBridgeServer.getInstance();
     if (bridge.isConnected()) {
-      return await bridge.triggerUiGen(prompt, timeoutMs, projectId, mode, signal);
+      return await (bridge as any).triggerUiGen(
+        prompt,
+        timeoutMs,
+        projectId,
+        mode,
+        signal,
+        options
+      );
     }
     const adapter = BrowserAutomationAdapter.getInstance();
     return await adapter.executeFlowGeneration({
@@ -207,6 +220,8 @@ export class AiStudioVisualService {
       projectId,
       mode,
       signal,
+      inputImageAsset: options?.inputImageAsset,
+      referenceImage: options?.referenceImage,
     });
   }
 
@@ -849,7 +864,11 @@ export class AiStudioVisualService {
                 uiTimeoutVideo,
                 effectiveProjectId,
                 'video',
-                signal
+                signal,
+                {
+                  inputImageAsset: resolvedKeyframeAsset,
+                  sceneId: scene.id,
+                }
               );
               console.log(
                 `[AiStudioVisualService] 🔍 Kết quả Direct UI video:`,
@@ -937,7 +956,17 @@ export class AiStudioVisualService {
                   `Fallback sang CDP Trusted UI Generation (isTrusted=true)...`
                 );
                 try {
-                  const uiRes = await this.executeUiGeneration(motionPrompt, uiTimeoutVideo, effectiveProjectId, 'video', signal);
+                  const uiRes = await this.executeUiGeneration(
+                    motionPrompt,
+                    uiTimeoutVideo,
+                    effectiveProjectId,
+                    'video',
+                    signal,
+                    {
+                      inputImageAsset: resolvedKeyframeAsset,
+                      sceneId: scene.id,
+                    }
+                  );
                   console.log(
                     `[AiStudioVisualService] 🔍 Kết quả UI video fallback:`,
                     uiRes ? (uiRes.ok ? `OK (rpcid=${uiRes.capturedRpc?.rpcid || 'captured'})` : `Lỗi (${uiRes.error})`) : 'NULL'
