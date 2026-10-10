@@ -27,6 +27,8 @@ import {
   type SessionRecord,
   type FlowGenerationAutomationOptions,
   type FlowGenerationAutomationResult,
+  type FlowSessionState,
+  type FlowSessionDiagnostic,
   RESERVED_BRIDGE_PORT,
   DEFAULT_PROVIDER_PORTS,
   DEFAULT_GENERIC_PORT,
@@ -595,8 +597,126 @@ export class BrowserAutomationAdapter extends EventEmitter {
   }
 
   /**
-   * Executes AI Image/Video generation directly on Google Flow via Playwright CDP session (port 9224).
-   * Used when FlowBridgeServer (Extension) is not connected or when direct Playwright automation is configured.
+   * Resiliently evaluates the Google Flow session state (FLOW_READY, FLOW_LOADING, LOGIN_REQUIRED, SESSION_UNVERIFIED).
+   * Verifies actual UI components, avoids false positives on internal iframes (RotateCookiesPage),
+   * and sanitizes diagnostic logs without exposing credentials.
+   */
+  public async evaluateFlowSessionState(page: Page): Promise<FlowSessionDiagnostic> {
+    try {
+      const raw = await page.evaluate(() => {
+        const href = window.location.href;
+        const title = document.title || '';
+
+        // 1. Check explicit login URL (ignore background targets like RotateCookiesPage)
+        const isLoginUrl =
+          href.includes('accounts.google.com/signin') ||
+          href.includes('accounts.google.com/ServiceLogin') ||
+          href.includes('accounts.google.com/v3/signin');
+
+        // 2. Check Sign In button in DOM
+        const signInBtn = document.querySelector(
+          'a[href*="ServiceLogin"], a[href*="signin"], a[href*="AccountChooser"], button[aria-label*="Đăng nhập" i], button[aria-label*="Sign in" i]'
+        );
+
+        // 3. Check User Account / Avatar / Identity
+        const accountEl = document.querySelector(
+          'a[aria-label*="Tài khoản Google" i], a[aria-label*="Google Account" i], button[aria-label*="Tài khoản Google" i], [aria-label*="Account" i], flow-account-menu, [data-identifier], img[src*="googleusercontent.com/a/"]'
+        );
+        let accountSnippet: string | undefined;
+        if (accountEl) {
+          const rawText = (accountEl.getAttribute('aria-label') || accountEl.textContent || '').trim();
+          accountSnippet = rawText.replace(/([a-zA-Z0-9_\-\.]{2})[a-zA-Z0-9_\-\.]*(@[a-zA-Z0-9_\-\.]+)/g, '$1***$2').slice(0, 80);
+        }
+
+        // 4. Check Prompt Box
+        const promptEl = document.querySelector(
+          '.ProseMirror, flow-prompt-box, flow-base-prompt-box, .prompt-box-container, textarea, [contenteditable="true"]'
+        );
+
+        // 5. Check Generate Button
+        const genBtn = document.querySelector(
+          'flow-generate-icon-button button, button.generate-icon-button, button[aria-label*="Bắt đầu tạo" i], button[aria-label*="tạo" i], button[aria-label*="generate" i], button[aria-label*="create" i]'
+        );
+
+        // 6. Check Project container & ID
+        const projectContainer = document.querySelector(
+          'flow-project-view, flow-gallery, flow-stage, flow-canvas, .gallery-container, .main-content'
+        );
+        const pidMatch = href.match(/\/project\/([0-9a-f-]{36}|[a-zA-Z0-9_-]{8,})/i);
+        const projectId = pidMatch ? pidMatch[1] : null;
+
+        // 7. Check loading indicator
+        const loadingIndicator = document.querySelector(
+          'mat-progress-spinner, mat-spinner, flow-loading-indicator, .loading-screen, .app-loading'
+        );
+
+        return {
+          href,
+          title,
+          isLoginUrl,
+          hasSignInBtn: !!signInBtn,
+          hasAccount: !!accountEl,
+          accountSnippet,
+          hasPromptBox: !!promptEl,
+          hasGenerateButton: !!genBtn,
+          isProjectLoaded: !!projectId || !!projectContainer,
+          projectId,
+          hasLoading: !!loadingIndicator,
+        };
+      });
+
+      let state: FlowSessionState = 'SESSION_UNVERIFIED';
+      let diagnosticMessage = '';
+
+      if (raw.isLoginUrl || (raw.hasSignInBtn && !raw.hasAccount && !raw.hasPromptBox)) {
+        state = 'LOGIN_REQUIRED';
+        diagnosticMessage = 'Trình duyệt đang ở màn hình đăng nhập hoặc yêu cầu xác thực tài khoản Google.';
+      } else if (raw.hasLoading && !raw.hasPromptBox) {
+        state = 'FLOW_LOADING';
+        diagnosticMessage = 'Google Flow đang tải tài nguyên hoặc giao diện dự án...';
+      } else if (
+        (raw.hasPromptBox || raw.hasGenerateButton || raw.isProjectLoaded) &&
+        (raw.hasAccount || !raw.hasSignInBtn)
+      ) {
+        state = 'FLOW_READY';
+        diagnosticMessage = 'Google Flow đã sẵn sàng với phiên đăng nhập và giao diện dự án hợp lệ.';
+      } else {
+        state = 'SESSION_UNVERIFIED';
+        diagnosticMessage = `Không thể xác nhận giao diện Google Flow. URL: ${raw.href.slice(0, 60)}`;
+      }
+
+      return {
+        state,
+        url: raw.href,
+        title: raw.title,
+        hasPromptBox: raw.hasPromptBox,
+        hasGenerateButton: raw.hasGenerateButton,
+        hasAvatarOrAccount: raw.hasAccount,
+        accountSnippet: raw.accountSnippet,
+        hasSignInButton: raw.hasSignInBtn,
+        isProjectLoaded: raw.isProjectLoaded,
+        projectId: raw.projectId,
+        loadingIndicatorPresent: raw.hasLoading,
+        diagnosticMessage,
+      };
+    } catch (evalErr: any) {
+      return {
+        state: 'SESSION_UNVERIFIED',
+        url: page.url(),
+        title: '',
+        hasPromptBox: false,
+        hasGenerateButton: false,
+        hasAvatarOrAccount: false,
+        hasSignInButton: false,
+        isProjectLoaded: false,
+        loadingIndicatorPresent: false,
+        diagnosticMessage: `Lỗi kiểm tra session: ${evalErr?.message || evalErr}`,
+      };
+    }
+  }
+
+  /**
+   * Executes Flow image/video generation over CDP via Playwright.
    */
   public async executeFlowGeneration(
     options: FlowGenerationAutomationOptions
@@ -626,10 +746,10 @@ export class BrowserAutomationAdapter extends EventEmitter {
       }
     }
 
-    // 2. Navigate or discover Flow tab
+    // 2. Discover Flow tab (prioritize existing project tab or labs.google)
     const targetUrl = projectId
-      ? `https://labs.google/fx/vi/tools/flow/project/${projectId}`
-      : 'https://labs.google/fx/vi/tools/flow';
+      ? `https://flow.google.com/project/${projectId}`
+      : 'https://flow.google.com';
 
     let page: Page;
     try {
@@ -637,7 +757,7 @@ export class BrowserAutomationAdapter extends EventEmitter {
         targetUrl,
         predicate: (pageOrUrl, title) => {
           const url = typeof pageOrUrl === 'string' ? pageOrUrl : pageOrUrl.url();
-          return url.includes('flow') || (typeof title === 'string' && title.toLowerCase().includes('flow'));
+          return url.includes('flow.google.com') || url.includes('labs.google') || (typeof title === 'string' && title.toLowerCase().includes('flow'));
         },
         timeoutMs: 20000,
       });
@@ -650,26 +770,70 @@ export class BrowserAutomationAdapter extends EventEmitter {
       };
     }
 
-    // 3. Check authentication status / login redirection
-    const currentUrl = page.url();
-    if (currentUrl.includes('accounts.google.com') || currentUrl.includes('/signin')) {
+    // 3. Resilient Session State Machine (LOGIN_REQUIRED, FLOW_LOADING, FLOW_READY, SESSION_UNVERIFIED)
+    let sessionStatus = await this.evaluateFlowSessionState(page);
+    if (sessionStatus.state === 'FLOW_LOADING') {
+      const loadStart = Date.now();
+      while (Date.now() - loadStart < 15000 && sessionStatus.state === 'FLOW_LOADING') {
+        if (signal?.aborted) {
+          return { ok: false, state: 'TIMED_OUT', error: 'CANCELLED', errorCode: 'UI_AUTOMATION_FAILED' };
+        }
+        await new Promise((r) => setTimeout(r, 1000));
+        sessionStatus = await this.evaluateFlowSessionState(page);
+      }
+    }
+
+    if (sessionStatus.state === 'LOGIN_REQUIRED') {
       return {
         ok: false,
         state: 'BLOCKED_REQUIRES_USER',
-        error: 'GOOGLE_SIGNIN_REQUIRED: Tab đang ở màn hình đăng nhập Google. Người dùng cần đăng nhập trên Chrome.',
+        error: `GOOGLE_SIGNIN_REQUIRED: ${sessionStatus.diagnosticMessage}`,
         errorCode: 'BLOCKED_REQUIRES_USER',
       };
     }
 
+    if (sessionStatus.state === 'SESSION_UNVERIFIED') {
+      return {
+        ok: false,
+        state: 'FAILED',
+        error: `SESSION_UNVERIFIED: ${sessionStatus.diagnosticMessage}`,
+        errorCode: 'UI_AUTOMATION_FAILED',
+      };
+    }
+
+    // 3.5 Mode switching (image vs video)
+    try {
+      const settingsBtn = page.locator('button.settings-trigger-button, button[aria-label*="Điều kiện kích hoạt" i]').first();
+      if (await settingsBtn.isVisible().catch(() => false)) {
+        const btnText = (await settingsBtn.textContent().catch(() => '') || '').toLowerCase();
+        const currentIsVideo = btnText.includes('video') || btnText.includes('veo') || btnText.includes('360p');
+        if (isVideo !== currentIsVideo) {
+          await settingsBtn.click();
+          await page.waitForTimeout(500);
+          const targetRadio = page.locator('.cdk-overlay-pane mat-button-toggle button[role="radio"]').filter({
+            hasText: isVideo ? /Video|Veo/i : /Hình ảnh|Image/i,
+          }).first();
+          if (await targetRadio.isVisible().catch(() => false)) {
+            await targetRadio.click();
+            await page.waitForTimeout(300);
+          }
+          await page.keyboard.press('Escape');
+          await page.waitForTimeout(300);
+        }
+      }
+    } catch {
+      // Gracefully continue if mode switch is not supported or already correct
+    }
+
     // 4. Baseline snapshot (Stage 0)
     const preFlight = await page.evaluate(() => {
-      const cards = Array.from(document.querySelectorAll('flow-asset-card, flow-media-tile, mat-card, [data-asset-id], .asset-item'));
+      const cards = Array.from(document.querySelectorAll('flow-grid-tile-container, flow-tile-container, flow-image-tile, flow-video-tile, flow-asset-card, flow-media-tile, mat-card, [data-asset-id], .asset-item'));
       const cardIds = cards.map((c) => c.getAttribute('data-asset-id') || c.getAttribute('data-id') || c.id).filter(Boolean);
-      const imgUrls = Array.from(document.querySelectorAll('flow-asset-card img, flow-media-tile img, mat-card img, [data-asset-id] img'))
+      const imgUrls = Array.from(document.querySelectorAll('flow-grid-tile-container flow-image-tile img, flow-grid-tile-container img, flow-tile-container img, flow-asset-card img, flow-media-tile img, mat-card img, [data-asset-id] img'))
         .map((im: any) => im.src || im.currentSrc)
         .filter(Boolean);
       const videoUrls: string[] = [];
-      document.querySelectorAll('flow-asset-card video, flow-media-tile video, mat-card video, [data-asset-id] video').forEach((v: any) => {
+      document.querySelectorAll('flow-grid-tile-container flow-video-tile video, flow-grid-tile-container video, flow-tile-container video, flow-asset-card video, flow-media-tile video, mat-card video, [data-asset-id] video').forEach((v: any) => {
         if (v.src) videoUrls.push(v.src);
         if (v.currentSrc) videoUrls.push(v.currentSrc);
         v.querySelectorAll('source').forEach((s: any) => { if (s.src) videoUrls.push(s.src); });
@@ -681,41 +845,43 @@ export class BrowserAutomationAdapter extends EventEmitter {
       return { ok: false, state: 'TIMED_OUT', error: 'CANCELLED', errorCode: 'UI_AUTOMATION_FAILED' };
     }
 
-    // 5. Input prompt into ProseMirror editor (Stage 1 Part A)
-    const inputResult = await page.evaluate(async ({ promptText, targetMode }) => {
-      const promptBox = document.querySelector('flow-prompt-box, flow-base-prompt-box, .prompt-box-container') || document.body;
-      const pm = promptBox.querySelector('.ProseMirror, [contenteditable="true"], textarea') as HTMLElement | null;
-      if (!pm) return { ok: false, error: 'NO_PROSEMIRROR' };
-
-      pm.focus();
-      document.execCommand('selectAll', false, undefined);
-      document.execCommand('delete', false, undefined);
-      document.execCommand('insertText', false, promptText);
-      pm.dispatchEvent(new InputEvent('input', { bubbles: true, data: promptText, inputType: 'insertText' }));
-      pm.dispatchEvent(new Event('input', { bubbles: true }));
-      pm.dispatchEvent(new Event('change', { bubbles: true }));
-
-      return { ok: true };
-    }, { promptText: prompt, targetMode: mode.toUpperCase() }).catch((err) => ({ ok: false, error: err.message }));
-
-    if (!inputResult.ok) {
-      return {
-        ok: false,
-        state: 'FAILED',
-        error: inputResult.error || 'Failed to enter prompt into ProseMirror',
-        errorCode: 'UI_AUTOMATION_FAILED',
-      };
+    // 5. Input prompt into ProseMirror editor via real CDP keyboard (Stage 1 Part A)
+    try {
+      const pmLocator = page.locator('.ProseMirror, flow-prompt-box [contenteditable="true"]').first();
+      await pmLocator.waitFor({ state: 'visible', timeout: 8000 });
+      await pmLocator.click();
+      await page.keyboard.press('Control+A');
+      await page.keyboard.press('Backspace');
+      await page.keyboard.type(prompt, { delay: 5 });
+      await page.waitForTimeout(400);
+    } catch (typeErr: any) {
+      // Fallback to DOM injection
+      await page.evaluate(async ({ promptText }) => {
+        const pm = document.querySelector('.ProseMirror, [contenteditable="true"]') as HTMLElement | null;
+        if (pm) {
+          pm.focus();
+          document.execCommand('selectAll', false, undefined);
+          document.execCommand('delete', false, undefined);
+          document.execCommand('insertText', false, promptText);
+          pm.dispatchEvent(new InputEvent('input', { bubbles: true, data: promptText }));
+        }
+      }, { promptText: prompt }).catch(() => {});
     }
 
     // 6. Click generate button via Playwright trusted click (Stage 1 Part B)
-    const btnSelector = 'flow-generate-icon-button button, button.generate-icon-button, button.submit-button, flow-prompt-box button[type="submit"]';
+    const btnSelector = 'flow-generate-icon-button button, button.generate-icon-button, button[aria-label*="Bắt đầu tạo" i], button[aria-label*="tạo" i], button[aria-label*="generate" i]';
     try {
       const genBtn = page.locator(btnSelector).first();
-      await genBtn.waitFor({ state: 'visible', timeout: 5000 });
-      await genBtn.click({ timeout: 4000 });
+      await genBtn.waitFor({ state: 'visible', timeout: 8000 });
+      for (let i = 0; i < 20; i++) {
+        const isDis = await genBtn.isDisabled().catch(() => false);
+        if (!isDis) break;
+        await page.waitForTimeout(200);
+      }
+      await genBtn.click({ timeout: 5000 });
     } catch {
       await page.evaluate(() => {
-        const btn = document.querySelector('flow-generate-icon-button button, button.generate-icon-button, button.submit-button') as HTMLButtonElement | null;
+        const btn = document.querySelector('flow-generate-icon-button button, button.generate-icon-button, button[aria-label*="Bắt đầu tạo" i], button.submit-button') as HTMLButtonElement | null;
         if (btn) btn.click();
       }).catch(() => {});
     }
@@ -789,7 +955,7 @@ export class BrowserAutomationAdapter extends EventEmitter {
         if (botToast) return { status: 'BLOCKED_REQUIRES_USER' };
 
         const isParentGenerating = (el: Element) => {
-          const card = el.closest('flow-asset-card, flow-media-tile, mat-card, [data-asset-id], .asset-item');
+          const card = el.closest('flow-grid-tile-container, flow-tile-container, flow-image-tile, flow-video-tile, flow-asset-card, flow-media-tile, mat-card, [data-asset-id], .asset-item');
           if (!card) return false;
           return !!card.querySelector('mat-progress-spinner, mat-spinner, flow-loading-indicator, .loading') || card.classList.contains('generating');
         };
@@ -798,11 +964,12 @@ export class BrowserAutomationAdapter extends EventEmitter {
         const existingVideoSet = new Set(existingVideosArr);
 
         if (targetMode === 'IMAGE') {
-          const imgs = Array.from(document.querySelectorAll('flow-asset-card img, flow-media-tile img, mat-card img, [data-asset-id] img')) as HTMLImageElement[];
+          const imgs = Array.from(document.querySelectorAll('flow-grid-tile-container flow-image-tile img, flow-grid-tile-container img, flow-tile-container img, flow-asset-card img, flow-media-tile img, mat-card img, [data-asset-id] img')) as HTMLImageElement[];
           const target = imgs.find((im) => {
             const s = im.src || im.currentSrc || '';
             if (!s || existingImgSet.has(s)) return false;
-            const isValid = s.includes('googleusercontent.com') || s.includes('ai-sandbox') || s.startsWith('blob:') || s.startsWith('data:image');
+            if (im.classList.contains('thumbnail') || im.closest('flow-video-tile')) return false;
+            const isValid = s.includes('flow-content.google') || s.includes('googleusercontent.com') || s.includes('ai-sandbox') || s.startsWith('blob:') || s.startsWith('data:image');
             const isNotIcon = !s.includes('avatar') && !s.includes('icon') && !s.includes('.svg');
             const isDecentSize = (im.naturalWidth >= 200 && im.naturalHeight >= 200) || (im.width >= 180 && im.height >= 180);
             return isValid && isNotIcon && isDecentSize && !isParentGenerating(im);
@@ -811,7 +978,7 @@ export class BrowserAutomationAdapter extends EventEmitter {
             return { status: 'COMPLETED', firstImageUrl: target.src || target.currentSrc };
           }
         } else {
-          const videos = Array.from(document.querySelectorAll('flow-asset-card video, flow-media-tile video, mat-card video, [data-asset-id] video')) as HTMLVideoElement[];
+          const videos = Array.from(document.querySelectorAll('flow-grid-tile-container flow-video-tile video, flow-grid-tile-container video, flow-tile-container video, flow-asset-card video, flow-media-tile video, mat-card video, [data-asset-id] video')) as HTMLVideoElement[];
           const target = videos.find((v) => {
             const s = v.src || v.currentSrc || v.querySelector('source')?.src || '';
             if (!s || existingVideoSet.has(s)) return false;

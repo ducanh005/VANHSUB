@@ -252,6 +252,23 @@ export interface FlowGenerationAutomationResult {
   };
 }
 
+export type FlowSessionState = 'FLOW_READY' | 'FLOW_LOADING' | 'LOGIN_REQUIRED' | 'SESSION_UNVERIFIED';
+
+export interface FlowSessionDiagnostic {
+  state: FlowSessionState;
+  url: string;
+  title: string;
+  hasPromptBox: boolean;
+  hasGenerateButton: boolean;
+  hasAvatarOrAccount: boolean;
+  accountSnippet?: string;
+  hasSignInButton: boolean;
+  isProjectLoaded: boolean;
+  projectId?: string | null;
+  loadingIndicatorPresent: boolean;
+  diagnosticMessage: string;
+}
+
 // =============================================================================
 // 6. Custom Error Hierarchy
 // =============================================================================
