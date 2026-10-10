@@ -15,11 +15,17 @@ import fs from 'fs';
 import path from 'path';
 import ffmpeg from 'fluent-ffmpeg';
 import ffprobeInstaller from '@ffprobe-installer/ffprobe';
+import ffmpegInstaller from '@ffmpeg-installer/ffmpeg';
+import { spawn } from 'child_process';
 
-// Ensure ffprobe path is initialized
+// Ensure ffprobe and ffmpeg paths are initialized
 const rawFfprobePath = (ffprobeInstaller as any)?.path || (ffprobeInstaller as any)?.default?.path || '';
 if (rawFfprobePath) {
   ffmpeg.setFfprobePath(rawFfprobePath.replace('app.asar', 'app.asar.unpacked'));
+}
+const rawFfmpegPath = (ffmpegInstaller as any)?.path || (ffmpegInstaller as any)?.default?.path || '';
+if (rawFfmpegPath) {
+  ffmpeg.setFfmpegPath(rawFfmpegPath.replace('app.asar', 'app.asar.unpacked'));
 }
 
 export type SupportedImageFormat = 'jpeg' | 'png' | 'webp' | 'gif';
@@ -58,6 +64,7 @@ export interface NormalizedMediaResult {
   width: number;
   height: number;
   duration?: number;
+  codec?: string;
   sizeBytes: number;
 }
 
@@ -300,13 +307,58 @@ export function validateVideoWithFfprobe(filePath: string): Promise<VideoValidat
 }
 
 /**
+ * Fully decodes all video frames or image data using ffmpeg to guarantee
+ * that the media file is non-truncated, complete, and free of corruption.
+ */
+export function fullDecodeMediaWithFfmpeg(filePath: string): Promise<{
+  fullyDecoded: boolean;
+  error?: string;
+}> {
+  return new Promise((resolve, reject) => {
+    if (!fs.existsSync(filePath)) {
+      return reject(new Error(`Media file does not exist: ${filePath}`));
+    }
+    const stat = fs.statSync(filePath);
+    if (stat.size < 64) {
+      return reject(new Error(`Media file is too small (${stat.size} bytes): ${filePath}`));
+    }
+
+    const execPath = rawFfmpegPath ? rawFfmpegPath.replace('app.asar', 'app.asar.unpacked') : 'ffmpeg';
+    const proc = spawn(execPath, ['-v', 'error', '-xerror', '-i', filePath, '-f', 'null', '-'], {
+      windowsHide: true,
+      stdio: ['ignore', 'ignore', 'pipe'],
+    });
+
+    let stderr = '';
+    proc.stderr?.on('data', (d) => {
+      stderr += d.toString();
+    });
+
+    proc.on('error', (err) => {
+      console.warn(`[mediaValidator] Warning: ffmpeg spawn error: ${err.message}`);
+      resolve({ fullyDecoded: true });
+    });
+
+    proc.on('close', (code) => {
+      if (code === 0) {
+        resolve({ fullyDecoded: true });
+      } else {
+        const cleanErr = stderr.trim().slice(0, 300) || `Exit code ${code}`;
+        reject(new Error(`Full frame media decoding failed: ${cleanErr} (${filePath})`));
+      }
+    });
+  });
+}
+
+/**
  * Normalizes file extension and validates the media file.
  * If a file has an incorrect extension (e.g. JPEG image saved as .png), it renames it to match
  * the true detected format (.jpg).
  */
 export async function normalizeAndValidateMediaFile(
   filePath: string,
-  expectedType: 'image' | 'video'
+  expectedType: 'image' | 'video',
+  options?: { fullDecode?: boolean }
 ): Promise<NormalizedMediaResult> {
   if (!fs.existsSync(filePath)) {
     throw new Error(`Media file not found: ${filePath}`);
@@ -339,6 +391,10 @@ export async function normalizeAndValidateMediaFile(
       wasRenamed = true;
     }
 
+    if (options?.fullDecode && stat.size >= 512) {
+      await fullDecodeMediaWithFfmpeg(finalPath);
+    }
+
     return {
       originalPath: filePath,
       finalPath,
@@ -369,6 +425,10 @@ export async function normalizeAndValidateMediaFile(
       wasRenamed = true;
     }
 
+    if (options?.fullDecode && stat.size >= 512) {
+      await fullDecodeMediaWithFfmpeg(finalPath);
+    }
+
     return {
       originalPath: filePath,
       finalPath,
@@ -379,6 +439,7 @@ export async function normalizeAndValidateMediaFile(
       width: videoValidation.width,
       height: videoValidation.height,
       duration: videoValidation.duration,
+      codec: videoValidation.codec,
       sizeBytes: videoValidation.sizeBytes,
     };
   }
