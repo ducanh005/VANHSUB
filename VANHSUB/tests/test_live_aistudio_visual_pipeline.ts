@@ -236,6 +236,61 @@ async function main() {
     assert.strictEqual(fs.existsSync(outPath), true, 'MP4 file must exist on disk');
     assert.strictEqual(scene.status, 'ready');
     assert.strictEqual(scene.videoPath, outPath);
+    assert.strictEqual((scene as any).inputImageAsset, 'media-kf-999', 'Scene must link to generated keyframe asset');
+  });
+
+  await runTest('2.2 Pre-existing inputImageAsset skips Step 1 Imagen and directly executes Veo I2V', async () => {
+    router.clearRegistry();
+
+    let keyframeGenerated = false;
+    let videoGenerated = false;
+
+    const mockRpcClient: any = {
+      partition: 'test-partition',
+      generateImage: async () => {
+        keyframeGenerated = true;
+        return { firstImageUrl: 'bad', images: [] };
+      },
+      generateVideo: async (params: any) => {
+        videoGenerated = true;
+        assert.strictEqual(params.inputImageAsset, 'pre-existing-keyframe-uuid-555');
+        assert.strictEqual(params.projectId, 'proj-i2v-existing');
+        return {
+          operationId: 'op-veo-existing',
+          projectId: params.projectId,
+          status: 'COMPLETED',
+          done: true,
+          videoUrl: 'https://test-cdn.google.com/existing_kf_video.mp4',
+        };
+      },
+      pollGeneration: async () => ({ done: true, status: 'COMPLETED' }),
+    };
+    service.setRpcClient(mockRpcClient);
+
+    const outPath = path.join(testDir, 'scene_02_direct.mp4');
+    const scene: StoryboardScene = {
+      id: 'scene-i2v-direct',
+      lineIndex: 2,
+      sceneNumber: 3,
+      startMs: 8000,
+      endMs: 12000,
+      durationMs: 4000,
+      lineText: 'A direct I2V shot using existing keyframe asset',
+      visualPrompt: 'A direct I2V shot using existing keyframe asset',
+      motionType: 'video',
+      status: 'pending',
+      inputImageAsset: 'pre-existing-keyframe-uuid-555',
+    } as any;
+
+    const finalPath = await service.generateViaGoogleFlow(scene, outPath, {
+      projectId: 'proj-i2v-existing',
+      outputMode: 'video',
+    });
+
+    assert.strictEqual(keyframeGenerated, false, 'Step 1 must be skipped when inputImageAsset is pre-set');
+    assert.strictEqual(videoGenerated, true, 'Step 2 Veo must receive inputImageAsset directly');
+    assert.strictEqual(finalPath, outPath);
+    assert.strictEqual(fs.existsSync(outPath), true);
   });
 
   console.log('\n▶ [PIPELINE 3] Cancellation & Anti-Bot Interception');
