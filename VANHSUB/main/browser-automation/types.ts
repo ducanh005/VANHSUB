@@ -161,7 +161,8 @@ export interface TabRoutingOptions {
   targetUrl?: string;
   predicate?: TabPredicate;
   repurposeBlank?: boolean;    // default true
-  bringToFront?: boolean;      // default true
+  bringToFront?: boolean;      // default false to avoid focus hijacking
+  automationOwned?: boolean;   // mark tab as owned by automation
   timeoutMs?: number;         // default 30000
   waitUntil?: 'domcontentloaded' | 'load' | 'networkidle' | 'commit';
 }
@@ -231,6 +232,9 @@ export interface FlowGenerationAutomationOptions {
   signal?: AbortSignal;
   jobId?: string;
   sceneId?: string;
+  inputImageAsset?: string;
+  referenceImage?: string;
+  bringToFront?: boolean;
 }
 
 export interface FlowGenerationAutomationResult {

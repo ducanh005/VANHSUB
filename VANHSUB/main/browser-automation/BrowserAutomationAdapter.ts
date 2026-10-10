@@ -45,6 +45,7 @@ export class BrowserAutomationAdapter extends EventEmitter {
   private sessions = new Map<AutomationProvider, SessionRecord>();
   private inFlightConnections = new Map<AutomationProvider, Promise<BrowserSession>>();
   private inFlightDisconnections = new Map<AutomationProvider, Promise<void>>();
+  private automationOwnedPages = new WeakSet<Page>();
 
   private constructor() {
     super();
@@ -64,6 +65,14 @@ export class BrowserAutomationAdapter extends EventEmitter {
       BrowserAutomationAdapter.instance.cleanupAllReferences();
       BrowserAutomationAdapter.instance = null;
     }
+  }
+
+  public markTabAsAutomationOwned(page: Page): void {
+    this.automationOwnedPages.add(page);
+  }
+
+  public isTabAutomationOwned(page: Page): boolean {
+    return this.automationOwnedPages.has(page);
   }
 
   /**
@@ -289,8 +298,11 @@ export class BrowserAutomationAdapter extends EventEmitter {
       for (const page of pages) {
         if (await this.matchesPredicate(page, searchPredicate)) {
           this.bindPageLifecycle(page, session);
-          if (options.bringToFront !== false) {
+          if (options.bringToFront === true) {
             await page.bringToFront().catch(() => {});
+          }
+          if (options.automationOwned) {
+            this.markTabAsAutomationOwned(page);
           }
           session.activePage = page;
           return page;
@@ -322,6 +334,11 @@ export class BrowserAutomationAdapter extends EventEmitter {
     // 3. Fallback: create a new tab in the persistent context
     if (!targetPage) {
       targetPage = await context.newPage();
+      this.markTabAsAutomationOwned(targetPage);
+    } else {
+      if (options.automationOwned) {
+        this.markTabAsAutomationOwned(targetPage);
+      }
     }
 
     this.bindPageLifecycle(targetPage, session);
@@ -345,7 +362,7 @@ export class BrowserAutomationAdapter extends EventEmitter {
       }
     }
 
-    if (options.bringToFront !== false) {
+    if (options.bringToFront === true) {
       await targetPage.bringToFront().catch(() => {});
     }
 
@@ -558,6 +575,7 @@ export class BrowserAutomationAdapter extends EventEmitter {
     this.sessions.clear();
     this.inFlightConnections.clear();
     this.inFlightDisconnections.clear();
+    this.automationOwnedPages = new WeakSet<Page>();
     this.removeAllListeners();
   }
 
@@ -746,7 +764,7 @@ export class BrowserAutomationAdapter extends EventEmitter {
       }
     }
 
-    // 2. Discover Flow tab (prioritize existing project tab or labs.google)
+    // 2. Discover Flow tab (strictly isolate by projectId if specified)
     const targetUrl = projectId
       ? `https://flow.google.com/project/${projectId}`
       : 'https://flow.google.com';
@@ -755,12 +773,23 @@ export class BrowserAutomationAdapter extends EventEmitter {
     try {
       page = await this.getOrCreateTab('flow', {
         targetUrl,
+        bringToFront: options.bringToFront === true,
+        automationOwned: true,
         predicate: (pageOrUrl, title) => {
           const url = typeof pageOrUrl === 'string' ? pageOrUrl : pageOrUrl.url();
-          return url.includes('flow.google.com') || url.includes('labs.google') || (typeof title === 'string' && title.toLowerCase().includes('flow'));
+          if (projectId) {
+            // Strictly match tab belonging to THIS specific projectId
+            return url.includes(`/project/${projectId}`);
+          }
+          return (
+            url.includes('flow.google.com') ||
+            url.includes('labs.google') ||
+            (typeof title === 'string' && title.toLowerCase().includes('flow'))
+          );
         },
         timeoutMs: 20000,
       });
+      this.markTabAsAutomationOwned(page);
     } catch (tabErr: any) {
       return {
         ok: false,
@@ -935,10 +964,17 @@ export class BrowserAutomationAdapter extends EventEmitter {
       };
     }
 
-    // 8. Observation Loop (Stage 2 DOM Gallery Delta)
+    // 8. Observation Loop (Stage 2 DOM Gallery Delta & Correlation)
     const procStartTime = Date.now();
     const existingImgs = new Set(preFlight.imgUrls);
     const existingVideos = new Set(preFlight.videoUrls);
+    const existingCardIds = new Set(preFlight.cardIds);
+    const promptKeywords = prompt
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+      .split(/\s+/)
+      .filter((w) => w.length >= 3)
+      .slice(0, 5);
 
     while (Date.now() - procStartTime < processingTimeoutMs) {
       if (signal?.aborted) {
@@ -946,56 +982,134 @@ export class BrowserAutomationAdapter extends EventEmitter {
       }
       await new Promise((r) => setTimeout(r, 600));
 
-      const obsResult = await page.evaluate(({ existingImgsArr, existingVideosArr, targetMode }) => {
-        const toasts = Array.from(document.querySelectorAll('mat-snack-bar-container, .toast, .error-banner, [role="alert"]'));
-        const botToast = toasts.find((t) => {
-          const txt = (t.textContent || '').toLowerCase();
-          return txt.includes('unusual activity') || txt.includes('bất thường') || txt.includes('blocked');
-        });
-        if (botToast) return { status: 'BLOCKED_REQUIRES_USER' };
+      const obsResult = await page
+        .evaluate(
+          ({ existingImgsArr, existingVideosArr, existingCardIdsArr, targetMode, expectedProjectId, keywords }) => {
+            const toasts = Array.from(
+              document.querySelectorAll('mat-snack-bar-container, .toast, .error-banner, [role="alert"]')
+            );
+            const botToast = toasts.find((t) => {
+              const txt = (t.textContent || '').toLowerCase();
+              return txt.includes('unusual activity') || txt.includes('bất thường') || txt.includes('blocked');
+            });
+            if (botToast) return { status: 'BLOCKED_REQUIRES_USER' };
 
-        const isParentGenerating = (el: Element) => {
-          const card = el.closest('flow-grid-tile-container, flow-tile-container, flow-image-tile, flow-video-tile, flow-asset-card, flow-media-tile, mat-card, [data-asset-id], .asset-item');
-          if (!card) return false;
-          return !!card.querySelector('mat-progress-spinner, mat-spinner, flow-loading-indicator, .loading') || card.classList.contains('generating');
-        };
+            // Verify project continuity: page must not have navigated away to a different project
+            if (expectedProjectId) {
+              const currentHref = window.location.href;
+              if (!currentHref.includes(expectedProjectId)) {
+                return { status: 'PROJECT_MISMATCH' };
+              }
+            }
 
-        const existingImgSet = new Set(existingImgsArr);
-        const existingVideoSet = new Set(existingVideosArr);
+            const isParentGenerating = (el: Element) => {
+              const card = el.closest(
+                'flow-grid-tile-container, flow-tile-container, flow-image-tile, flow-video-tile, flow-asset-card, flow-media-tile, mat-card, [data-asset-id], .asset-item'
+              );
+              if (!card) return false;
+              return (
+                !!card.querySelector('mat-progress-spinner, mat-spinner, flow-loading-indicator, .loading') ||
+                card.classList.contains('generating')
+              );
+            };
 
-        if (targetMode === 'IMAGE') {
-          const imgs = Array.from(document.querySelectorAll('flow-grid-tile-container flow-image-tile img, flow-grid-tile-container img, flow-tile-container img, flow-asset-card img, flow-media-tile img, mat-card img, [data-asset-id] img')) as HTMLImageElement[];
-          const target = imgs.find((im) => {
-            const s = im.src || im.currentSrc || '';
-            if (!s || existingImgSet.has(s)) return false;
-            if (im.classList.contains('thumbnail') || im.closest('flow-video-tile')) return false;
-            const isValid = s.includes('flow-content.google') || s.includes('googleusercontent.com') || s.includes('ai-sandbox') || s.startsWith('blob:') || s.startsWith('data:image');
-            const isNotIcon = !s.includes('avatar') && !s.includes('icon') && !s.includes('.svg');
-            const isDecentSize = (im.naturalWidth >= 200 && im.naturalHeight >= 200) || (im.width >= 180 && im.height >= 180);
-            return isValid && isNotIcon && isDecentSize && !isParentGenerating(im);
-          });
-          if (target) {
-            return { status: 'COMPLETED', firstImageUrl: target.src || target.currentSrc };
+            const existingImgSet = new Set(existingImgsArr);
+            const existingVideoSet = new Set(existingVideosArr);
+            const existingCardSet = new Set(existingCardIdsArr);
+
+            // Card correlation helper: validates card relevance
+            const correlatesWithPrompt = (card: Element | null): boolean => {
+              if (!card || keywords.length === 0) return true;
+              const ariaLabel = (card.getAttribute('aria-label') || '').toLowerCase();
+              const title = (card.getAttribute('title') || '').toLowerCase();
+              const text = (card.textContent || '').toLowerCase();
+              const haystack = `${ariaLabel} ${title} ${text}`.trim();
+              if (haystack.length > 0) {
+                return keywords.some((kw: string) => haystack.includes(kw));
+              }
+              return true;
+            };
+
+            if (targetMode === 'IMAGE') {
+              const imgs = Array.from(
+                document.querySelectorAll(
+                  'flow-grid-tile-container flow-image-tile img, flow-grid-tile-container img, flow-tile-container img, flow-asset-card img, flow-media-tile img, mat-card img, [data-asset-id] img'
+                )
+              ) as HTMLImageElement[];
+
+              const target = imgs.find((im) => {
+                const s = im.src || im.currentSrc || '';
+                if (!s || existingImgSet.has(s)) return false;
+                if (im.classList.contains('thumbnail') || im.closest('flow-video-tile')) return false;
+
+                const card = im.closest(
+                  'flow-grid-tile-container, flow-tile-container, flow-image-tile, flow-asset-card, flow-media-tile, mat-card, [data-asset-id], .asset-item'
+                );
+                const cardId = card?.getAttribute('data-asset-id') || card?.getAttribute('data-id') || card?.id;
+                if (cardId && existingCardSet.has(cardId)) return false;
+
+                const isValid =
+                  s.includes('flow-content.google') ||
+                  s.includes('googleusercontent.com') ||
+                  s.includes('ai-sandbox') ||
+                  s.startsWith('blob:') ||
+                  s.startsWith('data:image');
+                const isNotIcon = !s.includes('avatar') && !s.includes('icon') && !s.includes('.svg');
+                const isDecentSize =
+                  (im.naturalWidth >= 200 && im.naturalHeight >= 200) || (im.width >= 180 && im.height >= 180);
+
+                return isValid && isNotIcon && isDecentSize && !isParentGenerating(im) && correlatesWithPrompt(card);
+              });
+
+              if (target) {
+                const card = target.closest(
+                  'flow-grid-tile-container, flow-tile-container, flow-image-tile, [data-asset-id]'
+                );
+                const assetId = card?.getAttribute('data-asset-id') || card?.getAttribute('data-id') || undefined;
+                return { status: 'COMPLETED', firstImageUrl: target.src || target.currentSrc, assetId };
+              }
+            } else {
+              const videos = Array.from(
+                document.querySelectorAll(
+                  'flow-grid-tile-container flow-video-tile video, flow-grid-tile-container video, flow-tile-container video, flow-asset-card video, flow-media-tile video, mat-card video, [data-asset-id] video'
+                )
+              ) as HTMLVideoElement[];
+
+              const target = videos.find((v) => {
+                const s = v.src || v.currentSrc || v.querySelector('source')?.src || '';
+                if (!s || existingVideoSet.has(s)) return false;
+
+                const card = v.closest(
+                  'flow-grid-tile-container, flow-tile-container, flow-video-tile, flow-asset-card, flow-media-tile, mat-card, [data-asset-id], .asset-item'
+                );
+                const cardId = card?.getAttribute('data-asset-id') || card?.getAttribute('data-id') || card?.id;
+                if (cardId && existingCardSet.has(cardId)) return false;
+
+                return !isParentGenerating(v) && correlatesWithPrompt(card);
+              });
+
+              if (target) {
+                const card = target.closest(
+                  'flow-grid-tile-container, flow-tile-container, flow-video-tile, [data-asset-id]'
+                );
+                const assetId = card?.getAttribute('data-asset-id') || card?.getAttribute('data-id') || undefined;
+                const vUrl = target.src || target.currentSrc || target.querySelector('source')?.src;
+                return { status: 'COMPLETED', videoUrl: vUrl, assetId };
+              }
+            }
+
+            return { status: 'PROCESSING' };
+          },
+          {
+            existingImgsArr: Array.from(existingImgs),
+            existingVideosArr: Array.from(existingVideos),
+            existingCardIdsArr: Array.from(existingCardIds),
+            targetMode: isVideo ? 'VIDEO' : 'IMAGE',
+            expectedProjectId: options.projectId,
+            keywords: promptKeywords,
           }
-        } else {
-          const videos = Array.from(document.querySelectorAll('flow-grid-tile-container flow-video-tile video, flow-grid-tile-container video, flow-tile-container video, flow-asset-card video, flow-media-tile video, mat-card video, [data-asset-id] video')) as HTMLVideoElement[];
-          const target = videos.find((v) => {
-            const s = v.src || v.currentSrc || v.querySelector('source')?.src || '';
-            if (!s || existingVideoSet.has(s)) return false;
-            return !isParentGenerating(v);
-          });
-          if (target) {
-            const vUrl = target.src || target.currentSrc || target.querySelector('source')?.src;
-            return { status: 'COMPLETED', videoUrl: vUrl };
-          }
-        }
-
-        return { status: 'PROCESSING' };
-      }, {
-        existingImgsArr: Array.from(existingImgs),
-        existingVideosArr: Array.from(existingVideos),
-        targetMode: isVideo ? 'VIDEO' : 'IMAGE',
-      }).catch(() => ({ status: 'PROCESSING' as const }));
+        )
+        .catch(() => ({ status: 'PROCESSING' as const }));
 
       if (obsResult.status === 'BLOCKED_REQUIRES_USER') {
         return {
@@ -1003,6 +1117,15 @@ export class BrowserAutomationAdapter extends EventEmitter {
           state: 'BLOCKED_REQUIRES_USER',
           error: 'PUBLIC_ERROR_UNUSUAL_ACTIVITY',
           errorCode: 'BLOCKED_REQUIRES_USER',
+        };
+      }
+
+      if ((obsResult as any).status === 'PROJECT_MISMATCH') {
+        return {
+          ok: false,
+          state: 'FAILED',
+          error: `PROJECT_MISMATCH: Page navigated away from expected project ${options.projectId}`,
+          errorCode: 'PROJECT_MISMATCH',
         };
       }
 
