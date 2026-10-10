@@ -16,7 +16,7 @@ import path from 'path';
 import ffmpeg from 'fluent-ffmpeg';
 import ffprobeInstaller from '@ffprobe-installer/ffprobe';
 import ffmpegInstaller from '@ffmpeg-installer/ffmpeg';
-import { spawn } from 'child_process';
+import { spawn, ChildProcess } from 'child_process';
 
 // Ensure ffprobe and ffmpeg paths are initialized
 const rawFfprobePath = (ffprobeInstaller as any)?.path || (ffprobeInstaller as any)?.default?.path || '';
@@ -306,11 +306,27 @@ export function validateVideoWithFfprobe(filePath: string): Promise<VideoValidat
   });
 }
 
+export interface FullDecodeOptions {
+  timeoutMs?: number;
+  ffmpegPathOverride?: string;
+}
+
 /**
  * Fully decodes all video frames or image data using ffmpeg to guarantee
  * that the media file is non-truncated, complete, and free of corruption.
+ *
+ * Strict error handling:
+ * - Rejects if media file does not exist or size < 64 bytes.
+ * - Rejects if FFmpeg fails to spawn (e.g. invalid binary, ENOENT).
+ * - Rejects if FFmpeg exits non-zero (decoding error, broken stream, truncated file).
+ * - Rejects on timeout and terminates hanging processes.
+ * - Guarantees Promise settles only once.
+ * - NEVER resolves with fullyDecoded: true on error.
  */
-export function fullDecodeMediaWithFfmpeg(filePath: string): Promise<{
+export function fullDecodeMediaWithFfmpeg(
+  filePath: string,
+  options?: FullDecodeOptions
+): Promise<{
   fullyDecoded: boolean;
   error?: string;
 }> {
@@ -323,31 +339,81 @@ export function fullDecodeMediaWithFfmpeg(filePath: string): Promise<{
       return reject(new Error(`Media file is too small (${stat.size} bytes): ${filePath}`));
     }
 
-    const execPath = rawFfmpegPath ? rawFfmpegPath.replace('app.asar', 'app.asar.unpacked') : 'ffmpeg';
-    const proc = spawn(execPath, ['-v', 'error', '-xerror', '-i', filePath, '-f', 'null', '-'], {
-      windowsHide: true,
-      stdio: ['ignore', 'ignore', 'pipe'],
-    });
+    let isSettled = false;
+    let timer: NodeJS.Timeout | null = null;
+    let proc: ChildProcess | null = null;
+
+    const cleanup = () => {
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      if (proc && !proc.killed) {
+        try {
+          proc.kill('SIGKILL');
+        } catch {
+          // ignore error if process already exited
+        }
+      }
+    };
+
+    const settleReject = (err: Error) => {
+      if (isSettled) return;
+      isSettled = true;
+      cleanup();
+      reject(err);
+    };
+
+    const settleResolve = (result: { fullyDecoded: boolean; error?: string }) => {
+      if (isSettled) return;
+      isSettled = true;
+      cleanup();
+      resolve(result);
+    };
+
+    const timeoutMs = options?.timeoutMs ?? 30000;
+    timer = setTimeout(() => {
+      settleReject(new Error(`Full frame media decoding timed out after ${timeoutMs}ms: ${filePath}`));
+    }, timeoutMs);
+
+    const execPath =
+      options?.ffmpegPathOverride ||
+      (rawFfmpegPath ? rawFfmpegPath.replace('app.asar', 'app.asar.unpacked') : 'ffmpeg');
+
+    try {
+      proc = spawn(execPath, ['-v', 'error', '-xerror', '-i', filePath, '-f', 'null', '-'], {
+        windowsHide: true,
+        stdio: ['ignore', 'ignore', 'pipe'],
+      });
+    } catch (spawnErr: any) {
+      settleReject(new Error(`FFmpeg spawn exception (${spawnErr?.message || spawnErr}): ${filePath}`));
+      return;
+    }
 
     let stderr = '';
     proc.stderr?.on('data', (d) => {
       stderr += d.toString();
     });
 
-    proc.on('error', (err) => {
-      console.warn(`[mediaValidator] Warning: ffmpeg spawn error: ${err.message}`);
-      resolve({ fullyDecoded: true });
+    proc.on('error', (err: any) => {
+      settleReject(new Error(`FFmpeg process failed to spawn (${err?.message || err}): ${filePath}`));
     });
 
-    proc.on('close', (code) => {
+    proc.on('close', (code, signal) => {
       if (code === 0) {
-        resolve({ fullyDecoded: true });
+        settleResolve({ fullyDecoded: true });
       } else {
-        const cleanErr = stderr.trim().slice(0, 300) || `Exit code ${code}`;
-        reject(new Error(`Full frame media decoding failed: ${cleanErr} (${filePath})`));
+        const cleanErr = stderr.trim().slice(0, 300) || `Exit code ${code}${signal ? `, signal ${signal}` : ''}`;
+        settleReject(new Error(`Full frame media decoding failed: ${cleanErr} (${filePath})`));
       }
     });
   });
+}
+
+export interface NormalizeMediaOptions {
+  fullDecode?: boolean;
+  decodeTimeoutMs?: number;
+  ffmpegPathOverride?: string;
 }
 
 /**
@@ -358,7 +424,7 @@ export function fullDecodeMediaWithFfmpeg(filePath: string): Promise<{
 export async function normalizeAndValidateMediaFile(
   filePath: string,
   expectedType: 'image' | 'video',
-  options?: { fullDecode?: boolean }
+  options?: NormalizeMediaOptions
 ): Promise<NormalizedMediaResult> {
   if (!fs.existsSync(filePath)) {
     throw new Error(`Media file not found: ${filePath}`);
@@ -392,7 +458,10 @@ export async function normalizeAndValidateMediaFile(
     }
 
     if (options?.fullDecode && stat.size >= 512) {
-      await fullDecodeMediaWithFfmpeg(finalPath);
+      await fullDecodeMediaWithFfmpeg(finalPath, {
+        timeoutMs: options.decodeTimeoutMs,
+        ffmpegPathOverride: options.ffmpegPathOverride,
+      });
     }
 
     return {
@@ -426,7 +495,10 @@ export async function normalizeAndValidateMediaFile(
     }
 
     if (options?.fullDecode && stat.size >= 512) {
-      await fullDecodeMediaWithFfmpeg(finalPath);
+      await fullDecodeMediaWithFfmpeg(finalPath, {
+        timeoutMs: options.decodeTimeoutMs,
+        ffmpegPathOverride: options.ffmpegPathOverride,
+      });
     }
 
     return {
