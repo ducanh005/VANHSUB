@@ -25,6 +25,7 @@ __pycache__/
 scratch/
 temp/
 temp_live_e2e_output/
+temp_live_acceptance_output/
 
 # Flow outputs & generated media runs
 flow_outputs/
