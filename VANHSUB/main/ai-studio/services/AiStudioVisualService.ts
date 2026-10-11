@@ -255,6 +255,22 @@ export class AiStudioVisualService {
   // ==========================================================================
   // Stage 6: Dual-Mode Visual Generation Dispatcher
   // ==========================================================================
+  /**
+   * Alias for dispatchVisualAssets supporting flexible parameter positioning.
+   */
+  public async generateSceneVisuals(
+    scenes: StoryboardScene[],
+    assetsDirOrConfig: string | Partial<AiStudioFlowEngineConfig>,
+    configOrAssetsDir?: Partial<AiStudioFlowEngineConfig> | string,
+    onProgress?: (pct: number, msg: string) => void,
+    onSceneComplete?: (scene: StoryboardScene, index: number) => void | Promise<void>,
+    signal?: AbortSignal
+  ): Promise<VisualDispatchResult> {
+    const assetsDir = typeof assetsDirOrConfig === 'string' ? assetsDirOrConfig : (typeof configOrAssetsDir === 'string' ? configOrAssetsDir : '');
+    const flowConfig = typeof assetsDirOrConfig === 'object' ? assetsDirOrConfig : (typeof configOrAssetsDir === 'object' ? configOrAssetsDir : {});
+    return this.dispatchVisualAssets(scenes, flowConfig, assetsDir, onProgress, signal, onSceneComplete);
+  }
+
   public async dispatchVisualAssets(
     scenes: StoryboardScene[],
     flowConfig: Partial<AiStudioFlowEngineConfig> = {},
@@ -1407,6 +1423,24 @@ export class AiStudioVisualService {
     }
 
     // 4. HTTP / HTTPS URL from CDN
+    // Priority A0: BrowserAutomationAdapter Playwright context request (inherits Chrome 9224 cookies directly)
+    try {
+      const adapter = this.getBrowserAutomationAdapter();
+      const flowCtx = adapter.getContext('flow');
+      if (flowCtx && typeof (flowCtx as any).request?.get === 'function') {
+        const resp = await (flowCtx as any).request.get(targetUrl);
+        if (resp && resp.ok()) {
+          const bodyBuf = await resp.body();
+          if (bodyBuf && bodyBuf.length > 0) {
+            fs.writeFileSync(destinationPath, bodyBuf);
+            return destinationPath;
+          }
+        }
+      }
+    } catch {
+      // Continue to next priority
+    }
+
     // Priority A: BrowserWindow execution (if window has webContents and is active)
     // Only use for images, avoid for videos to prevent IPC payload limit and memory exhaustion
     const isVideoTarget = destinationPath.endsWith('.mp4') || destinationPath.endsWith('.webm');
