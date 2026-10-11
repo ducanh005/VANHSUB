@@ -24,6 +24,7 @@ import {
   normalizeAndValidateMediaFile,
   decodeImageDimensions,
   validateVideoWithFfprobe,
+  NormalizeMediaOptions,
 } from '../../browser-automation/mediaValidator';
 import {
   extractGeneratedImages,
@@ -818,7 +819,10 @@ export class AiStudioVisualService {
           });
 
           try {
-            keyframeTargetPath = (this.validateMediaFile(keyframeTargetPath, 'image') as any) || keyframeTargetPath;
+            keyframeTargetPath = (await this.validateMediaFile(keyframeTargetPath, 'image', {
+              fullDecode: flowConfig.fullMediaDecode,
+              decodeTimeoutMs: flowConfig.mediaDecodeTimeoutMs ?? 30000,
+            }) as any) || keyframeTargetPath;
           } catch (kErr) {
             try { if (fs.existsSync(keyframeTargetPath)) fs.unlinkSync(keyframeTargetPath); } catch {}
             throw kErr;
@@ -1083,7 +1087,10 @@ export class AiStudioVisualService {
           });
 
           try {
-            targetPath = (this.validateMediaFile(targetPath, 'video') as any) || targetPath;
+            targetPath = (await this.validateMediaFile(targetPath, 'video', {
+              fullDecode: flowConfig.fullMediaDecode,
+              decodeTimeoutMs: flowConfig.mediaDecodeTimeoutMs ?? 30000,
+            }) as any) || targetPath;
           } catch (vErr) {
             try { if (fs.existsSync(targetPath)) fs.unlinkSync(targetPath); } catch {}
             throw vErr;
@@ -1287,7 +1294,10 @@ export class AiStudioVisualService {
         });
 
         try {
-          targetPath = (this.validateMediaFile(targetPath, 'image') as any) || targetPath;
+          targetPath = (await this.validateMediaFile(targetPath, 'image', {
+            fullDecode: flowConfig.fullMediaDecode,
+            decodeTimeoutMs: flowConfig.mediaDecodeTimeoutMs ?? 30000,
+          }) as any) || targetPath;
         } catch (iErr) {
           try { if (fs.existsSync(targetPath)) fs.unlinkSync(targetPath); } catch {}
           throw iErr;
@@ -1752,88 +1762,20 @@ export class AiStudioVisualService {
   }
 
   /**
-   * Xác minh tính hợp lệ và định dạng của tệp media tải về.
+   * Xác minh toàn diện tính hợp lệ và định dạng của tệp media tải về trong production pipeline.
+   * Tích hợp normalizeAndValidateMediaFile() để bảo đảm:
+   * - Đối với ảnh: Kiểm tra magic bytes thực tế, decode dimensions (không nuốt lỗi), đổi extension theo định dạng thực (.jpg/.png/.webp).
+   * - Đối với video: Kiểm tra luồng video, codec, resolution, duration qua FFprobe.
+   * - Hỗ trợ FFmpeg full decode khi flowConfig.fullMediaDecode = true.
+   * - Quản lý timeout mặc định 30s cho FFmpeg, có thể tùy chỉnh qua flowConfig.mediaDecodeTimeoutMs.
    */
-  public validateMediaFile(filePath: string, type: 'image' | 'video'): string {
-    if (!fs.existsSync(filePath)) {
-      throw new Error(`Tệp media không tồn tại: ${filePath}`);
-    }
-    const stat = fs.statSync(filePath);
-    if (stat.size <= 0) {
-      throw new Error(`Tệp media rỗng (0 bytes): ${filePath}`);
-    }
-
-    const header = Buffer.alloc(256);
-    const fd = fs.openSync(filePath, 'r');
-    let bytesRead = 0;
-    try {
-      bytesRead = fs.readSync(fd, header, 0, Math.min(256, stat.size), 0);
-    } finally {
-      fs.closeSync(fd);
-    }
-
-    if (bytesRead < 4) {
-      throw new Error(`Tệp media quá nhỏ (${bytesRead} bytes): ${filePath}`);
-    }
-
-    let finalPath = filePath;
-
-    if (type === 'image') {
-      const isPng = header[0] === 0x89 && header[1] === 0x50 && header[2] === 0x4e && header[3] === 0x47;
-      const isJpeg = header[0] === 0xff && header[1] === 0xd8 && header[2] === 0xff;
-      const isRiff = header[0] === 0x52 && header[1] === 0x49 && header[2] === 0x46 && header[3] === 0x46;
-      const isWebp = isRiff && bytesRead >= 12 &&
-        header[8] === 0x57 && header[9] === 0x45 && header[10] === 0x42 && header[11] === 0x50; // 'WEBP'
-      const isGif = header[0] === 0x47 && header[1] === 0x49 && header[2] === 0x46;
-      if (!isPng && !isJpeg && !isWebp && !isGif) {
-        throw new Error(`Tệp không phải định dạng ảnh hợp lệ (PNG/JPEG/WebP): ${filePath}`);
-      }
-
-      // Format normalization: if JPEG downloaded to .png, rename to .jpg
-      const currentExt = path.extname(filePath).toLowerCase();
-      let correctExt = currentExt;
-      if (isJpeg) correctExt = '.jpg';
-      else if (isPng) correctExt = '.png';
-      else if (isWebp) correctExt = '.webp';
-      else if (isGif) correctExt = '.gif';
-
-      if (currentExt !== correctExt && (currentExt === '.png' || currentExt === '.jpg' || currentExt === '.jpeg' || currentExt === '.webp')) {
-        finalPath = filePath.slice(0, -currentExt.length) + correctExt;
-        try {
-          fs.renameSync(filePath, finalPath);
-        } catch {
-          finalPath = filePath;
-        }
-      }
-
-      if (stat.size >= 24) {
-        try {
-          const buf = fs.readFileSync(finalPath);
-          const decoded = decodeImageDimensions(buf);
-          if (decoded.width <= 0 || decoded.height <= 0) {
-            throw new Error(`Kích thước ảnh không hợp lệ (${decoded.width}x${decoded.height}): ${finalPath}`);
-          }
-        } catch (dimErr: any) {
-          if (!dimErr.message.includes('Truncated') && !dimErr.message.includes('insufficient') && !dimErr.message.includes('Failed to decode valid dimensions')) {
-            throw dimErr;
-          }
-        }
-      }
-    } else if (type === 'video') {
-      if (stat.size < 24) {
-        throw new Error(`Tệp video quá nhỏ (${stat.size} bytes): ${filePath}`);
-      }
-      const slice = header.subarray(0, bytesRead);
-      const isFtyp = slice.indexOf(Buffer.from('ftyp')) >= 0;
-      const isMoov = slice.indexOf(Buffer.from('moov')) >= 0;
-      const isMdat = slice.indexOf(Buffer.from('mdat')) >= 0;
-      const isWebm = header[0] === 0x1a && header[1] === 0x45 && header[2] === 0xdf && header[3] === 0xa3;
-      if (!isFtyp && !isMoov && !isMdat && !isWebm) {
-        throw new Error(`Tệp không phải định dạng video hợp lệ (MP4/WebM): ${filePath}`);
-      }
-    }
-
-    return finalPath;
+  public async validateMediaFile(
+    filePath: string,
+    type: 'image' | 'video',
+    options?: NormalizeMediaOptions
+  ): Promise<string> {
+    const norm = await normalizeAndValidateMediaFile(filePath, type, options);
+    return norm.finalPath;
   }
 
   // ==========================================================================

@@ -128,6 +128,10 @@ export interface AiStudioFlowEngineConfig {
   uiTimeoutMs?: number;
   /** Cho phép tự động hạ cấp sang hiệu ứng Ken Burns khi sinh video AI thất bại (mặc định: false - không tự ý thay thế) */
   allowKenBurnsFallback?: boolean;
+  /** Bật giải mã toàn bộ khung hình bằng FFmpeg khi xác thực media (mặc định: false) */
+  fullMediaDecode?: boolean;
+  /** Thời gian chờ tối đa khi giải mã FFmpeg (ms, mặc định: 30000ms = 30s) */
+  mediaDecodeTimeoutMs?: number;
   /** API Key cho Official Gemini / Veo API (tùy chọn) */
   apiKey?: string;
 }
