@@ -70,8 +70,13 @@ async function runRound3AdversarialSuite() {
       (bridge as any).clients.clear();
       (bridge as any).clients.add(mockWs);
 
+      const realMp4 = path.resolve(__dirname, '..', 'temp_live_e2e_output', 'live_scene_2_1791646454362.mp4');
       const fakeMp4 = path.join(tmpDir, 'upstream_stream.mp4');
-      fs.writeFileSync(fakeMp4, Buffer.concat([Buffer.from([0, 0, 0, 20, 0x66, 0x74, 0x79, 0x70, 0x69, 0x73, 0x6f, 0x6d]), Buffer.alloc(100, 0)]));
+      if (fs.existsSync(realMp4)) {
+        fs.copyFileSync(realMp4, fakeMp4);
+      } else {
+        fs.writeFileSync(fakeMp4, Buffer.concat([Buffer.from([0, 0, 0, 20, 0x66, 0x74, 0x79, 0x70, 0x69, 0x73, 0x6f, 0x6d]), Buffer.alloc(100, 0)]));
+      }
 
       const directVideoBatch = `)]}'\n150\n[[["wrb.fr","as29s","[[\\"proj-direct-video\\"],[\\"file://${fakeMp4.replace(/\\/g, '/')}\\"]]",null,null,null,1]]]`;
 
@@ -238,8 +243,8 @@ async function runRound3AdversarialSuite() {
       (bridge as any).clients.add(mockWs);
 
       const fakePng = path.join(tmpDir, 'raw_batch_image.png');
-      const pngHeader = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
-      fs.writeFileSync(fakePng, Buffer.concat([pngHeader, Buffer.alloc(100, 0)]));
+      const validPng = Buffer.from('89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000a49444154789c63000100000500010d0a2db40000000049454e44ae426082', 'hex');
+      fs.writeFileSync(fakePng, validPng);
 
       const rawImageBatch = `)]}'\n110\n[[["wrb.fr","ogiZ0b","[[\\"img-uuid-raw-999\\"],[\\"file://${fakePng.replace(/\\/g, '/')}\\"]]",null,null,null,1]]]`;
 

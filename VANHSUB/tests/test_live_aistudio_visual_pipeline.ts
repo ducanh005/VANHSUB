@@ -46,17 +46,10 @@ async function main() {
 
   const router = VisualProviderRouter.getInstance();
 
-  // Create a PNG fixture on disk that downloadMediaAsset can copy or write
-  const validPngHeader = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d]);
-  const validMp4Header = Buffer.alloc(32);
-  validMp4Header.writeUInt32BE(32, 0);
-  validMp4Header.write('ftyp', 4);
-  validMp4Header.write('isom', 8);
-
-  const fixturePng = path.join(testDir, 'fixture.png');
-  const fixtureMp4 = path.join(testDir, 'fixture.mp4');
-  fs.writeFileSync(fixturePng, validPngHeader);
-  fs.writeFileSync(fixtureMp4, validMp4Header);
+  // Valid PNG fixture (67 bytes) and Real MP4 fixture
+  const validPngBuffer = Buffer.from('89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000a49444154789c63000100000500010d0a2db40000000049454e44ae426082', 'hex');
+  const realMp4Path = path.resolve(__dirname, '..', 'temp_live_e2e_output', 'live_scene_2_1791646454362.mp4');
+  const validMp4Buffer = fs.readFileSync(realMp4Path);
 
   // Custom visual service instance for testing
   const service = new AiStudioVisualService();
@@ -65,9 +58,9 @@ async function main() {
   (service as any).downloadMediaAsset = async (url: string, targetPath: string) => {
     fs.mkdirSync(path.dirname(targetPath), { recursive: true });
     if (targetPath.endsWith('.mp4')) {
-      fs.writeFileSync(targetPath, validMp4Header);
+      fs.writeFileSync(targetPath, validMp4Buffer);
     } else {
-      fs.writeFileSync(targetPath, validPngHeader);
+      fs.writeFileSync(targetPath, validPngBuffer);
     }
   };
 
@@ -389,6 +382,165 @@ async function main() {
       assert.ok(job);
       assert.strictEqual(job.state, 'BLOCKED_REQUIRES_USER', 'Must transition to BLOCKED_REQUIRES_USER state');
     }
+  });
+
+  // ────────────────────────────────────────────────────────────────────────────
+  // SECTION 4: Production Media Validation & Output Integrity
+  // ────────────────────────────────────────────────────────────────────────────
+  console.log('\n▶ [PIPELINE 4] Production Media Validation & Output Integrity');
+
+  await runTest('4.1 Corrupted image download triggers validation failure, unlinks file, and prevents scene completion', async () => {
+    router.clearRegistry();
+    service.resetPreferUiGen();
+
+    const mockRpcClient: any = {
+      partition: 'test-partition',
+      generateImage: async () => ({
+        firstImageUrl: 'https://test-cdn.google.com/corrupt_image.png',
+        images: [{ url: 'https://test-cdn.google.com/corrupt_image.png', mediaId: 'img-corrupt' }],
+      }),
+    };
+    service.setRpcClient(mockRpcClient);
+
+    const origDownload = (service as any).downloadMediaAsset;
+    (service as any).downloadMediaAsset = async (_url: string, targetPath: string) => {
+      fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+      fs.writeFileSync(targetPath, Buffer.from('NOT_AN_IMAGE_DEFINITELY_CORRUPT_BYTES_DATA_STREAM'));
+    };
+
+    const outPath = path.join(testDir, 'scene_corrupt_test.png');
+    const scene: StoryboardScene = {
+      id: 'scene-corrupt-img',
+      lineIndex: 4,
+      sceneNumber: 5,
+      startMs: 16000,
+      endMs: 20000,
+      durationMs: 4000,
+      lineText: 'A shot that fails media validation',
+      visualPrompt: 'A shot that fails media validation',
+      motionType: 'ken_burns',
+      status: 'pending',
+    };
+
+    let caughtErr: any = null;
+    try {
+      await service.generateViaGoogleFlow(scene, outPath, { projectId: 'proj-corrupt-test', outputMode: 'image' });
+    } catch (err: any) {
+      caughtErr = err;
+    } finally {
+      (service as any).downloadMediaAsset = origDownload;
+    }
+
+    assert.ok(caughtErr, 'Pipeline must throw error on corrupted image');
+    assert.strictEqual(fs.existsSync(outPath), false, 'Corrupted output file must be unlinked from disk');
+    assert.notStrictEqual(scene.status, 'ready', 'Scene must NOT be marked ready on corrupted media');
+  });
+
+  await runTest('4.2 Corrupted video download fails FFprobe validation, unlinks file, and prevents scene completion', async () => {
+    router.clearRegistry();
+
+    const mockRpcClient: any = {
+      partition: 'test-partition',
+      generateImage: async () => ({
+        firstImageUrl: 'https://test-cdn.google.com/kf.png',
+        images: [{ url: 'https://test-cdn.google.com/kf.png', mediaId: 'kf-valid' }],
+      }),
+      generateVideo: async () => ({
+        operationId: 'op-corrupt-vid',
+        projectId: 'proj-corrupt-vid',
+        done: true,
+        status: 'COMPLETED',
+        videoUrl: 'https://test-cdn.google.com/corrupt_vid.mp4',
+      }),
+      pollGeneration: async () => ({ done: true, status: 'COMPLETED' }),
+    };
+    service.setRpcClient(mockRpcClient);
+
+    const origDownload = (service as any).downloadMediaAsset;
+    (service as any).downloadMediaAsset = async (_url: string, targetPath: string) => {
+      fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+      if (targetPath.endsWith('.mp4')) {
+        const fakeHeader = Buffer.alloc(128, 0xff);
+        fs.writeFileSync(targetPath, fakeHeader);
+      } else {
+        fs.writeFileSync(targetPath, validPngBuffer);
+      }
+    };
+
+    const outPath = path.join(testDir, 'scene_corrupt_video.mp4');
+    const scene: StoryboardScene = {
+      id: 'scene-corrupt-vid',
+      lineIndex: 5,
+      sceneNumber: 6,
+      startMs: 20000,
+      endMs: 24000,
+      durationMs: 4000,
+      lineText: 'A video shot that fails ffprobe validation',
+      visualPrompt: 'A video shot that fails ffprobe validation',
+      motionType: 'video',
+      status: 'pending',
+    };
+
+    let caughtErr: any = null;
+    try {
+      await service.generateViaGoogleFlow(scene, outPath, { projectId: 'proj-corrupt-vid', outputMode: 'video' });
+    } catch (err: any) {
+      caughtErr = err;
+    } finally {
+      (service as any).downloadMediaAsset = origDownload;
+    }
+
+    assert.ok(caughtErr, 'Pipeline must throw error on corrupted video');
+    assert.strictEqual(fs.existsSync(outPath), false, 'Corrupted video file must be unlinked from disk');
+    assert.notStrictEqual(scene.status, 'ready', 'Scene must NOT be marked ready on corrupted video');
+  });
+
+  await runTest('4.3 Production pipeline succeeds with fullMediaDecode FFmpeg verification when enabled', async () => {
+    router.clearRegistry();
+    service.resetPreferUiGen();
+
+    const mockRpcClient: any = {
+      partition: 'test-partition',
+      generateImage: async () => ({
+        firstImageUrl: 'https://test-cdn.google.com/kf.png',
+        images: [{ url: 'https://test-cdn.google.com/kf.png', mediaId: 'kf-valid' }],
+      }),
+      generateVideo: async () => ({
+        operationId: 'op-full-decode-vid',
+        projectId: 'proj-full-decode',
+        done: true,
+        status: 'COMPLETED',
+        videoUrl: 'https://test-cdn.google.com/real_valid_vid.mp4',
+      }),
+      pollGeneration: async () => ({ done: true, status: 'COMPLETED' }),
+    };
+    service.setRpcClient(mockRpcClient);
+
+    const outPath = path.join(testDir, 'scene_full_decode_success.mp4');
+    const scene: StoryboardScene = {
+      id: 'scene-full-decode',
+      lineIndex: 6,
+      sceneNumber: 7,
+      startMs: 24000,
+      endMs: 28000,
+      durationMs: 4000,
+      lineText: 'A video shot verifying FFmpeg full decode in pipeline',
+      visualPrompt: 'A video shot verifying FFmpeg full decode in pipeline',
+      motionType: 'video',
+      status: 'pending',
+    };
+
+    const finalPath = await service.generateViaGoogleFlow(scene, outPath, {
+      projectId: 'proj-full-decode',
+      outputMode: 'video',
+      fullMediaDecode: true,
+      mediaDecodeTimeoutMs: 20000,
+    });
+
+    assert.strictEqual(finalPath, outPath);
+    assert.strictEqual(fs.existsSync(outPath), true);
+    assert.strictEqual(scene.status, 'ready');
+    assert.strictEqual(scene.videoPath, outPath);
   });
 
   // Cleanup testDir
