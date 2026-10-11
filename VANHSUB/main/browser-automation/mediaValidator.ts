@@ -66,6 +66,7 @@ export interface NormalizedMediaResult {
   duration?: number;
   codec?: string;
   sizeBytes: number;
+  fullDecodeSuccess?: boolean;
 }
 
 /**
@@ -474,6 +475,7 @@ export async function normalizeAndValidateMediaFile(
       width: decoded.width,
       height: decoded.height,
       sizeBytes: decoded.sizeBytes,
+      fullDecodeSuccess: options?.fullDecode ? true : undefined,
     };
   } else {
     // Video
@@ -513,6 +515,7 @@ export async function normalizeAndValidateMediaFile(
       duration: videoValidation.duration,
       codec: videoValidation.codec,
       sizeBytes: videoValidation.sizeBytes,
+      fullDecodeSuccess: options?.fullDecode ? true : undefined,
     };
   }
 }

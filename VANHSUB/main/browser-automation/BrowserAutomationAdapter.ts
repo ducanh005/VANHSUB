@@ -916,14 +916,54 @@ export class BrowserAutomationAdapter extends EventEmitter {
       return { ok: false, state: 'TIMED_OUT', error: 'CANCELLED', errorCode: 'UI_AUTOMATION_FAILED' };
     }
 
-    // 5. Input prompt into ProseMirror editor via real CDP keyboard (Stage 1 Part A)
+    // 5. Input prompt and handle keyframe attachment (if I2V inputImageAsset is provided)
     try {
+      // Clear previous prompt/chips if clear button exists
+      const clearBtn = page.locator('button.clear-button, button[aria-label*="Xoá" i]').first();
+      if (await clearBtn.isVisible().catch(() => false)) {
+        await clearBtn.click();
+        await page.waitForTimeout(300);
+      }
+
+      // If an input keyframe asset is specified for Video mode, attach it as prompt reference chip
+      if (isVideo && options.inputImageAsset) {
+        const assetUuid = options.inputImageAsset.match(/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i)?.[1];
+        let keyframeTile: any = null;
+        if (assetUuid) {
+          keyframeTile = page.locator(`img[data-media-id="${assetUuid}"], flow-image-tile:has(img[data-media-id="${assetUuid}"]), [data-asset-id="${assetUuid}"]`).first();
+          if (!await keyframeTile.isVisible().catch(() => false)) {
+            keyframeTile = page.locator(`flow-grid-tile-container:has(img[src*="${assetUuid}"])`).first();
+          }
+        }
+        if (!keyframeTile || !await keyframeTile.isVisible().catch(() => false)) {
+          keyframeTile = page.locator('flow-image-tile, flow-grid-tile-container:has(img.image, img:not(.thumbnail))').first();
+        }
+
+        if (await keyframeTile.isVisible().catch(() => false)) {
+          await keyframeTile.click({ button: 'right' });
+          await page.waitForTimeout(500);
+
+          const addToPromptBtn = page.locator('.cdk-overlay-container button').filter({ hasText: /Thêm vào câu lệnh|Add to prompt/i }).first();
+          if (await addToPromptBtn.isVisible().catch(() => false)) {
+            await addToPromptBtn.click();
+            await page.waitForTimeout(800);
+          } else {
+            await page.keyboard.press('Escape');
+          }
+        }
+      }
+
       const pmLocator = page.locator('.ProseMirror, flow-prompt-box [contenteditable="true"]').first();
       await pmLocator.waitFor({ state: 'visible', timeout: 8000 });
       await pmLocator.click();
-      await page.keyboard.press('Control+A');
-      await page.keyboard.press('Backspace');
-      await page.keyboard.type(prompt, { delay: 5 });
+      if (!options.inputImageAsset) {
+        await page.keyboard.press('Control+A');
+        await page.keyboard.press('Backspace');
+        await page.keyboard.type(prompt, { delay: 5 });
+      } else {
+        await page.keyboard.press('End');
+        await page.keyboard.type(` ${prompt}`, { delay: 5 });
+      }
       await page.waitForTimeout(400);
     } catch (typeErr: any) {
       // Fallback to DOM injection
@@ -1023,6 +1063,13 @@ export class BrowserAutomationAdapter extends EventEmitter {
         return { ok: false, state: 'TIMED_OUT', error: 'CANCELLED', errorCode: 'UI_AUTOMATION_FAILED' };
       }
       await new Promise((r) => setTimeout(r, 600));
+
+      if (isVideo) {
+        const firstVt = page.locator('flow-video-tile').first();
+        if (await firstVt.isVisible().catch(() => false)) {
+          await firstVt.hover().catch(() => {});
+        }
+      }
 
       const obsResult = await page
         .evaluate(
@@ -1137,6 +1184,23 @@ export class BrowserAutomationAdapter extends EventEmitter {
                 const assetId = card?.getAttribute('data-asset-id') || card?.getAttribute('data-id') || undefined;
                 const vUrl = target.src || target.currentSrc || target.querySelector('source')?.src;
                 return { status: 'COMPLETED', videoUrl: vUrl, assetId };
+              }
+
+              // Also check download links
+              const downloadLinks = Array.from(
+                document.querySelectorAll('flow-grid-tile-container a[download], a[download]')
+              ) as HTMLAnchorElement[];
+              const targetLink = downloadLinks.find((a) => {
+                const h = a.href || '';
+                if (!h || existingVideoSet.has(h)) return false;
+                const card = a.closest('flow-grid-tile-container, flow-tile-container, flow-video-tile, mat-card');
+                return (h.includes('flow-content.google') || h.includes('storage.googleapis.com') || h.includes('googlevideo') || h.startsWith('blob:') || h.includes('/asb/')) &&
+                  !isParentGenerating(a) && correlatesWithPrompt(card);
+              });
+              if (targetLink && targetLink.href) {
+                const card = targetLink.closest('flow-grid-tile-container, flow-tile-container, flow-video-tile, [data-asset-id]');
+                const assetId = card?.getAttribute('data-asset-id') || card?.getAttribute('data-id') || undefined;
+                return { status: 'COMPLETED', videoUrl: targetLink.href, assetId };
               }
             }
 
