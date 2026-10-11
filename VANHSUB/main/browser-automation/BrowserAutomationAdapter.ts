@@ -663,6 +663,22 @@ export class BrowserAutomationAdapter extends EventEmitter {
         const pidMatch = href.match(/\/project\/([0-9a-f-]{36}|[a-zA-Z0-9_-]{8,})/i);
         const projectId = pidMatch ? pidMatch[1] : null;
 
+        // 6.5 Check Dashboard project cards & new project button
+        const dashboardProjectCards = document.querySelectorAll(
+          'a[href*="/project/"], a[aria-label*="Mở dự án" i], a[aria-label*="Open project" i]'
+        );
+        const newProjBtn = Array.from(document.querySelectorAll('button, a')).find((el) => {
+          const txt = (el.textContent || '').toLowerCase();
+          const aria = (el.getAttribute('aria-label') || '').toLowerCase();
+          return (
+            txt.includes('dự án mới') ||
+            txt.includes('new project') ||
+            aria.includes('dự án mới') ||
+            aria.includes('new project')
+          );
+        });
+        const hasDashboardProjects = dashboardProjectCards.length > 0 || !!newProjBtn;
+
         // 7. Check loading indicator
         const loadingIndicator = document.querySelector(
           'mat-progress-spinner, mat-spinner, flow-loading-indicator, .loading-screen, .app-loading'
@@ -678,6 +694,7 @@ export class BrowserAutomationAdapter extends EventEmitter {
           hasPromptBox: !!promptEl,
           hasGenerateButton: !!genBtn,
           isProjectLoaded: !!projectId || !!projectContainer,
+          hasDashboardProjects,
           projectId,
           hasLoading: !!loadingIndicator,
         };
@@ -693,11 +710,14 @@ export class BrowserAutomationAdapter extends EventEmitter {
         state = 'FLOW_LOADING';
         diagnosticMessage = 'Google Flow đang tải tài nguyên hoặc giao diện dự án...';
       } else if (
-        (raw.hasPromptBox || raw.hasGenerateButton || raw.isProjectLoaded) &&
+        (raw.hasPromptBox || raw.hasGenerateButton || raw.isProjectLoaded || raw.hasDashboardProjects) &&
         (raw.hasAccount || !raw.hasSignInBtn)
       ) {
         state = 'FLOW_READY';
-        diagnosticMessage = 'Google Flow đã sẵn sàng với phiên đăng nhập và giao diện dự án hợp lệ.';
+        diagnosticMessage =
+          raw.hasPromptBox || raw.isProjectLoaded
+            ? 'Google Flow đã sẵn sàng với phiên đăng nhập và giao diện dự án hợp lệ.'
+            : 'Google Flow đã đăng nhập thành công trên bảng điều khiển dự án (Dashboard).';
       } else {
         state = 'SESSION_UNVERIFIED';
         diagnosticMessage = `Không thể xác nhận giao diện Google Flow. URL: ${raw.href.slice(0, 60)}`;
@@ -790,6 +810,22 @@ export class BrowserAutomationAdapter extends EventEmitter {
         timeoutMs: 20000,
       });
       this.markTabAsAutomationOwned(page);
+
+      // If currently on Google Flow dashboard without an explicit projectId, route into the first active project
+      if (page.url().replace(/\/+$/, '') === 'https://flow.google.com') {
+        try {
+          const firstProjHref = await page.evaluate(() => {
+            const firstA = document.querySelector('a[href*="/project/"]') as HTMLAnchorElement | null;
+            return firstA ? firstA.href : null;
+          });
+          if (firstProjHref) {
+            await page.goto(firstProjHref, { waitUntil: 'domcontentloaded', timeout: 20000 });
+            await page.waitForTimeout(1000);
+          }
+        } catch {
+          // Continue gracefully
+        }
+      }
     } catch (tabErr: any) {
       return {
         ok: false,
@@ -835,17 +871,23 @@ export class BrowserAutomationAdapter extends EventEmitter {
       const settingsBtn = page.locator('button.settings-trigger-button, button[aria-label*="Điều kiện kích hoạt" i]').first();
       if (await settingsBtn.isVisible().catch(() => false)) {
         const btnText = (await settingsBtn.textContent().catch(() => '') || '').toLowerCase();
-        const currentIsVideo = btnText.includes('video') || btnText.includes('veo') || btnText.includes('360p');
+        const currentIsVideo = btnText.includes('video') || btnText.includes('veo') || btnText.includes('360p') || btnText.includes('720p');
         if (isVideo !== currentIsVideo) {
           await settingsBtn.click();
           await page.waitForTimeout(500);
-          const targetRadio = page.locator('.cdk-overlay-pane mat-button-toggle button[role="radio"]').filter({
-            hasText: isVideo ? /Video|Veo/i : /Hình ảnh|Image/i,
-          }).first();
-          if (await targetRadio.isVisible().catch(() => false)) {
-            await targetRadio.click();
-            await page.waitForTimeout(300);
-          }
+          await page.evaluate((mode) => {
+            const elements = Array.from(document.querySelectorAll('.cdk-overlay-container .toggle-text, .cdk-overlay-container .toggle-label, .cdk-overlay-container mat-button-toggle, mat-button-toggle, .toggle-text'));
+            const target = elements.find((el) => {
+              const txt = (el.textContent || '').trim().toLowerCase();
+              if (mode === 'image') return txt === 'hình ảnh' || txt === 'image';
+              return txt === 'video';
+            });
+            if (target) {
+              const clickable = (target.closest('mat-button-toggle, button, .toggle') || target) as HTMLElement;
+              clickable.click();
+            }
+          }, isVideo ? 'video' : 'image');
+          await page.waitForTimeout(400);
           await page.keyboard.press('Escape');
           await page.waitForTimeout(300);
         }
