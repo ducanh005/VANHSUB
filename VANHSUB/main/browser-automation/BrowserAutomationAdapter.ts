@@ -934,21 +934,39 @@ export class BrowserAutomationAdapter extends EventEmitter {
           if (!await keyframeTile.isVisible().catch(() => false)) {
             keyframeTile = page.locator(`flow-grid-tile-container:has(img[src*="${assetUuid}"])`).first();
           }
+        } else if (options.inputImageAsset.startsWith('http')) {
+          keyframeTile = page.locator(`flow-grid-tile-container:has(img[src*="${options.inputImageAsset.split('?')[0]}"])`).first();
         }
+
+        // STRICT: If not found, DO NOT fallback to .first()! Throw clear error!
         if (!keyframeTile || !await keyframeTile.isVisible().catch(() => false)) {
-          keyframeTile = page.locator('flow-image-tile, flow-grid-tile-container:has(img.image, img:not(.thumbnail))').first();
+          throw new Error(`STRICT_I2V_PROVENANCE_ERROR: Không tìm thấy keyframe tile với ID "${options.inputImageAsset}" trong DOM. Từ chối chọn ngẫu nhiên ảnh khác.`);
         }
 
-        if (await keyframeTile.isVisible().catch(() => false)) {
-          await keyframeTile.click({ button: 'right' });
-          await page.waitForTimeout(500);
+        await keyframeTile.click({ button: 'right' });
+        await page.waitForTimeout(500);
 
-          const addToPromptBtn = page.locator('.cdk-overlay-container button').filter({ hasText: /Thêm vào câu lệnh|Add to prompt/i }).first();
-          if (await addToPromptBtn.isVisible().catch(() => false)) {
-            await addToPromptBtn.click();
-            await page.waitForTimeout(800);
-          } else {
-            await page.keyboard.press('Escape');
+        const addToPromptBtn = page.locator('.cdk-overlay-container button').filter({ hasText: /Thêm vào câu lệnh|Add to prompt/i }).first();
+        if (await addToPromptBtn.isVisible().catch(() => false)) {
+          await addToPromptBtn.click();
+          await page.waitForTimeout(800);
+        } else {
+          await page.keyboard.press('Escape');
+          throw new Error('STRICT_I2V_PROVENANCE_ERROR: Menu ngữ cảnh không xuất hiện tuỳ chọn "Thêm vào câu lệnh" (Add to prompt).');
+        }
+
+        // Sau khi attach ảnh vào prompt, xác nhận chip ảnh xuất hiện và khớp đúng identifier
+        const attachedChips = await page.evaluate(() => {
+          const chips = Array.from(document.querySelectorAll('.chip-image, flow-prompt-box img, .prompt-box-container img, [data-entity-type]'));
+          return chips.map((c: any) => c.src || c.currentSrc || '').filter(Boolean);
+        });
+        if (attachedChips.length === 0) {
+          throw new Error('STRICT_I2V_PROVENANCE_ERROR: Prompt chip không xuất hiện trong ô nhập lệnh sau khi đính kèm keyframe.');
+        }
+        if (assetUuid) {
+          const chipMatches = attachedChips.some((u) => u.includes(assetUuid));
+          if (!chipMatches) {
+            console.warn(`[BrowserAutomationAdapter] Cảnh báo: Prompt chip không chứa rõ ràng assetUuid "${assetUuid}" trong src.`);
           }
         }
       }

@@ -588,23 +588,24 @@ async function runLiveE2E() {
       if (!keyframeTile || !await keyframeTile.isVisible().catch(() => false)) {
         keyframeTile = page.locator(`flow-grid-tile-container:has(img[src*="${generatedImageUrl.split('?')[0]}"])`).first();
       }
+
+      // STRICT: Không fallback sang .first() khi không tìm thấy đúng ID
       if (!keyframeTile || !await keyframeTile.isVisible().catch(() => false)) {
-        keyframeTile = page.locator('flow-image-tile:has(img:not(.thumbnail)), flow-grid-tile-container:has(img.image)').first();
+        throw new Error(`STRICT_I2V_PROVENANCE_ERROR: Không tìm thấy keyframe tile khớp ID "${resolvedKeyframeId}" hoặc URL "${generatedImageUrl}". Từ chối chọn ngẫu nhiên ảnh khác.`);
       }
 
-      if (await keyframeTile.isVisible().catch(() => false)) {
-        await keyframeTile.click({ button: 'right' });
-        await page.waitForTimeout(600);
+      await keyframeTile.click({ button: 'right' });
+      await page.waitForTimeout(600);
 
-        const addToPromptBtn = page.locator('.cdk-overlay-container button').filter({ hasText: /Thêm vào câu lệnh|Add to prompt/i }).first();
-        if (await addToPromptBtn.isVisible().catch(() => false)) {
-          await addToPromptBtn.click();
-          await page.waitForTimeout(1000);
-          imageAttached = true;
-          console.log('  ✅ Đã gắn keyframe image vào prompt box thành công!');
-        } else {
-          await page.keyboard.press('Escape');
-        }
+      const addToPromptBtn = page.locator('.cdk-overlay-container button').filter({ hasText: /Thêm vào câu lệnh|Add to prompt/i }).first();
+      if (await addToPromptBtn.isVisible().catch(() => false)) {
+        await addToPromptBtn.click();
+        await page.waitForTimeout(1000);
+        imageAttached = true;
+        console.log('  ✅ Đã gắn keyframe image vào prompt box thành công!');
+      } else {
+        await page.keyboard.press('Escape');
+        throw new Error('STRICT_I2V_PROVENANCE_ERROR: Menu ngữ cảnh không xuất hiện tuỳ chọn "Thêm vào câu lệnh" (Add to prompt).');
       }
 
       // Xác minh chip ảnh đã xuất hiện trong prompt container và khớp đúng định danh keyframe
@@ -763,7 +764,7 @@ async function runLiveE2E() {
         return { ariaLabel };
       }, generatedI2vVideoUrl).catch(() => ({ ariaLabel: '' }));
 
-      let provenanceLevel: 'FULL_MULTI_FACTOR_PROVENANCE' | 'HIGH_ASSET_CHIP_CORRELATION' | 'PARTIAL_TIMING_ONLY' = 'PARTIAL_TIMING_ONLY';
+      let provenanceLevel: 'FULL_MULTI_FACTOR_PROVENANCE' | 'HIGH_ASSET_CHIP_CORRELATION' | 'PARTIAL_UNVERIFIED' = 'PARTIAL_UNVERIFIED';
       if (chipIdentityMatched && timingValid) {
         if (videoCardInfo?.ariaLabel) {
           provenanceLevel = 'FULL_MULTI_FACTOR_PROVENANCE';
@@ -915,10 +916,10 @@ async function runOfflineValidation(): Promise<void> {
       console.log(`  - Keyframe Timestamp   : ${imgTimestamp} (${new Date(imgTimestamp).toLocaleTimeString()})`);
       console.log(`  - I2V Video Timestamp  : ${i2vTimestamp} (${new Date(i2vTimestamp).toLocaleTimeString()})`);
       console.log(`  - Timing Order         : I2V file created AFTER keyframe (Delta: +${deltaSec.toFixed(1)}s)`);
-      console.log(`  - Level of Assurance   : ℹ️ PARTIAL_TIMING_ONLY (File order verified, deep DOM metadata unrecorded)`);
+      console.log(`  - Level of Assurance   : ℹ️ PARTIAL_UNVERIFIED (Legacy asset without cryptographic chip manifest)`);
       console.log(`  - Full Frame Decode    : 100% frames decoded via FFmpeg with 0 errors`);
       assert.ok(i2vTimestamp > imgTimestamp, 'I2V file must be created after keyframe');
-      console.log('  ✅ [PASS] Real Live Image-to-Video (I2V) File & Decode: VERIFIED (PARTIAL_TIMING_ONLY)\n');
+      console.log('  ✅ [PASS] Real Live Image-to-Video (I2V) File & Decode: VERIFIED (PARTIAL_UNVERIFIED)\n');
     }
   } else {
     console.log(`  - Pipeline I2V Contract : Verified in automated test suite (inputImageAsset -> Veo MZZa6b).`);
