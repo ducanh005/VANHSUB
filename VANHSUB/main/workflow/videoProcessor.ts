@@ -33,29 +33,39 @@ export class VideoProcessor {
   public static async getVideoStreamInfo(videoPath: string): Promise<{
     duration: number;
     hasAudio: boolean;
+    hasVideo: boolean;
     width: number;
     height: number;
   }> {
     if (!videoPath || !fs.existsSync(videoPath)) {
-      return { duration: 5, hasAudio: false, width: 1280, height: 720 };
+      return { duration: 5, hasAudio: false, hasVideo: false, width: 1280, height: 720 };
     }
 
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       ffmpeg.ffprobe(videoPath, (err, metadata) => {
         if (err || !metadata) {
-          resolve({ duration: 5, hasAudio: false, width: 1280, height: 720 });
-          return;
+          return reject(
+            new Error(
+              `CORRUPT_MEDIA_FILE: Tệp video bị hỏng hoặc không thể phân tích: ${videoPath} (${err?.message || 'Không có metadata'})`
+            )
+          );
         }
         const videoStream = metadata.streams?.find((s) => s.codec_type === 'video');
+        if (!videoStream) {
+          return reject(
+            new Error(`MISSING_VIDEO_STREAM: Tệp ${videoPath} không chứa luồng video hợp lệ!`)
+          );
+        }
         const audioStream = metadata.streams?.find((s) => s.codec_type === 'audio');
-        const dur = metadata.format?.duration || videoStream?.duration;
+        const dur = metadata.format?.duration || videoStream.duration;
         const parsed = Number(dur);
         const duration = Number.isFinite(parsed) && parsed > 0 ? parsed : 5;
-        const width = videoStream?.width || 1280;
-        const height = videoStream?.height || 720;
+        const width = videoStream.width || 1280;
+        const height = videoStream.height || 720;
         resolve({
           duration,
           hasAudio: Boolean(audioStream),
+          hasVideo: true,
           width,
           height,
         });
@@ -67,8 +77,12 @@ export class VideoProcessor {
    * Đọc thời lượng (giây) của video qua ffprobe
    */
   public static async getVideoDuration(videoPath: string): Promise<number> {
-    const info = await this.getVideoStreamInfo(videoPath);
-    return info.duration;
+    try {
+      const info = await this.getVideoStreamInfo(videoPath);
+      return info.duration;
+    } catch {
+      return 5;
+    }
   }
 
   /**

@@ -83,7 +83,47 @@ async function run() {
       Math.abs(dur - 12.0) <= 0.5,
       `Duration must be close to 12.0s (not 58s!). Actual: ${dur}`
     );
-    console.log('     ✅ Timebase normalization verified: 3x4s outputs exact ~12.0s without timeline inflation.');
+    // Test 4: Corrupt media file throws CORRUPT_MEDIA_FILE
+    console.log('  4. Testing corrupt media file rejection...');
+    const corruptFile = path.join(tempDir, 'corrupt.mp4');
+    fs.writeFileSync(corruptFile, 'THIS_IS_NOT_A_VALID_MP4_HEADER_GARBAGE_BYTES_12345');
+    let threwCorrupt = false;
+    try {
+      await VideoProcessor.concatVideos([vid1, corruptFile], path.join(tempDir, 'corrupt_out.mp4'));
+    } catch (err: any) {
+      threwCorrupt = true;
+      assert.ok(
+        err.message.includes('CORRUPT_MEDIA_FILE') || err.message.includes('Lỗi khi ghép nối'),
+        `Expected corruption error, got: ${err.message}`
+      );
+    }
+    assert.strictEqual(threwCorrupt, true, 'Must reject corrupt media file');
+    console.log('     ✅ Corrupt media file properly rejected.');
+
+    // Test 5: Audio-only media file (no video stream) throws MISSING_VIDEO_STREAM
+    console.log('  5. Testing audio-only file (missing video stream) rejection...');
+    const audioOnlyFile = path.join(tempDir, 'audio_only.mp3');
+    await new Promise<void>((res, rej) => {
+      ffmpeg()
+        .input('sine=frequency=440:duration=2')
+        .inputOption('-f lavfi')
+        .output(audioOnlyFile)
+        .on('end', () => res())
+        .on('error', (e) => rej(e))
+        .run();
+    });
+    let threwAudioOnly = false;
+    try {
+      await VideoProcessor.concatVideos([vid1, audioOnlyFile], path.join(tempDir, 'audio_only_out.mp4'));
+    } catch (err: any) {
+      threwAudioOnly = true;
+      assert.ok(
+        err.message.includes('MISSING_VIDEO_STREAM') || err.message.includes('CORRUPT_MEDIA_FILE'),
+        `Expected stream error, got: ${err.message}`
+      );
+    }
+    assert.strictEqual(threwAudioOnly, true, 'Must reject audio-only file passed as video scene');
+    console.log('     ✅ Audio-only media file properly rejected.');
 
     console.log('\n✅ All VideoProcessor Concat Guardrail Tests PASSED!');
   } finally {
