@@ -1,4 +1,5 @@
 module.exports = {
+  startupDelay: 20000,
   webpack: (config) => {
     config.output = {
       ...config.output,

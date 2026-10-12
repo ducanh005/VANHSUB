@@ -238,20 +238,26 @@ export class VideoProcessor {
 
     for (let i = 0; i < inputPaths.length; i++) {
       const info = streamInfos[i];
+      const safeDur = Math.max(0.1, info.duration).toFixed(3);
       // Chuẩn hóa Video: scale phù hợp, pad đen nếu lệch tỉ lệ, khóa framerate 24fps và reset PTS
       filterParts.push(
         `[${i}:v]scale=${targetWidth}:${targetHeight}:force_original_aspect_ratio=decrease,pad=${targetWidth}:${targetHeight}:(ow-iw)/2:(oh-ih)/2,fps=24,setpts=PTS-STARTPTS[v${i}]`
       );
 
-      // Chuẩn hóa Audio: nếu có track âm thanh thì resample 48000Hz và reset PTS; nếu không có thì tạo âm thanh tĩnh (silence)
+      // Chuẩn hóa Audio:
+      // Chính sách thời lượng: Audio được khóa chặt chẽ theo thời lượng video của phân cảnh (safeDur).
+      // asetpts=PTS-STARTPTS reset timestamp gốc
+      // aresample=48000:async=1000 xử lý drift
+      // apad bù silence nếu audio ngắn hơn video
+      // atrim=0:${safeDur} cắt chính xác nếu audio dài hơn video (chống phình thời lượng cảnh)
+      // aformat stereo fltp đảm bảo layout đồng nhất
       if (info.hasAudio) {
         filterParts.push(
-          `[${i}:a]aresample=48000,asetpts=PTS-STARTPTS[a${i}]`
+          `[${i}:a]asetpts=PTS-STARTPTS,aresample=48000:async=1000,apad,atrim=0:${safeDur},aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo[a${i}]`
         );
       } else {
-        const safeDur = Math.max(0.1, info.duration).toFixed(3);
         filterParts.push(
-          `aevalsrc=0:d=${safeDur}:s=48000[a${i}]`
+          `aevalsrc=0:d=${safeDur}:s=48000:c=stereo,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo[a${i}]`
         );
       }
 
@@ -295,7 +301,8 @@ export class VideoProcessor {
 
     // Kiểm tra thời lượng thực tế so với expectedDuration
     const actualDuration = await this.getVideoDuration(outputPath);
-    const tolerance = Math.max(0.6, inputPaths.length * 0.15);
+    // Dung sai chặt chẽ dựa trên 1 khung hình (1/24s ~ 0.042s) cho mỗi phân cảnh
+    const tolerance = Math.max(0.08, inputPaths.length * (1 / 24));
     if (Math.abs(actualDuration - expectedDuration) > tolerance) {
       throw new Error(
         `CONCAT_DURATION_MISMATCH: Thời lượng xuất (${actualDuration.toFixed(2)}s) lệch quá lớn so với kỳ vọng (${expectedDuration.toFixed(2)}s, sai số cho phép ${tolerance.toFixed(2)}s)!`

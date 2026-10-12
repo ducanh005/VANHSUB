@@ -80,8 +80,8 @@ async function run() {
     const dur = await VideoProcessor.getVideoDuration(concatOut);
     console.log(`     Output duration: ${dur.toFixed(2)}s (Expected: ~12.0s)`);
     assert.ok(
-      Math.abs(dur - 12.0) <= 0.5,
-      `Duration must be close to 12.0s (not 58s!). Actual: ${dur}`
+      Math.abs(dur - 12.0) <= 0.15,
+      `Duration must be strictly close to 12.0s (<= 0.15s tolerance). Actual: ${dur}`
     );
     // Test 4: Corrupt media file throws CORRUPT_MEDIA_FILE
     console.log('  4. Testing corrupt media file rejection...');
