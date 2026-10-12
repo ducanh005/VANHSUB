@@ -87,6 +87,10 @@ export class AiStudioDiskStorageManager {
     return this._projectDir;
   }
 
+  public get baseDir(): string {
+    return this._projectDir;
+  }
+
   public get paths(): Readonly<PipelineProjectPaths> {
     return this._paths;
   }

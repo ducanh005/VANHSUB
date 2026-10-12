@@ -489,6 +489,7 @@ export interface IdeaBlueprint {
 
 export interface PipelineStartInput {
   topic: string;
+  projectId?: string;
   blueprint?: IdeaBlueprint;
   gatedMode?: boolean;
   outputDir?: string;
@@ -539,8 +540,20 @@ export interface PipelineResumeInput {
   mode?: 'resume_missing' | 'regenerate_selected' | 'regenerate_all';
   selectedShotIds?: string[];
   storyboardOptions?: Pick<AiStudioFlowEngineConfig, 'shotMode' | 'granularity'>;
+  updatedArtifacts?: Record<string, unknown>;
 }
 export type ResumePipelinePayload = PipelineResumeInput;
+
+export interface UpdateSceneFillModePayload {
+  sessionId: string;
+  sceneIds?: string[];
+  fillMode: 'freeze_last_frame' | 'none';
+}
+
+export interface UpdateSceneFillModeResult {
+  success: boolean;
+  scenes?: StoryboardScene[];
+}
 
 export interface PipelineResumeResponse {
   success: boolean;
@@ -607,6 +620,8 @@ export interface StoryboardScene {
   videoPath?: string;
   status: 'pending' | 'generating' | 'ready' | 'error';
   error?: string;
+  fillMode?: 'freeze_last_frame' | 'none';
+  originalMediaDurationSec?: number;
 }
 
 export interface PipelineSessionArtifacts {

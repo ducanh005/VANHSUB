@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   Clock,
   ExternalLink,
+  Film,
   Globe,
   RefreshCw,
   ShieldAlert,
@@ -20,6 +21,7 @@ export interface ActionableErrorBannerProps {
   onOpenLobby?: () => void;
   onOpenChromeBridge?: () => void;
   onOpenDiagnostics?: () => void;
+  onApplyFreezeLastFrame?: () => void;
   countdownSeconds?: number | null;
 }
 
@@ -31,6 +33,7 @@ export default function ActionableErrorBanner({
   onOpenLobby,
   onOpenChromeBridge,
   onOpenDiagnostics,
+  onApplyFreezeLastFrame,
   countdownSeconds,
 }: ActionableErrorBannerProps) {
   if (!error) return null;
@@ -76,6 +79,13 @@ export default function ActionableErrorBanner({
     lowerErr.includes('lùi bước') ||
     lowerErr.includes('429');
 
+  const isTimelineMismatch =
+    code === 'TIMELINE_DURATION_MISMATCH' ||
+    lowerErr.includes('timeline_duration_mismatch') ||
+    lowerErr.includes('ngắn hơn thời lượng yêu cầu') ||
+    lowerErr.includes('lệch thời lượng') ||
+    lowerErr.includes('còn thiếu');
+
   const handleOpenLobbyDefault = async () => {
     if (onOpenLobby) {
       onOpenLobby();
@@ -93,7 +103,9 @@ export default function ActionableErrorBanner({
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-start gap-3 min-w-0 flex-1">
           <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-rose-500/20 text-rose-400 border border-rose-500/30">
-            {isUnusualActivity ? (
+            {isTimelineMismatch ? (
+              <AlertTriangle className="h-5 w-5 text-amber-400" />
+            ) : isUnusualActivity ? (
               <ShieldAlert className="h-5 w-5 text-amber-400" />
             ) : isTimeout || isRateLimited ? (
               <Clock className="h-5 w-5 text-amber-400 animate-pulse" />
@@ -105,7 +117,9 @@ export default function ActionableErrorBanner({
           <div className="space-y-1.5 min-w-0 flex-1">
             <div className="flex items-center gap-2 flex-wrap">
               <h3 className="text-xs font-bold uppercase tracking-wider text-rose-300">
-                {isSessionExpired
+                {isTimelineMismatch
+                  ? 'LỆCH THỜI LƯỢNG TIMELINE (VIDEO NGẮN HƠN PHÂN CẢNH)'
+                  : isSessionExpired
                   ? 'YÊU CẦU ĐĂNG NHẬP GOOGLE FLOW'
                   : isUnusualActivity
                   ? 'GOOGLE YÊU CẦU XÁC MINH BẢO MẬT'
@@ -130,12 +144,31 @@ export default function ActionableErrorBanner({
               )}
             </div>
 
-            <p className="text-xs text-text leading-relaxed break-words">
+            <p className="text-xs text-text leading-relaxed break-words whitespace-pre-line">
               {error}
             </p>
 
+            {isTimelineMismatch && (
+              <div className="rounded-md border border-amber-500/30 bg-amber-950/40 p-2.5 text-[11px] text-amber-200/90 mt-1 space-y-1">
+                <div>
+                  💡 <strong>Khắc phục:</strong> Clip video ngắn hơn thời lượng yêu cầu của phân cảnh. Bạn có thể chọn <strong>&ldquo;Giữ khung hình cuối cho đủ thời lượng&rdquo;</strong> để hệ thống tự động giữ khung hình cuối cho phần còn thiếu, bảo đảm thời lượng video khớp 100% kịch bản mà không bị cắt lời thoại.
+                </div>
+              </div>
+            )}
+
             {/* Khối gợi ý hành động cụ thể (Actionable Buttons) */}
             <div className="flex items-center gap-2 pt-2 flex-wrap">
+              {isTimelineMismatch && onApplyFreezeLastFrame && (
+                <button
+                  type="button"
+                  onClick={onApplyFreezeLastFrame}
+                  className="flex items-center gap-1.5 rounded-md bg-amber-600 hover:bg-amber-500 px-3.5 py-1.5 text-xs font-bold text-white transition cursor-pointer shadow-sm active:scale-95"
+                  title="Tự động giữ khung hình cuối của clip để bù đủ thời lượng phân cảnh"
+                >
+                  <Film className="h-3.5 w-3.5" />
+                  <span>Giữ khung hình cuối cho đủ thời lượng</span>
+                </button>
+              )}
               {isSessionExpired && (
                 <>
                   <button

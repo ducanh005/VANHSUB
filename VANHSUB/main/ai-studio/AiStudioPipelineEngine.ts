@@ -2243,6 +2243,7 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
         const targetScene = session.artifacts.scenes.find((s) => s.id === shotId || s.shotId === shotId);
         if (targetScene) {
           applySceneMedia(session, shotId, { imagePath: isVideo ? undefined : destPath, videoPath: isVideo ? destPath : undefined });
+          if (isVideo) targetScene.originalMediaDurationSec = await aiStudioVideoAssembler.probeDuration(destPath);
           this.persistSessionStateAtomic(session);
         }
       }

@@ -36,6 +36,7 @@ export interface StoryboardSceneCardProps {
     durationMs?: number;
   }) => void;
   onOpenFolder?: (path?: string) => void;
+  onToggleFillMode?: (mode: 'freeze_last_frame' | 'none') => void;
 }
 
 export const StoryboardSceneCard: React.FC<StoryboardSceneCardProps> = ({
@@ -51,6 +52,7 @@ export const StoryboardSceneCard: React.FC<StoryboardSceneCardProps> = ({
   onImportMedia = () => {},
   onPreview = () => {},
   onOpenFolder = () => {},
+  onToggleFillMode,
 }) => {
   if (!scene) return null;
 
@@ -82,6 +84,18 @@ export const StoryboardSceneCard: React.FC<StoryboardSceneCardProps> = ({
   const cameraAngle = sceneAny.cameraAngle || sceneAny.camera_angle;
   const cameraMotion = sceneAny.cameraMotion || sceneAny.camera_motion;
   const kenBurnsProfile = sceneAny.kenBurnsProfile || (scene.motionType === 'ken_burns' ? 'Dynamic 1/3 Pan/Zoom' : undefined);
+
+  const processedDurSec = (
+    typeof scene.durationMs === 'number' && scene.durationMs > 0
+      ? scene.durationMs / 1000
+      : typeof scene.endMs === 'number' && typeof scene.startMs === 'number' && scene.endMs > scene.startMs
+      ? (scene.endMs - scene.startMs) / 1000
+      : 4.0
+  ).toFixed(1);
+  const originalDurSec =
+    typeof scene.originalMediaDurationSec === 'number' && scene.originalMediaDurationSec > 0
+      ? scene.originalMediaDurationSec.toFixed(1)
+      : null;
 
   return (
     <div className="rounded-lg border border-border bg-[#0B101E] p-4 space-y-3 text-xs">
@@ -118,9 +132,24 @@ export const StoryboardSceneCard: React.FC<StoryboardSceneCardProps> = ({
               </span>
             </div>
           )}
-          <span className="text-text-muted">
-            Thời lượng: {Math.round((scene.durationMs || 4000) / 1000)}s
-          </span>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-text-muted">
+              Xử lý: {processedDurSec}s
+            </span>
+            {originalDurSec && (
+              <span className="text-text-muted" title={`Thời lượng tệp media gốc: ${originalDurSec}s`}>
+                • Gốc: {originalDurSec}s
+              </span>
+            )}
+            {scene.fillMode === 'freeze_last_frame' && (
+              <span
+                className="inline-flex items-center gap-1 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 px-1.5 py-0.5 text-[9px] font-semibold"
+                title="Bù đủ thời lượng phân cảnh bằng cách giữ khung hình cuối của clip"
+              >
+                ❄️ Giữ khung hình cuối
+              </span>
+            )}
+          </div>
 
           {/* Camera angle & motion badges */}
           {cameraAngle && (
@@ -410,6 +439,25 @@ export const StoryboardSceneCard: React.FC<StoryboardSceneCardProps> = ({
             <span>Chọn video</span>
           </button>
         </div>
+
+        {/* Nhóm 3: Tùy chọn giữ khung hình cuối */}
+        {hasVideo && onToggleFillMode && (
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <button
+              type="button"
+              onClick={() => onToggleFillMode(scene.fillMode === 'freeze_last_frame' ? 'none' : 'freeze_last_frame')}
+              disabled={isSceneBusy}
+              className={`rounded-lg border px-2.5 py-1 text-[11px] font-medium transition cursor-pointer flex items-center gap-1 disabled:opacity-50 ${
+                scene.fillMode === 'freeze_last_frame'
+                  ? 'border-amber-500/60 bg-amber-950/60 text-amber-300 hover:bg-amber-900/70'
+                  : 'border-border bg-surface hover:bg-surface-2 text-text-muted hover:text-white'
+              }`}
+              title="Bật/Tắt giữ khung hình cuối để bù đủ thời lượng phân cảnh khi xuất video"
+            >
+              <span>{scene.fillMode === 'freeze_last_frame' ? '✓ Giữ khung cuối: BẬT' : 'Giữ khung cuối: TẮT'}</span>
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -449,6 +449,7 @@ export interface VanhsubAPI {
     // Pipeline Execution (Milestone 2)
     startPipeline: (payload: {
       topic: string;
+      projectId?: string;
       blueprint?: IdeaBlueprint;
       gatedMode?: boolean;
       outputDir?: string;
@@ -461,9 +462,15 @@ export interface VanhsubAPI {
       mode?: 'resume_missing' | 'regenerate_selected' | 'regenerate_all';
       selectedShotIds?: string[];
       storyboardOptions?: { shotMode?: 'single' | 'multi'; granularity?: 'detailed' | 'balanced' | 'fast' };
+      updatedArtifacts?: any;
     }) => Promise<{ success: boolean }>;
     cancelPipeline: (payload: { sessionId: string }) => Promise<{ success: boolean }>;
     getPipelineState: (payload: { sessionId: string }) => Promise<PipelineSessionState | null>;
+    updateSceneFillMode: (payload: {
+      sessionId: string;
+      sceneIds?: string[];
+      fillMode: 'freeze_last_frame' | 'none';
+    }) => Promise<{ success: boolean; scenes?: StoryboardScene[] }>;
 
     // Granular Step Operations (Milestone 2)
     renderSingleLineVoice: (payload: {

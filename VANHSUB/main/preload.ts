@@ -216,11 +216,17 @@ const vanhsub = {
       fromStage?: number;
       mode?: 'resume_missing' | 'regenerate_selected' | 'regenerate_all';
       selectedShotIds?: string[];
+      updatedArtifacts?: any;
     }) => ipcRenderer.invoke('aiStudio:pipeline:resume', payload),
     cancelPipeline: (payload: { sessionId: string }) =>
       ipcRenderer.invoke('aiStudio:pipeline:cancel', payload),
     getPipelineState: (payload: { sessionId: string }) =>
       ipcRenderer.invoke('aiStudio:pipeline:getState', payload),
+    updateSceneFillMode: (payload: {
+      sessionId: string;
+      sceneIds?: string[];
+      fillMode: 'freeze_last_frame' | 'none';
+    }) => ipcRenderer.invoke('aiStudio:scene:updateFillMode', payload),
 
     // Granular Step Operations (Milestone 2)
     renderSingleLineVoice: (payload: { lineIndex: number; text: string; voiceConfig: any }) =>

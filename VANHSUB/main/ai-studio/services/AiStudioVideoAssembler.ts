@@ -82,6 +82,33 @@ export interface VideoAssemblyResult {
   height: number;
 }
 
+export interface TimelineMismatchDetail {
+  sceneId: string;
+  shotId?: string;
+  expectedDurationSec: number;
+  actualDurationSec: number;
+  missingDurationSec: number;
+}
+
+export class TimelineDurationMismatchError extends Error {
+  public readonly code = 'TIMELINE_DURATION_MISMATCH';
+  public readonly mismatches: TimelineMismatchDetail[];
+
+  constructor(mismatches: TimelineMismatchDetail[]) {
+    const lines = mismatches.map((m) => {
+      const idLabel = m.shotId && m.shotId !== m.sceneId ? `${m.sceneId} (${m.shotId})` : m.sceneId;
+      return `- Cảnh ${idLabel} cần ${m.expectedDurationSec.toFixed(1)} giây, video hiện có ${m.actualDurationSec.toFixed(1)} giây, còn thiếu ${m.missingDurationSec.toFixed(1)} giây.`;
+    });
+    const summary = lines.join('\n');
+    super(
+      `Không thể xuất video: Phát hiện clip video ngắn hơn thời lượng yêu cầu của phân cảnh:\n${summary}\n` +
+      `Vui lòng thay thế clip hoặc điều chỉnh thời lượng phân cảnh trước khi xuất.`
+    );
+    this.name = 'TimelineDurationMismatchError';
+    this.mismatches = mismatches;
+  }
+}
+
 export class AiStudioVideoAssembler {
   private static instance: AiStudioVideoAssembler | null = null;
 
@@ -320,6 +347,68 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
   }
 
   // ==========================================================================
+  // Timeline Duration Validation Guard (spec: frame boundary tolerance ~0.06 - 0.08s)
+  // ==========================================================================
+  /**
+   * Validates each scene's media duration against its timeline duration requirement.
+   * - Static images (.png, .jpg, etc.) are looped via FFmpeg `-loop 1 -t` and are not blocked.
+   * - Videos longer than required are permitted and trimmed without error.
+   * - Videos shorter than required beyond frame boundary tolerance (~0.08s) are collected and flagged.
+   */
+  public async validateTimelineDurations(
+    scenes: StoryboardScene[],
+    fps = 25
+  ): Promise<{ valid: boolean; mismatches: TimelineMismatchDetail[] }> {
+    const mismatches: TimelineMismatchDetail[] = [];
+    // Frame boundary tolerance: ~0.06 - 0.08s (2 frames at 25fps)
+    const tolerance = Math.max(0.08, 1.5 / fps);
+
+    for (let i = 0; i < scenes.length; i++) {
+      const sc = scenes[i];
+      const resolvedPath = sc.assetPath || sc.videoPath || sc.imagePath;
+      if (!resolvedPath || !fs.existsSync(resolvedPath)) {
+        continue;
+      }
+
+      const isVideo = /\.(mp4|webm|mov|mkv)$/i.test(resolvedPath);
+      if (!isVideo) {
+        // Static image: Extended via FFmpeg -loop 1 -t, perfectly valid
+        continue;
+      }
+
+      let durSec = 4.0;
+      if (typeof sc.durationMs === 'number' && sc.durationMs > 0) {
+        durSec = sc.durationMs / 1000;
+      } else if (typeof sc.endMs === 'number' && typeof sc.startMs === 'number' && sc.endMs > sc.startMs) {
+        durSec = (sc.endMs - sc.startMs) / 1000;
+      }
+
+      try {
+        const actualDur = await this.probeDuration(resolvedPath);
+        sc.originalMediaDurationSec = Math.round(actualDur * 100) / 100;
+        if (actualDur < durSec - tolerance) {
+          if (sc.fillMode !== 'freeze_last_frame') {
+            mismatches.push({
+              sceneId: sc.id || sc.shotId || `scene_${i + 1}`,
+              shotId: sc.shotId,
+              expectedDurationSec: Math.round(durSec * 100) / 100,
+              actualDurationSec: Math.round(actualDur * 100) / 100,
+              missingDurationSec: Math.round((durSec - actualDur) * 100) / 100,
+            });
+          }
+        }
+      } catch (err) {
+        console.warn(`[AiStudioVideoAssembler] Could not probe duration for ${resolvedPath}:`, err);
+      }
+    }
+
+    return {
+      valid: mismatches.length === 0,
+      mismatches,
+    };
+  }
+
+  // ==========================================================================
   // Stage 7: Video Assembly & Rendering
   // ==========================================================================
   public async assembleVideo(options: VideoAssemblyOptions): Promise<VideoAssemblyResult> {
@@ -339,6 +428,12 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
     if (!fs.existsSync(voiceoverAudioPath)) {
       throw new Error(`Voiceover audio file not found at: ${voiceoverAudioPath}`);
+    }
+
+    // Pre-validate timeline durations before running expensive FFmpeg rendering
+    const timelineCheck = await this.validateTimelineDurations(scenes, 25);
+    if (!timelineCheck.valid) {
+      throw new TimelineDurationMismatchError(timelineCheck.mismatches);
     }
 
     fs.mkdirSync(path.dirname(outputPath), { recursive: true });
@@ -364,8 +459,10 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     interface VisualSegment {
       path: string;
       durationSec: number;
+      actualDurationSec?: number;
       isVideo: boolean;
       shotId?: string;
+      fillMode?: 'freeze_last_frame' | 'none';
     }
 
     const isVideoFile = (filePath: string) => /\.(mp4|webm|mov|mkv)$/i.test(filePath);
@@ -403,19 +500,32 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         durSec = (sc.endMs - sc.startMs) / 1000;
       }
 
+      const isVideo = isVideoFile(resolvedPath);
+      let actualDur: number | undefined;
+      if (isVideo) {
+        try {
+          actualDur = await this.probeDuration(resolvedPath);
+          sc.originalMediaDurationSec = Math.round(actualDur * 100) / 100;
+        } catch (probeErr) {
+          console.warn(`[AiStudioVideoAssembler] Could not probe segment duration for ${resolvedPath}:`, probeErr);
+        }
+      }
+
       segments.push({
         path: resolvedPath,
         durationSec: Math.max(0.5, Math.round(durSec * 100) / 100),
-        isVideo: isVideoFile(resolvedPath),
+        actualDurationSec: actualDur,
+        isVideo,
         shotId: sc.shotId || sc.id,
+        fillMode: sc.fillMode,
       });
     }
 
     // Đảm bảo tổng thời lượng visual bao phủ đủ audioDurationSec để tránh cắt hụt video
     let totalVisualSec = segments.reduce((sum, s) => sum + s.durationSec, 0);
-    if (totalVisualSec < audioDurationSec && segments.length > 0) {
-      const diff = audioDurationSec - totalVisualSec;
-      segments[segments.length - 1].durationSec = Math.round((segments[segments.length - 1].durationSec + diff + 0.5) * 100) / 100;
+    const visualAudioDiff = audioDurationSec - totalVisualSec;
+    if (visualAudioDiff > 0.08 && segments.length > 0) {
+      segments[segments.length - 1].durationSec = Math.round((segments[segments.length - 1].durationSec + visualAudioDiff) * 100) / 100;
       totalVisualSec = segments.reduce((sum, s) => sum + s.durationSec, 0);
     }
 
@@ -432,9 +542,21 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     segments.forEach((seg, i) => {
       const safeScale = `scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height},setsar=1,fps=${fps}`;
       if (seg.isVideo) {
-        // Repeat a short clip to cover its scene instead of truncating the narration.
-        cmd.input(seg.path).inputOptions(['-stream_loop -1']);
-        filterChain.push(`[${i}:v]${safeScale},trim=duration=${seg.durationSec},setpts=PTS-STARTPTS[v${i}]`);
+        cmd.input(seg.path);
+        const actualDur = seg.actualDurationSec || 0;
+        const needsPadding =
+          seg.fillMode === 'freeze_last_frame' &&
+          actualDur > 0 &&
+          actualDur < seg.durationSec - 0.08;
+
+        if (needsPadding) {
+          const missingSec = Math.max(0.1, Number((seg.durationSec - actualDur + 0.5).toFixed(2)));
+          filterChain.push(
+            `[${i}:v]${safeScale},tpad=stop_mode=clone:stop_duration=${missingSec},trim=duration=${seg.durationSec},setpts=PTS-STARTPTS[v${i}]`
+          );
+        } else {
+          filterChain.push(`[${i}:v]${safeScale},trim=duration=${seg.durationSec},setpts=PTS-STARTPTS[v${i}]`);
+        }
       } else {
         cmd.input(seg.path);
         if (renderingConfig.kenBurnsEffect) {

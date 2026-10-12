@@ -28,6 +28,8 @@ const SUITES = [
   'tests/test_media_validator_ffmpeg_decoding.ts',
   'tests/test_video_processor_concat.ts',
   'tests/test_production_workflow_acceptance.ts',
+  'tests/test_project_media_isolation_regression.ts',
+  'tests/test_timeline_export_duration_guard.ts',
 ];
 
 const tsxCli = path.resolve(__dirname, '..', 'node_modules', 'tsx', 'dist', 'cli.mjs');

@@ -75,6 +75,7 @@ export interface PipelineTrackerPanelProps {
   onDismissError: () => void;
   onOpenChromeBridge: () => void;
   onOpenDiagnostics: () => void;
+  onApplyFreezeLastFrame?: () => void;
   onOpenFolder: (path?: string) => void;
 }
 
@@ -95,6 +96,7 @@ export const PipelineTrackerPanel: React.FC<PipelineTrackerPanelProps> = ({
   onDismissError,
   onOpenChromeBridge,
   onOpenDiagnostics,
+  onApplyFreezeLastFrame,
   onOpenFolder,
 }) => {
   return (
@@ -310,6 +312,7 @@ export const PipelineTrackerPanel: React.FC<PipelineTrackerPanelProps> = ({
                 onRetry={onRetryStage}
                 onOpenChromeBridge={onOpenChromeBridge}
                 onOpenDiagnostics={onOpenDiagnostics}
+                onApplyFreezeLastFrame={onApplyFreezeLastFrame}
               />
             )}
 
