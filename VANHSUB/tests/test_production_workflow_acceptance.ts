@@ -304,9 +304,11 @@ async function main() {
 
   await runTest('4.1 VideoProcessor.concatVideos merges 3 distinct scene videos into final sequence', async () => {
     const inputVideos = scenes.map(s => s.videoPath!);
+    const lastDispatchPct = progressUpdates.length > 0 ? progressUpdates[progressUpdates.length - 1].pct : 90;
     const exportedPath = await VideoProcessor.concatVideos(inputVideos, finalExportPath, {
       onProgress: (p) => {
-        progressUpdates.push({ pct: p, msg: `Exporting sequence: ${p}%` });
+        const mapped = Math.min(99, Math.max(lastDispatchPct, Math.round(lastDispatchPct + (p / 100) * (99 - lastDispatchPct))));
+        progressUpdates.push({ pct: mapped, msg: `Exporting sequence: ${p}%` });
       },
     });
 

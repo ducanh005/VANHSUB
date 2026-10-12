@@ -26,6 +26,7 @@ const SUITES = [
   'tests/test_flow_project_isolation.ts',
   'tests/test_direct_ui_adaptive_mode.ts',
   'tests/test_media_validator_ffmpeg_decoding.ts',
+  'tests/test_video_processor_concat.ts',
   'tests/test_production_workflow_acceptance.ts',
 ];
 

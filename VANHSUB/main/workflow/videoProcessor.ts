@@ -28,22 +28,47 @@ export interface TransitionOptions {
 
 export class VideoProcessor {
   /**
-   * Đọc thời lượng (giây) của video qua ffprobe
+   * Đọc thông tin chi tiết stream của video qua ffprobe (thời lượng, kích thước, audio)
    */
-  public static async getVideoDuration(videoPath: string): Promise<number> {
-    if (!videoPath || !fs.existsSync(videoPath)) return 5;
+  public static async getVideoStreamInfo(videoPath: string): Promise<{
+    duration: number;
+    hasAudio: boolean;
+    width: number;
+    height: number;
+  }> {
+    if (!videoPath || !fs.existsSync(videoPath)) {
+      return { duration: 5, hasAudio: false, width: 1280, height: 720 };
+    }
 
     return new Promise((resolve) => {
       ffmpeg.ffprobe(videoPath, (err, metadata) => {
         if (err || !metadata) {
-          resolve(5); // fallback an toàn 5 giây
+          resolve({ duration: 5, hasAudio: false, width: 1280, height: 720 });
           return;
         }
-        const dur = metadata.format?.duration || metadata.streams?.[0]?.duration;
+        const videoStream = metadata.streams?.find((s) => s.codec_type === 'video');
+        const audioStream = metadata.streams?.find((s) => s.codec_type === 'audio');
+        const dur = metadata.format?.duration || videoStream?.duration;
         const parsed = Number(dur);
-        resolve(Number.isFinite(parsed) && parsed > 0 ? parsed : 5);
+        const duration = Number.isFinite(parsed) && parsed > 0 ? parsed : 5;
+        const width = videoStream?.width || 1280;
+        const height = videoStream?.height || 720;
+        resolve({
+          duration,
+          hasAudio: Boolean(audioStream),
+          width,
+          height,
+        });
       });
     });
+  }
+
+  /**
+   * Đọc thời lượng (giây) của video qua ffprobe
+   */
+  public static async getVideoDuration(videoPath: string): Promise<number> {
+    const info = await this.getVideoStreamInfo(videoPath);
+    return info.duration;
   }
 
   /**
@@ -86,7 +111,9 @@ export class VideoProcessor {
   }
 
   /**
-   * Ghép nối danh sách video thành một sequence liền mạch qua Concat Demuxer
+   * Ghép nối danh sách video thành một sequence liền mạch qua FFmpeg filter_complex
+   * Chuẩn hóa timebase, PTS, framerate 24fps và âm thanh (resample/silence synthesis).
+   * Kiểm tra nghiêm ngặt sự tồn tại của từng phân cảnh và sai số thời lượng.
    */
   public static async concatVideos(
     inputPaths: string[],
@@ -94,26 +121,54 @@ export class VideoProcessor {
     ctx?: ExecutionContext,
     options?: TransitionOptions
   ): Promise<string> {
-    const validInputs = inputPaths.filter((p) => p && fs.existsSync(p));
-    if (validInputs.length === 0) {
+    if (!inputPaths || inputPaths.length === 0) {
       throw new Error('Không có video hợp lệ nào để ghép!');
     }
 
-    if (validInputs.length === 1) {
-      fs.copyFileSync(validInputs[0], outputPath);
+    // 1. Kiểm tra nghiêm ngặt từng file phân cảnh (không âm thầm lọc bỏ)
+    for (let i = 0; i < inputPaths.length; i++) {
+      const p = inputPaths[i];
+      if (!p || typeof p !== 'string' || !fs.existsSync(p)) {
+        throw new Error(
+          `MISSING_SCENE_VIDEO_INPUT: Phân cảnh ${i + 1} (${p || 'đường dẫn rỗng'}) không tồn tại!`
+        );
+      }
+      try {
+        const stat = fs.statSync(p);
+        if (stat.size === 0) {
+          throw new Error(
+            `MISSING_SCENE_VIDEO_INPUT: Phân cảnh ${i + 1} (${p}) có kích thước rỗng (0 bytes)!`
+          );
+        }
+      } catch (err: any) {
+        if (err.message.includes('MISSING_SCENE_VIDEO_INPUT')) throw err;
+        throw new Error(
+          `MISSING_SCENE_VIDEO_INPUT: Không thể đọc phân cảnh ${i + 1} (${p}): ${err.message}`
+        );
+      }
+    }
+
+    if (inputPaths.length === 1) {
+      fs.copyFileSync(inputPaths[0], outputPath);
       return outputPath;
     }
 
+    // Đọc thông tin chi tiết từng video để tính expectedDuration và kiểm tra stream
+    const streamInfos = await Promise.all(
+      inputPaths.map((p) => this.getVideoStreamInfo(p))
+    );
+    const expectedDuration = streamInfos.reduce((acc, s) => acc + s.duration, 0);
+
     // Nếu có yêu cầu hiệu ứng chuyển cảnh và effect khác 'none'
     const effect = options?.effect;
-    if (effect && effect !== 'none' && validInputs.length >= 2) {
+    if (effect && effect !== 'none' && inputPaths.length >= 2) {
       const tempDir = path.dirname(outputPath);
-      let currentFile = validInputs[0];
+      let currentFile = inputPaths[0];
       const cleanupFiles: string[] = [];
 
       try {
-        for (let i = 1; i < validInputs.length; i++) {
-          const nextFile = validInputs[i];
+        for (let i = 1; i < inputPaths.length; i++) {
+          const nextFile = inputPaths[i];
           const stepOut = path.join(
             tempDir,
             `seq_trans_${Date.now()}_${i}_${Math.random().toString(36).slice(2, 6)}.mp4`
@@ -121,7 +176,7 @@ export class VideoProcessor {
           cleanupFiles.push(stepOut);
 
           if (ctx?.onProgress) {
-            const stepPercent = Math.round((i / validInputs.length) * 90);
+            const stepPercent = Math.round((i / inputPaths.length) * 90);
             ctx.onProgress(stepPercent);
           }
 
@@ -149,27 +204,66 @@ export class VideoProcessor {
             if (fs.existsSync(f)) fs.unlinkSync(f);
           } catch {}
         }
-        // Fallback về concat demuxer thông thường bên dưới
+        // Fallback về concat filter_complex bên dưới
       }
     }
 
     const tempDir = path.dirname(outputPath);
-    const listFilePath = path.join(tempDir, `concat_list_${Date.now()}_${Math.random().toString(36).slice(2, 7)}.txt`);
+    if (!fs.existsSync(tempDir)) {
+      fs.mkdirSync(tempDir, { recursive: true });
+    }
 
-    // Ghi file danh sách concat cho ffmpeg
-    const fileContent = validInputs
-      .map((p) => `file '${p.replace(/\\/g, '/')}'`)
-      .join('\n');
-    fs.writeFileSync(listFilePath, fileContent, 'utf-8');
+    // Xác định kích thước chuẩn hóa từ video đầu tiên (làm chẵn)
+    const rawTargetWidth = streamInfos[0].width || 1280;
+    const rawTargetHeight = streamInfos[0].height || 720;
+    const targetWidth = Math.floor(rawTargetWidth / 2) * 2;
+    const targetHeight = Math.floor(rawTargetHeight / 2) * 2;
 
-    return new Promise((resolve, reject) => {
-      ffmpeg()
-        .input(listFilePath)
-        .inputOptions(['-f concat', '-safe 0'])
+    const filterParts: string[] = [];
+    const concatStreams: string[] = [];
+
+    for (let i = 0; i < inputPaths.length; i++) {
+      const info = streamInfos[i];
+      // Chuẩn hóa Video: scale phù hợp, pad đen nếu lệch tỉ lệ, khóa framerate 24fps và reset PTS
+      filterParts.push(
+        `[${i}:v]scale=${targetWidth}:${targetHeight}:force_original_aspect_ratio=decrease,pad=${targetWidth}:${targetHeight}:(ow-iw)/2:(oh-ih)/2,fps=24,setpts=PTS-STARTPTS[v${i}]`
+      );
+
+      // Chuẩn hóa Audio: nếu có track âm thanh thì resample 48000Hz và reset PTS; nếu không có thì tạo âm thanh tĩnh (silence)
+      if (info.hasAudio) {
+        filterParts.push(
+          `[${i}:a]aresample=48000,asetpts=PTS-STARTPTS[a${i}]`
+        );
+      } else {
+        const safeDur = Math.max(0.1, info.duration).toFixed(3);
+        filterParts.push(
+          `aevalsrc=0:d=${safeDur}:s=48000[a${i}]`
+        );
+      }
+
+      concatStreams.push(`[v${i}][a${i}]`);
+    }
+
+    filterParts.push(
+      `${concatStreams.join('')}concat=n=${inputPaths.length}:v=1:a=1[outv][outa]`
+    );
+
+    await new Promise<string>((resolve, reject) => {
+      let proc = ffmpeg();
+      for (const p of inputPaths) {
+        proc = proc.input(p);
+      }
+
+      proc
+        .complexFilter(filterParts)
         .outputOptions([
+          '-map [outv]',
+          '-map [outa]',
           '-c:v libx264',
           '-pix_fmt yuv420p',
           '-preset veryfast',
+          '-c:a aac',
+          '-b:a 192k',
           '-movflags +faststart',
         ])
         .output(outputPath)
@@ -178,20 +272,27 @@ export class VideoProcessor {
             ctx.onProgress(Math.min(95, Math.round(p.percent)));
           }
         })
-        .on('end', () => {
-          try {
-            fs.unlinkSync(listFilePath);
-          } catch {}
-          resolve(outputPath);
-        })
-        .on('error', (err) => {
-          try {
-            fs.unlinkSync(listFilePath);
-          } catch {}
-          reject(new Error(`Lỗi khi ghép nối video: ${err.message}`));
-        })
+        .on('end', () => resolve(outputPath))
+        .on('error', (err) =>
+          reject(new Error(`Lỗi khi ghép nối video qua FFmpeg filter_complex: ${err.message}`))
+        )
         .run();
     });
+
+    // Kiểm tra thời lượng thực tế so với expectedDuration
+    const actualDuration = await this.getVideoDuration(outputPath);
+    const tolerance = Math.max(0.6, inputPaths.length * 0.15);
+    if (Math.abs(actualDuration - expectedDuration) > tolerance) {
+      throw new Error(
+        `CONCAT_DURATION_MISMATCH: Thời lượng xuất (${actualDuration.toFixed(2)}s) lệch quá lớn so với kỳ vọng (${expectedDuration.toFixed(2)}s, sai số cho phép ${tolerance.toFixed(2)}s)!`
+      );
+    }
+
+    if (ctx?.onProgress) {
+      ctx.onProgress(100);
+    }
+
+    return outputPath;
   }
 
   /**
