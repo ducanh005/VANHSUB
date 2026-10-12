@@ -633,6 +633,8 @@ export interface StoryboardScene {
   inputImageAsset?: string;
   status: 'pending' | 'generating' | 'ready' | 'error';
   error?: string;
+  fillMode?: 'freeze_last_frame' | 'none';
+  originalMediaDurationSec?: number;
 }
 
 export interface SeoMetadata {
@@ -671,6 +673,7 @@ export interface ScriptQualityAuditResult {
 
 export interface PipelineSessionState {
   sessionId: string;
+  projectId?: string;
   topic: string;
   currentStage: AiStudioStageId;
   stageName: AiStudioStageName;
@@ -730,6 +733,7 @@ export type PipelineProgressEvent = PipelineProgressPayload;
 // Payload and Result contracts for IPC
 export interface StartPipelinePayload {
   topic: string;
+  projectId?: string;
   blueprint?: IdeaBlueprint;
   gatedMode?: boolean;
   outputDir?: string;
@@ -772,6 +776,18 @@ export interface ResumePipelinePayload {
   fromStage?: number;
   mode?: 'resume_missing' | 'regenerate_selected' | 'regenerate_all';
   selectedShotIds?: string[];
+  updatedArtifacts?: Record<string, unknown>;
+}
+
+export interface UpdateSceneFillModePayload {
+  sessionId: string;
+  sceneIds?: string[];
+  fillMode: 'freeze_last_frame' | 'none';
+}
+
+export interface UpdateSceneFillModeResult {
+  success: boolean;
+  scenes?: StoryboardScene[];
 }
 
 export interface ResumePipelineResult {

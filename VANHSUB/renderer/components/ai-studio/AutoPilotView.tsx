@@ -793,6 +793,7 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
     try {
       const result = await window.vanhsub.aiStudio.startPipeline({
         topic: (blueprint.title || blueprint.topic).trim(),
+        projectId: activeProj?.id,
         blueprint,
         gatedMode: isGatedMode,
         outputDir: currentOutputDir,
@@ -871,6 +872,91 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
     } catch (err: any) {
       setIsRunning(false);
       setErrorMessage(`Không thể chạy lại bước: ${err?.message || err}`);
+    }
+  };
+
+  const handleApplyFreezeLastFrame = async () => {
+    if (!session) return;
+    setErrorMessage(null);
+    setErrorCode(null);
+
+    const currentScenes = session.artifacts?.scenes || [];
+    const updatedScenes = currentScenes.map((sc) => ({
+      ...sc,
+      fillMode: 'freeze_last_frame' as const,
+    }));
+
+    setSession((prev) => {
+      if (!prev) return null;
+      return {
+        ...prev,
+        artifacts: {
+          ...prev.artifacts,
+          scenes: updatedScenes,
+        },
+      };
+    });
+
+    try {
+      if (window.vanhsub?.aiStudio?.updateSceneFillMode) {
+        await window.vanhsub.aiStudio.updateSceneFillMode({
+          sessionId: session.sessionId,
+          fillMode: 'freeze_last_frame',
+        });
+      }
+
+      setIsRunning(true);
+      if (window.vanhsub?.aiStudio?.resumePipeline) {
+        await window.vanhsub.aiStudio.resumePipeline({
+          sessionId: session.sessionId,
+          fromStage: 7,
+          mode: 'resume_missing',
+          updatedArtifacts: { scenes: updatedScenes },
+        });
+      } else if (window.vanhsub?.aiStudio?.approveStage) {
+        await window.vanhsub.aiStudio.approveStage({
+          sessionId: session.sessionId,
+          currentStage: 6,
+          updatedArtifacts: { scenes: updatedScenes },
+        });
+      }
+    } catch (err: any) {
+      setIsRunning(false);
+      setErrorMessage(`Không thể áp dụng giữ khung hình cuối: ${err?.message || err}`);
+    }
+  };
+
+  const handleToggleSceneFillMode = async (sceneId: string, mode: 'freeze_last_frame' | 'none') => {
+    if (!session) return;
+    const currentScenes = session.artifacts?.scenes || [];
+    const updatedScenes = currentScenes.map((sc) => {
+      if (sc.id === sceneId || sc.shotId === sceneId) {
+        return { ...sc, fillMode: mode };
+      }
+      return sc;
+    });
+
+    setSession((prev) => {
+      if (!prev) return null;
+      return {
+        ...prev,
+        artifacts: {
+          ...prev.artifacts,
+          scenes: updatedScenes,
+        },
+      };
+    });
+
+    try {
+      if (window.vanhsub?.aiStudio?.updateSceneFillMode) {
+        await window.vanhsub.aiStudio.updateSceneFillMode({
+          sessionId: session.sessionId,
+          sceneIds: [sceneId],
+          fillMode: mode,
+        });
+      }
+    } catch (err) {
+      console.warn('Lỗi lưu chế độ bù thời lượng cho scene:', err);
     }
   };
 
@@ -1302,6 +1388,7 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
                     onPreviewMedia={setPreviewMedia}
                     onRegenerateStoryboardOneToOne={handleRegenerateStoryboardOneToOne}
                     onResumePipelineRun={handleResumePipelineRun}
+                    onToggleFillMode={handleToggleSceneFillMode}
                     isRunning={isRunning}
                   />
                 )}
@@ -1334,6 +1421,7 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
             }}
             onOpenChromeBridge={() => setIsChromeBridgeModalOpen(true)}
             onOpenDiagnostics={() => setIsDiagnosticsModalOpen(true)}
+            onApplyFreezeLastFrame={handleApplyFreezeLastFrame}
             onOpenFolder={handleOpenFolder}
           />
         </div>

@@ -52,6 +52,8 @@ import type {
   RefineScriptResult,
   UpdateScriptLinesPayload,
   UpdateScriptLinesResult,
+  UpdateSceneFillModePayload,
+  UpdateSceneFillModeResult,
   ImportSceneMediaPayload,
   ImportSceneMediaResult,
   SelfTestDiagnosticsResult,
@@ -520,6 +522,49 @@ export function registerAiStudioIpc(): void {
       } catch (err: any) {
         console.error('[AI-Studio-IPC] Error updating script lines:', err);
         throw new Error(`Lỗi cập nhật câu thoại kịch bản: ${err?.message || err}`);
+      }
+    }
+  );
+
+  /**
+   * Channel: aiStudio:scene:updateFillMode
+   * Updates fillMode ('freeze_last_frame' | 'none') on session scenes to preserve duration decisions.
+   */
+  safeHandle(
+    'aiStudio:scene:updateFillMode',
+    async (
+      _event,
+      payload: UpdateSceneFillModePayload
+    ): Promise<UpdateSceneFillModeResult> => {
+      try {
+        if (!payload.sessionId) {
+          throw new Error('Thiếu sessionId khi cập nhật chế độ bù thời lượng phân cảnh.');
+        }
+
+        if (pipelineEngineDelegate) {
+          const session = await pipelineEngineDelegate.getState({ sessionId: payload.sessionId });
+          if (session && session.artifacts?.scenes) {
+            session.artifacts.scenes.forEach((sc) => {
+              if (
+                !payload.sceneIds ||
+                payload.sceneIds.length === 0 ||
+                payload.sceneIds.includes(sc.id) ||
+                payload.sceneIds.includes(sc.shotId || '')
+              ) {
+                sc.fillMode = payload.fillMode;
+              }
+            });
+            if (typeof pipelineEngineDelegate.persistSessionStateAtomic === 'function') {
+              pipelineEngineDelegate.persistSessionStateAtomic(session);
+            }
+            return { success: true, scenes: session.artifacts.scenes };
+          }
+        }
+
+        return { success: false };
+      } catch (err: any) {
+        console.error('[AI-Studio-IPC] Error updating scene fillMode:', err);
+        throw new Error(`Lỗi cập nhật chế độ bù thời lượng: ${err?.message || err}`);
       }
     }
   );

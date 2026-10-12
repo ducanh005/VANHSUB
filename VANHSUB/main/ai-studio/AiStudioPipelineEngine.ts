@@ -31,6 +31,7 @@ import type {
   AiStudioStageId,
   AiStudioStageName,
   StoryboardScene,
+  SavedProjectProfile,
 } from './types';
 import { getDecryptedAiStudioConfig, updateAiStudioConfig, resolveAiStudioCwd } from '../store/aiStudioStore';
 import { aiStudioLlmService } from './services/AiStudioLlmService';
@@ -123,6 +124,77 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
   private activeAbortControllers = new Map<string, AbortController>();
   private activeProcesses = new Map<string, Set<any>>();
   private memorySessions = new Map<string, any>();
+  private storageManagers = new Map<string, AiStudioDiskStorageManager>();
+  private sessionProjectMap = new Map<string, string>();
+
+  // ==========================================================================
+  // Project Isolation & Ownership Resolution Helpers
+  // ==========================================================================
+  /**
+   * Resolves the strictly unique owner project for an existing or running session.
+   * Throws PROJECT_OWNER_NOT_FOUND if no project owns the session.
+   * Throws CONFLICTING_PROJECT_OWNERS if multiple distinct projects claim ownership.
+   * Does NOT fall back to activeProjectId or global config.
+   */
+  public resolveOwnerProject(sessionId: string, explicitProjectId?: string): SavedProjectProfile {
+    if (!sessionId || !sessionId.trim()) {
+      throw new Error('MISSING_SESSION_ID: Session ID không hợp lệ.');
+    }
+    const config = getDecryptedAiStudioConfig();
+    const savedProjects = config.savedProjects || [];
+
+    // 1. If explicitProjectId was provided and exists, verify it
+    if (explicitProjectId) {
+      const explicit = savedProjects.find((p) => p.id === explicitProjectId);
+      if (explicit) {
+        this.sessionProjectMap.set(sessionId, explicit.id);
+        return explicit;
+      }
+    }
+
+    // 2. Check if this session is already bound in-memory
+    const boundProjectId = this.sessionProjectMap.get(sessionId);
+    if (boundProjectId) {
+      const boundProj = savedProjects.find((p) => p.id === boundProjectId);
+      if (boundProj) {
+        return boundProj;
+      }
+    }
+
+    // 3. Check active in-memory session
+    const memSession = this.activeSessions.get(sessionId);
+    const sessionProjectId = memSession?.projectId;
+
+    // 4. Collect candidate projects that claim ownership of this session
+    const candidates = savedProjects.filter((p) => {
+      if (sessionProjectId && p.id === sessionProjectId) return true;
+      if (p.lastSessionId === sessionId) return true;
+      if (p.savedSession && p.savedSession.sessionId === sessionId) return true;
+      return false;
+    });
+
+    // Deduplicate candidate projects by project ID
+    const uniqueCandidates = Array.from(new Map(candidates.map((p) => [p.id, p])).values());
+
+    if (uniqueCandidates.length > 1) {
+      const candidateList = uniqueCandidates.map((c) => `${c.id} ("${c.name}")`).join(', ');
+      throw new Error(
+        `CONFLICTING_PROJECT_OWNERS: Phát hiện ${uniqueCandidates.length} dự án cùng liên kết với session "${sessionId}": [${candidateList}]. ` +
+        `Thao tác bị chặn để ngăn chặn ghi đè dữ liệu chéo giữa các dự án.`
+      );
+    }
+
+    if (uniqueCandidates.length === 0) {
+      throw new Error(
+        `PROJECT_OWNER_NOT_FOUND: Không tìm thấy dự án sở hữu phiên làm việc "${sessionId}". ` +
+        `Hệ thống từ chối thao tác và không sử dụng activeProjectId để bảo đảm cách ly dữ liệu.`
+      );
+    }
+
+    const resolvedOwner = uniqueCandidates[0];
+    this.sessionProjectMap.set(sessionId, resolvedOwner.id);
+    return resolvedOwner;
+  }
 
   // ==========================================================================
   // Session Directory Helpers
@@ -131,10 +203,12 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
     if (customOutputDir && customOutputDir.trim()) {
       return path.resolve(customOutputDir.trim());
     }
-    const config = getDecryptedAiStudioConfig();
-    const activeProject = config.savedProjects?.find((p) => p.id === config.activeProjectId);
-    if (activeProject?.outputDir && activeProject.outputDir.trim()) {
-      return path.resolve(activeProject.outputDir.trim());
+    if (this.storageManagers.has(sessionId)) {
+      return this.storageManagers.get(sessionId)!.baseDir;
+    }
+    const ownerProject = this.resolveOwnerProject(sessionId);
+    if (ownerProject?.outputDir && ownerProject.outputDir.trim()) {
+      return path.resolve(ownerProject.outputDir.trim());
     }
     return path.join(resolveAiStudioSessionsRoot(), sessionId);
   }
@@ -148,19 +222,31 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
   // ==========================================================================
   // Disk Storage & Action Log Helper (spec §1.1, §1.2, §3)
   // ==========================================================================
-  public getDiskStorageManager(sessionId: string, customMediaDir?: string, customOutputDir?: string): AiStudioDiskStorageManager {
-    const sessionDir = this.getSessionDir(sessionId, customOutputDir);
-    const config = getDecryptedAiStudioConfig();
-    const activeProject = config.savedProjects?.find((p) => p.id === config.activeProjectId);
-    const hasCustomOutput = Boolean(
-      customOutputDir?.trim() ||
-      activeProject?.outputDir?.trim()
-    );
+  public getDiskStorageManager(
+    sessionId: string,
+    customMediaDir?: string,
+    customOutputDir?: string
+  ): AiStudioDiskStorageManager {
+    // If a storage manager is already bound and no explicit custom directory overrides were provided, reuse it
+    if (this.storageManagers.has(sessionId) && !customOutputDir && !customMediaDir) {
+      return this.storageManagers.get(sessionId)!;
+    }
 
+    const ownerProject = this.resolveOwnerProject(sessionId);
+    const effectiveOutputDir = customOutputDir || ownerProject.outputDir;
+    const effectiveMediaDir = customMediaDir || ownerProject.channelProfile?.customMediaDir;
+
+    if (!effectiveOutputDir || !effectiveOutputDir.trim()) {
+      throw new Error(
+        `MISSING_PROJECT_OUTPUT_DIR: Dự án "${ownerProject.name}" (${ownerProject.id}) chưa được cấu hình Output Directory.`
+      );
+    }
+
+    const sessionDir = path.resolve(effectiveOutputDir.trim());
     const storage = new AiStudioDiskStorageManager(sessionId, {
       baseDir: sessionDir,
-      customMediaDir,
-      exactProjectDir: hasCustomOutput,
+      customMediaDir: effectiveMediaDir,
+      exactProjectDir: true,
     });
     storage.ensureDirectories();
     storage.ensureIndex();
@@ -172,6 +258,7 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
       this.emitActionLog(entry);
     };
 
+    this.storageManagers.set(sessionId, storage);
     return storage;
   }
 
@@ -218,23 +305,37 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
       return this.activeSessions.get(sessionId)!;
     }
 
-    // Attempt loading from session folder
-    const sessionDir = this.getSessionDir(sessionId);
-    const sessionJsonPath = path.join(sessionDir, 'session.json');
-
-    if (fs.existsSync(sessionJsonPath)) {
-      try {
-        const state: PipelineSessionState = JSON.parse(fs.readFileSync(sessionJsonPath, 'utf8'));
-        if (state && typeof state === 'object') {
-          state.stages = state.stages || ({} as any);
-          state.artifacts = state.artifacts || ({} as any);
-        }
-        this.activeSessions.set(sessionId, state);
-        return state;
-      } catch (err) {
-        console.warn(`[AiStudioPipelineEngine] Corrupt session.json at ${sessionJsonPath}:`, err);
-      }
+    // Check savedProjects for savedSession in config
+    const config = getDecryptedAiStudioConfig();
+    const proj = config.savedProjects?.find(
+      (p) => p.lastSessionId === sessionId || p.savedSession?.sessionId === sessionId
+    );
+    if (proj?.savedSession && proj.savedSession.sessionId === sessionId) {
+      this.activeSessions.set(sessionId, proj.savedSession);
+      return proj.savedSession;
     }
+
+    // Attempt loading from session folder
+    try {
+      const sessionDir = this.getSessionDir(sessionId);
+      if (sessionDir) {
+        const sessionJsonPath = path.join(sessionDir, 'session.json');
+
+        if (fs.existsSync(sessionJsonPath)) {
+          try {
+            const state: PipelineSessionState = JSON.parse(fs.readFileSync(sessionJsonPath, 'utf8'));
+            if (state && typeof state === 'object') {
+              state.stages = state.stages || ({} as any);
+              state.artifacts = state.artifacts || ({} as any);
+            }
+            this.activeSessions.set(sessionId, state);
+            return state;
+          } catch (err) {
+            console.warn(`[AiStudioPipelineEngine] Corrupt session.json at ${sessionJsonPath}:`, err);
+          }
+        }
+      }
+    } catch {}
 
     // Fallback: Attempt loading from legacy flat file
     const legacyPath = path.join(resolveAiStudioSessionsRoot(), `${sessionId}.json`);
@@ -304,15 +405,23 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
     const topic = payload.blueprint?.title || payload.topic;
     const gatedMode = payload.gatedMode !== false;
 
-    // Hard-block check: outputDir bắt buộc phải có để tránh rò rỉ chéo dự án
+    // Hard-block check: targetProjectId và outputDir bắt buộc phải có để tránh rò rỉ chéo dự án
     const config: AiStudioConfig = getDecryptedAiStudioConfig();
-    const activeProject = config.savedProjects?.find((p) => p.id === config.activeProjectId);
+    const targetProjectId = payload.projectId || config.activeProjectId;
+    if (!targetProjectId) {
+      throw new Error(
+        'MISSING_PROJECT_ID: Không thể khởi chạy pipeline nếu chưa chọn hoặc cấu hình dự án (Project). ' +
+        'Vui lòng chọn hoặc tạo dự án trước khi tiếp tục.'
+      );
+    }
+    const ownerProject = config.savedProjects?.find((p) => p.id === targetProjectId);
+    if (!ownerProject) {
+      throw new Error(`PROJECT_NOT_FOUND: Không tìm thấy dự án với ID "${targetProjectId}".`);
+    }
+
     const resolvedOutputDir =
       payload.outputDir?.trim() ||
-      activeProject?.outputDir?.trim() ||
-      config.outputDir?.trim() ||
-      config.channelProfile?.customMediaDir?.trim() ||
-      (process.env.VANHSUB_AI_STUDIO_DIR ? path.join(process.env.VANHSUB_AI_STUDIO_DIR, 'output') : undefined);
+      ownerProject.outputDir?.trim();
 
     if (!resolvedOutputDir) {
       throw new Error(
@@ -325,6 +434,7 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
 
     const session: PipelineSessionState = {
       sessionId,
+      projectId: ownerProject.id,
       topic,
       currentStage: 1,
       stageName: 'source',
@@ -332,7 +442,7 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
       progress: 5,
       gatedMode,
       outputDir: resolvedOutputDir,
-      flowProjectUrl: payload.flowProjectUrl?.trim() || activeProject?.flowProjectUrl?.trim() || undefined,
+      flowProjectUrl: payload.flowProjectUrl?.trim() || ownerProject.flowProjectUrl?.trim() || undefined,
       stages: {
         1: { status: 'pending', stageName: STAGE_CONFIG[1].label },
         2: { status: 'pending', stageName: STAGE_CONFIG[2].label },
@@ -352,6 +462,16 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
+
+    // Bind storage manager to this session permanently
+    this.sessionProjectMap.set(sessionId, ownerProject.id);
+    const effectiveMediaDir = ownerProject.channelProfile?.customMediaDir || config.channelProfile?.customMediaDir;
+    this.getDiskStorageManager(sessionId, effectiveMediaDir, resolvedOutputDir);
+
+    // Link new session to owner project
+    ownerProject.lastSessionId = sessionId;
+    ownerProject.savedSession = session;
+    updateAiStudioConfig({ savedProjects: config.savedProjects });
 
     this.persistSessionStateAtomic(session);
 
@@ -385,7 +505,9 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
           progress: session.progress,
           status: 'error',
           error: err?.message || String(err),
-        });
+          errorCode: (err as any).code || (err as any).errorCode,
+          code: (err as any).code,
+        } as any);
       });
     }, 20);
 
@@ -484,7 +606,9 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
           progress: session.progress,
           status: 'error',
           error: err?.message || String(err),
-        });
+          errorCode: (err as any).code || (err as any).errorCode,
+          code: (err as any).code,
+        } as any);
       });
     }, 20);
 
@@ -539,6 +663,13 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
     }
     if (targetStage <= 8) session.artifacts.metadata = undefined;
 
+    if (payload.updatedArtifacts) {
+      session.artifacts = {
+        ...session.artifacts,
+        ...payload.updatedArtifacts,
+      };
+    }
+
     session.status = 'running';
     session.currentStage = targetStage;
     session.stageName = STAGE_CONFIG[targetStage].name;
@@ -578,7 +709,9 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
           progress: session.progress,
           status: 'error',
           error: err?.message || String(err),
-        });
+          errorCode: (err as any).code || (err as any).errorCode,
+          code: (err as any).code,
+        } as any);
       });
     }, 20);
 
@@ -599,22 +732,18 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
     }
   ): Promise<void> {
     const config: AiStudioConfig = getDecryptedAiStudioConfig();
-    const activeProject = config.savedProjects?.find((p) => p.id === config.activeProjectId);
-    const sessionDir = this.getSessionDir(session.sessionId);
-    const effectiveOutputDir =
-      session.outputDir ||
-      activeProject?.outputDir ||
-      (fs.existsSync(sessionDir) ? sessionDir : undefined);
+    const ownerProject = this.resolveOwnerProject(session.sessionId, session.projectId);
+    const effectiveOutputDir = session.outputDir || ownerProject.outputDir;
 
     if (!effectiveOutputDir || !effectiveOutputDir.trim()) {
       throw new Error(
-        'Chưa cấu hình thư mục lưu trữ (Output Directory) riêng cho dự án này. ' +
+        `Chưa cấu hình thư mục lưu trữ (Output Directory) riêng cho dự án "${ownerProject.name}". ` +
         'Vui lòng thiết lập thư mục trong Cấu hình Dự án trước khi tiếp tục sinh ảnh/video.'
       );
     }
 
     const assetsDir = this.getSessionAssetsDir(session.sessionId, effectiveOutputDir);
-    const effectiveMediaDir = config.channelProfile?.customMediaDir || config.flowEngine.downloadDir || undefined;
+    const effectiveMediaDir = ownerProject.channelProfile?.customMediaDir || config.channelProfile?.customMediaDir;
     const storage = this.getDiskStorageManager(session.sessionId, effectiveMediaDir, effectiveOutputDir);
 
     session.stages = session.stages || ({} as any);
@@ -1119,19 +1248,19 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
 
               let targetFlowProjectId = extractFlowProjectId(
                 session.flowProjectUrl ||
-                activeProject?.flowProjectUrl ||
+                ownerProject?.flowProjectUrl ||
                 (config.flowEngine?.projectId && config.flowEngine.projectId.trim() ? config.flowEngine.projectId : undefined)
               );
               if (FlowBridgeServer.getInstance().isConnected()) {
                 if (signal?.aborted) throw new Error('Tác vụ đã bị huỷ.');
-                // Nếu session và activeProject chưa liên kết cụ thể, kiểm tra xem Chrome có đang mở sẵn 1 project Flow không
+                // Nếu session và ownerProject chưa liên kết cụ thể, kiểm tra xem Chrome có đang mở sẵn 1 project Flow không
                 if (!targetFlowProjectId) {
                   try {
                     const tabInfo = await FlowBridgeServer.getInstance().getFlowTabInfo(2000);
                     if (tabInfo?.projectId) {
                       // Đảm bảo không chiếm nhầm project Flow của một dự án khác trong VanhSub
                       const isOwnedByOther = config.savedProjects?.some(
-                        (p) => p.id !== config.activeProjectId && extractFlowProjectId(p.flowProjectUrl) === tabInfo.projectId
+                        (p) => p.id !== ownerProject.id && extractFlowProjectId(p.flowProjectUrl) === tabInfo.projectId
                       );
                       if (!isOwnedByOther) {
                         targetFlowProjectId = tabInfo.projectId;
@@ -1156,19 +1285,19 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
                 session.flowProjectUrl = `https://labs.google/fx/vi/tools/flow/project/${linked.projectId}`;
                 this.persistSessionStateAtomic(session);
 
-                // Lưu liên kết lâu dài vào cấu hình activeProject nếu trước đó chưa có
-                if (activeProject && !activeProject.flowProjectUrl) {
-                  activeProject.flowProjectUrl = session.flowProjectUrl;
+                // Lưu liên kết lâu dài vào cấu hình ownerProject nếu trước đó chưa có
+                if (ownerProject && !ownerProject.flowProjectUrl) {
+                  ownerProject.flowProjectUrl = session.flowProjectUrl;
                   try {
                     const currentCfg = getDecryptedAiStudioConfig();
                     const updatedProjects = (currentCfg.savedProjects || []).map((p) =>
-                      p.id === activeProject.id ? { ...p, flowProjectUrl: session.flowProjectUrl } : p
+                      p.id === ownerProject.id ? { ...p, flowProjectUrl: session.flowProjectUrl } : p
                     );
                     updateAiStudioConfig({
                       savedProjects: updatedProjects,
-                      ...(currentCfg.activeProjectId === activeProject.id ? { flowProjectUrl: session.flowProjectUrl } : {}),
+                      ...(currentCfg.activeProjectId === ownerProject.id ? { flowProjectUrl: session.flowProjectUrl } : {}),
                     });
-                    console.log(`[AiStudioPipelineEngine] 💾 Đã lưu liên kết Flow Project ${linked.projectId} vào hồ sơ dự án "${activeProject.name || activeProject.id}"`);
+                    console.log(`[AiStudioPipelineEngine] 💾 Đã lưu liên kết Flow Project ${linked.projectId} vào hồ sơ dự án "${ownerProject.name || ownerProject.id}"`);
                   } catch (cfgErr) {
                     console.warn('[AiStudioPipelineEngine] Cảnh báo lưu flowProjectUrl vào savedProjects:', cfgErr);
                   }
@@ -1859,17 +1988,21 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
     onProgress?: (pct: number, msg: string) => void,
     signal?: AbortSignal
   ): Promise<RegenerateSceneAssetResult> {
-    if (payload.sessionId) {
-      const config = getDecryptedAiStudioConfig();
-      try {
-        const customMediaDir = config.channelProfile?.customMediaDir;
-        const storage = this.getDiskStorageManager(payload.sessionId, customMediaDir);
+    if (!payload.sessionId) {
+      throw new Error('MISSING_SESSION_ID: regenerateSceneAsset yêu cầu sessionId hợp lệ để xác định project sở hữu.');
+    }
+    const config = getDecryptedAiStudioConfig();
+    try {
+      const ownerProject = this.resolveOwnerProject(payload.sessionId);
+      const ownerMediaDir = ownerProject?.channelProfile?.customMediaDir;
+      const ownerOutputDir = ownerProject?.outputDir;
+      const storage = this.getDiskStorageManager(payload.sessionId, ownerMediaDir, ownerOutputDir);
         const shotId = payload.sceneId;
         const sceneId = shotId.includes('_shot_') ? shotId.split('_shot_')[0] : shotId;
         const sessionMgr = GoogleVeoSessionManager.getInstance();
         const mutex = GoogleFlowBrowserMutex.getInstance();
 
-        const activeProj = config.savedProjects?.find((p) => p.id === config.activeProjectId);
+        const activeProj = ownerProject;
         const ownerSession = await this.getState({ sessionId: payload.sessionId });
         const targetFlowProjectId = extractFlowProjectId(
           ownerSession?.flowProjectUrl ||
@@ -2140,7 +2273,15 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
             };
           }
         }
-      } catch (regErr) {
+      } catch (regErr: any) {
+        if (
+          regErr?.message?.includes('PROJECT_OWNER_NOT_FOUND') ||
+          regErr?.message?.includes('CONFLICTING_PROJECT_OWNERS') ||
+          regErr?.message?.includes('MISSING_PROJECT_OUTPUT_DIR') ||
+          regErr?.message?.includes('MISSING_SESSION_ID')
+        ) {
+          throw regErr;
+        }
         const isLegacyDom =
           payload.flowConfig?.engine === 'dom' ||
           payload.flowConfig?.engine === 'legacy_dom' ||
@@ -2152,7 +2293,6 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
         }
         console.warn('[AiStudioPipelineEngine] Storage-backed regenerateSceneAsset error, falling back to visual service:', regErr);
       }
-    }
 
     const cfg = getDecryptedAiStudioConfig();
     const activePrj = cfg.savedProjects?.find((p) => p.id === cfg.activeProjectId);
@@ -2184,8 +2324,10 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
     }
 
     try {
-      const config = getDecryptedAiStudioConfig();
-      const storage = this.getDiskStorageManager(sessionId, config.channelProfile?.customMediaDir);
+      const ownerProject = this.resolveOwnerProject(sessionId);
+      const ownerMediaDir = ownerProject?.channelProfile?.customMediaDir;
+      const ownerOutputDir = ownerProject?.outputDir;
+      const storage = this.getDiskStorageManager(sessionId, ownerMediaDir, ownerOutputDir);
       const shotId = sceneId;
       const actualSceneId = shotId.includes('_shot_') ? shotId.split('_shot_')[0] : shotId;
 
@@ -2232,6 +2374,10 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
           if (isVideo) {
             targetScene.videoPath = destPath;
             targetScene.assetPath = destPath;
+            try {
+              const dur = await aiStudioVideoAssembler.probeDuration(destPath);
+              targetScene.originalMediaDurationSec = Math.round(dur * 100) / 100;
+            } catch {}
           } else {
             targetScene.imagePath = destPath;
             if (!targetScene.videoPath) {
@@ -2261,8 +2407,9 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
       throw new Error(`Session assets không tìm thấy cho việc dựng lại video: ${payload.sessionId}`);
     }
 
+    const ownerProject = this.resolveOwnerProject(session.sessionId, session.projectId);
     const config = getDecryptedAiStudioConfig();
-    const assetsDir = this.getSessionAssetsDir(session.sessionId);
+    const assetsDir = this.getSessionAssetsDir(session.sessionId, ownerProject.outputDir);
     const outputPath = path.join(assetsDir, `final_video_${Date.now()}.mp4`);
 
     // Merge custom rendering/subtitle settings if provided

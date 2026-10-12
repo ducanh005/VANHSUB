@@ -46,6 +46,7 @@ export interface StoryboardGridPanelProps {
     fromStage?: number | null,
     mode?: 'resume_missing' | 'regenerate_selected' | 'regenerate_all'
   ) => void;
+  onToggleFillMode?: (sceneId: string, mode: 'freeze_last_frame' | 'none') => void;
   isRunning?: boolean;
 }
 
@@ -63,6 +64,7 @@ export const StoryboardGridPanel: React.FC<StoryboardGridPanelProps> = ({
   isFlowWindowOpen = false,
   onToggleFlowLive = () => {},
   sceneActionNotice = null,
+  onToggleFillMode,
   onDismissSceneNotice = () => {},
   regeneratingSceneId = null,
   importingSceneId = null,
@@ -400,6 +402,11 @@ export const StoryboardGridPanel: React.FC<StoryboardGridPanelProps> = ({
                 onImportMedia={(type) => onImportManualMedia(scene, type)}
                 onPreview={onPreviewMedia}
                 onOpenFolder={onOpenFolder}
+                onToggleFillMode={
+                  onToggleFillMode
+                    ? (mode) => onToggleFillMode(targetSceneId, mode)
+                    : undefined
+                }
               />
             );
           })}
