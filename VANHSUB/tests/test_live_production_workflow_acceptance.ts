@@ -489,14 +489,16 @@ async function runLiveProductionWorkflowAcceptance(): Promise<void> {
     assert.ok(attachedChipUrl, 'Phải có chip ảnh được gắn vào prompt box cho Image-to-Video');
 
     let inputImageAssetId = (attachedChipUrl.match(/([0-9a-f-]{36})/i) || [])[1] || '';
+    // Standard Provenance Rule: Matching DOM chip proves UI attachment only.
+    // Without intercepting the CDP Network RPC payload and backend operation ID, downgrade strictly to PARTIAL_UNVERIFIED.
     let provenanceConfidence: 'FULL' | 'HIGH' | 'PARTIAL_UNVERIFIED' = 'PARTIAL_UNVERIFIED';
 
     if (keyframeMediaId && inputImageAssetId && keyframeMediaId === inputImageAssetId) {
-      provenanceConfidence = 'FULL';
-      console.log(`  🏆 [I2V Provenance]: FULL (inputImageAssetId "${inputImageAssetId}" === keyframeMediaId "${keyframeMediaId}")`);
+      provenanceConfidence = 'PARTIAL_UNVERIFIED';
+      console.log(`  🔍 [I2V Provenance]: PARTIAL_UNVERIFIED (UI Attachment Verified: "${inputImageAssetId}" === "${keyframeMediaId}", Network RPC Payload Unverified)`);
     } else if (attachedChipUrl.includes(generatedImageUrl.split('?')[0])) {
-      provenanceConfidence = 'HIGH';
-      console.log('  🥈 [I2V Provenance]: HIGH (Chip URL matches Keyframe Image URL signature)');
+      provenanceConfidence = 'PARTIAL_UNVERIFIED';
+      console.log('  🔍 [I2V Provenance]: PARTIAL_UNVERIFIED (Chip URL matches Keyframe Image URL signature, Network RPC Unverified)');
     } else {
       provenanceConfidence = 'PARTIAL_UNVERIFIED';
       console.warn('  ⚠️ [I2V Provenance]: PARTIAL_UNVERIFIED');
