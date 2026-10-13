@@ -559,6 +559,17 @@ export function buildHardsubFilterGraph(options: HardsubFilterGraphInput): Hards
     }
   }
 
+  // Resize the composed frame so subtitle/mask/logo proportions stay unchanged.
+  // Resolution names refer to the short edge, including portrait and square video.
+  const shortEdge = { original: 0, '1080p': 1080, '720p': 720, '480p': 480 }[formatOptions?.resolution || 'original'];
+  if (shortEdge) {
+    const nextLabel = 'v_resolution';
+    filterChains.push(
+      `[${currentVLabel}]scale=w='if(gte(iw,ih),-2,${shortEdge})':h='if(gte(iw,ih),${shortEdge},-2)'[${nextLabel}]`
+    );
+    currentVLabel = nextLabel;
+  }
+
   // 6. CapCut Mini: Tua nhanh video (Speedup setpts) - ÁP DỤNG SAU PHỤ ĐỀ & WATERMARK
   const rawSpeed = formatOptions?.speed;
   const speed = typeof rawSpeed === 'number' && !isNaN(rawSpeed)
@@ -748,7 +759,7 @@ export async function muxSoftsub(options: Omit<RenderOptions, 'onProgress'>): Pr
         '-c:a copy',
         '-c:s mov_text',
         '-map 0:v',
-        '-map 0:a',
+        '-map 0:a?',
         '-map 1:s'
       ])
       .output(outputPath)
