@@ -186,7 +186,7 @@ export interface AiStudioSubtitleConfig {
 export type ChannelImageSource = 'ai_flow_meta' | 'ai_static' | 'ai_video';
 export type ChannelSeriesType = 'anthology_new_topic' | 'connected_series' | 'standalone';
 export type ChannelEvaluationLlm = 'gemini_web' | 'chatgpt_web' | 'deepseek' | 'openai';
-export type ChannelLongDuration = '1_3_min' | '3_5_min' | '5_8_min' | '8_12_min' | '12_18_min' | '18_28_min';
+export type ChannelLongDuration = '20_30_sec' | '1_3_min' | '3_5_min' | '5_8_min' | '8_12_min' | '12_18_min' | '18_28_min';
 export type ChannelShortDuration = '30_60_sec' | '60_90_sec' | '90_120_sec' | '120_180_sec';
 export type ChannelCharacterSync = 'per_video' | 'consistent_channel' | 'none';
 export type ChannelCharacterImageMode = 'ai_draw' | 'upload_photo' | 'studio_preset';

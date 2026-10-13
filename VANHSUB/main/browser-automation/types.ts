@@ -238,7 +238,6 @@ export interface FlowGenerationAutomationOptions {
 }
 
 export interface FlowGenerationAutomationResult {
-  assetId?: string;
   ok: boolean;
   state: JobState;
   jobId?: string;
@@ -246,6 +245,7 @@ export interface FlowGenerationAutomationResult {
   projectId?: string;
   firstImageUrl?: string;
   videoUrl?: string;
+  assetId?: string;
   domFallback?: boolean;
   error?: string;
   errorCode?: string;

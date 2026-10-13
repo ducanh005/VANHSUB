@@ -129,6 +129,7 @@ const FLOW_TOOL_PRESETS = [
 ];
 
 const DURATION_OPTIONS: { id: ChannelLongDuration; label: string }[] = [
+  { id: '20_30_sec', label: '20 – 30 giây (3 phân cảnh)' },
   { id: '1_3_min', label: '1 – 3 phút (Ngắn gọn)' },
   { id: '3_5_min', label: '3 – 5 phút (Khuyên dùng)' },
   { id: '5_8_min', label: '5 – 8 phút (Chi tiết)' },

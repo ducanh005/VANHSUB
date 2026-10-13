@@ -424,7 +424,12 @@ export class AiStudioLlmService {
       }
     } else {
       const longDur = channelProfile?.targetLongDuration || '3_5_min';
-      if (longDur === '1_3_min') {
+      if (longDur === '20_30_sec') {
+        durationLabel = '20 - 30 giây (~55 - 75 từ, đúng 3 câu phân cảnh)';
+        targetSec = 25;
+        minBeats = 3;
+        maxBeats = 3;
+      } else if (longDur === '1_3_min') {
         durationLabel = '1 - 3 phút (~250 - 500 từ)';
         targetSec = 120;
         minBeats = 4;
@@ -515,7 +520,7 @@ export class AiStudioLlmService {
     const channelContextText = channelContextParts.join('\n\n');
 
     const buildSampleOutline = (count: number, totalSec: number): string[] => {
-      const step = Math.max(15, Math.round(totalSec / count));
+      const step = Math.max(8, Math.round(totalSec / count));
       const formatTime = (seconds: number): string => {
         const m = Math.floor(seconds / 60);
         const s = seconds % 60;
@@ -671,7 +676,10 @@ Yêu cầu nghiêm ngặt: Trả về DUY NHẤT một khối JSON hợp lệ th
         );
         const parsedLines = parseChatGptScriptResponse(rawText, topic);
         if (parsedLines.length >= 3) {
-          return this.applyChannelHook(parsedLines, channelProfile);
+          const finalLines = channelProfile?.targetLongDuration === '20_30_sec'
+            ? parsedLines.slice(0, 3)
+            : this.applyChannelHook(parsedLines, channelProfile);
+          return finalLines;
         }
         throw new Error('ChatGPT Web không trả về đủ số câu kịch bản hợp lệ.');
       } catch (err: any) {

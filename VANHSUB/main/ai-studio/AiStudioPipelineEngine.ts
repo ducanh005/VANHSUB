@@ -938,11 +938,16 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
             let accumulatedMs = 0;
 
             storyboardData.scenes.forEach((sc, scIdx) => {
+              const isSingleShotScene = sc.shots.length === 1;
               sc.shots.forEach((shot) => {
-                const startMs = typeof shot.start_sec === 'number'
+                const startMs = isSingleShotScene && typeof sc.start_sec === 'number'
+                  ? Math.round(sc.start_sec * 1000)
+                  : typeof shot.start_sec === 'number'
                   ? Math.round(shot.start_sec * 1000)
                   : (timingScenes.find((t) => t.scene_id === sc.scene_id)?.start_sec ? Math.round(timingScenes.find((t) => t.scene_id === sc.scene_id)!.start_sec * 1000) : accumulatedMs);
-                const durationMs = typeof shot.duration_sec === 'number'
+                const durationMs = isSingleShotScene && typeof sc.duration_sec === 'number' && sc.duration_sec > 0
+                  ? Math.round(sc.duration_sec * 1000)
+                  : typeof shot.duration_sec === 'number'
                   ? Math.round(shot.duration_sec * 1000)
                   : Math.round((shot.expected_duration_sec || 4.0) * 1000);
                 const endMs = startMs + durationMs;
@@ -1053,7 +1058,7 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
 
               const targetVisualDir = storage.paths.mediaDir || assetsDir;
 
-              const onSceneComplete = (completedScene: StoryboardScene, idx: number) => {
+              const onSceneComplete = async (completedScene: StoryboardScene, idx: number) => {
                 const shotId = completedScene.shotId || completedScene.id;
                 let targetSceneId = (completedScene as any).sceneId;
                 if (!targetSceneId) {
@@ -1070,9 +1075,18 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
                 }
 
                 if (completedScene.videoPath && fs.existsSync(completedScene.videoPath)) {
+                  try {
+                    const durSec = await aiStudioVideoAssembler.probeDuration(completedScene.videoPath);
+                    if (durSec > 0) {
+                      completedScene.originalMediaDurationSec = Number(durSec.toFixed(3));
+                    }
+                  } catch {}
                   storage.updateShotMetadata(targetSceneId, shotId, {
                     status: 'video_ready',
                     video_path: completedScene.videoPath,
+                    ...(completedScene.imagePath && fs.existsSync(completedScene.imagePath)
+                      ? { image_path: completedScene.imagePath }
+                      : {}),
                   });
                 } else if (completedScene.imagePath && fs.existsSync(completedScene.imagePath)) {
                   storage.updateShotMetadata(targetSceneId, shotId, {
@@ -1872,7 +1886,7 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
         const mutex = GoogleFlowBrowserMutex.getInstance();
 
         const activeProj = config.savedProjects?.find((p) => p.id === config.activeProjectId);
-        const targetFlowProjectId = extractFlowProjectId(
+        let targetFlowProjectId = extractFlowProjectId(
           ownerSession?.flowProjectUrl ||
           payload.flowConfig?.projectId ||
           activeProj?.flowProjectUrl ||

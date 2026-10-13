@@ -301,8 +301,9 @@ export class AiStudioVisualService {
     const isLegacyDom = flowConfig.engine === 'dom' || flowConfig.engine === 'legacy_dom';
     const bridge = FlowBridgeServer.getInstance();
     const isBridgeConnected = bridge.isConnected();
+    const isPlaywrightConnected = BrowserAutomationAdapter.getInstance().isConnected('flow');
     let useGoogleFlow = Boolean(this.rpcClient || (!isLegacyDom && flowConfig.engine !== 'synthetic'));
-    if (!this.rpcClient && useGoogleFlow && !isBridgeConnected) {
+    if (!this.rpcClient && useGoogleFlow && !isBridgeConnected && !isPlaywrightConnected) {
       try {
         const sessionMgr = GoogleVeoSessionManager.getInstance();
         const status = await Promise.race([
@@ -334,12 +335,14 @@ export class AiStudioVisualService {
     }
 
     let lobbyWin: any = null;
-    try {
-      const sessionMgr = GoogleVeoSessionManager.getInstance();
-      lobbyWin = sessionMgr.getLobbyWindow();
-      if (lobbyWin && lobbyWin.isDestroyed()) lobbyWin = null;
-    } catch {
-      lobbyWin = null;
+    if (!isBridgeConnected && !isPlaywrightConnected) {
+      try {
+        const sessionMgr = GoogleVeoSessionManager.getInstance();
+        lobbyWin = sessionMgr.getLobbyWindow();
+        if (lobbyWin && lobbyWin.isDestroyed()) lobbyWin = null;
+      } catch {
+        lobbyWin = null;
+      }
     }
 
     let googleFlowSuccessCount = 0;
@@ -351,6 +354,21 @@ export class AiStudioVisualService {
 
       const scene = scenes[i];
       const isSceneVideo = scene.motionType === 'video';
+      const existingReadyFile = isSceneVideo
+        ? scene.videoPath
+        : (scene.imagePath || scene.assetPath);
+      if (
+        isPlaywrightConnected &&
+        scene.status === 'ready' &&
+        existingReadyFile &&
+        fs.existsSync(existingReadyFile) &&
+        fs.statSync(existingReadyFile).size > 0
+      ) {
+        scene.assetPath = existingReadyFile;
+        googleFlowSuccessCount++;
+        await onSceneComplete?.(scene, i);
+        continue;
+      }
       const ext = isSceneVideo && useGoogleFlow ? 'mp4' : 'png';
       const assetPath = path.join(assetsDir, `scene_${(scene.shotId || scene.id).replace(/[^a-zA-Z0-9_-]/g, '_')}_${crypto.randomUUID()}.${ext}`);
 
@@ -371,7 +389,9 @@ export class AiStudioVisualService {
       if (useGoogleFlow) {
         let finalPath: string | null = null;
         let lastFlowErr: any = null;
-        const maxRetries = typeof flowConfig.maxRetries === 'number' ? flowConfig.maxRetries : 2;
+        const maxRetries = isPlaywrightConnected
+          ? 0
+          : (typeof flowConfig.maxRetries === 'number' ? flowConfig.maxRetries : 2);
 
         for (let retry = 0; retry <= maxRetries; retry++) {
           if (signal?.aborted) {
