@@ -55,6 +55,7 @@ import { FlowMediaAutomationEngine } from '../workflow/flow-engine/FlowMediaAuto
 import { GoogleVeoSessionManager, OFFSCREEN_X, OFFSCREEN_Y } from '../veo/GoogleVeoSessionManager';
 import { GoogleFlowBrowserMutex } from '../workflow/dispatcher/GoogleFlowBrowserMutex';
 import { FlowBridgeServer } from '../workflow/flow-engine/rpc/FlowBridgeServer';
+import { BrowserAutomationAdapter } from '../browser-automation/BrowserAutomationAdapter';
 import { broadcastPipelineActionLog } from './ipc';
 import {
   BibleStore,
@@ -2016,13 +2017,24 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
         }
         const targetFlowProjectName = activeProj?.name || (config as any).projectName || (config as any).topic;
 
+        const existingScene = ownerSession?.artifacts?.scenes?.find((s) => s.id === shotId || s.shotId === shotId);
         const effectivePayload: RegenerateSceneAssetPayload = {
           ...payload,
+          ...(payload.mode === 'video' && existingScene
+            ? {
+                imagePath: existingScene.imagePath,
+                inputImageAsset: (existingScene as any).inputImageAsset,
+                motionPrompt:
+                  (existingScene as any).motionPrompt ||
+                  (existingScene as any).cameraMovement ||
+                  payload.visualPrompt,
+              }
+            : {}),
           flowConfig: {
             ...payload.flowConfig,
             projectId: payload.flowConfig?.projectId || targetFlowProjectId || undefined,
           },
-        };
+        } as RegenerateSceneAssetPayload;
 
         // Mặc định luôn ưu tiên Pure Web RPC trừ khi người dùng chỉ định rõ engine === 'dom'
         const isLegacyDom =
@@ -2033,12 +2045,21 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
         const isRpc = !isLegacyDom;
 
         if (isRpc) {
+          const adapter = BrowserAutomationAdapter.getInstance();
+          if (!adapter.isConnected('flow')) {
+            try {
+              await adapter.connect({ provider: 'flow' });
+            } catch {
+              // Port 9224 not active, continue with existing connection mode
+            }
+          }
           const rpcRes = await aiStudioVisualService.regenerateSceneAsset(
             effectivePayload,
             storage.paths.mediaDir,
             onProgress,
             signal
           );
+          let probedMediaDur: number | undefined;
           if (rpcRes.assetPath && fs.existsSync(rpcRes.assetPath)) {
             const session = await this.getState({ sessionId: payload.sessionId });
             if (session && session.artifacts.scenes) {
@@ -2047,10 +2068,21 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
                 if (rpcRes.videoPath) {
                   targetScene.videoPath = rpcRes.videoPath;
                   targetScene.assetPath = rpcRes.assetPath;
+                  targetScene.motionType = 'video';
+                  try {
+                    const durSec = await aiStudioVideoAssembler.probeDuration(rpcRes.videoPath);
+                    if (durSec > 0) {
+                      probedMediaDur = Number(durSec.toFixed(3));
+                      targetScene.originalMediaDurationSec = probedMediaDur;
+                    }
+                  } catch {}
                 } else if (rpcRes.imagePath) {
                   targetScene.imagePath = rpcRes.imagePath;
                   targetScene.assetPath = rpcRes.assetPath;
                   delete targetScene.videoPath;
+                }
+                if ((rpcRes as any).inputImageAsset) {
+                  (targetScene as any).inputImageAsset = (rpcRes as any).inputImageAsset;
                 }
                 targetScene.visualPrompt = payload.visualPrompt;
                 targetScene.status = 'ready';
@@ -2070,7 +2102,10 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
               });
             }
           }
-          return rpcRes;
+          return {
+            ...rpcRes,
+            ...(probedMediaDur !== undefined ? { originalMediaDurationSec: probedMediaDur } : {}),
+          } as RegenerateSceneAssetResult;
         }
 
         // Đảm bảo cửa sổ Flow sẵn sàng theo uiMode đã cấu hình (mặc định offscreen) khi KHÔNG dùng Chrome Extension

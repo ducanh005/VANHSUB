@@ -238,8 +238,11 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
                 return {
                   ...s,
                   imagePath: result.imagePath || s.imagePath,
-                  videoPath: result.videoPath || s.videoPath,
+                  videoPath: mode === 'image' ? undefined : (result.videoPath || s.videoPath),
                   assetPath: result.assetPath || s.assetPath,
+                  motionType: mode === 'video' ? ('video' as const) : s.motionType,
+                  originalMediaDurationSec: (result as any).originalMediaDurationSec ?? s.originalMediaDurationSec,
+                  ...((result as any).inputImageAsset ? { inputImageAsset: (result as any).inputImageAsset } : {}),
                   status: 'ready' as const,
                 };
               }

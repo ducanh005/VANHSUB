@@ -226,7 +226,7 @@ async function main() {
         id: projectId,
         name: 'TEST_FREEZE_19S_PROJECT',
         outputDir: testProjectDir,
-        flowProjectUrl: 'https://labs.google/fx/vi/tools/flow/project/test-dummy-flow',
+        flowProjectUrl: 'https://flow.google.com/project/24f0ba0a-9803-4c7a-8610-761a02cd5f38',
         savedSession: sessionData as any,
         lastSessionId: sessionId,
       },
