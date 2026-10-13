@@ -450,6 +450,81 @@ async function runTestSuite() {
     assert.strictEqual(threw, true);
   });
 
+  await runTest('Safe Input: composer ProseMirror inside form is selected over assistant Writing Block ProseMirror', async () => {
+    const page = new MockPage();
+    const writingBlock = new MockDomNode('div.ProseMirror', 'div');
+    writingBlock.attributes['class'] = 'ProseMirror content-xaiQhS leading-relaxed';
+    writingBlock.textContent = '1. SYSTEM ROLE — VAI TRÒ HỆ THỐNG\n'.repeat(100);
+
+    const composer = new MockDomNode('form div.ProseMirror[data-composer-markdown]', 'div');
+    composer.attributes['class'] = 'ProseMirror';
+    composer.textContent = '';
+
+    const sendBtn = new MockDomNode('button[aria-label="Gửi"]', 'button');
+    let submittedText = '';
+    sendBtn.clickListeners.push(async () => {
+      submittedText = composer.textContent;
+      composer.textContent = '';
+    });
+
+    page.nodes.push(writingBlock, composer, sendBtn);
+
+    const collector = new ChatGptScriptCollector();
+    const originalWritingBlockText = writingBlock.textContent;
+    const prompt = 'Hãy lập kế hoạch chi tiết và sinh mẫu ý tưởng cho chủ đề film AI Trung Quốc';
+    await collector.sendPrompt(page, prompt);
+
+    assert.strictEqual(writingBlock.textContent, originalWritingBlockText, 'Writing block must remain untouched');
+    assert.strictEqual(submittedText, prompt, 'Composer inside form must receive the prompt');
+    assert.strictEqual(composer.textContent, '', 'Composer must be cleared after submit');
+  });
+
+  await runTest('Safe Input: verifyPromptPresence rejects unrelated pre-existing text even if longer than prompt', async () => {
+    const collector = new ChatGptScriptCollector();
+    const fakeLocator = {
+      innerText: async () => 'Nội dung Master Prompt cũ dài hàng chục nghìn ký tự hoàn toàn khác với prompt mới.'.repeat(20),
+    };
+    const check = await collector.verifyPromptPresence(
+      fakeLocator,
+      'Hãy sinh ý tưởng JSON cho chủ đề Sự phát triển của film AI Trung Quốc',
+      0.8
+    );
+    assert.strictEqual(check.present, false, 'Unrelated pre-existing text must not pass verifyPromptPresence');
+  });
+
+  await runTest('Safe Input: sendPrompt skips duplicate submission when prompt was already received on virtualized DOM', async () => {
+    const page = new MockPage();
+    const composer = new MockDomNode('form div.ProseMirror[data-composer-markdown]', 'div');
+    composer.textContent = '';
+
+    const userTurn = new MockDomNode('[data-message-author-role="user"], [data-chatgpt-search-unit-key$=":user"]', 'div');
+    userTurn.attributes['data-chatgpt-search-unit-key'] = 'fallback-turn-2:0:user';
+    const prompt = 'Bạn là Giám đốc Sáng tạo & Biên kịch trưởng cho kênh YouTube triệu view với chủ đề Sự phát triển của film AI Trung Quốc.';
+    // Simulate ChatGPT collapsing long user prompt with "… Xem thêm"
+    userTurn.textContent = prompt.slice(0, 95) + '… Xem thêm';
+
+    let sendClicked = 0;
+    const sendBtn = new MockDomNode('button[data-testid="send-button"]', 'button');
+    sendBtn.clickListeners.push(() => {
+      sendClicked++;
+    });
+
+    page.nodes.push(composer, userTurn, sendBtn);
+
+    const collector = new ChatGptScriptCollector();
+    // Simulate virtualized DOM where count remained 2 (same as before), but lastKey changed from turn-1 to turn-2
+    await collector.sendPrompt(page, prompt, {
+      beforeUserTurnSnapshot: {
+        count: 2,
+        lastKey: 'fallback-turn-1:0:user',
+        text: 'Loại bỏ phần hướng dẫn bị lặp',
+      },
+    });
+
+    assert.strictEqual(sendClicked, 0, 'Must not re-send when prompt was already received');
+    assert.strictEqual(composer.textContent, '', 'Must not re-inject prompt into composer');
+  });
+
   // ----------------------------------------------------------------------------
   // SECTION 7: Streaming & Triple-Cycle Stability Checking
   // ----------------------------------------------------------------------------

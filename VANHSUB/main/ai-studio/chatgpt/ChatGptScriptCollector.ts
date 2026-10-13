@@ -73,11 +73,82 @@ export async function readComposerText(locator: any): Promise<string> {
     ? await locator.innerText({ timeout: 1500 }) : await locator.textContent({ timeout: 1500 }) || '';
 }
 
-async function readUserTurnState(page: any): Promise<{ count: number; text: string }> {
-  const turns = page.locator('[data-message-author-role="user"], [data-chatgpt-search-unit-key$=":user"]');
-  const count = await turns.count();
-  const last = count > 0 ? turns.nth(count - 1) : null;
-  return { count, text: last ? await last.innerText({ timeout: 1500 }) : '' };
+export interface UserTurnSnapshot {
+  count: number;
+  lastKey: string | null;
+  text: string;
+}
+
+export function normalizePromptText(value: string): string {
+  return (value || '')
+    .replace(/(?:…|\.\.\.)?\s*(?:Xem thêm|Show more)\s*$/i, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+export function doesUserTurnMatchPrompt(turnText: string, expectedPrompt: string): boolean {
+  const normTurn = normalizePromptText(turnText);
+  const normPrompt = normalizePromptText(expectedPrompt);
+  if (!normTurn || !normPrompt) return false;
+  if (normTurn.includes(normPrompt)) return true;
+
+  // ChatGPT Web may collapse long user messages with "… Xem thêm" / "Show more"
+  const prefixLen = Math.min(80, normPrompt.length, normTurn.length);
+  if (prefixLen >= 20) {
+    const turnPrefix = normTurn.slice(0, prefixLen);
+    const promptPrefix = normPrompt.slice(0, prefixLen);
+    if (turnPrefix === promptPrefix && normPrompt.includes(normTurn.slice(0, Math.min(normTurn.length, 160)))) {
+      return true;
+    }
+  }
+  return false;
+}
+
+export function isNewUserTurnConfirmed(
+  before: UserTurnSnapshot,
+  current: UserTurnSnapshot,
+  prompt: string
+): boolean {
+  if (!doesUserTurnMatchPrompt(current.text, prompt)) {
+    return false;
+  }
+  if (current.count > before.count) {
+    return true;
+  }
+  if (current.lastKey && current.lastKey !== before.lastKey) {
+    return true;
+  }
+  if (normalizePromptText(current.text) !== normalizePromptText(before.text)) {
+    return true;
+  }
+  return false;
+}
+
+async function readUserTurnState(page: any): Promise<UserTurnSnapshot> {
+  if (!page || typeof page.locator !== 'function') {
+    return { count: 0, lastKey: null, text: '' };
+  }
+  try {
+    const turns = page.locator('[data-message-author-role="user"], [data-chatgpt-search-unit-key$=":user"]');
+    const count = typeof turns.count === 'function' ? await turns.count().catch(() => 0) : 0;
+    const last = count > 0 && typeof turns.nth === 'function' ? turns.nth(count - 1) : null;
+    const lastKey =
+      last && typeof last.getAttribute === 'function'
+        ? (await last.getAttribute('data-chatgpt-search-unit-key').catch(() => null)) ||
+          (await last.getAttribute('data-message-id').catch(() => null)) ||
+          (await last.getAttribute('data-testid').catch(() => null))
+        : null;
+    const text = last
+      ? (typeof last.innerText === 'function'
+          ? await last.innerText({ timeout: 1500 }).catch(() => '')
+          : typeof last.textContent === 'function'
+          ? await last.textContent({ timeout: 1500 }).catch(() => '')
+          : '') || ''
+      : '';
+    return { count, lastKey, text };
+  } catch {
+    return { count: 0, lastKey: null, text: '' };
+  }
 }
 
 export interface CollectScriptOptions {
@@ -98,6 +169,7 @@ export interface CollectScriptOptions {
   initialTurnCount?: number;
   initialLastTurnKey?: string;
   initialResponseText?: string;
+  beforeUserTurnSnapshot?: UserTurnSnapshot;
 }
 
 export interface ScriptCollectionOptions {
@@ -118,6 +190,7 @@ export interface ScriptCollectionOptions {
   initialTurnCount?: number;
   initialLastTurnKey?: string;
   initialResponseText?: string;
+  beforeUserTurnSnapshot?: UserTurnSnapshot;
 }
 
 export interface ScriptCollectionResult {
@@ -156,6 +229,8 @@ export interface SendPromptOptions {
   sendButtonTimeoutMs?: number;
   /** Maximum wait time in milliseconds for submission verification (default: 6000ms) */
   submissionVerificationTimeoutMs?: number;
+  /** Baseline user turn state captured prior to sending to prevent duplicate submissions */
+  beforeUserTurnSnapshot?: UserTurnSnapshot;
   /** Progress notification callback */
   onProgress?: (message: string) => void;
   /** Custom logger for diagnostics */
@@ -875,7 +950,8 @@ export class ChatGptScriptCollector {
   }
 
   /**
-   * Helper: Verifies whether prompt text is present inside promptTextarea with >= minRatio.
+   * Helper: Verifies whether prompt text is present inside promptTextarea with >= minRatio
+   * and matches the expected prompt content (preventing false positives on pre-existing text).
    */
   public async verifyPromptPresence(
     locator: any,
@@ -895,7 +971,16 @@ export class ChatGptScriptCollector {
       }
 
       const ratio = currentLength / expectedLength;
-      const present = currentLength > 0 && ratio >= minRatio;
+      const normCurrent = normalizePromptText(trimmedCurrent);
+      const normExpected = normalizePromptText(trimmedExpected);
+      const probeLen = Math.min(24, normExpected.length);
+      const hasContentMatch =
+        probeLen === 0 ||
+        normCurrent.includes(normExpected.slice(0, probeLen)) ||
+        normCurrent.includes(normExpected.slice(-probeLen)) ||
+        normExpected.includes(normCurrent.slice(0, Math.min(24, normCurrent.length)));
+
+      const present = currentLength > 0 && ratio >= minRatio && hasContentMatch;
 
       return { present, currentLength, expectedLength };
     } catch {
@@ -933,13 +1018,30 @@ export class ChatGptScriptCollector {
       }
     }
 
-    // Step 2: Resolve prompt textarea
+    // Step 2: Resolve prompt textarea & check if prompt was already received to avoid duplicate sends
     const resolvedPrompt = await resolveSelector(page, CHATGPT_SELECTORS.promptTextarea, 'promptTextarea', {
       timeoutMs: 5000,
       waitForVisible: true,
       logger,
     });
     const promptLoc = resolvedPrompt.locator;
+
+    const currentUserTurnBeforeInject = await readUserTurnState(page);
+    const beforeUserTurn = options?.beforeUserTurnSnapshot ?? currentUserTurnBeforeInject;
+    const composerTextBeforeInject = await readComposerText(promptLoc).catch(() => '');
+
+    if (
+      (options?.beforeUserTurnSnapshot &&
+        isNewUserTurnConfirmed(options.beforeUserTurnSnapshot, currentUserTurnBeforeInject, prompt)) ||
+      (doesUserTurnMatchPrompt(currentUserTurnBeforeInject.text, prompt) &&
+        composerTextBeforeInject.trim().length === 0 &&
+        (await isStreamingActive(page)))
+    ) {
+      logger.warn?.(
+        '[ChatGptScriptCollector] Prompt đã được ChatGPT nhận trước đó; bỏ qua gửi lại để tránh gửi trùng.'
+      );
+      return;
+    }
 
     const diagnostics: Record<string, string> = {};
     const attemptedTiers: number[] = [];
@@ -1037,11 +1139,20 @@ export class ChatGptScriptCollector {
         if (typeof page.evaluate === 'function') {
           const evalResult = await page.evaluate(
             ({ selector, promptText }: { selector: string; promptText: string }) => {
-              const el: any = document.querySelector(selector) ||
-                              document.querySelector('#prompt-textarea') ||
-                              document.querySelector('div.ProseMirror') ||
-                              document.querySelector('div[contenteditable="true"]') ||
-                              document.querySelector('textarea');
+              const el: any =
+                document.querySelector(selector) ||
+                document.querySelector('form #prompt-textarea') ||
+                document.querySelector('#prompt-textarea') ||
+                document.querySelector('form div.ProseMirror[data-composer-markdown]') ||
+                document.querySelector('[data-chatgpt-composer] div.ProseMirror[contenteditable="true"]') ||
+                document.querySelector('[data-composer-body] div.ProseMirror[contenteditable="true"]') ||
+                document.querySelector('form div.ProseMirror[contenteditable="true"]') ||
+                document.querySelector('form div.ProseMirror') ||
+                document.querySelector('div.ProseMirror[data-composer-markdown]') ||
+                document.querySelector('div.ProseMirror:not(.content-xaiQhS)') ||
+                document.querySelector('div.ProseMirror') ||
+                document.querySelector('div[contenteditable="true"]') ||
+                document.querySelector('textarea');
               if (!el) return { success: false, reason: 'Element not found' };
 
               if (typeof el.focus === 'function') el.focus();
@@ -1113,7 +1224,6 @@ export class ChatGptScriptCollector {
 
     // Step 3: Safe Submission
     options?.onProgress?.('Đang gửi prompt tới ChatGPT...');
-    const beforeUserTurn = await readUserTurnState(page);
     const form = promptLoc.locator?.('xpath=ancestor::form[1]');
     const sendScope = form && await form.count() > 0 ? form : page;
     const sendButtonRes = await tryResolveSelector(sendScope, CHATGPT_SELECTORS.sendButton, 'sendButton');
@@ -1150,24 +1260,33 @@ export class ChatGptScriptCollector {
       }
     }
 
-    // Fallback: If sendButton not clicked or disabled, press Enter on promptTextarea
+    // Fallback: If sendButton not clicked or disabled, verify prompt was not already received before pressing Enter
     if (!submittedViaButton) {
-      if (typeof promptLoc.focus === 'function') {
-        await promptLoc.focus().catch(() => {});
-      }
-      if (typeof page.keyboard?.press === 'function') {
-        await page.keyboard.press('Enter').catch(() => {});
+      const postClickUserTurn = await readUserTurnState(page);
+      const postClickStreaming = await isStreamingActive(page);
+      const postClickComposerText = await readComposerText(promptLoc).catch(() => null);
+      const alreadyReceived =
+        isNewUserTurnConfirmed(beforeUserTurn, postClickUserTurn, prompt) ||
+        postClickStreaming ||
+        (postClickComposerText !== null && postClickComposerText.trim().length === 0);
+
+      if (!alreadyReceived) {
+        if (typeof promptLoc.focus === 'function') {
+          await promptLoc.focus().catch(() => {});
+        }
+        if (typeof page.keyboard?.press === 'function') {
+          await page.keyboard.press('Enter').catch(() => {});
+        }
       }
     }
 
-    // Step 4: Verify Submission (textarea cleared OR stopButton appears)
+    // Step 4: Verify Submission (new user turn confirmed without relying solely on DOM turn count, OR stopButton appears, OR textarea cleared)
     const verificationStart = Date.now();
     let submissionConfirmed = false;
 
     while (Date.now() - verificationStart < submissionVerificationTimeoutMs) {
       const userTurn = await readUserTurnState(page);
-      const normalize = (value: string) => value.replace(/\s+/g, ' ').trim();
-      if (userTurn.count > beforeUserTurn.count && normalize(userTurn.text).includes(normalize(prompt))) {
+      if (isNewUserTurnConfirmed(beforeUserTurn, userTurn, prompt)) {
         submissionConfirmed = true;
         break;
       }
@@ -1181,7 +1300,8 @@ export class ChatGptScriptCollector {
       // Resolve again: React may replace the composer after submitting or navigating.
       const currentComposer = await tryResolveSelector(page, CHATGPT_SELECTORS.promptTextarea, 'promptTextarea');
       const remainingText = currentComposer
-        ? await readComposerText(currentComposer.locator).catch(() => null) : null;
+        ? await readComposerText(currentComposer.locator).catch(() => null)
+        : await readComposerText(promptLoc).catch(() => null);
 
       if (remainingText !== null && remainingText.trim().length === 0) {
         submissionConfirmed = true;
@@ -1550,6 +1670,7 @@ export class ChatGptScriptCollector {
   ): Promise<ScriptCollectionResult> {
     let activePage = page;
     let initialLastTurnKey: string | undefined;
+    let beforeUserTurnSnapshot: UserTurnSnapshot | undefined = options?.beforeUserTurnSnapshot;
     const initialTurnCount = await retryWithBackoff(
       async (attempt: number) => {
         if (attempt > 1) {
@@ -1567,6 +1688,9 @@ export class ChatGptScriptCollector {
         }
 
         await assertPageHealth(activePage);
+        if (!beforeUserTurnSnapshot) {
+          beforeUserTurnSnapshot = await readUserTurnState(activePage);
+        }
         const preTurns = await getAssistantTurns(activePage);
         if (preTurns.length > 0) {
           const lastPre = preTurns[preTurns.length - 1];
@@ -1584,8 +1708,13 @@ export class ChatGptScriptCollector {
         },
       }
     );
-    await this.sendPrompt(activePage, prompt, options);
-    return await this.collectResponse(activePage, { ...options, initialTurnCount, initialLastTurnKey });
+    await this.sendPrompt(activePage, prompt, { ...options, beforeUserTurnSnapshot });
+    return await this.collectResponse(activePage, {
+      ...options,
+      initialTurnCount,
+      initialLastTurnKey,
+      beforeUserTurnSnapshot,
+    });
   }
 
   /**
