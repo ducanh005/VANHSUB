@@ -96,6 +96,8 @@ export interface CollectScriptOptions {
   maxRetries?: number;
   topic?: string;
   initialTurnCount?: number;
+  initialLastTurnKey?: string;
+  initialResponseText?: string;
 }
 
 export interface ScriptCollectionOptions {
@@ -114,6 +116,8 @@ export interface ScriptCollectionOptions {
   maxRetries?: number;
   topic?: string;
   initialTurnCount?: number;
+  initialLastTurnKey?: string;
+  initialResponseText?: string;
 }
 
 export interface ScriptCollectionResult {
@@ -169,6 +173,8 @@ export interface StreamingWaitOptions {
   requiredStableCycles?: number;
   /** Turn count threshold to isolate new assistant turns */
   initialTurnCount?: number;
+  /** Last assistant turn search-unit key before sending prompt (guards against ChatGPT virtualized scroll unmounting top turns) */
+  initialLastTurnKey?: string;
   /** Progress notification callback */
   onProgress?: (message: string) => void;
   /** Streaming chunk callback */
@@ -1261,14 +1267,24 @@ export class ChatGptScriptCollector {
         continue;
       }
 
+      const targetTurn = turns[turns.length - 1];
+
       // Isolate new assistant turn if initialTurnCount was specified
       if (options?.initialTurnCount !== undefined && turns.length <= options.initialTurnCount) {
-        stableCount = 0;
-        await new Promise((r) => setTimeout(r, pollIntervalMs));
-        continue;
+        let isVirtualizedNewTurn = false;
+        if (options?.initialLastTurnKey && typeof targetTurn?.getAttribute === 'function') {
+          const currentKey = await targetTurn.getAttribute('data-chatgpt-search-unit-key').catch(() => null);
+          if (currentKey && currentKey !== options.initialLastTurnKey) {
+            isVirtualizedNewTurn = true;
+          }
+        }
+        if (!isVirtualizedNewTurn) {
+          stableCount = 0;
+          await new Promise((r) => setTimeout(r, pollIntervalMs));
+          continue;
+        }
       }
 
-      const targetTurn = turns[turns.length - 1];
       const streaming = await isStreamingActive(page);
 
       const currentText = await readAssistantTurnText(targetTurn);
@@ -1533,6 +1549,7 @@ export class ChatGptScriptCollector {
     options?: CollectScriptOptions
   ): Promise<ScriptCollectionResult> {
     let activePage = page;
+    let initialLastTurnKey: string | undefined;
     const initialTurnCount = await retryWithBackoff(
       async (attempt: number) => {
         if (attempt > 1) {
@@ -1550,7 +1567,14 @@ export class ChatGptScriptCollector {
         }
 
         await assertPageHealth(activePage);
-        return (await getAssistantTurns(activePage)).length;
+        const preTurns = await getAssistantTurns(activePage);
+        if (preTurns.length > 0) {
+          const lastPre = preTurns[preTurns.length - 1];
+          if (typeof lastPre?.getAttribute === 'function') {
+            initialLastTurnKey = (await lastPre.getAttribute('data-chatgpt-search-unit-key').catch(() => null)) || undefined;
+          }
+        }
+        return preTurns.length;
       },
       {
         maxRetries: options?.maxRetries ?? 3,
@@ -1561,7 +1585,7 @@ export class ChatGptScriptCollector {
       }
     );
     await this.sendPrompt(activePage, prompt, options);
-    return await this.collectResponse(activePage, { ...options, initialTurnCount });
+    return await this.collectResponse(activePage, { ...options, initialTurnCount, initialLastTurnKey });
   }
 
   /**

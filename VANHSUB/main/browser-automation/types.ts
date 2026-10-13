@@ -245,6 +245,7 @@ export interface FlowGenerationAutomationResult {
   projectId?: string;
   firstImageUrl?: string;
   videoUrl?: string;
+  assetId?: string;
   domFallback?: boolean;
   error?: string;
   errorCode?: string;

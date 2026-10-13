@@ -306,17 +306,9 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
       return this.activeSessions.get(sessionId)!;
     }
 
-    // Check savedProjects for savedSession in config
-    const config = getDecryptedAiStudioConfig();
-    const proj = config.savedProjects?.find(
-      (p) => p.lastSessionId === sessionId || p.savedSession?.sessionId === sessionId
-    );
-    if (proj?.savedSession && proj.savedSession.sessionId === sessionId) {
-      this.activeSessions.set(sessionId, proj.savedSession);
-      return proj.savedSession;
-    }
+    let diskState: PipelineSessionState | null = null;
 
-    // Attempt loading from session folder
+    // 1. Attempt loading authoritative session.json from project/session folder first
     try {
       const sessionDir = this.getSessionDir(sessionId);
       if (sessionDir) {
@@ -328,9 +320,8 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
             if (state && typeof state === 'object') {
               state.stages = state.stages || ({} as any);
               state.artifacts = state.artifacts || ({} as any);
+              diskState = state;
             }
-            this.activeSessions.set(sessionId, state);
-            return state;
           } catch (err) {
             console.warn(`[AiStudioPipelineEngine] Corrupt session.json at ${sessionJsonPath}:`, err);
           }
@@ -338,18 +329,44 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
       }
     } catch {}
 
-    // Fallback: Attempt loading from legacy flat file
-    const legacyPath = path.join(resolveAiStudioSessionsRoot(), `${sessionId}.json`);
-    if (fs.existsSync(legacyPath)) {
-      try {
-        const state: PipelineSessionState = JSON.parse(fs.readFileSync(legacyPath, 'utf8'));
-        if (state && typeof state === 'object') {
-          state.stages = state.stages || ({} as any);
-          state.artifacts = state.artifacts || ({} as any);
-        }
-        this.activeSessions.set(sessionId, state);
-        return state;
-      } catch {}
+    // 2. Fallback: Attempt loading from legacy flat file if sessionDir had no session.json
+    if (!diskState) {
+      const legacyPath = path.join(resolveAiStudioSessionsRoot(), `${sessionId}.json`);
+      if (fs.existsSync(legacyPath)) {
+        try {
+          const state: PipelineSessionState = JSON.parse(fs.readFileSync(legacyPath, 'utf8'));
+          if (state && typeof state === 'object') {
+            state.stages = state.stages || ({} as any);
+            state.artifacts = state.artifacts || ({} as any);
+            diskState = state;
+          }
+        } catch {}
+      }
+    }
+
+    // 3. Check savedProjects for savedSession in config, and pick the most up-to-date state
+    const config = getDecryptedAiStudioConfig();
+    const proj = config.savedProjects?.find(
+      (p) => p.lastSessionId === sessionId || p.savedSession?.sessionId === sessionId
+    );
+    const configState =
+      proj?.savedSession && proj.savedSession.sessionId === sessionId ? proj.savedSession : null;
+
+    let resolved: PipelineSessionState | null = diskState || configState;
+    if (diskState && configState) {
+      const diskStage = diskState.currentStage || 0;
+      const cfgStage = configState.currentStage || 0;
+      const diskUpdated = diskState.updatedAt || 0;
+      const cfgUpdated = configState.updatedAt || 0;
+      resolved =
+        diskStage > cfgStage || (diskStage === cfgStage && diskUpdated >= cfgUpdated)
+          ? diskState
+          : configState;
+    }
+
+    if (resolved) {
+      this.activeSessions.set(sessionId, resolved);
+      return resolved;
     }
 
     return null;
@@ -1000,7 +1017,10 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
             const scriptScenes = scriptLines.map((line, idx) => ({
               scene_id: `scene_${String(idx + 1).padStart(2, '0')}`,
               narration: line.text,
-              visual_note: line.visualPromptEn || line.text,
+              visual_note: line.visualAction || line.visualNote || line.visualPromptEn || line.text,
+              suggestedMediaType: line.suggestedMediaType || 'video',
+              cameraAngle: line.cameraAngle,
+              cameraMovement: line.cameraMovement,
             }));
             const scriptData: PipelineScriptData = { scenes: scriptScenes };
             storage.saveScript(scriptData);
@@ -1082,7 +1102,7 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
               backgroundPrompt: config.channelProfile?.projectBackgroundPrompt,
               shotMode: config.flowEngine.shotMode,
               granularity: config.flowEngine.granularity || 'balanced',
-              enableClustering: true,
+              enableClustering: config.flowEngine.shotMode !== 'single' && scriptScenes.length >= 4,
               llmConfig: config.llm,
               topic: session.artifacts.blueprint?.title || session.artifacts.blueprint?.topic || 'Video Production',
             });
@@ -1093,11 +1113,16 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
             let accumulatedMs = 0;
 
             storyboardData.scenes.forEach((sc, scIdx) => {
+              const isSingleShotScene = sc.shots.length === 1;
               sc.shots.forEach((shot) => {
-                const startMs = typeof shot.start_sec === 'number'
+                const startMs = isSingleShotScene && typeof sc.start_sec === 'number'
+                  ? Math.round(sc.start_sec * 1000)
+                  : typeof shot.start_sec === 'number'
                   ? Math.round(shot.start_sec * 1000)
                   : (timingScenes.find((t) => t.scene_id === sc.scene_id)?.start_sec ? Math.round(timingScenes.find((t) => t.scene_id === sc.scene_id)!.start_sec * 1000) : accumulatedMs);
-                const durationMs = typeof shot.duration_sec === 'number'
+                const durationMs = isSingleShotScene && typeof sc.duration_sec === 'number' && sc.duration_sec > 0
+                  ? Math.round(sc.duration_sec * 1000)
+                  : typeof shot.duration_sec === 'number'
                   ? Math.round(shot.duration_sec * 1000)
                   : Math.round((shot.expected_duration_sec || 4.0) * 1000);
                 const endMs = startMs + durationMs;
@@ -1201,7 +1226,7 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
 
               const targetVisualDir = storage.paths.mediaDir || assetsDir;
 
-              const onSceneComplete = (completedScene: StoryboardScene, idx: number) => {
+              const onSceneComplete = async (completedScene: StoryboardScene, idx: number) => {
                 const shotId = completedScene.shotId || completedScene.id;
                 let targetSceneId = (completedScene as any).sceneId;
                 if (!targetSceneId) {
@@ -1218,9 +1243,18 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
                 }
 
                 if (completedScene.videoPath && fs.existsSync(completedScene.videoPath)) {
+                  try {
+                    const durSec = await aiStudioVideoAssembler.probeDuration(completedScene.videoPath);
+                    if (durSec > 0) {
+                      completedScene.originalMediaDurationSec = Number(durSec.toFixed(3));
+                    }
+                  } catch {}
                   storage.updateShotMetadata(targetSceneId, shotId, {
                     status: 'video_ready',
                     video_path: completedScene.videoPath,
+                    ...(completedScene.imagePath && fs.existsSync(completedScene.imagePath)
+                      ? { image_path: completedScene.imagePath }
+                      : {}),
                   });
                 } else if (completedScene.imagePath && fs.existsSync(completedScene.imagePath)) {
                   storage.updateShotMetadata(targetSceneId, shotId, {
@@ -1302,6 +1336,36 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
                   } catch (cfgErr) {
                     console.warn('[AiStudioPipelineEngine] Cảnh báo lưu flowProjectUrl vào savedProjects:', cfgErr);
                   }
+                }
+              } else {
+                const adapter = BrowserAutomationAdapter.getInstance();
+                if (!adapter.isConnected('flow')) {
+                  try {
+                    await adapter.connect({ provider: 'flow' });
+                  } catch {
+                    // Port 9224 not active, continue with existing connection mode
+                  }
+                }
+                if (adapter.isConnected('flow') && !targetFlowProjectId) {
+                  try {
+                    const discovered = await adapter.discoverActiveFlowProject();
+                    if (discovered?.projectId) {
+                      targetFlowProjectId = discovered.projectId;
+                      session.flowProjectUrl = discovered.url;
+                      this.persistSessionStateAtomic(session);
+                      if (ownerProject && !ownerProject.flowProjectUrl) {
+                        ownerProject.flowProjectUrl = discovered.url;
+                        const currentCfg = getDecryptedAiStudioConfig();
+                        const updatedProjects = (currentCfg.savedProjects || []).map((p) =>
+                          p.id === ownerProject.id ? { ...p, flowProjectUrl: discovered.url } : p
+                        );
+                        updateAiStudioConfig({
+                          savedProjects: updatedProjects,
+                          ...(currentCfg.activeProjectId === ownerProject.id ? { flowProjectUrl: discovered.url } : {}),
+                        });
+                      }
+                    }
+                  } catch {}
                 }
               }
               const effectiveFlowEngineConfig: AiStudioFlowEngineConfig = {
@@ -2005,12 +2069,35 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
 
         const activeProj = ownerProject;
         const ownerSession = await this.getState({ sessionId: payload.sessionId });
-        const targetFlowProjectId = extractFlowProjectId(
+        let targetFlowProjectId = extractFlowProjectId(
           ownerSession?.flowProjectUrl ||
           payload.flowConfig?.projectId ||
           activeProj?.flowProjectUrl ||
           (config as any).flowProjectUrl
         );
+        if (!targetFlowProjectId && !process.env.VITEST) {
+          try {
+            const discovered = await BrowserAutomationAdapter.getInstance().discoverActiveFlowProject();
+            if (discovered?.projectId) {
+              targetFlowProjectId = discovered.projectId;
+              if (ownerSession) {
+                ownerSession.flowProjectUrl = discovered.url;
+                this.persistSessionStateAtomic(ownerSession);
+              }
+              if (activeProj && !activeProj.flowProjectUrl) {
+                activeProj.flowProjectUrl = discovered.url;
+                const currentCfg = getDecryptedAiStudioConfig();
+                const updatedProjects = (currentCfg.savedProjects || []).map((p) =>
+                  p.id === activeProj.id ? { ...p, flowProjectUrl: discovered.url } : p
+                );
+                updateAiStudioConfig({
+                  savedProjects: updatedProjects,
+                  ...(currentCfg.activeProjectId === activeProj.id ? { flowProjectUrl: discovered.url } : {}),
+                });
+              }
+            }
+          } catch {}
+        }
         if (!targetFlowProjectId) throw new Error('Phiên chưa có project Flow riêng. Hãy chạy bước tạo media trước khi tạo lại cảnh.');
         if (payload.flowConfig?.projectId && extractFlowProjectId(payload.flowConfig.projectId) !== targetFlowProjectId) {
           throw new Error('Project tạo lại cảnh không khớp project đã lưu của phiên.');

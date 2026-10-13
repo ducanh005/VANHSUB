@@ -524,7 +524,15 @@ export function calculateScriptPacingMetrics(
     }
   } else {
     const longDur = channelProfile?.targetLongDuration || '5_8_min';
-    if (longDur === '1_3_min') {
+    if (longDur === '20_30_sec') {
+      targetDurationSec = 25;
+      targetMinutesText = '20 đến 30 giây';
+      targetWords = 65;
+      targetWordRange = '55 - 75 từ';
+      targetSentenceRange = 'đúng 3 câu phân cảnh';
+      minSentences = 3;
+      maxSentences = 3;
+    } else if (longDur === '1_3_min') {
       targetDurationSec = 120;
       targetMinutesText = '1 đến 3 phút';
       targetWords = 380;
@@ -575,16 +583,22 @@ export function calculateScriptPacingMetrics(
     }
   }
 
-  // If blueprint explicitly has estimatedDurationSec, adjust target sentences proportionally
+  // If blueprint explicitly has estimatedDurationSec, adjust target sentences proportionally (except when explicitly locked to 20_30_sec)
   if (
+    channelProfile?.targetLongDuration !== '20_30_sec' &&
     blueprint?.estimatedDurationSec &&
     blueprint.estimatedDurationSec > 0 &&
     Math.abs(blueprint.estimatedDurationSec - targetDurationSec) > 30
   ) {
     targetDurationSec = blueprint.estimatedDurationSec;
     targetWords = Math.round(targetDurationSec * 3.1);
-    minSentences = Math.max(5, Math.round(targetWords / 25));
-    maxSentences = Math.max(minSentences + 3, Math.round(targetWords / 18));
+    if (targetDurationSec <= 35) {
+      minSentences = 3;
+      maxSentences = 3;
+    } else {
+      minSentences = Math.max(5, Math.round(targetWords / 25));
+      maxSentences = Math.max(minSentences + 3, Math.round(targetWords / 18));
+    }
     targetWordRange = `${Math.round(targetWords * 0.85)} - ${Math.round(targetWords * 1.15)} từ`;
     targetSentenceRange = `${minSentences} đến ${maxSentences} câu phân cảnh`;
     const mins = Math.floor(targetDurationSec / 60);
@@ -638,6 +652,33 @@ CÂU ${metrics.maxSentences}: [Câu thoại kết luận và kêu gọi hành đ
 === END SCRIPT ===
 
 CHÚ Ý: Mỗi câu viết trên 1 dòng riêng biệt theo đúng cú pháp "CÂU X: ...", không thêm lời chào, không thêm markdown phụ ngoài marker.`;
+  } else if (metrics.maxSentences === 3) {
+    const outlineBlock =
+      blueprint?.outline && blueprint.outline.length > 0
+        ? `\nDÀN Ý 3 PHÂN CẢNH:\n${blueprint.outline.slice(0, 3).join('\n')}\n`
+        : '';
+
+    prompt = `Bạn là nhà biên kịch video điện ảnh chuyên nghiệp.
+KÊNH: "${projectName}"
+CHỦ ĐỀ: "${title}"
+${blueprint?.hookConcept ? `HOOK MỞ ĐẦU: "${blueprint.hookConcept}"` : ''}
+${blueprint?.narrativeAngle ? `GÓC NHÌN: "${blueprint.narrativeAngle}"` : ''}
+PHONG CÁCH: ${orientation}
+${outlineBlock}
+NHIỆM VỤ BẮT BUỘC:
+- Viết kịch bản lồng tiếng tiếng Việt gồm ĐÚNG 3 CÂU PHÂN CẢNH (CÂU 1, CÂU 2, CÂU 3) cho video thời lượng 20 đến 30 giây (${metrics.targetWordRange}).
+- Mỗi câu dài khoảng 18 đến 24 từ tiếng Việt tự nhiên, giàu hình ảnh và cảm xúc để khi đọc đạt tổng thời lượng 20–30 giây.
+- TUYỆT ĐỐI CHỈ VIẾT ĐÚNG 3 CÂU (không viết Câu 4 trở đi).
+
+QUY ĐỊNH ĐỊNH DẠNG BẮT BUỘC:
+1. Bọc toàn bộ kịch bản trong marker:
+=== BEGIN SCRIPT ===
+CÂU 1: [Lời thoại tiếng Việt phân cảnh 1 (~20 từ)] | VISUAL: [Detailed English visual prompt for scene 1] | CAMERA: [slow cinematic pan / dolly in] | MEDIA: [video]
+CÂU 2: [Lời thoại tiếng Việt phân cảnh 2 (~20 từ)] | VISUAL: [Detailed English visual prompt for scene 2] | CAMERA: [gentle tracking shot] | MEDIA: [video]
+CÂU 3: [Lời thoại tiếng Việt kết bài phân cảnh 3 (~20 từ)] | VISUAL: [Detailed English visual prompt for scene 3] | CAMERA: [wide aerial pull back] | MEDIA: [video]
+=== END SCRIPT ===
+
+2. KHÔNG thêm lời chào mừng AI, KHÔNG thêm tiêu đề phụ ngoài marker.`;
   } else {
     // LONG VIDEO (e.g. 5-8 minutes, 8-12 minutes)
     const outlineBlock =

@@ -661,6 +661,7 @@ Output NOTHING else. No analysis, no planning, no alternative titles, no word co
                     onChange={(e) => handleChange('targetLongDuration', e.target.value as ChannelLongDuration)}
                     className="w-full rounded-md border border-border bg-bg px-3.5 py-2.5 text-xs text-white focus:border-accent/40 focus:outline-none focus:ring-1 focus:ring-accent/30 cursor-pointer"
                   >
+                    <option value="20_30_sec">20 - 30 giây (3 phân cảnh)</option>
                     <option value="1_3_min">1 - 3 phút</option>
                     <option value="3_5_min">3 - 5 phút (Mặc định)</option>
                     <option value="5_8_min">5 - 8 phút</option>

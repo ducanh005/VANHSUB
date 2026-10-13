@@ -63,6 +63,7 @@ export default function IdeaGenerationModal({
       return '30 - 60 giây';
     } else {
       const l = config.channelProfile?.targetLongDuration;
+      if (l === '20_30_sec') return '20 - 30 giây';
       if (l === '1_3_min') return '1 - 3 phút';
       if (l === '3_5_min') return '3 - 5 phút';
       if (l === '5_8_min') return '5 - 8 phút';
@@ -167,6 +168,8 @@ export default function IdeaGenerationModal({
           : config.channelProfile?.targetShortDuration === '120_180_sec'
           ? 150
           : 45
+        : config.channelProfile?.targetLongDuration === '20_30_sec'
+        ? 25
         : config.channelProfile?.targetLongDuration === '1_3_min'
         ? 120
         : config.channelProfile?.targetLongDuration === '5_8_min'

@@ -754,6 +754,42 @@ export class BrowserAutomationAdapter extends EventEmitter {
   }
 
   /**
+   * Discovers an active Google Flow project tab on port 9224 and returns its projectId and URL.
+   */
+  public async discoverActiveFlowProject(
+    preferredProjectId?: string
+  ): Promise<{ projectId: string; url: string } | null> {
+    let session = this.sessions.get('flow');
+    if (!session || session.isDisconnecting || !session.browser.isConnected()) {
+      try {
+        await this.connect({ provider: 'flow' });
+        session = this.sessions.get('flow') || undefined;
+      } catch {
+        return null;
+      }
+    }
+    if (!session || !session.context) return null;
+
+    const pages = session.context.pages();
+    if (preferredProjectId) {
+      for (const p of pages) {
+        const u = p.url();
+        if (u.includes(`/project/${preferredProjectId}`)) {
+          return { projectId: preferredProjectId, url: u };
+        }
+      }
+    }
+    for (const p of pages) {
+      const u = p.url();
+      const m = u.match(/\/project\/([0-9a-f-]{36}|[a-zA-Z0-9_-]{8,})/i);
+      if (m && m[1]) {
+        return { projectId: m[1], url: u };
+      }
+    }
+    return null;
+  }
+
+  /**
    * Executes Flow image/video generation over CDP via Playwright.
    */
   public async executeFlowGeneration(
@@ -977,11 +1013,16 @@ export class BrowserAutomationAdapter extends EventEmitter {
           throw new Error('STRICT_I2V_PROVENANCE_ERROR: Menu ngữ cảnh không xuất hiện tuỳ chọn "Thêm vào câu lệnh" (Add to prompt).');
         }
 
-        // Sau khi attach ảnh vào prompt, xác nhận chip ảnh xuất hiện và khớp đúng identifier
-        const attachedChips = await page.evaluate(() => {
-          const chips = Array.from(document.querySelectorAll('.chip-image, flow-prompt-box img, .prompt-box-container img, [data-entity-type]'));
-          return chips.map((c: any) => c.src || c.currentSrc || '').filter(Boolean);
-        });
+        // Sau khi attach ảnh vào prompt, xác nhận chip ảnh xuất hiện và khớp đúng identifier (poll tới 3s chờ signed URL)
+        let attachedChips: string[] = [];
+        for (let pollAttempt = 0; pollAttempt < 12; pollAttempt++) {
+          attachedChips = await page.evaluate(() => {
+            const chips = Array.from(document.querySelectorAll('.chip-image, flow-prompt-box img, .prompt-box-container img, [data-entity-type]'));
+            return chips.map((c: any) => c.src || c.currentSrc || c.getAttribute('data-entity-type') || '').filter(Boolean);
+          }).catch(() => []);
+          if (attachedChips.length > 0) break;
+          await page.waitForTimeout(250);
+        }
         if (attachedChips.length === 0) {
           throw new Error('STRICT_I2V_PROVENANCE_ERROR: Prompt chip không xuất hiện trong ô nhập lệnh sau khi đính kèm keyframe.');
         }
