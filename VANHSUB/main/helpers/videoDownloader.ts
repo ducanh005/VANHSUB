@@ -8,6 +8,7 @@ import { ensureYtDlp } from './voiceFromUrl';
 import { getFfmpegBinPath } from '../asr/audioExtractor';
 import { SettingsStore } from '../store/settingsStore';
 import { sanitizeFolderName } from '../utils/projectFolder';
+import { createUniqueDirectory } from '../lib/paths';
 import { killProcessTree } from '../lib/processTree';
 import { CancelledError, isCancelledError } from '../lib/cancel';
 
@@ -910,7 +911,7 @@ export function resolveBaseFolder(customDir?: string): string {
  * Tổng hợp bước cuối: đổi tên file, tạo thư mục dự án, di chuyển video vào.
  * Dùng chung cho cả download Douyin (axios) và yt-dlp.
  */
-function finalizeDownload(
+export function finalizeDownload(
   tempFilePath: string,
   suggestedTitle: string,
   baseFolder: string,
@@ -919,22 +920,16 @@ function finalizeDownload(
   const ext = path.extname(tempFilePath);
   const cleanBase = sanitizeFolderName(suggestedTitle || path.basename(tempFilePath, ext));
   const finalFileName = `${cleanBase}${ext}`;
-  const finalFilePath = path.join(baseFolder, finalFileName);
-
-  if (fs.existsSync(finalFilePath) && finalFilePath !== tempFilePath) {
-    fs.unlinkSync(finalFilePath);
-  }
-  fs.renameSync(tempFilePath, finalFilePath);
-
-  // Tạo thư mục dự án riêng, di chuyển video vào
-  const projectDir = path.join(baseFolder, `${cleanBase}_vanhsub`);
-  fs.mkdirSync(projectDir, { recursive: true });
-
+  // Move directly into a newly reserved folder, never through a shared filename.
+  const projectDir = createUniqueDirectory(path.join(baseFolder, `${cleanBase}_vanhsub`));
   const projectVideoPath = path.join(projectDir, finalFileName);
-  if (fs.existsSync(projectVideoPath) && projectVideoPath !== finalFilePath) {
-    fs.unlinkSync(projectVideoPath);
+  try {
+    fs.renameSync(tempFilePath, projectVideoPath);
+  } catch (err) {
+    // Only remove our empty reservation; leave the download available for recovery.
+    try { fs.rmdirSync(projectDir); } catch {}
+    throw err;
   }
-  fs.renameSync(finalFilePath, projectVideoPath);
 
   const stats = fs.statSync(projectVideoPath);
   const sizeMb = (stats.size / (1024 * 1024)).toFixed(1) + ' MB';
@@ -1607,45 +1602,7 @@ async function downloadViaYtDlp(
 
   // Đổi tên bỏ tiền tố tempDownloadId
   const cleanFileName = matchedFile.replace(new RegExp(`^${tempDownloadId}_`), '');
-  const finalFilePath = path.join(baseFolder, cleanFileName);
-
-  if (fs.existsSync(finalFilePath) && finalFilePath !== downloadedFilePath) {
-    fs.unlinkSync(finalFilePath);
-  }
-  fs.renameSync(downloadedFilePath, finalFilePath);
-
-  // Tự động tạo thư mục dự án riêng cho video này
-  const ext = path.extname(finalFilePath);
-  const originalBase = path.basename(finalFilePath, ext);
+  const originalBase = path.basename(cleanFileName, path.extname(cleanFileName));
   const userTitle = cleanCustomFileName(options.customFileName) || cleanCustomFileName(customTitle);
-  const videoBase = userTitle || originalBase;
-  const cleanBase = sanitizeFolderName(videoBase);
-  const finalRenamedFileName = `${cleanBase}${ext}`;
-
-  const projectDir = path.join(baseFolder, `${cleanBase}_vanhsub`);
-  fs.mkdirSync(projectDir, { recursive: true });
-
-  // Di chuyển video vào thư mục dự án để gom tất cả lại một chỗ
-  const projectVideoPath = path.join(projectDir, finalRenamedFileName);
-  if (fs.existsSync(projectVideoPath) && projectVideoPath !== finalFilePath) {
-    fs.unlinkSync(projectVideoPath);
-  }
-  fs.renameSync(finalFilePath, projectVideoPath);
-
-  const stats = fs.statSync(projectVideoPath);
-  const sizeMb = (stats.size / (1024 * 1024)).toFixed(1) + ' MB';
-
-  options.onProgress?.({
-    percent: 100,
-    status: 'completed',
-    stageDescription: 'Đã hoàn tất tải video!',
-  });
-
-  return {
-    filePath: projectVideoPath,
-    fileName: finalRenamedFileName,
-    projectDir,
-    title: cleanBase,
-    fileSize: sizeMb,
-  };
+  return finalizeDownload(downloadedFilePath, userTitle || originalBase, baseFolder, options.onProgress);
 }

@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { SettingsStore } from '../store/settingsStore';
 import { TaskStore, type Task } from '../store/taskStore';
+import { createUniqueDirectory } from '../lib/paths';
 
 /**
  * Loại bỏ các ký tự không hợp lệ trên Windows để làm tên thư mục an toàn: \ / : * ? " < > |
@@ -15,11 +16,13 @@ export function sanitizeFolderName(rawName: string): string {
 
 /**
  * Lấy hoặc tạo mới thư mục dự án riêng cho một video.
- * Cấu trúc: [Tên video]_vanhsub/ nằm cạnh video gốc hoặc trong exportDir nếu đã cài đặt.
+ * Cấu trúc: [Tên video]_vanhsub[_N]/; chỉ tái sử dụng thư mục đã lưu trên task.
  */
 export function getOrCreateProjectDir(task: Task | { id: string; filePath: string; fileName: string; projectDir?: string }): string {
-  if (task.projectDir && fs.existsSync(task.projectDir)) {
-    return task.projectDir;
+  // Runners may keep a snapshot taken before another stage saved projectDir.
+  const savedDir = TaskStore.getById(task.id)?.projectDir || task.projectDir;
+  if (savedDir && fs.existsSync(savedDir)) {
+    return savedDir;
   }
 
   const videoPath = task.filePath;
@@ -34,10 +37,7 @@ export function getOrCreateProjectDir(task: Task | { id: string; filePath: strin
     parentDir = exportDirSetting;
   }
 
-  const projectDir = path.join(parentDir, `${cleanBase}_vanhsub`);
-  if (!fs.existsSync(projectDir)) {
-    fs.mkdirSync(projectDir, { recursive: true });
-  }
+  const projectDir = createUniqueDirectory(path.join(parentDir, `${cleanBase}_vanhsub`));
 
   // Cập nhật lại vào TaskStore nếu task đã tồn tại
   if (task.id) {

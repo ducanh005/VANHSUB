@@ -1,6 +1,20 @@
 import fs from 'fs';
 import path from 'path';
 
+/** Reserve a new directory atomically; never adopt an existing project's data. */
+export function createUniqueDirectory(targetPath: string): string {
+  fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+  for (let suffix = 0; ; suffix++) {
+    const candidate = suffix === 0 ? targetPath : `${targetPath}_${suffix}`;
+    try {
+      fs.mkdirSync(candidate);
+      return candidate;
+    } catch (err: any) {
+      if (err?.code !== 'EEXIST') throw err;
+    }
+  }
+}
+
 /**
  * Trả về đường dẫn chưa tồn tại — nếu `targetPath` đã có file thì thêm
  * _1, _2… trước phần mở rộng. Dùng cho mọi output sinh ra cạnh video gốc
