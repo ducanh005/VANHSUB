@@ -142,12 +142,20 @@ export const CHATGPT_SELECTORS: ChatGptSelectorsConfig = {
   promptTextarea: {
     primary: '#prompt-textarea',
     fallbacks: [
+      'form #prompt-textarea',
+      'form div.ProseMirror[data-composer-markdown]',
+      '[data-chatgpt-composer] div.ProseMirror[contenteditable="true"]',
+      '[data-composer-body] div.ProseMirror[contenteditable="true"]',
+      'form div.ProseMirror[contenteditable="true"]',
+      'form div.ProseMirror',
+      'div.ProseMirror[data-composer-markdown]',
+      'div.ProseMirror:not(.content-xaiQhS)',
       'div.ProseMirror',
       'div[contenteditable="true"]',
       'textarea[data-id="root"]',
       'textarea',
     ],
-    description: 'Ô nhập prompt chính của ChatGPT Web (hỗ trợ cả textarea truyền thống lẫn ProseMirror contenteditable)',
+    description: 'Ô nhập prompt chính của ChatGPT Web (ưu tiên composer trong form, loại trừ writing-block-editor của câu trả lời)',
   },
 
   sendButton: {
@@ -367,9 +375,45 @@ export async function resolveSelector(
       if (count > 0) {
         if (typeof target.isVisible === 'function') {
           isVisible = await target.isVisible().catch(() => false);
-          // If first element is hidden but there are multiple matching elements and visible is required,
-          // probe subsequent elements up to count to find the first actually visible node.
-          if (!isVisible && waitForVisible && count > 1 && typeof loc.nth === 'function') {
+          // If resolving promptTextarea and multiple elements match (e.g., inline Writing Blocks / Canvas editors),
+          // prefer the visible composer inside <form> / [data-chatgpt-composer] and exclude assistant writing blocks.
+          if (
+            count > 1 &&
+            typeof loc.nth === 'function' &&
+            (group === CHATGPT_SELECTORS.promptTextarea || /prompt/i.test(contextName))
+          ) {
+            for (let i = 0; i < count; i++) {
+              const nthLoc = loc.nth(i);
+              const nthVisible =
+                typeof nthLoc.isVisible === 'function'
+                  ? await nthLoc.isVisible().catch(() => false)
+                  : true;
+              if (!nthVisible && waitForVisible) continue;
+              if (typeof nthLoc.evaluate === 'function') {
+                const isGenuineComposer = await nthLoc
+                  .evaluate((el: Element) => {
+                    const inWritingBlock = Boolean(
+                      el.closest(
+                        '.writing-block-editor, [data-message-author-role="assistant"], [data-chatgpt-search-unit-key$=":assistant"]'
+                      )
+                    );
+                    if (inWritingBlock) return false;
+                    const inComposerForm = Boolean(
+                      el.closest('form, [data-chatgpt-composer], [data-composer-body], [data-composer-input]')
+                    );
+                    return inComposerForm || !el.classList.contains('content-xaiQhS');
+                  })
+                  .catch(() => false);
+                if (isGenuineComposer) {
+                  target = nthLoc;
+                  isVisible = nthVisible;
+                  break;
+                }
+              }
+            }
+          } else if (!isVisible && waitForVisible && count > 1 && typeof loc.nth === 'function') {
+            // If first element is hidden but there are multiple matching elements and visible is required,
+            // probe subsequent elements up to count to find the first actually visible node.
             for (let i = 1; i < count; i++) {
               const nthLoc = loc.nth(i);
               if (typeof nthLoc.isVisible === 'function') {
