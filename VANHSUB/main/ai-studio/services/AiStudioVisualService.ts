@@ -204,6 +204,20 @@ export class AiStudioVisualService {
       sceneId?: string;
     }
   ): Promise<any> {
+    const adapter = BrowserAutomationAdapter.getInstance();
+    if (adapter.isConnected('flow')) {
+      return await adapter.executeFlowGeneration({
+        prompt,
+        timeoutMs,
+        projectId,
+        mode,
+        signal,
+        inputImageAsset: options?.inputImageAsset,
+        referenceImage: options?.referenceImage,
+        jobId: options?.jobId,
+        sceneId: options?.sceneId,
+      });
+    }
     const bridge = FlowBridgeServer.getInstance();
     if (bridge.isConnected()) {
       return await (bridge as any).triggerUiGen(
@@ -215,7 +229,6 @@ export class AiStudioVisualService {
         options
       );
     }
-    const adapter = BrowserAutomationAdapter.getInstance();
     return await adapter.executeFlowGeneration({
       prompt,
       timeoutMs,
@@ -224,6 +237,8 @@ export class AiStudioVisualService {
       signal,
       inputImageAsset: options?.inputImageAsset,
       referenceImage: options?.referenceImage,
+      jobId: options?.jobId,
+      sceneId: options?.sceneId,
     });
   }
 
@@ -559,14 +574,15 @@ export class AiStudioVisualService {
 
     const bridge = FlowBridgeServer.getInstance();
     const isBridgeConnected = bridge.isConnected();
+    const isPlaywrightConnected = BrowserAutomationAdapter.getInstance().isConnected('flow');
 
     let lobbyWin: any = null;
     let effectiveProjectId: string | undefined = flowConfig.projectId;
 
-    if (isBridgeConnected) {
-      // Khi đã có Chrome Extension kết nối:
+    if (isBridgeConnected || isPlaywrightConnected) {
+      // Khi đã có Chrome Extension hoặc Playwright CDP kết nối:
       // BỎ QUA HOÀN TOÀN việc mở hay tương tác với cửa sổ Electron lobby,
-      // toàn bộ yêu cầu Web RPC và CAPTCHA sẽ được chuyển sang Google Chrome thật!
+      // toàn bộ yêu cầu được chuyển sang Google Chrome thật!
       if (!effectiveProjectId) {
         throw new GoogleFlowRpcError('Chưa liên kết project Google Flow cho phiên này. Hãy chạy lại bước tạo media để tạo project riêng.', { code: 'INVALID_ARGUMENT', retryable: false });
       }
@@ -601,7 +617,7 @@ export class AiStudioVisualService {
 
     const isVideo = scene.motionType === 'video';
     const isPlaywrightEngine = flowConfig.engine === 'browser_automation' || flowConfig.engine === 'playwright';
-    const isAutomationAvailable = FlowBridgeServer.getInstance().isConnected() || isPlaywrightEngine || BrowserAutomationAdapter.getInstance().isConnected('flow');
+    const isAutomationAvailable = FlowBridgeServer.getInstance().isConnected() || isPlaywrightEngine || isPlaywrightConnected;
 
     // Normalize output path extension safely without destroying directory names containing dots
     const desiredExt = isVideo ? '.mp4' : '.png';
@@ -680,7 +696,7 @@ export class AiStudioVisualService {
           let imgGenResult: any = null;
 
           const uiTimeoutImage = typeof flowConfig.uiTimeoutMs === 'number' && flowConfig.uiTimeoutMs > 0 ? flowConfig.uiTimeoutMs : 90000;
-          const shouldDirectUiKeyframe = (this._preferUiImageGen || flowConfig.preferUiGen || isPlaywrightEngine) && isAutomationAvailable;
+          const shouldDirectUiKeyframe = (this._preferUiImageGen || flowConfig.preferUiGen || isPlaywrightEngine || isPlaywrightConnected) && isAutomationAvailable;
 
           if (shouldDirectUiKeyframe) {
             console.log(
@@ -700,9 +716,14 @@ export class AiStudioVisualService {
               );
               if (uiRes && uiRes.ok) {
                 if (uiRes.firstImageUrl) {
+                  const extractedMediaId =
+                    uiRes.assetId ||
+                    (uiRes.firstImageUrl.match(/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i) || [])[1] ||
+                    uiRes.firstImageUrl;
                   imgGenResult = {
-                    images: [{ url: uiRes.firstImageUrl, mediaId: 'dom-extracted' }],
+                    images: [{ url: uiRes.firstImageUrl, mediaId: extractedMediaId, assetId: extractedMediaId }],
                     firstImageUrl: uiRes.firstImageUrl,
+                    mediaId: extractedMediaId,
                     projectId: effectiveProjectId,
                   };
                 } else if (uiRes.capturedRpc?.response) {
@@ -727,21 +748,26 @@ export class AiStudioVisualService {
                     };
                   }
                 }
-              } else if (uiRes && (uiRes.state === 'BLOCKED_REQUIRES_USER' || uiRes.errorCode === 'BLOCKED_REQUIRES_USER')) {
+              } else if (uiRes && (uiRes.state === 'BLOCKED_REQUIRES_USER' || uiRes.errorCode === 'BLOCKED_REQUIRES_USER' || String(uiRes.error || '').includes('PUBLIC_ERROR_UNUSUAL_ACTIVITY'))) {
                 throw new GoogleFlowRpcError(
                   'Google Flow chặn tác vụ do phát hiện hành vi tự động (BLOCKED_REQUIRES_USER). Cần người dùng tương tác mở tab Chrome để xác minh.',
                   { code: 'PUBLIC_ERROR_UNUSUAL_ACTIVITY', retryable: false, suggestedAction: 'ABORT_HALT' }
                 );
+              } else if (uiRes && !uiRes.ok && isPlaywrightConnected) {
+                throw new GoogleFlowRpcError(
+                  uiRes.error || 'Tạo ảnh keyframe qua giao diện Google Flow thất bại.',
+                  { code: 'UPSTREAM_ERROR', retryable: false }
+                );
               }
             } catch (uiKeyErr: any) {
-              if (isUnusualActivityError(uiKeyErr) || uiKeyErr?.code === 'PUBLIC_ERROR_UNUSUAL_ACTIVITY') {
+              if (isUnusualActivityError(uiKeyErr) || uiKeyErr?.code === 'PUBLIC_ERROR_UNUSUAL_ACTIVITY' || isPlaywrightConnected) {
                 throw uiKeyErr;
               }
               console.warn('[AiStudioVisualService] Direct UI keyframe warning:', uiKeyErr?.message || uiKeyErr);
             }
           }
 
-          if (!imgGenResult && !this._preferUiImageGen) {
+          if (!imgGenResult && !this._preferUiImageGen && !isPlaywrightConnected) {
             try {
               imgGenResult = await rpcClient.generateImage({
                 prompt: effectivePrompt,
@@ -771,9 +797,14 @@ export class AiStudioVisualService {
                   );
                   if (uiRes && uiRes.ok) {
                     if (uiRes.firstImageUrl) {
+                      const extractedMediaId =
+                        uiRes.assetId ||
+                        (uiRes.firstImageUrl.match(/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i) || [])[1] ||
+                        uiRes.firstImageUrl;
                       imgGenResult = {
-                        images: [{ url: uiRes.firstImageUrl, mediaId: 'dom-extracted' }],
+                        images: [{ url: uiRes.firstImageUrl, mediaId: extractedMediaId, assetId: extractedMediaId }],
                         firstImageUrl: uiRes.firstImageUrl,
+                        mediaId: extractedMediaId,
                         projectId: effectiveProjectId,
                       };
                     } else if (uiRes.capturedRpc?.response) {
@@ -855,6 +886,7 @@ export class AiStudioVisualService {
             imgGenResult.images?.[0]?.mediaId ||
             imgGenResult.images?.[0]?.assetId ||
             (imgGenResult as any).mediaId ||
+            keyframeUrl ||
             keyframeTargetPath;
 
           (scene as any).inputImageAsset = keyframeMediaId;
@@ -875,7 +907,7 @@ export class AiStudioVisualService {
           let genResult: any = null;
 
           const uiTimeoutVideo = typeof flowConfig.uiTimeoutMs === 'number' && flowConfig.uiTimeoutMs > 0 ? flowConfig.uiTimeoutMs : 180000;
-          const shouldDirectUiVideo = (this._preferUiVideoGen || flowConfig.preferUiGen || isPlaywrightEngine) && isAutomationAvailable;
+          const shouldDirectUiVideo = (this._preferUiVideoGen || flowConfig.preferUiGen || isPlaywrightEngine || isPlaywrightConnected) && isAutomationAvailable;
 
           if (shouldDirectUiVideo) {
             console.log(
@@ -900,7 +932,7 @@ export class AiStudioVisualService {
               if (uiRes && uiRes.ok) {
                 if (uiRes.videoUrl) {
                   genResult = {
-                    operationId: 'dom-extracted-video',
+                    operationId: uiRes.assetId || 'dom-extracted-video',
                     projectId: effectiveProjectId,
                     status: 'COMPLETED',
                     done: true,
@@ -941,21 +973,26 @@ export class AiStudioVisualService {
                     };
                   }
                 }
-              } else if (uiRes && (uiRes.state === 'BLOCKED_REQUIRES_USER' || uiRes.errorCode === 'BLOCKED_REQUIRES_USER')) {
+              } else if (uiRes && (uiRes.state === 'BLOCKED_REQUIRES_USER' || uiRes.errorCode === 'BLOCKED_REQUIRES_USER' || String(uiRes.error || '').includes('PUBLIC_ERROR_UNUSUAL_ACTIVITY'))) {
                 throw new GoogleFlowRpcError(
                   'Google Flow chặn tác vụ do phát hiện hành vi tự động (BLOCKED_REQUIRES_USER). Cần người dùng tương tác mở tab Chrome để xác minh.',
                   { code: 'PUBLIC_ERROR_UNUSUAL_ACTIVITY', retryable: false, suggestedAction: 'ABORT_HALT' }
                 );
+              } else if (uiRes && !uiRes.ok && isPlaywrightConnected) {
+                throw new GoogleFlowRpcError(
+                  uiRes.error || 'Tạo video I2V qua giao diện Google Flow thất bại.',
+                  { code: 'UPSTREAM_ERROR', retryable: false }
+                );
               }
             } catch (uiVidDirectErr: any) {
-              if (isUnusualActivityError(uiVidDirectErr) || uiVidDirectErr?.code === 'PUBLIC_ERROR_UNUSUAL_ACTIVITY') {
+              if (isUnusualActivityError(uiVidDirectErr) || uiVidDirectErr?.code === 'PUBLIC_ERROR_UNUSUAL_ACTIVITY' || isPlaywrightConnected) {
                 throw uiVidDirectErr;
               }
               console.warn('[AiStudioVisualService] Direct UI video warning:', uiVidDirectErr?.message || uiVidDirectErr);
             }
           }
 
-          if (!genResult && !this._preferUiVideoGen) {
+          if (!genResult && !this._preferUiVideoGen && !isPlaywrightConnected) {
             try {
               genResult = await rpcClient.generateVideo({
                 prompt: motionPrompt,
@@ -1155,7 +1192,7 @@ export class AiStudioVisualService {
         let genResult: any = null;
 
         const uiTimeoutImage = typeof flowConfig.uiTimeoutMs === 'number' && flowConfig.uiTimeoutMs > 0 ? flowConfig.uiTimeoutMs : 90000;
-        const shouldDirectUiImage = (this._preferUiImageGen || flowConfig.preferUiGen || isPlaywrightEngine) && isAutomationAvailable;
+        const shouldDirectUiImage = (this._preferUiImageGen || flowConfig.preferUiGen || isPlaywrightEngine || isPlaywrightConnected) && isAutomationAvailable;
 
         if (shouldDirectUiImage) {
           console.log(
@@ -1175,9 +1212,14 @@ export class AiStudioVisualService {
             );
             if (uiRes && uiRes.ok) {
               if (uiRes.firstImageUrl) {
+                const extractedMediaId =
+                  uiRes.assetId ||
+                  (uiRes.firstImageUrl.match(/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i) || [])[1] ||
+                  uiRes.firstImageUrl;
                 genResult = {
-                  images: [{ url: uiRes.firstImageUrl, mediaId: 'dom-extracted' }],
+                  images: [{ url: uiRes.firstImageUrl, mediaId: extractedMediaId, assetId: extractedMediaId }],
                   firstImageUrl: uiRes.firstImageUrl,
+                  mediaId: extractedMediaId,
                   projectId: effectiveProjectId,
                 };
               } else if (uiRes.capturedRpc?.response) {
@@ -1202,21 +1244,26 @@ export class AiStudioVisualService {
                   };
                 }
               }
-              } else if (uiRes && (uiRes.state === 'BLOCKED_REQUIRES_USER' || uiRes.errorCode === 'BLOCKED_REQUIRES_USER')) {
+              } else if (uiRes && (uiRes.state === 'BLOCKED_REQUIRES_USER' || uiRes.errorCode === 'BLOCKED_REQUIRES_USER' || String(uiRes.error || '').includes('PUBLIC_ERROR_UNUSUAL_ACTIVITY'))) {
                 throw new GoogleFlowRpcError(
                   'Google Flow chặn tác vụ do phát hiện hành vi tự động (BLOCKED_REQUIRES_USER). Cần người dùng tương tác mở tab Chrome để xác minh.',
                   { code: 'PUBLIC_ERROR_UNUSUAL_ACTIVITY', retryable: false, suggestedAction: 'ABORT_HALT' }
                 );
+              } else if (uiRes && !uiRes.ok && isPlaywrightConnected) {
+                throw new GoogleFlowRpcError(
+                  uiRes.error || 'Tạo ảnh qua giao diện Google Flow thất bại.',
+                  { code: 'UPSTREAM_ERROR', retryable: false }
+                );
               }
             } catch (uiDirectErr: any) {
-              if (isUnusualActivityError(uiDirectErr) || uiDirectErr?.code === 'PUBLIC_ERROR_UNUSUAL_ACTIVITY') {
+              if (isUnusualActivityError(uiDirectErr) || uiDirectErr?.code === 'PUBLIC_ERROR_UNUSUAL_ACTIVITY' || isPlaywrightConnected) {
                 throw uiDirectErr;
               }
               console.warn('[AiStudioVisualService] Direct UI ảnh warning:', uiDirectErr?.message || uiDirectErr);
             }
           }
 
-          if (!genResult && !this._preferUiImageGen) {
+          if (!genResult && !this._preferUiImageGen && !isPlaywrightConnected) {
             try {
               genResult = await rpcClient.generateImage({
                 prompt: effectivePrompt,
@@ -1246,9 +1293,14 @@ export class AiStudioVisualService {
                   );
                   if (uiRes && uiRes.ok) {
                     if (uiRes.firstImageUrl) {
+                      const extractedMediaId =
+                        uiRes.assetId ||
+                        (uiRes.firstImageUrl.match(/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i) || [])[1] ||
+                        uiRes.firstImageUrl;
                       genResult = {
-                        images: [{ url: uiRes.firstImageUrl, mediaId: 'dom-extracted' }],
+                        images: [{ url: uiRes.firstImageUrl, mediaId: extractedMediaId, assetId: extractedMediaId }],
                         firstImageUrl: uiRes.firstImageUrl,
+                        mediaId: extractedMediaId,
                         projectId: effectiveProjectId,
                       };
                     } else if (uiRes.capturedRpc?.response) {
@@ -1321,6 +1373,14 @@ export class AiStudioVisualService {
           try { if (fs.existsSync(targetPath)) fs.unlinkSync(targetPath); } catch {}
           throw iErr;
         }
+
+        const generatedMediaId =
+          genResult.images?.[0]?.mediaId ||
+          genResult.images?.[0]?.assetId ||
+          (genResult as any).mediaId ||
+          (imageUrl.match(/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i) || [])[1] ||
+          imageUrl;
+        (scene as any).inputImageAsset = generatedMediaId;
 
         scene.imagePath = targetPath;
         scene.assetPath = targetPath;
@@ -1893,9 +1953,16 @@ export class AiStudioVisualService {
       lineText: (payload as any).lineText || '',
       visualPrompt: payload.visualPrompt,
       referenceImagePath: payload.referenceImagePath || payload.flowConfig?.referenceImagePath,
+      imagePath: (payload as any).imagePath,
       motionType: isVideo ? 'video' : 'ken_burns',
       status: 'pending',
     };
+    if ((payload as any).inputImageAsset) {
+      (mockScene as any).inputImageAsset = (payload as any).inputImageAsset;
+    }
+    if ((payload as any).motionPrompt || (payload as any).cameraMovement) {
+      (mockScene as any).motionPrompt = (payload as any).motionPrompt || (payload as any).cameraMovement;
+    }
 
     const flowConfig: AiStudioFlowEngineConfig = {
       aspectRatio: payload.flowConfig?.aspectRatio || '16:9',
@@ -1921,8 +1988,9 @@ export class AiStudioVisualService {
     const isLegacyDom = payload.flowConfig?.engine === 'dom' || payload.flowConfig?.engine === 'legacy_dom';
     const bridge = FlowBridgeServer.getInstance();
     const isBridgeConnected = bridge.isConnected();
+    const isPlaywrightConnected = BrowserAutomationAdapter.getInstance().isConnected('flow');
     let useGoogleFlow = Boolean(this.rpcClient || (!isLegacyDom && payload.flowConfig?.engine !== 'synthetic'));
-    if (!this.rpcClient && useGoogleFlow && !isBridgeConnected) {
+    if (!this.rpcClient && useGoogleFlow && !isBridgeConnected && !isPlaywrightConnected) {
       try {
         const sessionMgr = GoogleVeoSessionManager.getInstance();
         const status = await Promise.race([
@@ -1954,7 +2022,7 @@ export class AiStudioVisualService {
     }
 
     let lobbyWin: any = null;
-    if (!isBridgeConnected) {
+    if (!isBridgeConnected && !isPlaywrightConnected) {
       try {
         const sessionMgr = GoogleVeoSessionManager.getInstance();
         lobbyWin = sessionMgr.getLobbyWindow();
@@ -1974,7 +2042,11 @@ export class AiStudioVisualService {
 
     let lastErr: any = null;
     if (useGoogleFlow) {
-      const maxRetries = typeof payload.flowConfig?.maxRetries === 'number' ? payload.flowConfig.maxRetries : 2;
+      const maxRetries = isPlaywrightConnected
+        ? 0
+        : typeof payload.flowConfig?.maxRetries === 'number'
+        ? payload.flowConfig.maxRetries
+        : 2;
 
       for (let retry = 0; retry <= maxRetries; retry++) {
         if (signal?.aborted) {
@@ -1986,8 +2058,9 @@ export class AiStudioVisualService {
           return {
             assetPath: finalPath,
             videoPath: isVideo ? finalPath : undefined,
-            imagePath: isVideo ? mockScene.imagePath : finalPath,
-          };
+            imagePath: !isVideo ? finalPath : (mockScene.imagePath || undefined),
+            ...((mockScene as any).inputImageAsset ? { inputImageAsset: (mockScene as any).inputImageAsset } : {}),
+          } as RegenerateSceneAssetResult;
         } catch (err: any) {
           if (signal?.aborted) {
             throw new GoogleFlowRpcError('Tác vụ đã bị người dùng huỷ bỏ.', { code: 'CANCELLED', retryable: false });

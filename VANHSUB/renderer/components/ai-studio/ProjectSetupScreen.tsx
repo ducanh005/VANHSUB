@@ -612,7 +612,7 @@ export default function ProjectSetupScreen({
                         ) : null}
                       </div>
 
-                      {p.channelProfile.channelNiche && (
+                      {p.channelProfile?.channelNiche && (
                         <p className="text-xs text-text font-medium truncate">
                           {p.channelProfile.channelNiche}
                         </p>
@@ -636,7 +636,7 @@ export default function ProjectSetupScreen({
                           </span>
                         )}
 
-                        {p.channelProfile.hostAvatarUrl ? (
+                        {p.channelProfile?.hostAvatarUrl ? (
                           <span className="rounded bg-accent-tint border border-accent/40 px-2 py-0.5 text-[10px] text-accent font-medium">
                             Có Avatar MC
                           </span>

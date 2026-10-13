@@ -871,22 +871,41 @@ export class BrowserAutomationAdapter extends EventEmitter {
       const settingsBtn = page.locator('button.settings-trigger-button, button[aria-label*="Điều kiện kích hoạt" i]').first();
       if (await settingsBtn.isVisible().catch(() => false)) {
         const btnText = (await settingsBtn.textContent().catch(() => '') || '').toLowerCase();
-        const currentIsVideo = btnText.includes('video') || btnText.includes('veo') || btnText.includes('360p') || btnText.includes('720p');
-        if (isVideo !== currentIsVideo) {
-          await settingsBtn.click();
-          await page.waitForTimeout(500);
-          await page.evaluate((mode) => {
-            const elements = Array.from(document.querySelectorAll('.cdk-overlay-container .toggle-text, .cdk-overlay-container .toggle-label, .cdk-overlay-container mat-button-toggle, mat-button-toggle, .toggle-text'));
-            const target = elements.find((el) => {
-              const txt = (el.textContent || '').trim().toLowerCase();
-              if (mode === 'image') return txt === 'hình ảnh' || txt === 'image';
-              return txt === 'video';
-            });
-            if (target) {
-              const clickable = (target.closest('mat-button-toggle, button, .toggle') || target) as HTMLElement;
-              clickable.click();
-            }
-          }, isVideo ? 'video' : 'image');
+        const isAlreadyImage =
+          (btnText.includes('hình ảnh') || btnText.includes('image') || btnText.includes('banana')) &&
+          !btnText.includes('video');
+        const isAlreadyVideo = btnText.includes('video') || btnText.includes('veo') || btnText.includes('360p') || btnText.includes('720p');
+        const needsSwitch = isVideo ? !isAlreadyVideo : !isAlreadyImage;
+        if (needsSwitch) {
+          let isSettingsOpen = await page.evaluate(() => Boolean(document.querySelector('flow-prompt-box-settings'))).catch(() => false);
+          if (!isSettingsOpen) {
+            await settingsBtn.click({ force: true });
+            await page.waitForTimeout(500);
+          }
+          isSettingsOpen = await page.evaluate(() => Boolean(document.querySelector('flow-prompt-box-settings'))).catch(() => false);
+          if (!isSettingsOpen) {
+            await settingsBtn.click().catch(() => {});
+            await page.waitForTimeout(600);
+          }
+          const radioBtn = !isVideo
+            ? page.locator('flow-prompt-box-settings button[role="radio"], .cdk-overlay-container button[role="radio"]').filter({ hasText: /hình ảnh|image|banana/i }).first()
+            : page.locator('flow-prompt-box-settings button[role="radio"], .cdk-overlay-container button[role="radio"]').filter({ hasText: /video/i }).first();
+          if (await radioBtn.isVisible().catch(() => false)) {
+            await radioBtn.click();
+          } else {
+            await page.evaluate((mode) => {
+              const elements = Array.from(document.querySelectorAll('.cdk-overlay-container .toggle-text, .cdk-overlay-container .toggle-label, .cdk-overlay-container mat-button-toggle, mat-button-toggle, .toggle-text'));
+              const target = elements.find((el) => {
+                const txt = (el.textContent || '').trim().toLowerCase();
+                if (mode === 'image') return txt === 'hình ảnh' || txt === 'image';
+                return txt === 'video';
+              });
+              if (target) {
+                const clickable = (target.closest('mat-button-toggle, button, .toggle') || target) as HTMLElement;
+                clickable.click();
+              }
+            }, isVideo ? 'video' : 'image');
+          }
           await page.waitForTimeout(400);
           await page.keyboard.press('Escape');
           await page.waitForTimeout(300);
@@ -934,7 +953,8 @@ export class BrowserAutomationAdapter extends EventEmitter {
           if (!await keyframeTile.isVisible().catch(() => false)) {
             keyframeTile = page.locator(`flow-grid-tile-container:has(img[src*="${assetUuid}"])`).first();
           }
-        } else if (options.inputImageAsset.startsWith('http')) {
+        }
+        if ((!keyframeTile || !await keyframeTile.isVisible().catch(() => false)) && options.inputImageAsset.startsWith('http')) {
           keyframeTile = page.locator(`flow-grid-tile-container:has(img[src*="${options.inputImageAsset.split('?')[0]}"])`).first();
         }
 
@@ -950,6 +970,8 @@ export class BrowserAutomationAdapter extends EventEmitter {
         if (await addToPromptBtn.isVisible().catch(() => false)) {
           await addToPromptBtn.click();
           await page.waitForTimeout(800);
+          await page.keyboard.press('Escape');
+          await page.waitForTimeout(300);
         } else {
           await page.keyboard.press('Escape');
           throw new Error('STRICT_I2V_PROVENANCE_ERROR: Menu ngữ cảnh không xuất hiện tuỳ chọn "Thêm vào câu lệnh" (Add to prompt).');
@@ -974,7 +996,7 @@ export class BrowserAutomationAdapter extends EventEmitter {
       const pmLocator = page.locator('.ProseMirror, flow-prompt-box [contenteditable="true"]').first();
       await pmLocator.waitFor({ state: 'visible', timeout: 8000 });
       await pmLocator.click();
-      if (!options.inputImageAsset) {
+      if (!options.inputImageAsset || !isVideo) {
         await page.keyboard.press('Control+A');
         await page.keyboard.press('Backspace');
         await page.keyboard.type(prompt, { delay: 5 });
@@ -984,6 +1006,14 @@ export class BrowserAutomationAdapter extends EventEmitter {
       }
       await page.waitForTimeout(400);
     } catch (typeErr: any) {
+      if (String(typeErr?.message || typeErr).includes('STRICT_I2V_PROVENANCE_ERROR')) {
+        return {
+          ok: false,
+          state: 'FAILED',
+          error: typeErr.message,
+          errorCode: 'UI_AUTOMATION_FAILED',
+        };
+      }
       // Fallback to DOM injection
       await page.evaluate(async ({ promptText }) => {
         const pm = document.querySelector('.ProseMirror, [contenteditable="true"]') as HTMLElement | null;
@@ -1124,13 +1154,12 @@ export class BrowserAutomationAdapter extends EventEmitter {
             const existingVideoSet = new Set(existingVideosArr);
             const existingCardSet = new Set(existingCardIdsArr);
 
-            // Card correlation helper: validates card relevance
+            // Card correlation helper: validates card relevance via explicit aria-label/title if present
             const correlatesWithPrompt = (card: Element | null): boolean => {
               if (!card || keywords.length === 0) return true;
               const ariaLabel = (card.getAttribute('aria-label') || '').toLowerCase();
               const title = (card.getAttribute('title') || '').toLowerCase();
-              const text = (card.textContent || '').toLowerCase();
-              const haystack = `${ariaLabel} ${title} ${text}`.trim();
+              const haystack = `${ariaLabel} ${title}`.trim();
               if (haystack.length > 0) {
                 return keywords.some((kw: string) => haystack.includes(kw));
               }
@@ -1169,11 +1198,19 @@ export class BrowserAutomationAdapter extends EventEmitter {
               });
 
               if (target) {
+                const imgSrc = target.src || target.currentSrc || '';
+                const cleanUrl = imgSrc.split('?')[0];
                 const card = target.closest(
                   'flow-grid-tile-container, flow-tile-container, flow-image-tile, [data-asset-id]'
                 );
-                const assetId = card?.getAttribute('data-asset-id') || card?.getAttribute('data-id') || undefined;
-                return { status: 'COMPLETED', firstImageUrl: target.src || target.currentSrc, assetId };
+                const assetId =
+                  target.getAttribute('data-media-id') ||
+                  card?.getAttribute('data-media-id') ||
+                  card?.getAttribute('data-asset-id') ||
+                  card?.getAttribute('data-id') ||
+                  (cleanUrl.match(/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i) || [])[1] ||
+                  undefined;
+                return { status: 'COMPLETED', firstImageUrl: imgSrc, assetId };
               }
             } else {
               const videos = Array.from(
@@ -1199,8 +1236,14 @@ export class BrowserAutomationAdapter extends EventEmitter {
                 const card = target.closest(
                   'flow-grid-tile-container, flow-tile-container, flow-video-tile, [data-asset-id]'
                 );
-                const assetId = card?.getAttribute('data-asset-id') || card?.getAttribute('data-id') || undefined;
-                const vUrl = target.src || target.currentSrc || target.querySelector('source')?.src;
+                const vUrl = target.src || target.currentSrc || target.querySelector('source')?.src || '';
+                const assetId =
+                  target.getAttribute('data-media-id') ||
+                  card?.getAttribute('data-media-id') ||
+                  card?.getAttribute('data-asset-id') ||
+                  card?.getAttribute('data-id') ||
+                  (vUrl.match(/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i) || [])[1] ||
+                  undefined;
                 return { status: 'COMPLETED', videoUrl: vUrl, assetId };
               }
 
@@ -1217,7 +1260,12 @@ export class BrowserAutomationAdapter extends EventEmitter {
               });
               if (targetLink && targetLink.href) {
                 const card = targetLink.closest('flow-grid-tile-container, flow-tile-container, flow-video-tile, [data-asset-id]');
-                const assetId = card?.getAttribute('data-asset-id') || card?.getAttribute('data-id') || undefined;
+                const assetId =
+                  card?.getAttribute('data-media-id') ||
+                  card?.getAttribute('data-asset-id') ||
+                  card?.getAttribute('data-id') ||
+                  (targetLink.href.match(/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i) || [])[1] ||
+                  undefined;
                 return { status: 'COMPLETED', videoUrl: targetLink.href, assetId };
               }
             }
@@ -1260,6 +1308,7 @@ export class BrowserAutomationAdapter extends EventEmitter {
           jobId: options.jobId,
           sceneId: options.sceneId,
           projectId: options.projectId,
+          assetId: (obsResult as any).assetId,
           firstImageUrl: (obsResult as any).firstImageUrl,
           videoUrl: (obsResult as any).videoUrl,
           domFallback: true,

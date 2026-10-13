@@ -238,6 +238,7 @@ export interface FlowGenerationAutomationOptions {
 }
 
 export interface FlowGenerationAutomationResult {
+  assetId?: string;
   ok: boolean;
   state: JobState;
   jobId?: string;
