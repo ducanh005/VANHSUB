@@ -50,9 +50,9 @@ function error(...args) {
 
 function getExtensionVersion() {
   try {
-    return chrome.runtime?.getManifest?.()?.version || '1.0.5';
+    return chrome.runtime?.getManifest?.()?.version || '1.0.6';
   } catch {
-    return '1.0.5';
+    return '1.0.6';
   }
 }
 

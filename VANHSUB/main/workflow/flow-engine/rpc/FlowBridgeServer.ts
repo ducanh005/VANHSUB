@@ -1085,9 +1085,15 @@ export class FlowBridgeServer {
     if (type === 'HANDSHAKE') {
       const ver = msg.version || '1.0.0';
       console.log(`[FlowBridgeServer] 🤝 Nhận handshake từ Extension v${ver}`);
-      if (ver !== '1.0.5' && Date.now() - this.lastAutoReloadAt > 60_000) {
+      const isOutdated = (() => {
+        const parts = String(ver).split('.').map((p) => parseInt(p, 10) || 0);
+        if (parts[0] < 1) return true;
+        if (parts[0] === 1 && parts[1] === 0 && parts[2] < 5) return true;
+        return false;
+      })();
+      if (isOutdated && Date.now() - this.lastAutoReloadAt > 60_000) {
         this.lastAutoReloadAt = Date.now();
-        console.log(`[FlowBridgeServer] 🔄 Phát hiện Extension v${ver} cũ. Tự động yêu cầu Extension reload lên v1.0.5...`);
+        console.log(`[FlowBridgeServer] 🔄 Phát hiện Extension v${ver} cũ (< v1.0.5). Tự động yêu cầu Extension reload...`);
         setTimeout(() => {
           this.reloadExtension().catch(() => {});
         }, 500);
