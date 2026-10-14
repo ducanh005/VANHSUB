@@ -1,3 +1,4 @@
+import { invalidateSessionArtifacts } from './sessionArtifacts';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
@@ -180,7 +181,8 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
     const workspaceDir = this.getSessionDir(sessionId, customOutputDir);
     const state = this.activeSessions.get(sessionId);
     if (state) assertSessionWorkspaceOwner(state, workspaceDir, resolveAiStudioSessionsRoot());
-    const dir = path.join(workspaceDir, 'assets');
+    const revision = state?.productionRevision || 0;
+    const dir = path.join(workspaceDir, ...(revision ? ['revisions', `rev_${revision}`] : []), 'assets');
     fs.mkdirSync(dir, { recursive: true });
     return dir;
   }
@@ -197,8 +199,8 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
     } as PipelineSessionState, sessionDir, resolveAiStudioSessionsRoot());
 
     const storage = new AiStudioDiskStorageManager(sessionId, {
-      baseDir: sessionDir,
-      customMediaDir: mediaDir,
+      baseDir: state?.productionRevision ? path.join(sessionDir, 'revisions', `rev_${state.productionRevision}`) : sessionDir,
+      customMediaDir: mediaDir && state?.productionRevision ? path.join(mediaDir, 'revisions', `rev_${state.productionRevision}`) : mediaDir,
       exactProjectDir: true,
     });
     storage.ensureDirectories();
@@ -534,25 +536,7 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
         } });
       }
 
-      // Upstream Preservation & Downstream Eviction:
-      // Reset downstream stages from targetStage to 8
-      for (let s = targetStage; s <= 8; s++) {
-        session.stages[s] = {
-          status: 'pending',
-          stageName: STAGE_CONFIG[s as AiStudioStageId]?.label || `Bước ${s}`,
-        };
-      }
-
-      // Evict downstream artifacts
-      if (targetStage <= 2) session.artifacts.scriptLines = undefined;
-      if (targetStage <= 3) session.artifacts.audioPath = undefined;
-      if (targetStage <= 4) session.artifacts.wordsAlignment = undefined;
-      if (targetStage <= 5) session.artifacts.scenes = undefined;
-      if (targetStage <= 7) {
-        session.artifacts.videoPath = undefined;
-        session.artifacts.srtPath = undefined;
-      }
-      if (targetStage <= 8) session.artifacts.metadata = undefined;
+      invalidateSessionArtifacts(session, targetStage);
 
       session.status = 'running';
       delete session.error;

@@ -670,6 +670,7 @@ export interface ScriptQualityAuditResult {
 }
 
 export interface PipelineSessionState {
+  productionRevision?: number;
   sessionId: string;
   /** Runtime only; recomputed on lookup. */
   jobActive?: boolean;
@@ -900,6 +901,7 @@ export interface RefineScriptPayload {
 }
 
 export interface RefineScriptResult {
+  session?: PipelineSessionState;
   lines: ScriptBeatLine[];
   evaluation?: ScriptEvaluation;
 }
@@ -910,6 +912,7 @@ export interface UpdateScriptLinesPayload {
 }
 
 export interface UpdateScriptLinesResult {
+  session?: PipelineSessionState;
   success: boolean;
   scriptLines: ScriptBeatLine[];
 }

@@ -1,3 +1,4 @@
+import { applyScriptLines } from './sessionArtifacts';
 /**
  * AI Video Studio - IPC Communication Router
  *
@@ -464,7 +465,7 @@ export function registerAiStudioIpc(): void {
           const config = payload.sessionId && pipelineEngineDelegate?.getSessionConfig
             ? await pipelineEngineDelegate.getSessionConfig(payload.sessionId)
             : getDecryptedAiStudioConfig();
-          const refined = await aiStudioLlmService.refineScript(
+          const refined: RefineScriptResult = await aiStudioLlmService.refineScript(
             payload.lines || [],
             payload.instructions,
             payload.mode || 'improve_weaknesses',
@@ -476,18 +477,13 @@ export function registerAiStudioIpc(): void {
 
           if (payload.sessionId && pipelineEngineDelegate) {
             const session = await pipelineEngineDelegate.getState({ sessionId: payload.sessionId });
-            if (session) {
-              session.artifacts = session.artifacts || {};
-              if (session.artifacts.scriptLines) {
-                session.artifacts.scriptHistory = session.artifacts.scriptHistory || [];
-                session.artifacts.scriptHistory.push({
-                  lines: session.artifacts.scriptLines,
-                  evaluation: session.artifacts.scriptEvaluation,
-                  timestamp: Date.now(),
-                });
-              }
-              session.artifacts.scriptLines = refined.lines;
+            if (!session) throw new Error('Session không tồn tại.');
+            {
+              signal?.throwIfAborted();
+              applyScriptLines(session, refined.lines);
               session.artifacts.scriptEvaluation = refined.evaluation;
+              refined.lines = session.artifacts.scriptLines!;
+              refined.session = { ...session, jobActive: false };
               if (typeof pipelineEngineDelegate.persistSessionStateAtomic === 'function') {
                 pipelineEngineDelegate.persistSessionStateAtomic(session);
               }
@@ -520,19 +516,13 @@ export function registerAiStudioIpc(): void {
             throw new Error('Thiếu sessionId khi cập nhật câu thoại kịch bản.');
           }
 
-          if (pipelineEngineDelegate) {
-            const session = await pipelineEngineDelegate.getState({ sessionId: payload.sessionId });
-            signal.throwIfAborted();
-            if (session) {
-              session.artifacts = session.artifacts || {};
-              session.artifacts.scriptLines = payload.lines || [];
-              if (typeof pipelineEngineDelegate.persistSessionStateAtomic === 'function') {
-                pipelineEngineDelegate.persistSessionStateAtomic(session);
-              }
-            }
-          }
-
-          return { success: true, scriptLines: payload.lines };
+          if (!pipelineEngineDelegate) throw new Error('Pipeline chưa sẵn sàng.');
+          const session = await pipelineEngineDelegate.getState({ sessionId: payload.sessionId });
+          signal.throwIfAborted();
+          if (!session) throw new Error('Session không tồn tại.');
+          applyScriptLines(session, payload.lines);
+          pipelineEngineDelegate.persistSessionStateAtomic?.(session);
+          return { success: true, scriptLines: session.artifacts.scriptLines!, session: { ...session, jobActive: false } };
         } catch (err: any) {
           console.error('[AI-Studio-IPC] Error updating script lines:', err);
           throw new Error(`Lỗi cập nhật câu thoại kịch bản: ${err?.message || err}`);

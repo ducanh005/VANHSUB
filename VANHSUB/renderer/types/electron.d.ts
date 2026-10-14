@@ -524,11 +524,11 @@ export interface VanhsubAPI {
       mode?: 'improve_weaknesses' | 'custom_prompt';
       blueprint?: any;
       channelProfile?: any;
-    }) => Promise<{ lines: any[]; evaluation?: any }>;
+    }) => Promise<{ lines: any[]; evaluation?: any; session?: import('./aiStudio').PipelineSessionState }>;
     updateScriptLines: (payload: {
       sessionId: string;
       lines: any[];
-    }) => Promise<{ success: boolean; scriptLines: any[] }>;
+    }) => Promise<{ success: boolean; scriptLines: any[]; session?: import('./aiStudio').PipelineSessionState }>;
 
     // ChatGPT Web Automation (Zero API Cost Mode)
     checkChatGptLogin: () => Promise<{ isLoggedIn: boolean; userEmail?: string; sessionCheckedAt: number }>;

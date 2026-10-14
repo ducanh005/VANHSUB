@@ -168,10 +168,13 @@ export default function ScriptWorkspaceView({
   };
 
   // AI Action Loading states
+  const [isSavingScript, setIsSavingScript] = useState(false);
   const [isEvaluating, setIsEvaluating] = useState(false);
   const [isRefining, setIsRefining] = useState(false);
   const [customPromptModalOpen, setCustomPromptModalOpen] = useState(false);
   const [customPromptText, setCustomPromptText] = useState('');
+
+  const scriptBusy = isRunning || isSavingScript || isEvaluating || isRefining;
 
   // History for Undo
   const [history, setHistory] = useState<
@@ -183,17 +186,8 @@ export default function ScriptWorkspaceView({
     if (session.artifacts?.scriptLines && session.artifacts.scriptLines.length > 0) {
       setLines(session.artifacts.scriptLines as ExtendedScriptBeatLine[]);
     }
-    if (session.artifacts?.scriptEvaluation) {
-      setEvaluation(session.artifacts.scriptEvaluation);
-    }
+    setEvaluation(session.artifacts?.scriptEvaluation || null);
   }, [session.artifacts?.scriptLines, session.artifacts?.scriptEvaluation]);
-
-  // If no evaluation exists yet, automatically evaluate on mount
-  useEffect(() => {
-    if (!evaluation && lines.length > 0 && typeof window.vanhsub?.aiStudio?.evaluateScript === 'function') {
-      void handleEvaluate();
-    }
-  }, [lines.length, isRunning]);
 
   // Calculate statistics (word count & estimated duration)
   const stats = useMemo(() => {
@@ -223,7 +217,7 @@ export default function ScriptWorkspaceView({
     });
   }, [lines]);
 
-  const notifySessionUpdate = (newLines: ExtendedScriptBeatLine[], newEval: ScriptEvaluation | null) => {
+  const notifySessionUpdate = (newLines: ExtendedScriptBeatLine[], newEval: ScriptEvaluation | null, canonical?: PipelineSessionState) => {
     if (!onSessionUpdate) return;
     const updatedSession: PipelineSessionState = {
       ...session,
@@ -234,12 +228,12 @@ export default function ScriptWorkspaceView({
       },
       updatedAt: Date.now(),
     };
-    onSessionUpdate(updatedSession);
+    onSessionUpdate(canonical || updatedSession);
   };
 
   // Trigger AI evaluation
   const handleEvaluate = async () => {
-    if (isRunning || isEvaluating || lines.length === 0 || !window.vanhsub?.aiStudio?.evaluateScript) return;
+    if (scriptBusy || isEvaluating || lines.length === 0 || !window.vanhsub?.aiStudio?.evaluateScript) return;
     setIsEvaluating(true);
     try {
       const result = await window.vanhsub.aiStudio.evaluateScript({
@@ -261,10 +255,8 @@ export default function ScriptWorkspaceView({
 
   // Trigger AI improvement (Cải thiện điểm)
   const handleImproveScore = async () => {
-    if (isRunning || isRefining || lines.length === 0 || !window.vanhsub?.aiStudio?.refineScript) return;
+    if (scriptBusy || isRefining || lines.length === 0 || !window.vanhsub?.aiStudio?.refineScript) return;
     setIsRefining(true);
-    // Push current version to history
-    setHistory((prev) => [{ lines: [...lines], evaluation }, ...prev]);
 
     try {
       const result = await window.vanhsub.aiStudio.refineScript({
@@ -276,14 +268,10 @@ export default function ScriptWorkspaceView({
       });
 
       if (result?.lines && result.lines.length > 0) {
+        setHistory((prev) => [{ lines: [...lines], evaluation }, ...prev]);
         setLines(result.lines as ExtendedScriptBeatLine[]);
-        if (result.evaluation) {
-          setEvaluation(result.evaluation);
-          notifySessionUpdate(result.lines as ExtendedScriptBeatLine[], result.evaluation);
-        } else {
-          notifySessionUpdate(result.lines as ExtendedScriptBeatLine[], evaluation);
-          void handleEvaluate();
-        }
+        setEvaluation(result.evaluation || null);
+        notifySessionUpdate(result.lines as ExtendedScriptBeatLine[], result.evaluation || null, result.session);
       }
     } catch (err) {
       console.error('[ScriptWorkspaceView] Improve error:', err);
@@ -294,10 +282,9 @@ export default function ScriptWorkspaceView({
 
   // Submit custom refinement prompt (Yêu cầu của tôi)
   const handleCustomPromptSubmit = async () => {
-    if (isRunning || !customPromptText.trim() || !window.vanhsub?.aiStudio?.refineScript) return;
+    if (scriptBusy || !customPromptText.trim() || !window.vanhsub?.aiStudio?.refineScript) return;
     setCustomPromptModalOpen(false);
     setIsRefining(true);
-    setHistory((prev) => [{ lines: [...lines], evaluation }, ...prev]);
 
     try {
       const result = await window.vanhsub.aiStudio.refineScript({
@@ -310,14 +297,10 @@ export default function ScriptWorkspaceView({
       });
 
       if (result?.lines && result.lines.length > 0) {
+        setHistory((prev) => [{ lines: [...lines], evaluation }, ...prev]);
         setLines(result.lines as ExtendedScriptBeatLine[]);
-        if (result.evaluation) {
-          setEvaluation(result.evaluation);
-          notifySessionUpdate(result.lines as ExtendedScriptBeatLine[], result.evaluation);
-        } else {
-          notifySessionUpdate(result.lines as ExtendedScriptBeatLine[], evaluation);
-          void handleEvaluate();
-        }
+        setEvaluation(result.evaluation || null);
+        notifySessionUpdate(result.lines as ExtendedScriptBeatLine[], result.evaluation || null, result.session);
       }
     } catch (err) {
       console.error('[ScriptWorkspaceView] Custom refine error:', err);
@@ -328,25 +311,25 @@ export default function ScriptWorkspaceView({
   };
 
   // Undo last edit
-  const handleUndo = () => {
-    if (isRunning || history.length === 0) return;
+  const handleUndo = async () => {
+    if (scriptBusy || history.length === 0 || !window.vanhsub?.aiStudio?.updateScriptLines) return;
     const [previous, ...rest] = history;
-    setLines(previous.lines);
-    setEvaluation(previous.evaluation);
-    setHistory(rest);
-    notifySessionUpdate(previous.lines, previous.evaluation);
-
-    if (window.vanhsub?.aiStudio?.updateScriptLines) {
-      void window.vanhsub.aiStudio.updateScriptLines({
-        sessionId: session.sessionId,
-        lines: previous.lines,
-      });
-    }
+    setIsSavingScript(true);
+    try {
+      const result = await window.vanhsub.aiStudio.updateScriptLines({ sessionId: session.sessionId, lines: previous.lines });
+      if (!result.success) throw new Error('Không lưu được kịch bản.');
+      setLines(result.scriptLines);
+      setEvaluation(result.session?.artifacts.scriptEvaluation || null);
+      setHistory(rest);
+      notifySessionUpdate(result.scriptLines, null, result.session);
+    } catch (err) {
+      setCopyToast(`Lỗi lưu: ${err instanceof Error ? err.message : String(err)}`);
+    } finally { setIsSavingScript(false); }
   };
 
   // Start editing a specific line
   const handleStartEditLine = (index: number) => {
-    if (isRunning) return;
+    if (scriptBusy) return;
     setEditingLineIndex(index);
     const line = lines[index];
     setEditingText(line?.text || '');
@@ -359,7 +342,7 @@ export default function ScriptWorkspaceView({
 
   // Save inline edited line
   const handleSaveInlineEdit = async (index: number) => {
-    if (isRunning) return;
+    if (scriptBusy) return;
     if (lines[index]) {
       const updated: ExtendedScriptBeatLine[] = lines.map((line, idx) =>
         idx === index
@@ -374,17 +357,19 @@ export default function ScriptWorkspaceView({
             }
           : line
       );
-      setLines(updated);
-      setEditingLineIndex(null);
-      notifySessionUpdate(updated, evaluation);
-
-      // Persist to session
-      if (window.vanhsub?.aiStudio?.updateScriptLines) {
-        await window.vanhsub.aiStudio.updateScriptLines({
-          sessionId: session.sessionId,
-          lines: updated,
-        });
-      }
+      if (!window.vanhsub?.aiStudio?.updateScriptLines) return;
+      setIsSavingScript(true);
+      try {
+        const result = await window.vanhsub.aiStudio.updateScriptLines({ sessionId: session.sessionId, lines: updated });
+        if (!result.success) throw new Error('Không lưu được kịch bản.');
+        setHistory((prev) => [{ lines: [...lines], evaluation }, ...prev]);
+        setLines(result.scriptLines);
+        setEvaluation(result.session?.artifacts.scriptEvaluation || null);
+        setEditingLineIndex(null);
+        notifySessionUpdate(result.scriptLines, null, result.session);
+      } catch (err) {
+        setCopyToast(`Lỗi lưu: ${err instanceof Error ? err.message : String(err)}`);
+      } finally { setIsSavingScript(false); }
     } else {
       setEditingLineIndex(null);
     }
@@ -523,7 +508,7 @@ export default function ScriptWorkspaceView({
               <button
                 type="button"
                 onClick={handleEvaluate}
-                disabled={isRunning || isEvaluating}
+                disabled={scriptBusy || isEvaluating}
                 className="flex items-center gap-1 rounded-lg border border-border bg-[#0F1626] px-2.5 py-1 text-[11px] text-text hover:text-white transition cursor-pointer"
                 title="Chấm lại điểm bằng AI"
               >
@@ -535,7 +520,7 @@ export default function ScriptWorkspaceView({
                 <button
                   type="button"
                   onClick={handleUndo}
-                  disabled={isRunning}
+                  disabled={scriptBusy}
                   className="flex items-center gap-1 rounded-lg border border-border bg-[#0F1626] px-2.5 py-1 text-[11px] text-text hover:text-white transition cursor-pointer"
                 >
                   <RotateCcw className="h-3 w-3" />
@@ -596,7 +581,7 @@ export default function ScriptWorkspaceView({
             <button
               type="button"
               onClick={handleImproveScore}
-              disabled={isRunning || isRefining}
+              disabled={scriptBusy || isRefining}
               className="inline-flex items-center gap-1.5 rounded-md bg-teal-600/90 hover:bg-teal-500 px-3.5 py-1.5 text-xs font-bold text-white shadow transition active:scale-95 disabled:opacity-50 cursor-pointer"
             >
               {isRefining ? (
@@ -615,7 +600,7 @@ export default function ScriptWorkspaceView({
             <button
               type="button"
               onClick={() => setCustomPromptModalOpen(true)}
-              disabled={isRunning || isRefining}
+              disabled={scriptBusy || isRefining}
               className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface hover:bg-surface-2 px-3.5 py-1.5 text-xs font-semibold text-text transition active:scale-95 disabled:opacity-50 cursor-pointer"
             >
               <span>Yêu cầu của tôi</span>
@@ -719,7 +704,7 @@ export default function ScriptWorkspaceView({
               <button
                 type="button"
                 onClick={() => handleStartEditLine(0)}
-                disabled={isRunning}
+                disabled={scriptBusy}
                 className="inline-flex items-center gap-1 rounded-lg border border-border bg-[#0F1626] px-2.5 py-1 text-[11px] text-text hover:text-white transition cursor-pointer"
               >
                 <Edit3 className="h-3 w-3" />
@@ -786,7 +771,7 @@ export default function ScriptWorkspaceView({
                         <button
                           type="button"
                           onClick={() => handleSaveInlineEdit(idx)}
-                          disabled={isRunning}
+                          disabled={scriptBusy}
                           className="inline-flex items-center gap-1 rounded bg-accent hover:bg-cyan-400 px-3 py-1 text-[11px] font-bold text-slate-950 shadow"
                         >
                           <Check className="h-3 w-3" />
@@ -946,7 +931,7 @@ export default function ScriptWorkspaceView({
                       <button
                         type="button"
                         onClick={() => handleStartEditLine(idx)}
-                        disabled={isRunning}
+                        disabled={scriptBusy}
                         className="opacity-70 group-hover:opacity-100 inline-flex items-center gap-1 rounded border border-border/80 bg-surface px-2 py-0.5 text-[10px] text-text-muted hover:text-white transition cursor-pointer"
                         title="Chỉnh sửa phân cảnh này"
                       >
@@ -1261,7 +1246,7 @@ export default function ScriptWorkspaceView({
           <button
             type="button"
             onClick={onProceedToVoice}
-            disabled={isRunning}
+            disabled={scriptBusy}
             className="inline-flex items-center gap-2 rounded-md bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:brightness-110 px-4 py-2 text-xs font-bold text-white active:scale-95 transition cursor-pointer disabled:opacity-50"
             title="Duyệt kịch bản hiện tại và tiếp tục sang bước Lồng tiếng"
           >
@@ -1286,7 +1271,7 @@ export default function ScriptWorkspaceView({
           <button
             type="button"
             onClick={onRegenerateScript}
-            disabled={isRunning}
+            disabled={scriptBusy}
             className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface hover:bg-surface-2 px-3.5 py-2 text-xs font-semibold text-text transition active:scale-95 cursor-pointer disabled:opacity-50"
           >
             <RotateCcw className="h-3.5 w-3.5 text-accent" />
@@ -1364,7 +1349,7 @@ export default function ScriptWorkspaceView({
               <button
                 type="button"
                 onClick={handleCustomPromptSubmit}
-                disabled={isRunning || !customPromptText.trim()}
+                disabled={scriptBusy || !customPromptText.trim()}
                 className="inline-flex items-center gap-1.5 rounded-lg bg-accent hover:bg-cyan-400 px-4 py-1.5 text-xs font-bold text-slate-950 transition disabled:opacity-50"
               >
                 <Send className="h-3 w-3" />

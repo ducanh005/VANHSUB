@@ -1052,6 +1052,7 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
         <div className="lg:col-span-5 flex flex-col h-full border-r border-border bg-[#080D17] overflow-hidden">
           {session && centerTab === 'script' ? (
             <ScriptWorkspaceView
+              key={session.sessionId}
               session={session}
               blueprint={selectedIdea}
               isRunning={isRunning}
@@ -1064,11 +1065,12 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
                 setCenterTab('visual');
               }}
               onSessionUpdate={(updatedSession) => {
-                setSession(updatedSession);
+                if (loadedProjectIdRef.current !== config.activeProjectId) return;
+                setSession((current) => current?.sessionId === updatedSession.sessionId ? updatedSession : current);
                 void saveActiveProjectData({
                   savedSession: updatedSession,
                   lastSessionId: updatedSession.sessionId,
-                });
+                }, updatedSession.ownerProjectId || config.activeProjectId || undefined);
               }}
               onDeleteVideo={handleClearSession}
             />

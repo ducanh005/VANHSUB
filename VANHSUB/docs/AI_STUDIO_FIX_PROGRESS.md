@@ -67,3 +67,14 @@ Commit đợt 4: `f642fb2` (đã push main).
 - Lookup phân biệt job đang chạy thật với checkpoint running đã gián đoạn. `jobActive` là dữ liệu runtime, không lưu xuống checkpoint. UI khôi phục trạng thái chạy và lấy kết quả hủy từ backend, không tự giả lập thành công khi hủy lỗi.
 - `tests/test_ai_studio_session_operations.ts`: pass; kiểm chứng duyệt sai bước, payload không làm đổi dữ liệu khi bị từ chối, duyệt trùng, khóa mutator, provider bỏ qua abort, cancel tại gate, kết quả muộn và phục hồi job gián đoạn.
 - Snapshot/cách ly regression và TypeScript được kiểm tra. Provider live và UI Electron trực quan vẫn chưa được nghiệm thu.
+
+Commit đợt 5: `5d6e81e` (đã push main).
+
+## Đợt 6 — Vô hiệu hóa sản phẩm sau khi sửa kịch bản (AS-04)
+
+- Sửa lời đọc/speaker/voiceDirection hoặc thứ tự dòng làm mất hiệu lực audio, alignment, storyboard, sub, video và metadata; quay về cổng duyệt kịch bản. Chỉ đổi chỉ dẫn hình ảnh giữ audio/timing và quay về cổng duyệt alignment nếu đã hoàn tất.
+- Mỗi lần sửa lời hoặc chạy lại bước 1–3 dùng thư mục production revision mới. Checkpoint giữ vị trí ổn định; voice/timing/media cũ không bị xóa và không được dùng làm cache cho bản lời mới. Undo cũng tạo revision mới, không khôi phục pointer audio cũ.
+- Chặn kịch bản rỗng/ID trùng; no-op giữ sản phẩm. Lưu history trước thay đổi; bỏ điểm đánh giá cũ.
+- IPC trả lại session đã invalidation. Inline edit/undo chỉ cập nhật UI khi lưu thành công; lỗi giữ form. Refinement không tự chấm lại bằng closure chứa lời cũ. Bỏ auto-evaluation trùng với backend. Callback lưu checkpoint đúng owner và chặn response từ project đã rời.
+- `tests/test_ai_studio_script_invalidation.ts`: pass trên checkpoint/storage thật, kiểm tra visual-only, narration, undo, no-op, input lỗi, cache mới, giữ file cũ và chặn render stale.
+- Regression session operations/config và TypeScript main/renderer: pass. Chưa nghiệm thu provider live hoặc UI Electron trực quan. Cơ chế regenerate/cache media theo từng shot (AS-09) vẫn cần đợt riêng.
