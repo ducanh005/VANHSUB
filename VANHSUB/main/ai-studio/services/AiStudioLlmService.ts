@@ -1,3 +1,4 @@
+import { parseRefinedScript } from '../scriptRefinement';
 import OpenAI from 'openai';
 import { jsonrepair } from 'jsonrepair';
 import crypto from 'crypto';
@@ -1024,6 +1025,28 @@ Yêu cầu cấu trúc Kịch bản 2 Cột Điện ảnh (Two-Column Audiovisua
     };
   }
 
+  private async requestScriptReview(prompt: string, config: AiStudioLlmConfig, channelProfile?: Partial<ChannelProfileConfig>): Promise<string> {
+    if (config.provider === 'chatgpt_web') {
+      const { ChatGptWebSessionManager } = await import('../chatgpt/ChatGptWebSessionManager');
+      const manager = ChatGptWebSessionManager.getInstance();
+      return manager.executePromptTurn(prompt, config.chatgptWebMode || 'offscreen', undefined, false,
+        channelProfile?.chatgptConversationUrl || undefined, 'raw');
+    }
+    if (config.provider === 'gemini_web') {
+      const { GeminiWebSessionManager } = await import('../gemini/GeminiWebSessionManager');
+      return GeminiWebSessionManager.getInstance().executePromptTurn(prompt, config.geminiWebMode || 'offscreen');
+    }
+    const bundle = this.createClient(config);
+    if (!bundle) throw new Error(`Chưa cấu hình API key cho ${config.provider}.`);
+    const response = await bundle.client.chat.completions.create({
+      model: bundle.model, messages: [{ role: 'user', content: prompt }],
+      temperature: config.temperature ?? 0.4,
+    });
+    const text = response.choices[0]?.message?.content;
+    if (!text?.trim()) throw new Error('Provider trả về nội dung rỗng.');
+    return text;
+  }
+
   public async refineScript(
     lines: ScriptBeatLine[],
     instructions?: string,
@@ -1031,58 +1054,26 @@ Yêu cầu cấu trúc Kịch bản 2 Cột Điện ảnh (Two-Column Audiovisua
     blueprint?: IdeaBlueprint,
     channelProfile?: Partial<ChannelProfileConfig>,
     config?: AiStudioLlmConfig
-  ): Promise<{ lines: ScriptBeatLine[]; evaluation: ScriptEvaluation }> {
-    if (!lines || lines.length === 0) {
-      const evalResult = await this.evaluateScript([], blueprint, channelProfile, config);
-      return { lines: [], evaluation: evalResult };
-    }
-
-    const currentEval = await this.evaluateScript(lines, blueprint, channelProfile, config);
-    const updatedLines = lines.map((l) => ({ ...l }));
-
-    // Refine weak criteria
-    if (mode === 'improve_weaknesses' || !instructions) {
-      // 1. Fix D1: Strengthen Hook
-      if (currentEval.failedCriteria.includes('D1') && updatedLines[0]) {
-        const hookText = blueprint?.hookConcept || updatedLines[0].text;
-        updatedLines[0].text = `Ẩn sâu trong vùng núi non của Tây Ban Nha, di chỉ 7.000 năm tuổi La Braña-Arintero từng buộc giới nghiên cứu phải định hình lại góc nhìn: ${hookText.replace(/^[\s"“]+|[\s"”]+$/g, '')}`;
-        updatedLines[0].beatType = 'hook';
-      }
-
-      // 2. Fix D5: Amplify conflict in the middle beats
-      if (currentEval.failedCriteria.includes('D5') && updatedLines.length >= 3) {
-        const midIdx = Math.floor(updatedLines.length / 2);
-        if (!/(nhưng|tuy nhiên|điều đáng sợ là)/i.test(updatedLines[midIdx].text)) {
-          updatedLines[midIdx].text = `Nhưng điều đáng sợ nhất là: giữa hàng nghìn chứng tích cổ xưa, các nhà khoa học đã tìm thấy một manh mối kỳ lạ mà không ai có thể giải thích nổi. ${updatedLines[midIdx].text}`;
-          updatedLines[midIdx].beatType = 'climax';
-        }
-      }
-
-      // 3. Fix D7: Inject channel branding hook
-      if (currentEval.failedCriteria.includes('D7') && channelProfile?.channelHook && updatedLines.length >= 2) {
-        const hook = channelProfile.channelHook.trim();
-        if (!updatedLines.some((l) => l.text.includes(hook))) {
-          updatedLines[1].text = `${hook} ${updatedLines[1].text}`;
-        }
-      }
-    } else if (instructions) {
-      // Custom user instruction
-      if (instructions.includes('ngắn') || instructions.includes('rút gọn')) {
-        updatedLines.forEach((l) => {
-          const sentences = l.text.split(/(?<=[.?!])\s+/);
-          if (sentences.length > 1) {
-            l.text = sentences.slice(0, 2).join(' ');
-          }
-        });
-      }
-    }
-
-    // Re-evaluate newly refined lines
-    const newEval = await this.evaluateScript(updatedLines, blueprint, channelProfile, config);
-    return {
-      lines: updatedLines,
-      evaluation: newEval,
-    };
+  ): Promise<{ lines: ScriptBeatLine[]; evaluation?: ScriptEvaluation }> {
+    if (!lines?.length) throw new Error('Chưa có kịch bản để sửa.');
+    if (!config) throw new Error('Chưa có cấu hình provider cho tập.');
+    if (mode === 'custom_prompt' && !instructions?.trim()) throw new Error('Chưa nhập yêu cầu chỉnh sửa.');
+    const currentEval = mode === 'improve_weaknesses' ? await this.evaluateScript(lines, blueprint, channelProfile, config) : undefined;
+    const prompt = `Bạn là biên tập viên kịch bản. Sửa đúng kịch bản được cung cấp, giữ chủ đề, ngôn ngữ và dữ kiện gốc.
+Không tự thêm số liệu, địa danh, phát hiện hay lời khẳng định không có trong dữ liệu đầu vào. Không bịa xung đột để tăng điểm.
+Yêu cầu người dùng: ${instructions?.trim() || 'Cải thiện những điểm yếu trong nhận xét bên dưới, giữ ý nghĩa và độ dài mục tiêu.'}
+Blueprint: ${JSON.stringify(blueprint || {})}
+Phong cách kênh: ${JSON.stringify({ name: channelProfile?.projectName, orientation: channelProfile?.channelOrientation, hook: channelProfile?.channelHook })}
+Nhận xét: ${JSON.stringify(currentEval || {})}
+Kịch bản: ${JSON.stringify(lines.map(({ audioPath, startMs, endMs, durationMs, assetPath, assetType, ...line }) => line))}
+Giữ nguyên số dòng, thứ tự và ID; rút gọn bằng cách sửa lời trong từng dòng. Giữ các chỉ dẫn hình ảnh/giọng đọc nếu không cần thay đổi.
+Chỉ trả về JSON: {"lines":[{"id":"ID gốc","text":"Lời thoại đã sửa","visualAction":"Mô tả hình ảnh","voiceDirection":"Chỉ dẫn giọng đọc"}]}.
+Không trả về audioPath, assetPath, timing hoặc điểm tự chấm.`;
+    const updatedLines = parseRefinedScript(await this.requestScriptReview(prompt, config, channelProfile), lines);
+    let evaluation: ScriptEvaluation | undefined;
+    try { evaluation = await this.evaluateScript(updatedLines, blueprint, channelProfile, config); }
+    catch (error) { console.warn('[AiStudioLlmService] Không chấm được bản sửa:', error instanceof Error ? error.message : String(error)); }
+    return { lines: updatedLines, evaluation };
   }
 
   // ==========================================================================

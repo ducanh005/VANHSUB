@@ -78,3 +78,12 @@ Commit đợt 5: `5d6e81e` (đã push main).
 - IPC trả lại session đã invalidation. Inline edit/undo chỉ cập nhật UI khi lưu thành công; lỗi giữ form. Refinement không tự chấm lại bằng closure chứa lời cũ. Bỏ auto-evaluation trùng với backend. Callback lưu checkpoint đúng owner và chặn response từ project đã rời.
 - `tests/test_ai_studio_script_invalidation.ts`: pass trên checkpoint/storage thật, kiểm tra visual-only, narration, undo, no-op, input lỗi, cache mới, giữ file cũ và chặn render stale.
 - Regression session operations/config và TypeScript main/renderer: pass. Chưa nghiệm thu provider live hoặc UI Electron trực quan. Cơ chế regenerate/cache media theo từng shot (AS-09) vẫn cần đợt riêng.
+
+Commit đợt 6: `61690dd` (đã push main).
+
+## Đợt 7 — Chỉnh kịch bản theo provider và yêu cầu thật (AS-05)
+
+- Xóa bộ sửa mẫu chèn La Braña/Tây Ban Nha và phát hiện khảo cổ vào mọi chủ đề. Refinement gửi kịch bản, blueprint, phong cách và toàn bộ chỉ dẫn người dùng tới provider của tập (API/ChatGPT Web/Gemini Web).
+- Prompt yêu cầu giữ dữ kiện/chủ đề, không bịa số liệu/xung đột. Parser chỉ nhận nội dung lời và chỉ dẫn, giữ ID/thứ tự/số dòng; chặn thiếu dòng, ID sai, lời rỗng hoặc enum sai. Không nhận audio/timing/file pointer từ model. Rút gọn hiện thực hiện trong từng dòng.
+- Provider lỗi hoặc JSON không hợp lệ sẽ báo lỗi, không trả bản sửa mẫu giả thành công. UI hiển thị lỗi và giữ yêu cầu tự nhập để thử lại. Nếu bản sửa hợp lệ nhưng chấm lại lỗi, giữ bản sửa và bỏ điểm cũ.
+- `tests/test_ai_studio_script_refinement.ts`: pass với provider giả lập; kiểm tra yêu cầu tùy ý, đầu vào chủ đề, không thêm mẫu khảo cổ, schema và thất bại không fallback. TypeScript main/renderer kiểm tra trước commit. Chưa xác minh chất lượng phản hồi provider live; chấm điểm heuristics AS-06 xử lý riêng.

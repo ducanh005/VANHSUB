@@ -275,6 +275,7 @@ export default function ScriptWorkspaceView({
       }
     } catch (err) {
       console.error('[ScriptWorkspaceView] Improve error:', err);
+      setCopyToast(`Lỗi chỉnh kịch bản: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setIsRefining(false);
     }
@@ -301,12 +302,14 @@ export default function ScriptWorkspaceView({
         setLines(result.lines as ExtendedScriptBeatLine[]);
         setEvaluation(result.evaluation || null);
         notifySessionUpdate(result.lines as ExtendedScriptBeatLine[], result.evaluation || null, result.session);
+        setCustomPromptText('');
       }
     } catch (err) {
       console.error('[ScriptWorkspaceView] Custom refine error:', err);
+      setCopyToast(`Lỗi chỉnh kịch bản: ${err instanceof Error ? err.message : String(err)}`);
+      setCustomPromptModalOpen(true);
     } finally {
       setIsRefining(false);
-      setCustomPromptText('');
     }
   };
 
