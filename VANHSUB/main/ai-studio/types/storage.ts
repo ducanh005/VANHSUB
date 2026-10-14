@@ -121,6 +121,10 @@ export interface ScriptSceneItem {
   scene_id: string;
   narration: string;
   visual_note?: string;
+  cameraAngle?: string;
+  cameraMovement?: string;
+  suggestedMediaType?: 'image' | 'video';
+  voiceDirection?: string;
 }
 
 export interface PipelineScriptData {

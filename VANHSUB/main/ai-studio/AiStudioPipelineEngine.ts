@@ -1,3 +1,4 @@
+import { toStoredScriptScenes } from './scriptStorage';
 import { invalidateSessionArtifacts } from './sessionArtifacts';
 import fs from 'fs';
 import path from 'path';
@@ -711,11 +712,7 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
             }
 
             // Task 1: Save script (Stage 2) into storage (01_script/script.json)
-            const scriptScenes = (scriptLines || []).map((line, idx) => ({
-              scene_id: `scene_${String(idx + 1).padStart(2, '0')}`,
-              narration: line.text,
-              visual_note: line.visualPromptEn || line.text,
-            }));
+            const scriptScenes = toStoredScriptScenes(scriptLines || []);
             const scriptData: PipelineScriptData = {
               scenes: scriptScenes,
             };
@@ -841,11 +838,7 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
           case 5: {
             // Stage 5: Storyboard (Visual Prompts & Dynamic Probed Audio Timing)
             const scriptLines = session.artifacts.scriptLines || [];
-            const scriptScenes = scriptLines.map((line, idx) => ({
-              scene_id: `scene_${String(idx + 1).padStart(2, '0')}`,
-              narration: line.text,
-              visual_note: line.visualPromptEn || line.text,
-            }));
+            const scriptScenes = toStoredScriptScenes(scriptLines || []);
             const scriptData: PipelineScriptData = { scenes: scriptScenes };
             storage.saveScript(scriptData);
 

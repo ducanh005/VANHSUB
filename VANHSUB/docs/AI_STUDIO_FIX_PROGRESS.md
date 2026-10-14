@@ -116,3 +116,13 @@ Commit đợt 9: `e3c2791` (đã push main).
 - Thời lượng playback của shot giữ toàn bộ narration; thời lượng clip yêu cầu provider là ràng buộc riêng. Không cắt timeline 14 giây thành 8 giây hoặc kéo đoạn dưới 2 giây thành 2 giây. Clip ngắn được assembler lặp theo timeline từ đợt 2.
 - `tests/test_ai_studio_storyboard_modes.ts`: pass trên storage thật, không gọi LLM; kiểm tra 4 câu/4 shot ở cả ba granularity, single dài 14 giây, multi và tổng duration. TypeScript main và diff kiểm tra trước commit.
 - Chỉ dẫn hình ảnh/camera bị mất khi đổi dạng script (AS-15) xử lý đợt tiếp theo. Chưa nghiệm thu visual provider live.
+
+Commit đợt 10: `9ef7aa7` (đã push main).
+
+## Đợt 11 — Giữ chỉ dẫn hình ảnh/camera qua storyboard (AS-15, phần ánh xạ)
+
+- Dùng cùng adapter script ở bước 2 và 5; lưu visualAction/visualNote, cameraAngle/cameraMovement, suggestedMediaType và voiceDirection. Chỉ dẫn hình ảnh vừa sửa được ưu tiên hơn visualPromptEn cũ.
+- Storyboard single/multi giữ các field khi dựng processedScenes; tôn trọng media và camera người dùng chọn. Mô tả tĩnh có chỉ dẫn camera không bị nhánh tối ưu đổi về góc toàn/static.
+- Visual note tường minh được giữ nguyên ngữ nghĩa/ngôn ngữ, không bị dictionary thay Tokyo hiện đại thành Nhật thế kỷ 19. Prompt có thể chứa chỉ dẫn tiếng Việt; không giả vờ đã dịch toàn bộ sang tiếng Anh.
+- `tests/test_ai_studio_visual_directions.ts`: pass qua script.json và storyboard thật, kiểm tra chỉ dẫn mới thay prompt cũ, camera, media và voiceDirection được lưu. Storyboard-mode regression và TypeScript kiểm tra trước commit.
+- Chưa áp dụng văn bản voiceDirection tự do thành prosody TTS; preset rate/pitch/volume vẫn là cấu hình thực thi. Quy tắc hợp nhất các chỉ dẫn xung đột trong clustering legacy và chất lượng visual provider live còn cần nghiệm thu riêng.

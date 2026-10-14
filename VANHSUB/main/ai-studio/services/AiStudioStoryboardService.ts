@@ -1234,9 +1234,7 @@ export class AiStudioStoryboardService {
         );
       }
       return {
-        scene_id: scriptScene.scene_id,
-        narration: scriptScene.narration,
-        visual_note: scriptScene.visual_note,
+        ...scriptScene,
         duration_sec: timingItem.duration_sec,
       };
     });
@@ -1459,6 +1457,8 @@ export class AiStudioStoryboardService {
               shotDur,
               explicitMedia ? { suggestedMediaType: explicitMedia } : undefined
             );
+            decision.camera_angle = scriptScene.cameraAngle || decision.camera_angle;
+            decision.camera_motion = scriptScene.cameraMovement || decision.camera_motion;
             const effectiveShotDur = shotDur;
 
             shots.push({
@@ -1487,7 +1487,7 @@ export class AiStudioStoryboardService {
           // Default intelligent duration-based decomposition with AI media_type decision
           const sceneExplicitMedia = (scriptScene as any).suggestedMediaType || (scriptScene as any).suggested_media_type || (scriptScene as any).media_type;
           const isStaticScene = granularity === 'balanced' &&
-            !sceneExplicitMedia &&
+            !sceneExplicitMedia && !scriptScene.cameraAngle && !scriptScene.cameraMovement &&
             this.isStaticOrDescriptiveNarration(scriptScene.narration, scriptScene.visual_note) &&
             durationSec <= 10.0;
 
@@ -1513,6 +1513,8 @@ export class AiStudioStoryboardService {
                   raw.durationSec,
                   sceneExplicitMedia ? { suggestedMediaType: sceneExplicitMedia } : undefined
                 );
+            decision.camera_angle = scriptScene.cameraAngle || decision.camera_angle;
+            decision.camera_motion = scriptScene.cameraMovement || decision.camera_motion;
             const imagePrompt = this.buildShotPrompt(scriptScene as any, raw.index, rawShots.length, stylePrefix, options.channelProfile, effectiveBgPrompt);
             const motionNote = isStaticScene
               ? 'Ken Burns subtle pan and slow zoom in'
@@ -1943,14 +1945,8 @@ export class AiStudioStoryboardService {
     const rawNote = (visualNote || '').trim();
     const hasVietnameseDiacritics = /[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]/i;
 
-    // 1. Nếu visual_note đã có và là mô tả tiếng Anh (không chứa dấu tiếng Việt):
-    if (rawNote && !hasVietnameseDiacritics.test(rawNote)) {
-      return rawNote
-        .replace(/^(?:người dẫn|dẫn chuyện|nhân vật|mc|host|narrator|voiceover|speaker)[\s\d]*:?\s*/gi, '')
-        .replace(/(?:lời thoại|phụ đề|câu nói|subtitles?|dialogue):?\s*/gi, '')
-        .replace(/["“”'‘’«»]/g, '')
-        .trim();
-    }
+    // Explicit visual instructions keep their subject, actions and setting in any language.
+    if (rawNote) return rawNote.replace(/["“”'‘’«»]/g, '').trim();
 
     // 2. Nếu visual_note là tiếng Việt hoặc chỉ có narration:
     let text = (rawNote || narration || '').trim();
