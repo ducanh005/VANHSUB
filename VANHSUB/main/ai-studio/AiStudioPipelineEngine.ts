@@ -39,6 +39,7 @@ import { aiStudioVisualService } from './services/AiStudioVisualService';
 import { aiStudioVideoAssembler } from './services/AiStudioVideoAssembler';
 import { AiStudioDiskStorageManager } from './storage/AiStudioDiskStorageManager';
 import { captureSessionConfig, resolveProductionConfig, restoreSessionConfig } from './sessionConfig';
+import { cancelSessionOperation, isSessionOperationActive, registerSessionProcess, reserveSessionOperation, withSessionOperation } from './sessionOperations';
 import {
   assertSessionWorkspaceOwner,
   newSessionWorkspace,
@@ -128,8 +129,6 @@ export function extractFlowProjectId(urlOrId?: string): string | undefined {
 
 export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
   private activeSessions = new Map<string, PipelineSessionState>();
-  private activeAbortControllers = new Map<string, AbortController>();
-  private activeProcesses = new Map<string, Set<any>>();
   private memorySessions = new Map<string, any>();
 
   // ==========================================================================
@@ -237,11 +236,12 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
 
   public async getState(payload: GetPipelineStatePayload): Promise<PipelineSessionState | null> {
     const { sessionId } = payload;
-    if (this.activeSessions.has(sessionId)) {
-      return this.activeSessions.get(sessionId)!;
-    }
-
-    return this.loadSessionState(sessionId);
+    const state = this.activeSessions.get(sessionId) || this.loadSessionState(sessionId);
+    if (!state) return null;
+    const jobActive = isSessionOperationActive(sessionId);
+    return { ...state, jobActive, ...(state.status === 'running' && !jobActive ? {
+      status: 'failed' as const, error: 'Phiên đã bị gián đoạn. Bạn có thể tiếp tục từ checkpoint đã lưu.',
+    } : {}) };
   }
 
   private persistFailureCheckpoint(state: PipelineSessionState): void {
@@ -250,6 +250,35 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
       // A failed disk write must not turn the background error handler into an unhandled rejection.
       console.error(`[AiStudioPipelineEngine] Cannot persist failed/cancelled session ${state.sessionId}:`, err);
     }
+  }
+
+  private launchPipeline(
+    session: PipelineSessionState,
+    stage: AiStudioStageId,
+    onProgress: (event: PipelineProgressEvent) => void,
+    lease = reserveSessionOperation(session.sessionId),
+    runOptions?: { mode?: 'resume_missing' | 'regenerate_selected' | 'regenerate_all'; selectedShotIds?: string[] }
+  ): void {
+    setTimeout(() => {
+      void (async () => {
+        try {
+          await this.runPipelineLoop(session, stage, onProgress, lease.controller.signal, runOptions);
+          lease.controller.signal.throwIfAborted();
+        } catch (err: any) {
+          const cancelled = lease.controller.signal.aborted || session.status === 'cancelled';
+          session.status = cancelled ? 'cancelled' : 'failed';
+          session.error = cancelled ? 'Đã hủy bởi người dùng' : (err?.message || String(err));
+          if (session.stages[session.currentStage]?.status !== 'success') {
+            session.stages[session.currentStage] = { ...session.stages[session.currentStage], status: 'error', error: session.error };
+          }
+          this.persistFailureCheckpoint(session);
+          try {
+            onProgress({ sessionId: session.sessionId, stage: session.currentStage, stageName: session.stageName,
+              progress: session.progress, status: 'error', error: session.error, sessionStatus: session.status });
+          } catch (notifyError) { console.error('[AiStudioPipelineEngine] Cannot notify pipeline failure:', notifyError); }
+        } finally { lease.release(); }
+      })();
+    }, 20);
   }
 
   public async getSessionConfig(sessionId: string): Promise<AiStudioConfig> {
@@ -296,32 +325,14 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
   public async cancel(payload: CancelPipelinePayload): Promise<CancelPipelineResult> {
     const { sessionId } = payload;
 
-    // 1. Trigger AbortController
-    const controller = this.activeAbortControllers.get(sessionId);
-    if (controller) {
-      controller.abort();
-      this.activeAbortControllers.delete(sessionId);
-    }
-
-    // 2. Kill registered child processes / FFmpeg instances
-    const procs = this.activeProcesses.get(sessionId);
-    if (procs) {
-      for (const proc of procs) {
-        try {
-          if (typeof proc?.kill === 'function') {
-            proc.kill('SIGKILL');
-          }
-        } catch {}
-      }
-      this.activeProcesses.delete(sessionId);
-    }
+    cancelSessionOperation(sessionId);
 
     // 3. Mark session as cancelled
     const session = await this.getState({ sessionId });
-    if (session && (session.status === 'running' || session.status === 'idle')) {
+    if (session && ['running', 'idle', 'awaiting_approval'].includes(session.status)) {
       session.stages = session.stages || ({} as any);
       session.status = 'cancelled';
-      if (session.stages[session.currentStage]) {
+      if (session.stages[session.currentStage] && session.stages[session.currentStage].status !== 'success') {
         session.stages[session.currentStage].status = 'error';
         session.stages[session.currentStage].error = 'Đã hủy bởi người dùng';
       }
@@ -398,39 +409,7 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
 
     this.persistSessionStateAtomic(session);
 
-    const abortController = new AbortController();
-    this.activeAbortControllers.set(sessionId, abortController);
-    this.activeProcesses.set(sessionId, new Set());
-
-    // Execute pipeline in background loop
-    setTimeout(() => {
-      this.runPipelineLoop(session, 1, onProgress, abortController.signal).catch((err) => {
-        if (session.status === 'cancelled' || abortController.signal.aborted) {
-          session.status = 'cancelled';
-          if (session.stages && session.stages[session.currentStage]) {
-            session.stages[session.currentStage].status = 'error';
-            session.stages[session.currentStage].error = 'Đã hủy bởi người dùng';
-          }
-          this.persistFailureCheckpoint(session);
-          return;
-        }
-        console.error(`[AiStudioPipelineEngine] Error on session ${sessionId}:`, err);
-        session.status = 'failed';
-        if (session.stages && session.stages[session.currentStage]) {
-          session.stages[session.currentStage].status = 'error';
-          session.stages[session.currentStage].error = err?.message || String(err);
-        }
-        this.persistFailureCheckpoint(session);
-        onProgress({
-          sessionId,
-          stage: session.currentStage,
-          stageName: session.stageName,
-          progress: session.progress,
-          status: 'error',
-          error: err?.message || String(err),
-        });
-      });
-    }, 20);
+    this.launchPipeline(session, 1, onProgress);
 
     return { sessionId };
   }
@@ -462,76 +441,52 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
     payload: ApproveStagePayload,
     onProgress: (event: PipelineProgressEvent) => void
   ): Promise<ApproveStageResult> {
-    const session = await this.getState({ sessionId: payload.sessionId });
-    if (!session) {
-      throw new Error(`Session không tồn tại: ${payload.sessionId}`);
-    }
+    const lease = reserveSessionOperation(payload.sessionId);
+    try {
+      const session = await this.getState({ sessionId: payload.sessionId });
+      if (!session) {
+        throw new Error(`Session không tồn tại: ${payload.sessionId}`);
+      }
+      if (!Number.isInteger(payload.currentStage) || payload.currentStage !== session.currentStage ||
+          session.status !== 'awaiting_approval' || session.stages[session.currentStage]?.status !== 'success') {
+        throw new Error('Chỉ được duyệt bước hiện tại đã hoàn tất và đang chờ duyệt.');
+      }
 
-    if (payload.updatedArtifacts) {
-      session.artifacts = {
-        ...session.artifacts,
-        ...payload.updatedArtifacts,
-      };
-    }
+      if (payload.updatedArtifacts) {
+        session.artifacts = {
+          ...session.artifacts,
+          ...payload.updatedArtifacts,
+        };
+      }
 
-    const nextStage = (payload.currentStage + 1) as AiStudioStageId;
-    if (nextStage > 8) {
-      session.status = 'completed';
-      session.progress = 100;
-      this.persistSessionStateAtomic(session);
-      onProgress({
-        sessionId: session.sessionId,
-        stage: 8,
-        stageName: 'Hoàn thành',
-        progress: 100,
-        status: 'success',
-        message: 'Đã hoàn thành toàn bộ quy trình sản xuất video AI Studio!',
-        artifacts: session.artifacts,
-      });
-      return { success: true };
-    }
-
-    session.status = 'running';
-    session.currentStage = nextStage;
-    session.stageName = STAGE_CONFIG[nextStage].name;
-    this.persistSessionStateAtomic(session);
-
-    let abortController = this.activeAbortControllers.get(session.sessionId);
-    if (!abortController || abortController.signal.aborted) {
-      abortController = new AbortController();
-      this.activeAbortControllers.set(session.sessionId, abortController);
-    }
-
-    setTimeout(() => {
-      this.runPipelineLoop(session, nextStage, onProgress, abortController!.signal).catch((err) => {
-        if (session.status === 'cancelled' || abortController!.signal.aborted) {
-          session.status = 'cancelled';
-          if (session.stages && session.stages[session.currentStage]) {
-            session.stages[session.currentStage].status = 'error';
-            session.stages[session.currentStage].error = 'Đã hủy bởi người dùng';
-          }
-          this.persistFailureCheckpoint(session);
-          return;
-        }
-        console.error(`[AiStudioPipelineEngine] Error on stage ${nextStage}:`, err);
-        session.status = 'failed';
-        if (session.stages && session.stages[session.currentStage]) {
-          session.stages[session.currentStage].status = 'error';
-          session.stages[session.currentStage].error = err?.message || String(err);
-        }
-        this.persistFailureCheckpoint(session);
+      const nextStage = (payload.currentStage + 1) as AiStudioStageId;
+      if (nextStage > 8) {
+        session.status = 'completed';
+        session.progress = 100;
+        this.persistSessionStateAtomic(session);
         onProgress({
           sessionId: session.sessionId,
-          stage: session.currentStage,
-          stageName: session.stageName,
-          progress: session.progress,
-          status: 'error',
-          error: err?.message || String(err),
+          stage: 8,
+          stageName: 'Hoàn thành',
+          progress: 100,
+          status: 'success',
+          message: 'Đã hoàn thành toàn bộ quy trình sản xuất video AI Studio!',
+          artifacts: session.artifacts,
         });
-      });
-    }, 20);
+        lease.release();
+        return { success: true };
+      }
 
-    return { success: true, nextStage };
+      session.status = 'running';
+      delete session.error;
+      session.currentStage = nextStage;
+      session.stageName = STAGE_CONFIG[nextStage].name;
+      this.persistSessionStateAtomic(session);
+
+      this.launchPipeline(session, nextStage, onProgress, lease);
+
+      return { success: true, nextStage };
+    } catch (err) { lease.release(); throw err; }
   }
 
   // ==========================================================================
@@ -541,104 +496,79 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
     payload: ResumePipelinePayload,
     onProgress: (event: PipelineProgressEvent) => void
   ): Promise<ResumePipelineResult> {
-    const session = await this.getState({ sessionId: payload.sessionId });
-    if (!session) {
-      throw new Error(`Session không tồn tại: ${payload.sessionId}`);
-    }
-
-    session.stages = session.stages || ({} as any);
-    session.artifacts = session.artifacts || ({} as any);
-
-    const targetStage = (payload.fromStage || session.currentStage) as AiStudioStageId;
-
-    // Validate state transition integrity: cannot resume stage N without completed stage N-1
-    if (targetStage > 1) {
-      const prevStage = (targetStage - 1) as AiStudioStageId;
-      const prevStageCompleted = session.stages[prevStage]?.status === 'success';
-      if (!prevStageCompleted) {
-        throw new Error(
-          `IllegalStateTransitionError: Không thể chuyển tới bước ${targetStage} (${STAGE_CONFIG[targetStage]?.label}) khi bước ${prevStage} chưa hoàn tất thành công.`
-        );
+    const lease = reserveSessionOperation(payload.sessionId);
+    try {
+      const session = await this.getState({ sessionId: payload.sessionId });
+      if (!session) {
+        throw new Error(`Session không tồn tại: ${payload.sessionId}`);
       }
-    }
 
-    if (payload.storyboardOptions) {
-      if (targetStage !== 5) throw new Error('Thay đổi cách phân cảnh phải chạy lại từ Bước 5.');
-      const { shotMode, granularity } = payload.storyboardOptions;
-      if ((shotMode && !['single', 'multi'].includes(shotMode)) ||
-          (granularity && !['detailed', 'balanced', 'fast'].includes(granularity))) {
-        throw new Error('Cấu hình phân cảnh không hợp lệ.');
+      session.stages = session.stages || ({} as any);
+      session.artifacts = session.artifacts || ({} as any);
+
+      const targetStage = (payload.fromStage ?? (session.status === 'cancelled' && session.stages[session.currentStage]?.status === 'success'
+        ? session.currentStage + 1 : session.currentStage)) as AiStudioStageId;
+      if (!Number.isInteger(targetStage) || targetStage < 1 || targetStage > 8) throw new Error('Bước chạy lại phải nằm trong khoảng 1–8.');
+
+      // Validate state transition integrity: cannot resume stage N without completed stage N-1
+      if (targetStage > 1) {
+        const prevStage = (targetStage - 1) as AiStudioStageId;
+        const prevStageCompleted = session.stages[prevStage]?.status === 'success';
+        if (!prevStageCompleted) {
+          throw new Error(
+            `IllegalStateTransitionError: Không thể chuyển tới bước ${targetStage} (${STAGE_CONFIG[targetStage]?.label}) khi bước ${prevStage} chưa hoàn tất thành công.`
+          );
+        }
       }
-      const config = this.resolveSessionConfig(session);
-      session.configSnapshot = captureSessionConfig({ ...config, flowEngine: {
-        ...config.flowEngine, ...(shotMode ? { shotMode } : {}), ...(granularity ? { granularity } : {}),
-      } });
-    }
 
-    // Upstream Preservation & Downstream Eviction:
-    // Reset downstream stages from targetStage to 8
-    for (let s = targetStage; s <= 8; s++) {
-      session.stages[s] = {
-        status: 'pending',
-        stageName: STAGE_CONFIG[s as AiStudioStageId]?.label || `Bước ${s}`,
+      if (payload.storyboardOptions) {
+        if (targetStage !== 5) throw new Error('Thay đổi cách phân cảnh phải chạy lại từ Bước 5.');
+        const { shotMode, granularity } = payload.storyboardOptions;
+        if ((shotMode && !['single', 'multi'].includes(shotMode)) ||
+            (granularity && !['detailed', 'balanced', 'fast'].includes(granularity))) {
+          throw new Error('Cấu hình phân cảnh không hợp lệ.');
+        }
+        const config = this.resolveSessionConfig(session);
+        session.configSnapshot = captureSessionConfig({ ...config, flowEngine: {
+          ...config.flowEngine, ...(shotMode ? { shotMode } : {}), ...(granularity ? { granularity } : {}),
+        } });
+      }
+
+      // Upstream Preservation & Downstream Eviction:
+      // Reset downstream stages from targetStage to 8
+      for (let s = targetStage; s <= 8; s++) {
+        session.stages[s] = {
+          status: 'pending',
+          stageName: STAGE_CONFIG[s as AiStudioStageId]?.label || `Bước ${s}`,
+        };
+      }
+
+      // Evict downstream artifacts
+      if (targetStage <= 2) session.artifacts.scriptLines = undefined;
+      if (targetStage <= 3) session.artifacts.audioPath = undefined;
+      if (targetStage <= 4) session.artifacts.wordsAlignment = undefined;
+      if (targetStage <= 5) session.artifacts.scenes = undefined;
+      if (targetStage <= 7) {
+        session.artifacts.videoPath = undefined;
+        session.artifacts.srtPath = undefined;
+      }
+      if (targetStage <= 8) session.artifacts.metadata = undefined;
+
+      session.status = 'running';
+      delete session.error;
+      session.currentStage = targetStage;
+      session.stageName = STAGE_CONFIG[targetStage].name;
+      this.persistSessionStateAtomic(session);
+
+      const runOptions = {
+        mode: payload.mode || 'resume_missing',
+        selectedShotIds: payload.selectedShotIds,
       };
-    }
 
-    // Evict downstream artifacts
-    if (targetStage <= 2) session.artifacts.scriptLines = undefined;
-    if (targetStage <= 3) session.artifacts.audioPath = undefined;
-    if (targetStage <= 4) session.artifacts.wordsAlignment = undefined;
-    if (targetStage <= 5) session.artifacts.scenes = undefined;
-    if (targetStage <= 7) {
-      session.artifacts.videoPath = undefined;
-      session.artifacts.srtPath = undefined;
-    }
-    if (targetStage <= 8) session.artifacts.metadata = undefined;
+      this.launchPipeline(session, targetStage, onProgress, lease, runOptions);
 
-    session.status = 'running';
-    session.currentStage = targetStage;
-    session.stageName = STAGE_CONFIG[targetStage].name;
-    this.persistSessionStateAtomic(session);
-
-    const abortController = new AbortController();
-    this.activeAbortControllers.set(session.sessionId, abortController);
-    this.activeProcesses.set(session.sessionId, new Set());
-
-    const runOptions = {
-      mode: payload.mode || 'resume_missing',
-      selectedShotIds: payload.selectedShotIds,
-    };
-
-    setTimeout(() => {
-      this.runPipelineLoop(session, targetStage, onProgress, abortController.signal, runOptions).catch((err) => {
-        if (session.status === 'cancelled' || abortController.signal.aborted) {
-          session.status = 'cancelled';
-          if (session.stages && session.stages[session.currentStage]) {
-            session.stages[session.currentStage].status = 'error';
-            session.stages[session.currentStage].error = 'Đã hủy bởi người dùng';
-          }
-          this.persistFailureCheckpoint(session);
-          return;
-        }
-        console.error(`[AiStudioPipelineEngine] Resume error on session ${session.sessionId}:`, err);
-        session.status = 'failed';
-        if (session.stages && session.stages[session.currentStage]) {
-          session.stages[session.currentStage].status = 'error';
-          session.stages[session.currentStage].error = err?.message || String(err);
-        }
-        this.persistFailureCheckpoint(session);
-        onProgress({
-          sessionId: session.sessionId,
-          stage: session.currentStage,
-          stageName: session.stageName,
-          progress: session.progress,
-          status: 'error',
-          error: err?.message || String(err),
-        });
-      });
-    }, 20);
-
-    return { success: true };
+      return { success: true };
+    } catch (err) { lease.release(); throw err; }
   }
 
   // ==========================================================================
@@ -782,6 +712,7 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
               session.artifacts.blueprint,
               config.channelProfile
             );
+            signal.throwIfAborted();
             session.artifacts.scriptLines = scriptLines;
             try {
               const evaluation = await aiStudioLlmService.evaluateScript(
@@ -840,6 +771,7 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
               voiceoverPath,
               signal
             );
+            signal.throwIfAborted();
             session.artifacts.audioPath = ttsResult.audioPath;
             session.artifacts.scriptLines = scriptLines;
             if (ttsResult.wordTimestamps && ttsResult.wordTimestamps.length > 0) {
@@ -1803,8 +1735,7 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
               scriptLines: session.artifacts.scriptLines,
               signal,
               onRegisterProcess: (cmd) => {
-                const procs = this.activeProcesses.get(session.sessionId);
-                if (procs) procs.add(cmd);
+                registerSessionProcess(session.sessionId, cmd);
               },
               onProgress: (pct) => {
                 onProgress({
@@ -1830,11 +1761,13 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
               session.artifacts.scriptLines || [],
               config.llm
             );
+            signal.throwIfAborted();
             session.artifacts.metadata = metadata;
             break;
           }
         }
 
+        signal.throwIfAborted();
         // Mark stage as completed
         session.stages[stage].status = 'success';
         session.stages[stage].completedAt = Date.now();
@@ -1874,8 +1807,6 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
       session.progress = 100;
       this.persistSessionStateAtomic(session);
 
-      this.activeAbortControllers.delete(session.sessionId);
-      this.activeProcesses.delete(session.sessionId);
 
       onProgress({
         sessionId: session.sessionId,
@@ -1910,6 +1841,17 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
   }
 
   public async regenerateSceneAsset(
+    payload: RegenerateSceneAssetPayload,
+    onProgress?: (pct: number, msg: string) => void,
+    signal?: AbortSignal
+  ): Promise<RegenerateSceneAssetResult> {
+    if (!payload.sessionId) return this.regenerateSceneAssetInternal(payload, onProgress, signal);
+    return withSessionOperation(payload.sessionId, (jobSignal) => this.regenerateSceneAssetInternal(
+      payload, onProgress, signal ? AbortSignal.any([signal, jobSignal]) : jobSignal
+    ));
+  }
+
+  private async regenerateSceneAssetInternal(
     payload: RegenerateSceneAssetPayload,
     onProgress?: (pct: number, msg: string) => void,
     signal?: AbortSignal
@@ -1964,8 +1906,10 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
             signal
           );
           if (rpcRes.assetPath && fs.existsSync(rpcRes.assetPath)) {
+            signal?.throwIfAborted();
             const session = await this.getState({ sessionId: payload.sessionId });
             if (session && session.artifacts.scenes) {
+              signal?.throwIfAborted();
               const targetScene = session.artifacts.scenes.find((s) => s.id === shotId || s.shotId === shotId);
               if (targetScene) {
                 if (rpcRes.videoPath) {
@@ -2053,6 +1997,7 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
 
           if (vidResult.success && vidResult.videoPath) {
             if (session && session.artifacts.scenes) {
+              signal?.throwIfAborted();
               const targetScene = session.artifacts.scenes.find((s) => s.id === shotId || s.shotId === shotId);
               if (targetScene) {
                 targetScene.videoPath = vidResult.videoPath;
@@ -2105,6 +2050,7 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
           if (imgResult.success && imgResult.imagePath) {
             const session = await this.getState({ sessionId: payload.sessionId });
             if (session && session.artifacts.scenes) {
+              signal?.throwIfAborted();
               const sc = session.artifacts.scenes.find((s) => s.id === shotId || s.shotId === shotId);
               if (sc) {
                 sc.imagePath = imgResult.imagePath;
@@ -2176,6 +2122,7 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
             }
 
             if (session && session.artifacts.scenes) {
+              signal?.throwIfAborted();
               const targetScene = session.artifacts.scenes.find((s) => s.id === shotId || s.shotId === shotId);
               if (targetScene) {
                 targetScene.imagePath = imgResult.imagePath;
@@ -2231,6 +2178,12 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
   public async importSceneMedia(
     payload: ImportSceneMediaPayload
   ): Promise<ImportSceneMediaResult> {
+    return withSessionOperation(payload.sessionId, (signal) => this.importSceneMediaInternal(payload, signal));
+  }
+
+  private async importSceneMediaInternal(
+    payload: ImportSceneMediaPayload, signal: AbortSignal
+  ): Promise<ImportSceneMediaResult> {
     const { sessionId, sceneId, filePath, mediaType } = payload;
     if (!sessionId || !sceneId || !filePath) {
       return { success: false, assetPath: '', error: 'Thiếu thông tin phiên, phân cảnh hoặc đường dẫn tệp' };
@@ -2242,6 +2195,7 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
 
     try {
       const ownerSession = await this.getState({ sessionId });
+      signal.throwIfAborted();
       if (!ownerSession) throw new Error('Không tìm thấy phiên AI Studio để nhập media.');
       const storage = this.getDiskStorageManager(sessionId, ownerSession.mediaDir);
       const shotId = sceneId;
@@ -2284,6 +2238,7 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
 
       // Cập nhật session state
       const session = await this.getState({ sessionId });
+      signal.throwIfAborted();
       if (session && session.artifacts.scenes) {
         const targetScene = session.artifacts.scenes.find((s) => s.id === shotId || s.shotId === shotId);
         if (targetScene) {
@@ -2314,6 +2269,10 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
   }
 
   public async renderVideo(payload: RenderVideoPayload): Promise<RenderVideoResult> {
+    return withSessionOperation(payload.sessionId, (signal) => this.renderVideoInternal(payload, signal));
+  }
+
+  private async renderVideoInternal(payload: RenderVideoPayload, signal: AbortSignal): Promise<RenderVideoResult> {
     const session = await this.getState({ sessionId: payload.sessionId });
     if (!session || !session.artifacts.audioPath || !session.artifacts.scenes) {
       throw new Error(`Session assets không tìm thấy cho việc dựng lại video: ${payload.sessionId}`);
@@ -2342,8 +2301,11 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
       aspectRatio: config.flowEngine.aspectRatio,
       wordsAlignment: session.artifacts.wordsAlignment,
       scriptLines: session.artifacts.scriptLines,
+      signal,
+      onRegisterProcess: (cmd) => registerSessionProcess(session.sessionId, cmd),
     });
 
+    signal.throwIfAborted();
     session.artifacts.videoPath = assemblyResult.videoPath;
     this.persistSessionStateAtomic(session);
 

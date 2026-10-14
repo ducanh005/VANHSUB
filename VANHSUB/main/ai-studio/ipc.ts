@@ -22,6 +22,7 @@ import { ChatGptWebSessionManager } from './chatgpt/ChatGptWebSessionManager';
 import { GeminiWebSessionManager } from './gemini/GeminiWebSessionManager';
 import { aiStudioLlmService } from './services/AiStudioLlmService';
 import { CapCutDraftExporter } from './services/CapCutDraftExporter';
+import { withSessionOperation } from './sessionOperations';
 import type {
   AiStudioConfig,
   PartialAiStudioConfig,
@@ -414,33 +415,37 @@ export function registerAiStudioIpc(): void {
       _event,
       payload: EvaluateScriptPayload
     ): Promise<EvaluateScriptResult> => {
-      try {
-        const config = payload.sessionId && pipelineEngineDelegate?.getSessionConfig
-          ? await pipelineEngineDelegate.getSessionConfig(payload.sessionId)
-          : getDecryptedAiStudioConfig();
-        const evaluation = await aiStudioLlmService.evaluateScript(
-          payload.lines || [],
-          payload.blueprint,
-          payload.sessionId ? config.channelProfile : (payload.channelProfile || config.channelProfile),
-          config.llm
-        );
+      const execute = async (signal?: AbortSignal): Promise<EvaluateScriptResult> => {
+        try {
+          const config = payload.sessionId && pipelineEngineDelegate?.getSessionConfig
+            ? await pipelineEngineDelegate.getSessionConfig(payload.sessionId)
+            : getDecryptedAiStudioConfig();
+          const evaluation = await aiStudioLlmService.evaluateScript(
+            payload.lines || [],
+            payload.blueprint,
+            payload.sessionId ? config.channelProfile : (payload.channelProfile || config.channelProfile),
+            config.llm
+          );
+          signal?.throwIfAborted();
 
-        if (payload.sessionId && pipelineEngineDelegate) {
-          const session = await pipelineEngineDelegate.getState({ sessionId: payload.sessionId });
-          if (session) {
-            session.artifacts = session.artifacts || {};
-            session.artifacts.scriptEvaluation = evaluation;
-            if (typeof pipelineEngineDelegate.persistSessionStateAtomic === 'function') {
-              pipelineEngineDelegate.persistSessionStateAtomic(session);
+          if (payload.sessionId && pipelineEngineDelegate) {
+            const session = await pipelineEngineDelegate.getState({ sessionId: payload.sessionId });
+            if (session) {
+              session.artifacts = session.artifacts || {};
+              session.artifacts.scriptEvaluation = evaluation;
+              if (typeof pipelineEngineDelegate.persistSessionStateAtomic === 'function') {
+                pipelineEngineDelegate.persistSessionStateAtomic(session);
+              }
             }
           }
-        }
 
-        return { evaluation };
-      } catch (err: any) {
-        console.error('[AI-Studio-IPC] Error evaluating script:', err);
-        throw new Error(`Lỗi chấm điểm kịch bản: ${err?.message || err}`);
-      }
+          return { evaluation };
+        } catch (err: any) {
+          console.error('[AI-Studio-IPC] Error evaluating script:', err);
+          throw new Error(`Lỗi chấm điểm kịch bản: ${err?.message || err}`);
+        }
+      };
+      return payload.sessionId ? withSessionOperation(payload.sessionId, execute) : execute();
     }
   );
 
@@ -454,44 +459,48 @@ export function registerAiStudioIpc(): void {
       _event,
       payload: RefineScriptPayload
     ): Promise<RefineScriptResult> => {
-      try {
-        const config = payload.sessionId && pipelineEngineDelegate?.getSessionConfig
-          ? await pipelineEngineDelegate.getSessionConfig(payload.sessionId)
-          : getDecryptedAiStudioConfig();
-        const refined = await aiStudioLlmService.refineScript(
-          payload.lines || [],
-          payload.instructions,
-          payload.mode || 'improve_weaknesses',
-          payload.blueprint,
-          payload.sessionId ? config.channelProfile : (payload.channelProfile || config.channelProfile),
-          config.llm
-        );
+      const execute = async (signal?: AbortSignal): Promise<RefineScriptResult> => {
+        try {
+          const config = payload.sessionId && pipelineEngineDelegate?.getSessionConfig
+            ? await pipelineEngineDelegate.getSessionConfig(payload.sessionId)
+            : getDecryptedAiStudioConfig();
+          const refined = await aiStudioLlmService.refineScript(
+            payload.lines || [],
+            payload.instructions,
+            payload.mode || 'improve_weaknesses',
+            payload.blueprint,
+            payload.sessionId ? config.channelProfile : (payload.channelProfile || config.channelProfile),
+            config.llm
+          );
+          signal?.throwIfAborted();
 
-        if (payload.sessionId && pipelineEngineDelegate) {
-          const session = await pipelineEngineDelegate.getState({ sessionId: payload.sessionId });
-          if (session) {
-            session.artifacts = session.artifacts || {};
-            if (session.artifacts.scriptLines) {
-              session.artifacts.scriptHistory = session.artifacts.scriptHistory || [];
-              session.artifacts.scriptHistory.push({
-                lines: session.artifacts.scriptLines,
-                evaluation: session.artifacts.scriptEvaluation,
-                timestamp: Date.now(),
-              });
-            }
-            session.artifacts.scriptLines = refined.lines;
-            session.artifacts.scriptEvaluation = refined.evaluation;
-            if (typeof pipelineEngineDelegate.persistSessionStateAtomic === 'function') {
-              pipelineEngineDelegate.persistSessionStateAtomic(session);
+          if (payload.sessionId && pipelineEngineDelegate) {
+            const session = await pipelineEngineDelegate.getState({ sessionId: payload.sessionId });
+            if (session) {
+              session.artifacts = session.artifacts || {};
+              if (session.artifacts.scriptLines) {
+                session.artifacts.scriptHistory = session.artifacts.scriptHistory || [];
+                session.artifacts.scriptHistory.push({
+                  lines: session.artifacts.scriptLines,
+                  evaluation: session.artifacts.scriptEvaluation,
+                  timestamp: Date.now(),
+                });
+              }
+              session.artifacts.scriptLines = refined.lines;
+              session.artifacts.scriptEvaluation = refined.evaluation;
+              if (typeof pipelineEngineDelegate.persistSessionStateAtomic === 'function') {
+                pipelineEngineDelegate.persistSessionStateAtomic(session);
+              }
             }
           }
-        }
 
-        return refined;
-      } catch (err: any) {
-        console.error('[AI-Studio-IPC] Error refining script:', err);
-        throw new Error(`Lỗi cải thiện kịch bản: ${err?.message || err}`);
-      }
+          return refined;
+        } catch (err: any) {
+          console.error('[AI-Studio-IPC] Error refining script:', err);
+          throw new Error(`Lỗi cải thiện kịch bản: ${err?.message || err}`);
+        }
+      };
+      return payload.sessionId ? withSessionOperation(payload.sessionId, execute) : execute();
     }
   );
 
@@ -505,27 +514,30 @@ export function registerAiStudioIpc(): void {
       _event,
       payload: UpdateScriptLinesPayload
     ): Promise<UpdateScriptLinesResult> => {
-      try {
-        if (!payload.sessionId) {
-          throw new Error('Thiếu sessionId khi cập nhật câu thoại kịch bản.');
-        }
+      return withSessionOperation(payload.sessionId, async (signal) => {
+        try {
+          if (!payload.sessionId) {
+            throw new Error('Thiếu sessionId khi cập nhật câu thoại kịch bản.');
+          }
 
-        if (pipelineEngineDelegate) {
-          const session = await pipelineEngineDelegate.getState({ sessionId: payload.sessionId });
-          if (session) {
-            session.artifacts = session.artifacts || {};
-            session.artifacts.scriptLines = payload.lines || [];
-            if (typeof pipelineEngineDelegate.persistSessionStateAtomic === 'function') {
-              pipelineEngineDelegate.persistSessionStateAtomic(session);
+          if (pipelineEngineDelegate) {
+            const session = await pipelineEngineDelegate.getState({ sessionId: payload.sessionId });
+            signal.throwIfAborted();
+            if (session) {
+              session.artifacts = session.artifacts || {};
+              session.artifacts.scriptLines = payload.lines || [];
+              if (typeof pipelineEngineDelegate.persistSessionStateAtomic === 'function') {
+                pipelineEngineDelegate.persistSessionStateAtomic(session);
+              }
             }
           }
-        }
 
-        return { success: true, scriptLines: payload.lines };
-      } catch (err: any) {
-        console.error('[AI-Studio-IPC] Error updating script lines:', err);
-        throw new Error(`Lỗi cập nhật câu thoại kịch bản: ${err?.message || err}`);
-      }
+          return { success: true, scriptLines: payload.lines };
+        } catch (err: any) {
+          console.error('[AI-Studio-IPC] Error updating script lines:', err);
+          throw new Error(`Lỗi cập nhật câu thoại kịch bản: ${err?.message || err}`);
+        }
+      });
     }
   );
 

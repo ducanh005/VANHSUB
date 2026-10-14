@@ -671,6 +671,9 @@ export interface ScriptQualityAuditResult {
 
 export interface PipelineSessionState {
   sessionId: string;
+  /** Runtime only; recomputed on lookup. */
+  jobActive?: boolean;
+  error?: string;
   configSnapshot?: AiStudioSessionConfig;
   topic: string;
   currentStage: AiStudioStageId;
@@ -729,6 +732,7 @@ export interface PipelineProgressPayload {
   error?: string;
   artifacts?: Partial<PipelineSessionState['artifacts']>;
   lastAction?: any;
+  sessionStatus?: PipelineSessionState['status'];
 }
 
 export type PipelineStageStatus = AiStudioStageStatus;

@@ -193,7 +193,7 @@ export default function ScriptWorkspaceView({
     if (!evaluation && lines.length > 0 && typeof window.vanhsub?.aiStudio?.evaluateScript === 'function') {
       void handleEvaluate();
     }
-  }, [lines.length]);
+  }, [lines.length, isRunning]);
 
   // Calculate statistics (word count & estimated duration)
   const stats = useMemo(() => {
@@ -239,7 +239,7 @@ export default function ScriptWorkspaceView({
 
   // Trigger AI evaluation
   const handleEvaluate = async () => {
-    if (isEvaluating || lines.length === 0 || !window.vanhsub?.aiStudio?.evaluateScript) return;
+    if (isRunning || isEvaluating || lines.length === 0 || !window.vanhsub?.aiStudio?.evaluateScript) return;
     setIsEvaluating(true);
     try {
       const result = await window.vanhsub.aiStudio.evaluateScript({
@@ -261,7 +261,7 @@ export default function ScriptWorkspaceView({
 
   // Trigger AI improvement (Cải thiện điểm)
   const handleImproveScore = async () => {
-    if (isRefining || lines.length === 0 || !window.vanhsub?.aiStudio?.refineScript) return;
+    if (isRunning || isRefining || lines.length === 0 || !window.vanhsub?.aiStudio?.refineScript) return;
     setIsRefining(true);
     // Push current version to history
     setHistory((prev) => [{ lines: [...lines], evaluation }, ...prev]);
@@ -294,7 +294,7 @@ export default function ScriptWorkspaceView({
 
   // Submit custom refinement prompt (Yêu cầu của tôi)
   const handleCustomPromptSubmit = async () => {
-    if (!customPromptText.trim() || !window.vanhsub?.aiStudio?.refineScript) return;
+    if (isRunning || !customPromptText.trim() || !window.vanhsub?.aiStudio?.refineScript) return;
     setCustomPromptModalOpen(false);
     setIsRefining(true);
     setHistory((prev) => [{ lines: [...lines], evaluation }, ...prev]);
@@ -329,7 +329,7 @@ export default function ScriptWorkspaceView({
 
   // Undo last edit
   const handleUndo = () => {
-    if (history.length === 0) return;
+    if (isRunning || history.length === 0) return;
     const [previous, ...rest] = history;
     setLines(previous.lines);
     setEvaluation(previous.evaluation);
@@ -346,6 +346,7 @@ export default function ScriptWorkspaceView({
 
   // Start editing a specific line
   const handleStartEditLine = (index: number) => {
+    if (isRunning) return;
     setEditingLineIndex(index);
     const line = lines[index];
     setEditingText(line?.text || '');
@@ -358,6 +359,7 @@ export default function ScriptWorkspaceView({
 
   // Save inline edited line
   const handleSaveInlineEdit = async (index: number) => {
+    if (isRunning) return;
     if (lines[index]) {
       const updated: ExtendedScriptBeatLine[] = lines.map((line, idx) =>
         idx === index
@@ -521,7 +523,7 @@ export default function ScriptWorkspaceView({
               <button
                 type="button"
                 onClick={handleEvaluate}
-                disabled={isEvaluating}
+                disabled={isRunning || isEvaluating}
                 className="flex items-center gap-1 rounded-lg border border-border bg-[#0F1626] px-2.5 py-1 text-[11px] text-text hover:text-white transition cursor-pointer"
                 title="Chấm lại điểm bằng AI"
               >
@@ -533,6 +535,7 @@ export default function ScriptWorkspaceView({
                 <button
                   type="button"
                   onClick={handleUndo}
+                  disabled={isRunning}
                   className="flex items-center gap-1 rounded-lg border border-border bg-[#0F1626] px-2.5 py-1 text-[11px] text-text hover:text-white transition cursor-pointer"
                 >
                   <RotateCcw className="h-3 w-3" />
@@ -593,7 +596,7 @@ export default function ScriptWorkspaceView({
             <button
               type="button"
               onClick={handleImproveScore}
-              disabled={isRefining}
+              disabled={isRunning || isRefining}
               className="inline-flex items-center gap-1.5 rounded-md bg-teal-600/90 hover:bg-teal-500 px-3.5 py-1.5 text-xs font-bold text-white shadow transition active:scale-95 disabled:opacity-50 cursor-pointer"
             >
               {isRefining ? (
@@ -612,7 +615,7 @@ export default function ScriptWorkspaceView({
             <button
               type="button"
               onClick={() => setCustomPromptModalOpen(true)}
-              disabled={isRefining}
+              disabled={isRunning || isRefining}
               className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface hover:bg-surface-2 px-3.5 py-1.5 text-xs font-semibold text-text transition active:scale-95 disabled:opacity-50 cursor-pointer"
             >
               <span>Yêu cầu của tôi</span>
@@ -716,6 +719,7 @@ export default function ScriptWorkspaceView({
               <button
                 type="button"
                 onClick={() => handleStartEditLine(0)}
+                disabled={isRunning}
                 className="inline-flex items-center gap-1 rounded-lg border border-border bg-[#0F1626] px-2.5 py-1 text-[11px] text-text hover:text-white transition cursor-pointer"
               >
                 <Edit3 className="h-3 w-3" />
@@ -782,6 +786,7 @@ export default function ScriptWorkspaceView({
                         <button
                           type="button"
                           onClick={() => handleSaveInlineEdit(idx)}
+                          disabled={isRunning}
                           className="inline-flex items-center gap-1 rounded bg-accent hover:bg-cyan-400 px-3 py-1 text-[11px] font-bold text-slate-950 shadow"
                         >
                           <Check className="h-3 w-3" />
@@ -941,6 +946,7 @@ export default function ScriptWorkspaceView({
                       <button
                         type="button"
                         onClick={() => handleStartEditLine(idx)}
+                        disabled={isRunning}
                         className="opacity-70 group-hover:opacity-100 inline-flex items-center gap-1 rounded border border-border/80 bg-surface px-2 py-0.5 text-[10px] text-text-muted hover:text-white transition cursor-pointer"
                         title="Chỉnh sửa phân cảnh này"
                       >
@@ -1358,7 +1364,7 @@ export default function ScriptWorkspaceView({
               <button
                 type="button"
                 onClick={handleCustomPromptSubmit}
-                disabled={!customPromptText.trim()}
+                disabled={isRunning || !customPromptText.trim()}
                 className="inline-flex items-center gap-1.5 rounded-lg bg-accent hover:bg-cyan-400 px-4 py-1.5 text-xs font-bold text-slate-950 transition disabled:opacity-50"
               >
                 <Send className="h-3 w-3" />

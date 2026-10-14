@@ -448,6 +448,8 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
             if (loadedProjectIdRef.current !== currentProjId) return;
             if (persistedState) {
               setSession(persistedState);
+              setIsRunning(persistedState.jobActive === true);
+              if (persistedState.error) setErrorMessage(persistedState.error);
               if (persistedState.artifacts?.blueprint) {
                 setSelectedIdea(persistedState.artifacts.blueprint);
               }
@@ -503,14 +505,14 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
         }
         const stageMap = next.stages as Record<number, any>;
         if (stageMap[event.stage]) {
-          stageMap[event.stage].status = event.status;
+          stageMap[event.stage].status = event.status === 'awaiting_approval' ? 'success' : event.status;
         }
         if (event.status === 'awaiting_approval') {
           next.status = 'awaiting_approval';
           setIsRunning(false);
         } else if (event.status === 'error') {
-          next.status = 'failed';
-          setErrorMessage(event.error || 'Có lỗi xảy ra trong tiến trình');
+          next.status = event.sessionStatus === 'cancelled' ? 'cancelled' : 'failed';
+          setErrorMessage(event.sessionStatus === 'cancelled' ? null : (event.error || 'Có lỗi xảy ra trong tiến trình'));
           setErrorCode((event as any).errorCode || (event as any).code || null);
           setIsRunning(false);
           setCountdownSeconds(null);
@@ -526,7 +528,7 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
             setCountdownSeconds(null);
           }
         }
-        if (event.progress >= 100) {
+        if (event.progress >= 100 && event.status === 'success' && event.stage === 8) {
           next.status = 'completed';
           setIsRunning(false);
         }
@@ -590,49 +592,21 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
       setIsRunning(false);
       return;
     }
+    const sessionId = session.sessionId;
+    const projectId = loadedProjectIdRef.current;
     try {
       if (window.vanhsub?.aiStudio?.cancelPipeline) {
-        await window.vanhsub.aiStudio.cancelPipeline({ sessionId: session.sessionId });
+        await window.vanhsub.aiStudio.cancelPipeline({ sessionId });
       }
-    } catch (err: any) {
-      console.warn('Lỗi khi huỷ tiến trình đang chạy:', err);
-    } finally {
-      setIsRunning(false);
+      const stopped = await window.vanhsub.aiStudio.getPipelineState({ sessionId });
+      if (!stopped || loadedProjectIdRef.current !== projectId) return;
+      setIsRunning(stopped.jobActive === true);
       setIsApproving(false);
       setIsConfirmCancelOpen(false);
-      let sessionToSave: PipelineSessionState | null = null;
-      setSession((prev) => {
-        if (!prev) return null;
-        const updated: PipelineSessionState = {
-          ...prev,
-          status: 'cancelled',
-          stages: prev.stages
-            ? {
-                ...prev.stages,
-                [prev.currentStage]: {
-                  ...(prev.stages as any)[prev.currentStage],
-                  status: 'error',
-                  error: 'Tiến trình đã tạm dừng theo yêu cầu của bạn',
-                },
-              }
-            : prev.stages,
-          updatedAt: Date.now(),
-        };
-        sessionToSave = updated;
-        return updated;
-      });
-      if (sessionToSave) {
-        const toSave: PipelineSessionState = sessionToSave;
-        queueMicrotask(() => {
-          void saveActiveProjectData(
-            {
-              savedSession: toSave,
-              lastSessionId: toSave.sessionId,
-            },
-            loadedProjectIdRef.current || undefined
-          );
-        });
-      }
+      setSession((prev) => prev?.sessionId === sessionId ? stopped : prev);
+      void saveActiveProjectData({ savedSession: stopped, lastSessionId: sessionId }, projectId || undefined);
+    } catch (err: any) {
+      if (loadedProjectIdRef.current === projectId) setErrorMessage(`Không thể hủy tiến trình: ${err?.message || err}`);
     }
   };
 
@@ -667,7 +641,8 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
     setSession((prev) => (prev ? { ...prev, status: 'running' } : null));
 
     try {
-      const effectiveStage = fromStageOverride ?? session.currentStage;
+      const effectiveStage = fromStageOverride ?? (session.status === 'cancelled' && (session.stages as any)?.[session.currentStage]?.status === 'success'
+        ? session.currentStage + 1 : session.currentStage);
       if (window.vanhsub?.aiStudio?.resumePipeline) {
         await window.vanhsub.aiStudio.resumePipeline({
           sessionId: session.sessionId,

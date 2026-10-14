@@ -71,7 +71,8 @@ export function writeSessionCheckpoint(filePath: string, state: PipelineSessionS
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   const tempPath = `${filePath}.tmp.${crypto.randomUUID()}`;
   try {
-    fs.writeFileSync(tempPath, JSON.stringify(state, null, 2), 'utf8');
+    const { jobActive: _jobActive, ...checkpoint } = state;
+    fs.writeFileSync(tempPath, JSON.stringify(checkpoint, null, 2), 'utf8');
     fs.renameSync(tempPath, filePath);
   } finally {
     if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);

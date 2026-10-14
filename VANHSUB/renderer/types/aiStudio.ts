@@ -467,6 +467,7 @@ export interface PipelineProgressEvent {
   message?: string;
   error?: string;
   artifacts?: Record<string, unknown>;
+  sessionStatus?: PipelineSessionState['status'];
 }
 
 export interface IdeaBlueprint {
@@ -636,6 +637,7 @@ export interface PipelineSessionArtifacts {
 
 export interface PipelineSessionState {
   sessionId: string;
+  jobActive?: boolean;
   configSnapshot?: Pick<AiStudioConfig, 'llm' | 'voice' | 'flowEngine' | 'rendering' | 'subtitles' | 'channelProfile'>;
   ownerProjectId?: string;
   outputDir?: string;

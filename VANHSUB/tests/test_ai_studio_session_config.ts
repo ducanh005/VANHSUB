@@ -35,6 +35,7 @@ async function main() {
       topic: 'Topic A', blueprint: { topic: 'Topic A', narrativeAngle: 'Angle A', hookConcept: 'Hook A', aspectRatio: '9:16' },
       options: { llm: { provider: 'openai', apiKey: 'override-secret-A', model: 'model-A' }, voice: { provider: 'edge_tts', voiceId: 'vi-VN-NamMinhNeural', rate: '+20%' }, rendering: { resolution: '720p', fps: 60 }, subtitles: { fontSize: 36 } },
     }, () => {});
+    await new Promise((resolve) => setTimeout(resolve, 40));
     const session = (await engine.getState(started))!;
     const json = fs.readFileSync(path.join(session.workspaceDir!, 'session.json'), 'utf8');
     assert.ok(!json.includes('override-secret-A') && !json.includes('flow-secret-A'), 'No plaintext credentials in checkpoints');
@@ -112,6 +113,7 @@ async function main() {
     await engine.resume({ sessionId: session.sessionId, fromStage: 5, storyboardOptions: { granularity: 'detailed', shotMode: 'single' } }, () => {});
     assert.equal((await engine.getSessionConfig(session.sessionId)).flowEngine.granularity, 'detailed');
     assert.equal(getDecryptedAiStudioConfig().flowEngine.granularity, 'fast', 'Episode overrides must not change another channel');
+    await new Promise((resolve) => setTimeout(resolve, 40));
     await assert.rejects(() => engine.resume({ sessionId: session.sessionId, fromStage: 3, storyboardOptions: { granularity: 'fast' } }, () => {}), /Bước 5/);
     await assert.rejects(() => engine.resume({ sessionId: session.sessionId, fromStage: 5, storyboardOptions: { granularity: 'invalid' as any } }, () => {}), /không hợp lệ/);
     await new Promise((resolve) => setTimeout(resolve, 40));

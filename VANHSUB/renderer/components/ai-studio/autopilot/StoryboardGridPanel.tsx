@@ -396,6 +396,7 @@ export const StoryboardGridPanel: React.FC<StoryboardGridPanelProps> = ({
                 onToggleSelect={() => onToggleSelectShot(targetSceneId)}
                 isRegenerating={regeneratingSceneId === targetSceneId}
                 isImporting={importingSceneId === targetSceneId}
+                isSessionBusy={isRunning || Boolean(regeneratingSceneId || importingSceneId)}
                 onRegenerate={(mode) => onRegenerateScene(scene, mode)}
                 onImportMedia={(type) => onImportManualMedia(scene, type)}
                 onPreview={onPreviewMedia}

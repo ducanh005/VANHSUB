@@ -55,3 +55,15 @@ Commit đợt 3: `1c9c422` (đã push main).
 - Legacy có owner xác minh được sẽ chụp profile owner cùng cấu hình chung hiện tại vào lần sử dụng đầu. Không thể phục hồi cấu hình chung lịch sử đã bị thay đổi; session không xác định được owner khi đang có project active được chặn, thay vì lấy cấu hình kênh khác.
 - `tests/test_ai_studio_session_config.ts`: pass trên store/checkpoint thật; các provider giả lập. Kiểm tra options, credential không có plaintext trong checkpoint, A→B/restart, đường gọi script/voice/render/regeneration và override storyboard. Không coi đây là nghiệm thu provider live.
 - Regression cách ly session và TypeScript main/renderer được kiểm tra. Chưa xử lý AS-03 (khóa job), AS-04 (revision/invalidation) hoặc nội dung AI/refiner ở đợt này.
+
+Commit đợt 4: `f642fb2` (đã push main).
+
+## Đợt 5 — Khóa tác vụ và kiểm soát chuyển bước (AS-03)
+
+- Reservation đồng bộ theo session bảo vệ approve/resume, render/regenerate/import và IPC sửa/chấm kịch bản. Tác vụ của session khác vẫn chạy độc lập.
+- Approve phải khớp bước hiện tại, bước đã success và session đang awaiting_approval. Từ chối stage ngoài 1–8 trước khi xóa/reset artifacts. Hai lệnh duyệt đồng thời chỉ có một lệnh được chấp nhận.
+- Cancel abort/kill process nhưng giữ khóa tới khi promise thật kết thúc. Chặn nhận kết quả script/TTS/metadata muộn sau cancel, và kiểm tra signal trước lưu media/render.
+- Cancel ở cổng duyệt giữ success của bước đã hoàn tất; resume mặc định sang bước kế tiếp. Shared error handler luôn nhả khóa và vẫn gửi lỗi khi không lưu được failure checkpoint.
+- Lookup phân biệt job đang chạy thật với checkpoint running đã gián đoạn. `jobActive` là dữ liệu runtime, không lưu xuống checkpoint. UI khôi phục trạng thái chạy và lấy kết quả hủy từ backend, không tự giả lập thành công khi hủy lỗi.
+- `tests/test_ai_studio_session_operations.ts`: pass; kiểm chứng duyệt sai bước, payload không làm đổi dữ liệu khi bị từ chối, duyệt trùng, khóa mutator, provider bỏ qua abort, cancel tại gate, kết quả muộn và phục hồi job gián đoạn.
+- Snapshot/cách ly regression và TypeScript được kiểm tra. Provider live và UI Electron trực quan vẫn chưa được nghiệm thu.

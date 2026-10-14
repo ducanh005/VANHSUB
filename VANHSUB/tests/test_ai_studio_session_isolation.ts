@@ -25,6 +25,7 @@ async function main() {
     (engine as any).runPipelineLoop = async () => {};
     const first = await engine.start({ topic: 'Episode one', outputDir: out }, () => {});
     const second = await engine.start({ topic: 'Episode two', outputDir: out }, () => {});
+    await new Promise((resolve) => setTimeout(resolve, 40));
     const a = (await engine.getState(first))!;
     const b = (await engine.getState(second))!;
     assert.notEqual(a.workspaceDir, b.workspaceDir);

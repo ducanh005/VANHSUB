@@ -24,6 +24,7 @@ export interface StoryboardSceneCardProps {
   onToggleSelect?: () => void;
   isRegenerating?: boolean;
   isImporting?: boolean;
+  isSessionBusy?: boolean;
   onRegenerate?: (mode: 'image' | 'video' | 'both') => void;
   onImportMedia?: (type: 'image' | 'video') => void;
   onPreview?: (media: {
@@ -45,6 +46,7 @@ export const StoryboardSceneCard: React.FC<StoryboardSceneCardProps> = ({
   onToggleSelect = () => {},
   isRegenerating = false,
   isImporting = false,
+  isSessionBusy = false,
   onRegenerate = () => {},
   onImportMedia = () => {},
   onPreview = () => {},
@@ -54,6 +56,7 @@ export const StoryboardSceneCard: React.FC<StoryboardSceneCardProps> = ({
 
   const targetSceneId = scene.shotId || scene.id;
   const isSceneBusy = isRegenerating || isImporting;
+  const disableActions = isSceneBusy || isSessionBusy;
 
   const hasVideo =
     !!scene.videoPath ||
@@ -360,7 +363,7 @@ export const StoryboardSceneCard: React.FC<StoryboardSceneCardProps> = ({
           <button
             type="button"
             onClick={() => onRegenerate('image')}
-            disabled={isSceneBusy}
+            disabled={disableActions}
             className="rounded-lg border border-cyan-800/60 bg-surface-2 hover:bg-cyan-900/70 px-2.5 py-1 text-[11px] font-semibold text-accent hover:text-cyan-100 transition cursor-pointer flex items-center gap-1 disabled:opacity-50"
             title="Sinh lại ảnh AI mới từ visual prompt của phân cảnh này qua Flow"
           >
@@ -371,7 +374,7 @@ export const StoryboardSceneCard: React.FC<StoryboardSceneCardProps> = ({
           <button
             type="button"
             onClick={() => onRegenerate('video')}
-            disabled={isSceneBusy}
+            disabled={disableActions}
             className="rounded-lg border border-emerald-800/60 bg-emerald-950/40 hover:bg-emerald-900/70 px-2.5 py-1 text-[11px] font-semibold text-emerald-300 hover:text-emerald-100 transition cursor-pointer flex items-center gap-1 disabled:opacity-50"
             title="Sinh lại video Veo từ ảnh hiện tại của phân cảnh này qua Flow"
           >
@@ -388,7 +391,7 @@ export const StoryboardSceneCard: React.FC<StoryboardSceneCardProps> = ({
           <button
             type="button"
             onClick={() => onImportMedia('image')}
-            disabled={isSceneBusy}
+            disabled={disableActions}
             className="rounded-lg border border-border bg-surface hover:bg-surface-2 px-2.5 py-1 text-[11px] font-medium text-text hover:text-white transition cursor-pointer flex items-center gap-1 disabled:opacity-50"
             title="Chọn tệp ảnh từ máy tính (PNG, JPG, WEBP) để gán cho phân cảnh này"
           >
@@ -399,7 +402,7 @@ export const StoryboardSceneCard: React.FC<StoryboardSceneCardProps> = ({
           <button
             type="button"
             onClick={() => onImportMedia('video')}
-            disabled={isSceneBusy}
+            disabled={disableActions}
             className="rounded-lg border border-border bg-surface hover:bg-surface-2 px-2.5 py-1 text-[11px] font-medium text-text hover:text-white transition cursor-pointer flex items-center gap-1 disabled:opacity-50"
             title="Chọn tệp video từ máy tính (MP4, WEBM, MOV) để gán cho phân cảnh này"
           >
