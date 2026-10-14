@@ -30,6 +30,7 @@ import { SubtitlesStyleEditor } from './export/SubtitlesStyleEditor';
 import { OverlayMaskEditor } from './export/OverlayMaskEditor';
 import { VideoPreviewCanvas } from './export/VideoPreviewCanvas';
 import { ExportFormatPanel } from './export/ExportFormatPanel';
+import { useDubbingPreferences } from '../lib/useDubbingPreferences';
 
 type Props = {
   tasks: Task[];
@@ -154,10 +155,6 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
   const [isError, setIsError] = useState(false);
 
   // Tùy chọn chế độ Lồng tiếng
-  const [replaceAudio, setReplaceAudio] = useState(true);
-  const [syncMode, setSyncMode] = useState<'strict' | 'flexible' | 'video-stretch'>('strict');
-  const [mixOriginalAudio, setMixOriginalAudio] = useState(false);
-  const [vocalSeparation, setVocalSeparation] = useState(false);
   const [startingDub, setStartingDub] = useState(false);
 
   // Style phụ đề hardsub
@@ -286,6 +283,8 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
   const [hardsubTab, setHardsubTab] = useState<'global' | 'lines' | 'layers' | 'format'>('global');
 
   const selectedTask = tasks.find((t) => t.id === selectedTaskId) || null;
+  const { replaceAudio, setReplaceAudio, syncMode, setSyncMode, mixOriginalAudio, setMixOriginalAudio,
+    vocalSeparation, setVocalSeparation } = useDubbingPreferences(selectedTask);
   const isExporting = selectedTask?.status === 'exporting';
   const isTaskBusy = ['transcribing', 'ocr', 'translating', 'dubbing', 'exporting'].includes(selectedTask?.status || '');
   const outputPath = selectedTask?.outputPath;

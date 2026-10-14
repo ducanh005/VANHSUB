@@ -22,6 +22,7 @@ import { SPEED_OPTIONS, speedLabel } from '../lib/ttsOptions';
 import { fullPreviewPlayer, type FullPreviewState } from '../lib/fullPreviewPlayer';
 import { parseSrt, type SrtLine } from '../lib/srt';
 import { resolveTtsEngine } from '../../main/lib/ttsConfig';
+import { useDubbingPreferences } from '../lib/useDubbingPreferences';
 
 type Props = {
   tasks: Task[];
@@ -71,11 +72,7 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
   const [message, setMessage] = useState('');
   const [isError, setIsError] = useState(false);
   const [previewing, setPreviewing] = useState(false);
-  const [replaceAudio, setReplaceAudio] = useState(true);
-  const [syncMode, setSyncMode] = useState<'strict' | 'flexible' | 'video-stretch'>('strict');
-  const [mixOriginalAudio, setMixOriginalAudio] = useState(false);
   // AI tách lời thoại gốc (demucs): giữ nhạc nền, loại giọng người gốc — thay mix 0.22
-  const [vocalSeparation, setVocalSeparation] = useState(false);
   const [startingDubbing, setStartingDubbing] = useState(false);
   const previewAudioRef = useRef<HTMLAudioElement | null>(null);
 
@@ -148,6 +145,8 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
   const stopFullPreview = () => fullPreviewPlayer.stop();
 
   const selectedTask = tasks.find((t) => t.id === selectedTaskId) || null;
+  const { replaceAudio, setReplaceAudio, syncMode, setSyncMode, mixOriginalAudio, setMixOriginalAudio,
+    vocalSeparation, setVocalSeparation } = useDubbingPreferences(selectedTask);
   const isTtsRunning = selectedTask?.status === 'dubbing';
   const isDubbingRunning = selectedTask?.status === 'exporting';
   const hasSrtFile = !!selectedTask?.srtPath;

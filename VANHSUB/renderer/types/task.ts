@@ -23,6 +23,7 @@ export interface Task {
   translatedSrtPath?: string;
   subtitleRevision?: number;
   ttsNeedsRegeneration?: boolean;
+  dubbingPreferences?: import('../../main/lib/dubbingPreferences').DubbingPreferences;
   audioPath?: string;
   outputPath?: string;
   dubbedVideoPath?: string;

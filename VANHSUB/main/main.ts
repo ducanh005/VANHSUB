@@ -9,6 +9,7 @@ import { createWindow } from './helpers/create-window'
 import { TaskStore, type CreateTaskInput, type Task } from './store/taskStore'
 import { saveTaskSubtitle, importTaskSubtitle } from './lib/subtitleArtifacts'
 import { assertTaskAvailable, reserveTaskOperation, isTaskOperationActive } from './lib/taskOperations'
+import { normalizeDubbingPreferences } from './lib/dubbingPreferences'
 import { SettingsStore, type AppSettings } from './store/settingsStore'
 import { polishSubtitleLine, translateSubtitleLine, cleanAndDeduplicateSubtitles } from './ai/geminiClient'
 import { normalizeSrtLines, normalizeSrt } from './lib/srtNormalizer'
@@ -486,7 +487,8 @@ async function executePipeline(id: string): Promise<void> {
     // 4. Ghép audio vào video
     current = TaskStore.getById(id)!
     if (current.srtPath && current.ttsAudioDir) {
-      await DubbingRunner.runDubbing(id, true, onUpdate)
+      const preferences = normalizeDubbingPreferences(current.dubbingPreferences)
+      await DubbingRunner.runDubbing(id, preferences.replaceAudio, onUpdate, preferences)
     }
     console.log(`[Pipeline] Hoàn tất quy trình cho task ${id}`)
   } catch (err) {
@@ -496,8 +498,12 @@ async function executePipeline(id: string): Promise<void> {
 }
 
 ipcMain.handle('tasks:runPipeline', async (_event, id: string, opts?: { replaceAudio?: boolean }) => {
-  void opts; // replaceAudio mặc định true khi chạy pipeline
   const enqueued = enqueuePipeline(id)
+  if (enqueued && opts?.replaceAudio !== undefined) {
+    const task = TaskStore.getById(id)!
+    TaskStore.update(id, { dubbingPreferences: normalizeDubbingPreferences({ ...task.dubbingPreferences,
+      replaceAudio: opts.replaceAudio }) })
+  }
   if (enqueued) drainPipelines()
   return enqueued
 })

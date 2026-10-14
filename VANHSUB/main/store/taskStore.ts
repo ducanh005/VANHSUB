@@ -4,6 +4,7 @@ import Store from 'electron-store';
 import { v4 as uuidv4 } from 'uuid';
 import { SettingsStore } from './settingsStore';
 import { engineForVoice } from '../lib/ttsConfig';
+import type { DubbingPreferences } from '../lib/dubbingPreferences';
 
 export type TaskStatus =
   | 'queued'
@@ -42,6 +43,7 @@ export interface Task {
   translatedSrtPath?: string;
   subtitleRevision?: number;
   ttsNeedsRegeneration?: boolean;
+  dubbingPreferences?: DubbingPreferences;
   audioPath?: string;
   outputPath?: string;
   /** Last successful dub, kept separately from subsequent subtitle exports. */
@@ -150,6 +152,7 @@ export const TaskStore = {
       translatedSrtPath: input.translatedSrtPath,
       subtitleRevision: input.subtitleRevision,
       ttsNeedsRegeneration: input.ttsNeedsRegeneration,
+      dubbingPreferences: input.dubbingPreferences,
       audioPath: input.audioPath,
       outputPath: input.outputPath,
       dubbedVideoPath: input.dubbedVideoPath,
