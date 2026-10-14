@@ -95,6 +95,7 @@ export class DubbingRunner {
     );
 
     try {
+      if (task.ttsNeedsRegeneration) throw new Error('Phụ đề đã thay đổi. Hãy tạo lại audio trước khi ghép lồng tiếng.');
       if (this.cancelledTasks.has(taskId) || TaskStore.getById(taskId)?.status === 'cancelled') {
         if (TaskStore.getById(taskId)?.status !== 'cancelled') {
           TaskStore.update(taskId, {

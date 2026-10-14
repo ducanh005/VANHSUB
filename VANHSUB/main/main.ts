@@ -7,6 +7,7 @@ import si from 'systeminformation'
 
 import { createWindow } from './helpers/create-window'
 import { TaskStore, type CreateTaskInput, type Task } from './store/taskStore'
+import { saveTaskSubtitle, importTaskSubtitle } from './lib/subtitleArtifacts'
 import { SettingsStore, type AppSettings } from './store/settingsStore'
 import { polishSubtitleLine, translateSubtitleLine, cleanAndDeduplicateSubtitles } from './ai/geminiClient'
 import { normalizeSrtLines, normalizeSrt } from './lib/srtNormalizer'
@@ -445,7 +446,7 @@ async function executePipeline(id: string): Promise<void> {
 
     // 3. Tạo giọng đọc (bỏ qua nếu đã có audio TTS)
     current = TaskStore.getById(id)!
-    if (current.srtPath && !current.ttsAudioDir) {
+    if (current.srtPath && (!current.ttsAudioDir || current.ttsNeedsRegeneration)) {
       current = (await TTSRunner.runTTS(id, undefined, undefined, onUpdate))!
       if (stop(current, 'tạo lồng tiếng')) return
     }
@@ -563,7 +564,7 @@ ipcMain.handle('tasks:readSrt', async (_event, srtPath: string) => {
 })
 
 ipcMain.handle('tasks:writeSrt', async (_event, srtPath: string, content: string) => {
-  fs.writeFileSync(srtPath, content, 'utf-8')
+  saveTaskSubtitle(srtPath, content)
   broadcastTasksUpdate()
   return true
 })
@@ -571,31 +572,7 @@ ipcMain.handle('tasks:writeSrt', async (_event, srtPath: string, content: string
 // Nhập file SRT có sẵn cho task (video đã có phụ đề, bỏ qua bước phiên âm):
 // copy vào thư mục video để hiệu đính không đụng vào file gốc của người dùng
 ipcMain.handle('tasks:importSrt', async (_event, id: string, sourceSrtPath: string) => {
-  const task = TaskStore.getById(id)
-  if (!task) throw new Error(`Không tìm thấy tác vụ ID: ${id}`)
-  if (!fs.existsSync(sourceSrtPath)) {
-    throw new Error(`File SRT không tồn tại: ${sourceSrtPath}`)
-  }
-  if (path.extname(sourceSrtPath).toLowerCase() !== '.srt') {
-    throw new Error('Chỉ hỗ trợ file .srt')
-  }
-
-  const videoDir = path.dirname(task.filePath)
-  const base = path.basename(task.fileName, path.extname(task.fileName))
-
-  // Không ghi đè file đã tồn tại — thêm _1, _2...
-  let target = path.join(videoDir, `${base}.srt`)
-  let n = 1
-  while (fs.existsSync(target)) {
-    target = path.join(videoDir, `${base}_${n++}.srt`)
-  }
-
-  fs.copyFileSync(sourceSrtPath, target)
-
-  const updated = TaskStore.update(id, {
-    srtPath: target,
-    stageDescription: 'Đã nhập phụ đề có sẵn — có thể dịch hoặc hiệu đính ngay',
-  })
+  const updated = importTaskSubtitle(id, sourceSrtPath)
   broadcastTasksUpdate()
   return updated
 })

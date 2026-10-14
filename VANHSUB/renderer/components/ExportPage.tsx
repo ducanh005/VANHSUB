@@ -288,7 +288,7 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
   const selectedTask = tasks.find((t) => t.id === selectedTaskId) || null;
   const isExporting = selectedTask?.status === 'exporting';
   const outputPath = selectedTask?.outputPath;
-  const hasTtsAudio = !!selectedTask?.ttsAudioDir;
+  const hasTtsAudio = !!selectedTask?.ttsAudioDir && !selectedTask?.ttsNeedsRegeneration;
   const hasBothSrt = !!(selectedTask?.srtPath && selectedTask?.translatedSrtPath);
   const sourceVideoPath = videoSource === 'original'
     ? selectedTask?.filePath
@@ -299,6 +299,10 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
     ? selectedTask.dubbedVideoStretchFactor ?? 1 : 1;
 
   useEffect(() => { setVideoSource('auto'); }, [selectedTaskId]);
+  useEffect(() => {
+    setPerLineStyles({});
+    setSelectedLineIdx(null);
+  }, [selectedTaskId, selectedTask?.subtitleRevision]);
 
   // Tải danh sách phụ đề mỗi khi chọn task
   useEffect(() => {
@@ -349,7 +353,7 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
     return () => {
       canceled = true;
     };
-  }, [selectedTaskId, selectedTask?.translatedSrtPath, selectedTask?.srtPath, subtitleTimeScale]);
+  }, [selectedTaskId, selectedTask?.translatedSrtPath, selectedTask?.srtPath, selectedTask?.subtitleRevision, subtitleTimeScale]);
 
   const handleUpdateLineStyle = (lineIndex: number, lineStyle: PerLineSubtitleStyle | null) => {
     setPerLineStyles((prev) => {
@@ -585,6 +589,9 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
                 </select>
               </label>
               <p className="mt-2 break-all text-text-muted">Đang dùng: {sourceVideoPath || 'Chưa có video đã lồng tiếng — hãy ghép lại hoặc chọn Video gốc.'}</p>
+              {selectedTask.ttsNeedsRegeneration && (
+                <p className="mt-2 text-amber-400">Phụ đề đã thay đổi. Hãy tạo lại audio rồi ghép lồng tiếng để xuất kèm giọng TTS mới.</p>
+              )}
               {hasTtsAudio && !selectedTask.dubbedVideoPath && (
                 <p className="mt-2 text-amber-400">Để xuất kèm giọng TTS, hãy ghép lồng tiếng vào video trước.</p>
               )}

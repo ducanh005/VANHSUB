@@ -40,6 +40,8 @@ export interface Task {
   speakers?: string[];
   srtPath?: string;
   translatedSrtPath?: string;
+  subtitleRevision?: number;
+  ttsNeedsRegeneration?: boolean;
   audioPath?: string;
   outputPath?: string;
   /** Last successful dub, kept separately from subsequent subtitle exports. */
@@ -146,6 +148,8 @@ export const TaskStore = {
       speakerCount: input.speakerCount,
       srtPath: input.srtPath,
       translatedSrtPath: input.translatedSrtPath,
+      subtitleRevision: input.subtitleRevision,
+      ttsNeedsRegeneration: input.ttsNeedsRegeneration,
       audioPath: input.audioPath,
       outputPath: input.outputPath,
       dubbedVideoPath: input.dubbedVideoPath,

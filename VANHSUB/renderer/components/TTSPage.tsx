@@ -151,7 +151,7 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
   const isTtsRunning = selectedTask?.status === 'dubbing';
   const isDubbingRunning = selectedTask?.status === 'exporting';
   const hasSrtFile = !!selectedTask?.srtPath;
-  const hasTtsAudio = !!selectedTask?.ttsAudioDir && !isTtsRunning;
+  const hasTtsAudio = !!selectedTask?.ttsAudioDir && !isTtsRunning && !selectedTask?.ttsNeedsRegeneration;
   const dubbedOutput = selectedTask?.dubbedVideoPath || selectedTask?.outputPath;
   const customVoiceCount = Object.keys(voiceOverrides).length;
 
@@ -171,7 +171,7 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
     setLinePreviewing(null);
     setRegeneratingLine(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedTaskId]);
+  }, [selectedTaskId, selectedTask?.subtitleRevision]);
 
   useEffect(() => {
     if (!isActive || typeof window === 'undefined' || !window.vanhsub?.settings) return;
@@ -769,6 +769,12 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
           </button>
         </div>
       </div>
+
+      {selectedTask?.ttsNeedsRegeneration && (
+        <p className="rounded-lg border border-amber-500/30 p-3 text-xs text-amber-400">
+          Phụ đề hoặc audio đã thay đổi. Hãy tạo lại audio trước khi ghép lồng tiếng hoặc xuất MP3.
+        </p>
+      )}
 
       {/* Bảng gán giọng theo từng dòng phụ đề */}
       {showVoicePanel && selectedTaskId && (

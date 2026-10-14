@@ -68,7 +68,7 @@ export class TTSRunner {
       const engineForLine: TTSEngine = this.resolveEngine(task, engine, voiceToUse);
 
       TaskStore.update(taskId, { status: 'dubbing', progress: 0, dubbedVideoPath: undefined,
-        ttsMergedAudioPath: undefined, ttsVoice: voiceToUse, ttsSpeed: speed ?? task.ttsSpeed,
+        ttsMergedAudioPath: undefined, ttsNeedsRegeneration: true, ttsVoice: voiceToUse, ttsSpeed: speed ?? task.ttsSpeed,
         ttsEngine: engineForLine, ttsVoiceOverrides: overrides,
         stageDescription: `Đang tạo lại nhóm câu chứa dòng ${lineIndex}...`, errorMessage: undefined });
       onUpdate?.();
@@ -83,9 +83,9 @@ export class TTSRunner {
         () => this.cancelledTasks.has(taskId)
       );
       if (this.cancelledTasks.has(taskId)) throw new Error('Đã huỷ tạo lại audio');
-      const merged = await this.exportMergedAudio(taskId);
+      const merged = await this.exportMergedAudio(taskId, undefined, 'strict', true);
       if (!merged.ok) throw new Error(merged.error);
-      TaskStore.update(taskId, { status: 'done', progress: 100,
+      TaskStore.update(taskId, { status: 'done', progress: 100, ttsNeedsRegeneration: false,
         stageDescription: `Đã tạo lại nhóm câu chứa dòng ${lineIndex} và cập nhật MP3 tổng hợp` });
       return { ok: true };
     } catch (err: any) {
@@ -107,10 +107,14 @@ export class TTSRunner {
   static async exportMergedAudio(
     taskId: string,
     targetPath?: string,
-    mode: 'strict' | 'flexible' = 'flexible'
+    mode: 'strict' | 'flexible' = 'flexible',
+    regenerated: boolean = false
   ): Promise<{ ok: boolean; audioPath?: string; error?: string }> {
     const task = TaskStore.getById(taskId);
     if (!task) return { ok: false, error: 'Không tìm thấy tác vụ.' };
+    if (task.ttsNeedsRegeneration && !regenerated) {
+      return { ok: false, error: 'Phụ đề đã thay đổi. Hãy tạo lại audio trước khi xuất MP3.' };
+    }
     const srtPath = task.translatedSrtPath || task.srtPath;
     if (!srtPath || !fs.existsSync(srtPath)) {
       return { ok: false, error: 'Không tìm thấy file phụ đề SRT của tác vụ.' };
@@ -180,6 +184,8 @@ export class TTSRunner {
       TaskStore.update(taskId, {
         status: 'dubbing',
         dubbedVideoPath: undefined,
+        ttsNeedsRegeneration: true,
+        ttsMergedAudioPath: undefined,
         progress: 0,
         ttsVoice: voiceToUse,
         ttsSpeed: speedToUse,
@@ -246,6 +252,7 @@ export class TTSRunner {
         progress: 100,
         projectDir,
         ttsAudioDir, // Lưu thư mục audio để dùng cho bước dubbing tiếp theo
+        ttsNeedsRegeneration: false,
         ...(finalMergedPath ? { ttsMergedAudioPath: finalMergedPath } : {}),
         stageDescription: finalMergedPath
           ? 'Đã hoàn tất tạo lồng tiếng và xuất file MP3 tổng hợp dự án'

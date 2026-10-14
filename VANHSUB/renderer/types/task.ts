@@ -21,6 +21,8 @@ export interface Task {
   speakers?: string[];
   srtPath?: string;
   translatedSrtPath?: string;
+  subtitleRevision?: number;
+  ttsNeedsRegeneration?: boolean;
   audioPath?: string;
   outputPath?: string;
   dubbedVideoPath?: string;
