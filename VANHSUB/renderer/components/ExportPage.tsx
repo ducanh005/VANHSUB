@@ -1459,7 +1459,6 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
                       className="rounded-md border border-border bg-surface-2 px-3 py-1.5 text-xs text-text focus:outline-none"
                     >
                       <option value="strict">Strict — nén theo timeline SRT</option>
-                      <option value="flexible">Flexible — tràn vào khoảng lặng (tối đa 3s)</option>
                       <option value="video-stretch">Video-stretch — giãn video tối đa 1.25x</option>
                     </select>
                   </div>

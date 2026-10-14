@@ -12,7 +12,6 @@ import { configuredMaxTempo } from './ttsTiming';
 export class TTSRunner {
   private static runningTasks = new Set<string>();
   private static cancelledTasks = new Set<string>();
-  private static regeneratingLines = new Set<string>();
 
   static isRunning(taskId: string): boolean {
     return this.runningTasks.has(taskId);
@@ -49,11 +48,9 @@ export class TTSRunner {
       return { ok: false, error: 'Tác vụ chưa tạo audio lồng tiếng — hãy chạy TTS trước.' };
     }
 
-    const key = `${taskId}:${lineIndex}`;
     if (this.runningTasks.has(taskId)) {
       return { ok: false, error: 'Tác vụ đang tạo audio. Hãy chờ hoàn tất.' };
     }
-    this.regeneratingLines.add(key);
     this.runningTasks.add(taskId);
     this.cancelledTasks.delete(taskId);
 
@@ -95,7 +92,6 @@ export class TTSRunner {
       console.error(`Lỗi khi tạo lại audio dòng ${lineIndex} task ${taskId}:`, err);
       return { ok: false, error: err?.message || 'Không thể tạo lại audio cho dòng này.' };
     } finally {
-      this.regeneratingLines.delete(key);
       this.runningTasks.delete(taskId);
       this.cancelledTasks.delete(taskId);
       onUpdate?.();
@@ -171,10 +167,7 @@ export class TTSRunner {
 
     const voiceToUse = voice || task.ttsVoice || SettingsStore.get('ttsVoice') || 'BV074_streaming';
     const speedToUse = speed || task.ttsSpeed || SettingsStore.get('ttsSpeed') || 1.0;
-    // Engine: tham số caller > engine đã lưu trên task > mặc định theo session —
-    // có session TikTok thì dùng TikTok; KHÔNG dùng ttsVoice làm dấu hiệu chọn
-    // engine (task cũ mang ttsVoice từ thời VietTTS khiến TikTok bị bỏ qua —
-    // đúng lỗi "chọn giọng TikTok mà log toàn ra VietTTS")
+    // Keep the selected voice/provider pair consistent for this run.
     const engineToUse = this.resolveEngine(task, engine, voiceToUse);
     console.log(`[TTS] Engine: ${engineToUse} · giọng: ${voiceToUse}`);
 

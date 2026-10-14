@@ -665,6 +665,7 @@ ipcMain.handle('settings:set', async (_event, key: keyof AppSettings, value: any
     throw new Error(`Setting key không hợp lệ: ${key}`)
   }
   SettingsStore.set(key, value)
+  mainWindow?.webContents.send('settings:changed', key)
   return true
 })
 

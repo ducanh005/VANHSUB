@@ -1234,7 +1234,6 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
                       className="w-full rounded-md border border-border bg-surface-2 px-3 py-2 text-xs text-white focus:outline-none disabled:opacity-50"
                     >
                       <option value="strict">Chặt — nén audio theo timeline phụ đề (mặc định)</option>
-                      <option value="flexible">Linh hoạt — cho câu dài tràn vào khoảng lặng (tối đa ~3s)</option>
                       <option value="video-stretch">Kéo giãn video — giãn video tối đa 1.25x để vừa audio</option>
                     </select>
                   </div>

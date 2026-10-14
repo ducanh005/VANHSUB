@@ -178,7 +178,7 @@ export const ExportFormatPanel: React.FC<ExportFormatPanelProps> = ({
             </span>
           </div>
           <span className="rounded bg-accent-tint px-2 py-0.5 text-[10px] font-mono text-accent border border-accent/40">
-            Chống quét bản quyền & Tăng tốc
+            Lật gương &amp; chỉnh tốc độ
           </span>
         </div>
 

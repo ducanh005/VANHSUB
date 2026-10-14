@@ -210,6 +210,7 @@ export interface VanhsubAPI {
   settings: {
     get: (key: SettingKey) => Promise<any>;
     set: (key: SettingKey, value: unknown) => Promise<boolean>;
+    onChange: (callback: (key: SettingKey) => void) => () => void;
   };
   ai: {
     polishLine: (payload: { text: string; prev?: string; next?: string }) => Promise<string>;

@@ -30,6 +30,11 @@ const vanhsub = {
   settings: {
     get: (key: string) => ipcRenderer.invoke('settings:get', key),
     set: (key: string, value: any) => ipcRenderer.invoke('settings:set', key, value),
+    onChange: (callback: (key: string) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, key: string) => callback(key);
+      ipcRenderer.on('settings:changed', listener);
+      return () => { ipcRenderer.removeListener('settings:changed', listener); };
+    },
   },
   ai: {
     polishLine: (payload: { text: string; prev?: string; next?: string }) =>

@@ -276,6 +276,25 @@ export default function SettingsPage() {
     loadTempStats();
   }, []);
 
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.vanhsub?.settings?.onChange) return;
+    let mounted = true;
+    const setters: Record<string, (value: any) => void> = {
+      geminiApiKey: setApiKey, geminiModel: setGeminiModel, targetLanguage: setTargetLanguage,
+      asrModel: setAsrModel, exportDir: setExportDir, translateBatchSize: setTranslateBatchSize,
+      translateConcurrency: setTranslateConcurrency, autoTranslateAfterAsr: setAutoTranslateAfterAsr,
+      ttsVoice: setTtsVoice, ttsSpeed: setTtsSpeed, ocrLanguage: setOcrLanguage,
+      ocrFps: setOcrFps, ocrMode: setOcrMode, ocrDualEngine: setOcrDualEngine,
+      glossary: setGlossary, translationStyleGuide: setTranslationStyleGuide,
+    };
+    const unsubscribe = window.vanhsub.settings.onChange((key) => {
+      if (setters[key]) window.vanhsub.settings.get(key).then((value) => {
+        if (mounted) setters[key](value);
+      }).catch(() => {});
+    });
+    return () => { mounted = false; unsubscribe(); };
+  }, []);
+
   const loadModelsList = async () => {
     if (typeof window === 'undefined' || !window.vanhsub?.models) return;
     setLoadingModels(true);
