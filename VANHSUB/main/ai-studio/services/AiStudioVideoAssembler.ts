@@ -99,14 +99,14 @@ export class AiStudioVideoAssembler {
     aspectRatio: FlowAspectRatio = '16:9',
     resolution: RenderingResolution = '1080p'
   ): { width: number; height: number } {
-    const is720p = resolution === '720p';
+    const shortEdge = resolution === '720p' ? 720 : resolution === '4k' ? 2160 : 1080;
     if (aspectRatio === '9:16') {
-      return is720p ? { width: 720, height: 1280 } : { width: 1080, height: 1920 };
+      return { width: shortEdge, height: shortEdge * 16 / 9 };
     }
     if (aspectRatio === '1:1') {
-      return is720p ? { width: 720, height: 720 } : { width: 1080, height: 1080 };
+      return { width: shortEdge, height: shortEdge };
     }
-    return is720p ? { width: 1280, height: 720 } : { width: 1920, height: 1080 };
+    return { width: shortEdge * 16 / 9, height: shortEdge };
   }
 
   // ==========================================================================
@@ -119,9 +119,10 @@ export class AiStudioVideoAssembler {
   public static getKenBurnsProfiles(
     width: number,
     height: number,
-    durationSec: number
+    durationSec: number,
+    fps = 25
   ): KenBurnsMotionProfile[] {
-    const frames = Math.max(25, Math.round(durationSec * 25));
+    const frames = Math.max(1, Math.ceil(durationSec * fps));
     const preUpscaleW = Math.round(width * 1.5);
     const preUpscaleH = Math.round(height * 1.5);
     const scaleFilter = `scale=${preUpscaleW}:${preUpscaleH}:force_original_aspect_ratio=increase,crop=${preUpscaleW}:${preUpscaleH}`;
@@ -169,9 +170,10 @@ export class AiStudioVideoAssembler {
   public getKenBurnsProfiles(
     width: number,
     height: number,
-    durationSec: number
+    durationSec: number,
+    fps = 25
   ): KenBurnsMotionProfile[] {
-    return AiStudioVideoAssembler.getKenBurnsProfiles(width, height, durationSec);
+    return AiStudioVideoAssembler.getKenBurnsProfiles(width, height, durationSec, fps);
   }
 
   // ==========================================================================
@@ -341,6 +343,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
     fs.mkdirSync(path.dirname(outputPath), { recursive: true });
     const { width, height } = this.getDimensions(aspectRatio, renderingConfig.resolution);
+    const fps = renderingConfig.fps === 60 ? 60 : 30;
     const audioDurationSec = await this.probeDuration(voiceoverAudioPath);
     const totalDurationMs = Math.round(audioDurationSec * 1000);
 
@@ -427,15 +430,17 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     const concatInputs: string[] = [];
 
     segments.forEach((seg, i) => {
-      const safeScale = `scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height},setsar=1,fps=25`;
+      const safeScale = `scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height},setsar=1,fps=${fps}`;
       if (seg.isVideo) {
-        cmd.input(seg.path);
+        // Repeat a short clip to cover its scene instead of truncating the narration.
+        cmd.input(seg.path).inputOptions(['-stream_loop -1']);
         filterChain.push(`[${i}:v]${safeScale},trim=duration=${seg.durationSec},setpts=PTS-STARTPTS[v${i}]`);
       } else {
-        cmd.input(seg.path).inputOptions(['-loop 1', `-t ${seg.durationSec}`]);
+        cmd.input(seg.path);
         if (renderingConfig.kenBurnsEffect) {
-          const frames = Math.max(25, Math.round(seg.durationSec * 25));
-          const profiles = AiStudioVideoAssembler.getKenBurnsProfiles(width, height, seg.durationSec);
+          // One source frame expands into exactly one scene, not frames per looped input frame.
+          const frames = Math.max(1, Math.ceil(seg.durationSec * fps));
+          const profiles = AiStudioVideoAssembler.getKenBurnsProfiles(width, height, seg.durationSec, fps);
 
           // Select profile from scene/beat metadata or alternate modulo
           const requestedMotion =
@@ -464,10 +469,11 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
           // 1.5x pre-upscaling before zoompan eliminates pixel shimmer on Windows FFmpeg
           const preScale = `${profile.scaleFilter},setsar=1`;
-          const zoompan = `zoompan=${profile.zoomEquation}:${profile.panEquation}:d=${frames}:s=${width}x${height}:fps=25`;
-          filterChain.push(`[${i}:v]${preScale},${zoompan}[v${i}]`);
+          const zoompan = `zoompan=${profile.zoomEquation}:${profile.panEquation}:d=${frames}:s=${width}x${height}:fps=${fps}`;
+          filterChain.push(`[${i}:v]${preScale},${zoompan},trim=duration=${seg.durationSec},setpts=PTS-STARTPTS[v${i}]`);
         } else {
-          filterChain.push(`[${i}:v]${safeScale}[v${i}]`);
+          cmd.inputOptions(['-loop 1', `-framerate ${fps}`, `-t ${seg.durationSec}`]);
+          filterChain.push(`[${i}:v]${safeScale},trim=duration=${seg.durationSec},setpts=PTS-STARTPTS[v${i}]`);
         }
       }
       concatInputs.push(`[v${i}]`);
@@ -620,7 +626,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
           '-preset veryfast',
           '-c:a aac',
           '-b:a 128k',
-          '-shortest',
+          `-t ${audioDurationSec}`,
+          `-r ${fps}`,
         ])
         .output(outputPath)
         .on('progress', (p) => {
@@ -644,9 +651,13 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     }
 
     const stat = fs.statSync(outputPath);
+    const outputDurationSec = await this.probeDuration(outputPath);
+    if (Math.abs(outputDurationSec - audioDurationSec) > Math.max(0.15, 2 / fps)) {
+      throw new Error(`Video không bao phủ đúng giọng đọc: ${outputDurationSec.toFixed(2)}s / ${audioDurationSec.toFixed(2)}s.`);
+    }
     return {
       videoPath: outputPath,
-      durationSec: audioDurationSec,
+      durationSec: outputDurationSec,
       fileSizeBytes: stat.size,
       width,
       height,

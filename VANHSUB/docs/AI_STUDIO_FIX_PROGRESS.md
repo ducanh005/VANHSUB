@@ -18,3 +18,15 @@ Kiểm chứng:
 - Bộ `scripts/test_google_flow_rpc_visual_service.ts` chưa pass và dừng trước các case engine: mock video/regenerate rơi vào endpoint kế thừa và yêu cầu cookies; fallback kỳ vọng cũ; test file rỗng dùng `assert.throws` cho `validateMediaFile` async, tạo rejection không được xử lý. Các lỗi đầu ra nằm trong service/RPC/test chưa sửa ở đợt này. Không coi bộ này là bằng chứng regression đã pass.
 
 Giới hạn: chưa xác nhận provider live hay UI Electron. Chưa xử lý snapshot cấu hình, khóa job, invalidation, alignment hoặc render timeline; các mục này thuộc đợt sau. Legacy đã bị ghi đè vẫn không thể tự phục hồi.
+
+Commit đợt 1: `e27fd6a` (đã push main).
+
+## Đợt 2 — Giữ đủ lời đọc và áp dụng thông số dựng phim (AS-08, một phần AS-12)
+
+- Clip ngắn được loop để bao phủ đúng thời lượng cảnh; xuất video giới hạn theo thời lượng giọng thay vì cắt theo stream visual ngắn nhất.
+- Ken Burns nhận một frame nguồn rồi mở thành đúng số frame của cảnh, tránh nhân thời lượng khi ảnh input đang loop. Kiểm tra actual output duration trước báo dựng thành công.
+- FPS 30/60 được dùng cho input, zoompan, filter và output; 4K thật theo tỷ lệ ngang/dọc/vuông.
+- `tests/test_ai_studio_render_timeline.ts`: FFmpeg thật, pixel sampling xác nhận thứ tự/cắt cảnh, mẫu audio cuối xác nhận còn lời đọc, video dọc 60fps, ảnh có/không Ken Burns và một bản dựng 4K thật.
+- TypeScript main/renderer và diff whitespace được kiểm tra trước commit.
+
+AS-12 còn phần preset phụ đề và các thông số transition/zoom; chưa coi toàn bộ AS-12 đã hoàn tất. Chưa nghiệm thu footage/giọng thật hoặc bản đóng gói.
