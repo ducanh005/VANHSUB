@@ -2,6 +2,8 @@ import os from 'os';
 import path from 'path';
 import Store from 'electron-store';
 import { v4 as uuidv4 } from 'uuid';
+import { SettingsStore } from './settingsStore';
+import { engineForVoice } from '../lib/ttsConfig';
 
 export type TaskStatus =
   | 'queued'
@@ -138,7 +140,10 @@ export const TaskStore = {
       stageDescription: input.stageDescription || 'Đang chờ xử lý',
       sourceLanguage: input.sourceLanguage || 'vi',
       targetLanguage: input.targetLanguage,
-      asrModel: input.asrModel || 'base',
+      asrModel: input.asrModel || SettingsStore.get('asrModel') || 'base',
+      asrEngine: input.asrEngine || SettingsStore.get('asrEngine') || 'faster-whisper',
+      enableDiarization: input.enableDiarization ?? SettingsStore.get('enableDiarization'),
+      speakerCount: input.speakerCount,
       srtPath: input.srtPath,
       translatedSrtPath: input.translatedSrtPath,
       audioPath: input.audioPath,
@@ -147,9 +152,9 @@ export const TaskStore = {
       dubbedVideoStretchFactor: input.dubbedVideoStretchFactor,
       projectDir: input.projectDir,
       errorMessage: input.errorMessage,
-      ttsVoice: input.ttsVoice,
-      ttsSpeed: input.ttsSpeed,
-      ttsEngine: input.ttsEngine,
+      ttsVoice: input.ttsVoice || SettingsStore.get('ttsVoice'),
+      ttsSpeed: input.ttsSpeed ?? SettingsStore.get('ttsSpeed'),
+      ttsEngine: input.ttsEngine || engineForVoice(input.ttsVoice || SettingsStore.get('ttsVoice')),
       ttsAudioDir: input.ttsAudioDir,
       ttsVoiceOverrides: input.ttsVoiceOverrides,
       createdAt: now,

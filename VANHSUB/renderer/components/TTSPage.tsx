@@ -21,11 +21,13 @@ import type { Task } from '../types/task';
 import { SPEED_OPTIONS, speedLabel } from '../lib/ttsOptions';
 import { fullPreviewPlayer, type FullPreviewState } from '../lib/fullPreviewPlayer';
 import { parseSrt, type SrtLine } from '../lib/srt';
+import { resolveTtsEngine } from '../../main/lib/ttsConfig';
 
 type Props = {
   tasks: Task[];
   selectedTaskId?: string | null;
   onSelectTaskId?: (id: string | null) => void;
+  isActive?: boolean;
 };
 
 
@@ -48,7 +50,7 @@ function formatSeconds(sec: number): string {
 /** Câu nghe thử cố định — bấm nghe ngay, không cần đọc file SRT */
 const SAMPLE_TEXT = 'Xin chào, bạn đang nghe thử giọng đọc tại Vanh sub.';
 
-export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onSelectTaskId }: Props) {
+export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onSelectTaskId, isActive = true }: Props) {
   const [internalTaskId, setInternalTaskId] = useState<string | null>(null);
   const selectedTaskId = propSelectedTaskId !== undefined ? propSelectedTaskId : internalTaskId;
   const setSelectedTaskId = (id: string | null) => {
@@ -171,6 +173,24 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedTaskId]);
 
+  useEffect(() => {
+    if (!isActive || typeof window === 'undefined' || !window.vanhsub?.settings) return;
+    let cancelled = false;
+    Promise.all([window.vanhsub.settings.get('ttsVoice'), window.vanhsub.settings.get('ttsSpeed')])
+      .then(([defaultVoice, defaultSpeed]) => {
+        if (cancelled) return;
+        const chosenVoice = selectedTask?.ttsVoice || defaultVoice || 'vi-VN-HoaiMyNeural';
+        const chosenEngine = resolveTtsEngine(chosenVoice, selectedTask?.ttsEngine);
+        setTtsEngine(chosenEngine === 'tiktok' ? 'tiktok' : 'edge');
+        setVoice(chosenEngine === 'viettts' ? 'vi-VN-HoaiMyNeural' : chosenVoice);
+        setSpeed(selectedTask?.ttsSpeed ?? (Number(defaultSpeed) || 1));
+      }).catch(() => {});
+    window.vanhsub.tiktokTts?.status().then((status) => {
+      if (!cancelled) setTiktokHasSession(Boolean(status?.hasSession));
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [selectedTaskId, isActive]);
+
   // Nạp trạng thái session + catalog giọng Edge TTS & TikTok (1 lần)
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -184,10 +204,6 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
     }
 
     if (window.vanhsub?.tiktokTts) {
-      window.vanhsub.tiktokTts
-        .status()
-        .then((s) => setTiktokHasSession(Boolean(s?.hasSession)))
-        .catch(() => {});
       window.vanhsub.tiktokTts
         .voices()
         .then((res) => {
@@ -292,17 +308,6 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
       .getElementById(`voice-line-${fullPreviewLine}`)
       ?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   }, [fullPreviewLine]);
-
-  // Nạp tốc độ đã lưu (engine TikTok hiện bỏ qua tốc độ nhưng giữ tuỳ chọn cho tương lai)
-  useEffect(() => {
-    if (typeof window === 'undefined' || !window.vanhsub?.settings) return;
-    window.vanhsub.settings
-      .get('ttsSpeed')
-      .then((s) => {
-        if (s) setSpeed(Number(s) || 1.0);
-      })
-      .catch(() => {});
-  }, []);
 
   // Tạo lại audio cho 1 dòng đã có audio TTS (dùng khi sửa text ở Hiệu đính
   // hoặc muốn đổi giọng riêng dòng đó mà không chạy lại toàn bộ)
@@ -425,13 +430,15 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
     setMessage('');
     setIsError(false);
 
-    if (ttsEngine === 'tiktok' && !tiktokHasSession) {
-      setIsError(true);
-      setMessage('Chưa có session TikTok — vào Cài đặt → TikTok TTS để lưu sessionid trước.');
-      return;
-    }
-
     try {
+      const currentSession = ttsEngine === 'tiktok' ? await window.vanhsub.tiktokTts.status() : null;
+      if (ttsEngine === 'tiktok') setTiktokHasSession(Boolean(currentSession?.hasSession));
+      if (ttsEngine === 'tiktok' && !currentSession?.hasSession) {
+        setIsError(true);
+        setMessage('Chưa có session TikTok — vào Cài đặt → TikTok TTS để lưu sessionid trước.');
+        return;
+      }
+
       await window.vanhsub.tts.start(selectedTaskId, voice, speed, voiceOverrides, ttsEngine);
       setMessage(`Đã gửi yêu cầu tạo lồng tiếng (${ttsEngine === 'edge' ? 'Edge TTS Miễn phí' : 'TikTok TTS'}) — theo dõi tiến trình bên dưới.`);
     } catch (err: any) {
@@ -681,7 +688,7 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
           <select
             value={speed}
             onChange={(e) => setSpeed(Number(e.target.value))}
-            disabled={isTtsRunning || isDubbingRunning}
+            disabled={isTtsRunning || isDubbingRunning || ttsEngine === 'tiktok'}
             title={ttsEngine === 'edge' ? 'Tốc độ đọc Edge TTS (0.5x - 2.0x)' : 'TikTok TTS chưa hỗ trợ chỉnh tốc độ'}
             className="rounded-md border border-border bg-surface-2 px-3 py-1.5 text-xs text-text focus:outline-none disabled:opacity-50"
           >

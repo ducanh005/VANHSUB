@@ -787,6 +787,7 @@ export default function HomePage() {
           </div>
           <div className={activeTab === 'dubbing' ? 'flex min-h-0 flex-1 flex-col overflow-hidden' : 'hidden'}>
             <TTSPage
+              isActive={activeTab === 'dubbing'}
               tasks={tasks}
               selectedTaskId={selectedTaskId}
               onSelectTaskId={setSelectedTaskId}

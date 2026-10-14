@@ -3,7 +3,7 @@ import path from 'path';
 import { TaskStore, type Task } from '../store/taskStore';
 import { SettingsStore } from '../store/settingsStore';
 import { generateTtsFromSrt, regenerateTtsLine, type TTSEngine } from '../render/ttsEngine';
-import { getSharedTikTokProvider } from '../tts-providers/tiktok/sessionStores';
+import { resolveTtsEngine } from '../lib/ttsConfig';
 import { isCancelledError } from '../lib/cancel';
 import { getOrCreateProjectDir, getProjectArtifactPaths } from '../utils/projectFolder';
 import { mergeAudioFiles } from './dubbingEngine';
@@ -18,18 +18,9 @@ export class TTSRunner {
     return this.runningTasks.has(taskId);
   }
 
-  /**
-   * Giải quyết engine cho 1 lần chạy: caller > session TikTok > task đã lưu.
-   * Session TikTok luôn thắng khi tồn tại — tab Lồng tiếng hiện là TikTok-only,
-   * và các task bị ghi nhầm 'viettts' bởi heuristic cũ (dựa vào ttsVoice) cần
-   * tự phục hồi mà không phải mở lại tab từng task. Không có session → dùng
-   * engine đã lưu, mặc định VietTTS (đã cấu hình ở Cài đặt).
-   */
-  private static resolveEngine(task: Task, engine?: TTSEngine): TTSEngine {
-    if (engine) return engine;
-    if (task.ttsEngine) return task.ttsEngine;
-    if (getSharedTikTokProvider().hasSession()) return 'tiktok';
-    return 'edge';
+  /** Explicit selection wins; otherwise pair the chosen voice with its provider. */
+  private static resolveEngine(task: Task, engine?: TTSEngine, voice?: string): TTSEngine {
+    return resolveTtsEngine(voice || task.ttsVoice || SettingsStore.get('ttsVoice'), task.ttsEngine, engine);
   }
 
   /** Yêu cầu huỷ: hiệu lực sau khi câu hiện tại tạo audio xong */
@@ -74,7 +65,7 @@ export class TTSRunner {
       // giọng chung — trước đây bỏ qua nên "Tạo lại audio dòng" luôn ra giọng mặc định
       const voiceToUse = voice || task.ttsVoice || SettingsStore.get('ttsVoice');
       const overrides = voiceOverrides ?? task.ttsVoiceOverrides;
-      const engineForLine: TTSEngine = this.resolveEngine(task, engine);
+      const engineForLine: TTSEngine = this.resolveEngine(task, engine, voiceToUse);
 
       TaskStore.update(taskId, { status: 'dubbing', progress: 0, dubbedVideoPath: undefined,
         ttsMergedAudioPath: undefined, ttsVoice: voiceToUse, ttsSpeed: speed ?? task.ttsSpeed,
@@ -179,7 +170,7 @@ export class TTSRunner {
     // có session TikTok thì dùng TikTok; KHÔNG dùng ttsVoice làm dấu hiệu chọn
     // engine (task cũ mang ttsVoice từ thời VietTTS khiến TikTok bị bỏ qua —
     // đúng lỗi "chọn giọng TikTok mà log toàn ra VietTTS")
-    const engineToUse = this.resolveEngine(task, engine);
+    const engineToUse = this.resolveEngine(task, engine, voiceToUse);
     console.log(`[TTS] Engine: ${engineToUse} · giọng: ${voiceToUse}`);
 
     try {
