@@ -10,6 +10,7 @@ import { TaskStore, type CreateTaskInput, type Task } from './store/taskStore'
 import { saveTaskSubtitle, importTaskSubtitle } from './lib/subtitleArtifacts'
 import { assertTaskAvailable, reserveTaskOperation, isTaskOperationActive } from './lib/taskOperations'
 import { normalizeDubbingPreferences } from './lib/dubbingPreferences'
+import { assertProjectIsolation } from './lib/projectIsolation'
 import { SettingsStore, type AppSettings } from './store/settingsStore'
 import { polishSubtitleLine, translateSubtitleLine, cleanAndDeduplicateSubtitles } from './ai/geminiClient'
 import { normalizeSrtLines, normalizeSrt } from './lib/srtNormalizer'
@@ -410,7 +411,9 @@ function finishTaskOperation(id: string, release: () => void): void {
 }
 
 function launchTaskOperation(id: string, work: () => Promise<unknown>): boolean {
-  if (!TaskStore.getById(id)) throw new Error('Không tìm thấy tác vụ.');
+  const task = TaskStore.getById(id);
+  if (!task) throw new Error('Không tìm thấy tác vụ.');
+  assertProjectIsolation(task);
   const release = reserveTaskOperation(id);
   void Promise.resolve().then(() => cancelledOperations.has(id) ? undefined : work()).catch((error) => {
     if (!cancelledOperations.has(id)) {
@@ -422,6 +425,9 @@ function launchTaskOperation(id: string, work: () => Promise<unknown>): boolean 
 }
 
 async function awaitTaskOperation<T>(id: string, work: () => Promise<T>): Promise<T> {
+  const task = TaskStore.getById(id);
+  if (!task) throw new Error('Không tìm thấy tác vụ.');
+  assertProjectIsolation(task);
   const release = reserveTaskOperation(id);
   try { return await work(); } finally { finishTaskOperation(id, release); }
 }
@@ -429,6 +435,7 @@ async function awaitTaskOperation<T>(id: string, work: () => Promise<T>): Promis
 function enqueuePipeline(id: string): boolean {
   const task = TaskStore.getById(id);
   if (!task) return false;
+  assertProjectIsolation(task);
   if (['transcribing', 'translating', 'dubbing', 'exporting'].includes(task.status)) return false;
   if (pipelineActive.has(id) || pipelineQueued.includes(id)) return false;
   if (isTaskOperationActive(id)) return false;

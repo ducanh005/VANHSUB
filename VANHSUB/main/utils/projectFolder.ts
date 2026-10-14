@@ -3,6 +3,7 @@ import path from 'path';
 import { SettingsStore } from '../store/settingsStore';
 import { TaskStore, type Task } from '../store/taskStore';
 import { createUniqueDirectory } from '../lib/paths';
+import { assertProjectIsolation } from '../lib/projectIsolation';
 
 /**
  * Loại bỏ các ký tự không hợp lệ trên Windows để làm tên thư mục an toàn: \ / : * ? " < > |
@@ -19,6 +20,8 @@ export function sanitizeFolderName(rawName: string): string {
  * Cấu trúc: [Tên video]_vanhsub[_N]/; chỉ tái sử dụng thư mục đã lưu trên task.
  */
 export function getOrCreateProjectDir(task: Task | { id: string; filePath: string; fileName: string; projectDir?: string }): string {
+  const savedTask = TaskStore.getById(task.id);
+  if (savedTask) assertProjectIsolation(savedTask);
   // Runners may keep a snapshot taken before another stage saved projectDir.
   const savedDir = TaskStore.getById(task.id)?.projectDir || task.projectDir;
   if (savedDir && fs.existsSync(savedDir)) {

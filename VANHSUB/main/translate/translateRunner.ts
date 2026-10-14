@@ -4,6 +4,7 @@ import { SettingsStore } from '../store/settingsStore';
 import { translateSrtFile } from './translator';
 import { CancelledError, isCancelledError } from '../lib/cancel';
 import { getProjectArtifactPaths } from '../utils/projectFolder';
+import { assertProjectIsolation } from '../lib/projectIsolation';
 
 export class TranslateRunner {
   private static runningTasks = new Set<string>();
@@ -27,6 +28,7 @@ export class TranslateRunner {
   ): Promise<Task | undefined> {
     const task = TaskStore.getById(taskId);
     if (!task) throw new Error(`Không tìm thấy tác vụ ID: ${taskId}`);
+    assertProjectIsolation(task);
 
     if (!task.srtPath) {
       throw new Error('Tác vụ chưa có file phụ đề SRT để dịch.');
