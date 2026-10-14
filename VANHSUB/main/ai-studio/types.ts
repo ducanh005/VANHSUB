@@ -710,6 +710,10 @@ export interface PipelineSessionState {
   flowProjectUrl?: string;
   createdAt: number;
   updatedAt: number;
+  /** Stable episode ownership and paths; independent of the currently selected channel. */
+  ownerProjectId?: string;
+  workspaceDir?: string;
+  mediaDir?: string;
 }
 
 export interface PipelineProgressPayload {

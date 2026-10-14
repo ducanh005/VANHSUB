@@ -38,6 +38,13 @@ import { aiStudioTtsService } from './services/AiStudioTtsService';
 import { aiStudioVisualService } from './services/AiStudioVisualService';
 import { aiStudioVideoAssembler } from './services/AiStudioVideoAssembler';
 import { AiStudioDiskStorageManager } from './storage/AiStudioDiskStorageManager';
+import {
+  assertSessionWorkspaceOwner,
+  newSessionWorkspace,
+  readSessionCheckpoint,
+  validateSessionId,
+  writeSessionCheckpoint,
+} from './storage/sessionWorkspace';
 import type {
   PipelineActionLogEntry,
   PipelineFactsData,
@@ -128,19 +135,52 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
   // Session Directory Helpers
   // ==========================================================================
   public getSessionDir(sessionId: string, customOutputDir?: string): string {
-    if (customOutputDir && customOutputDir.trim()) {
-      return path.resolve(customOutputDir.trim());
-    }
-    const config = getDecryptedAiStudioConfig();
-    const activeProject = config.savedProjects?.find((p) => p.id === config.activeProjectId);
-    if (activeProject?.outputDir && activeProject.outputDir.trim()) {
-      return path.resolve(activeProject.outputDir.trim());
-    }
+    validateSessionId(sessionId);
+    const state = this.activeSessions.get(sessionId) || this.loadSessionState(sessionId);
+    if (state?.workspaceDir) return path.resolve(state.workspaceDir);
+    // Existing episodes keep their original files; never redirect them on a project switch.
+    if (state?.outputDir) return path.resolve(state.outputDir);
+    if (customOutputDir?.trim()) return newSessionWorkspace(customOutputDir, sessionId);
     return path.join(resolveAiStudioSessionsRoot(), sessionId);
   }
 
+  private loadSessionState(sessionId: string): PipelineSessionState | null {
+    validateSessionId(sessionId);
+    const catalogRoot = resolveAiStudioSessionsRoot();
+    const catalogState = readSessionCheckpoint(path.join(catalogRoot, `${sessionId}.json`), sessionId);
+    const config = getDecryptedAiStudioConfig();
+    const owner = config.savedProjects?.find((p) =>
+      p.lastSessionId === sessionId || p.savedSession?.sessionId === sessionId
+    );
+    const candidates = [
+      catalogState?.workspaceDir || catalogState?.outputDir,
+      path.join(catalogRoot, sessionId),
+      owner?.outputDir,
+    ].filter((p): p is string => Boolean(p));
+    for (const dir of candidates) {
+      const state = readSessionCheckpoint(path.join(dir, 'session.json'), sessionId);
+      if (!state) continue;
+      // Capture the verified legacy directory too, including sessions without outputDir.
+      state.workspaceDir ||= path.resolve(dir);
+      state.ownerProjectId ||= owner?.id;
+      state.mediaDir ||= state.artifacts.mediaDir || path.join(dir, '05_media');
+      this.activeSessions.set(sessionId, state);
+      return state;
+    }
+    if (catalogState) {
+      catalogState.workspaceDir ||= catalogState.outputDir || path.join(catalogRoot, sessionId);
+      catalogState.ownerProjectId ||= owner?.id;
+      catalogState.mediaDir ||= catalogState.artifacts.mediaDir || path.join(catalogState.workspaceDir, '05_media');
+      this.activeSessions.set(sessionId, catalogState);
+    }
+    return catalogState;
+  }
+
   public getSessionAssetsDir(sessionId: string, customOutputDir?: string): string {
-    const dir = path.join(this.getSessionDir(sessionId, customOutputDir), 'assets');
+    const workspaceDir = this.getSessionDir(sessionId, customOutputDir);
+    const state = this.activeSessions.get(sessionId);
+    if (state) assertSessionWorkspaceOwner(state, workspaceDir, resolveAiStudioSessionsRoot());
+    const dir = path.join(workspaceDir, 'assets');
     fs.mkdirSync(dir, { recursive: true });
     return dir;
   }
@@ -150,17 +190,16 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
   // ==========================================================================
   public getDiskStorageManager(sessionId: string, customMediaDir?: string, customOutputDir?: string): AiStudioDiskStorageManager {
     const sessionDir = this.getSessionDir(sessionId, customOutputDir);
-    const config = getDecryptedAiStudioConfig();
-    const activeProject = config.savedProjects?.find((p) => p.id === config.activeProjectId);
-    const hasCustomOutput = Boolean(
-      customOutputDir?.trim() ||
-      activeProject?.outputDir?.trim()
-    );
+    const state = this.activeSessions.get(sessionId);
+    const mediaDir = state?.mediaDir || (customMediaDir ? newSessionWorkspace(customMediaDir, sessionId) : undefined);
+    assertSessionWorkspaceOwner(state || {
+      sessionId, workspaceDir: sessionDir, mediaDir, artifacts: {},
+    } as PipelineSessionState, sessionDir, resolveAiStudioSessionsRoot());
 
     const storage = new AiStudioDiskStorageManager(sessionId, {
       baseDir: sessionDir,
-      customMediaDir,
-      exactProjectDir: hasCustomOutput,
+      customMediaDir: mediaDir,
+      exactProjectDir: true,
     });
     storage.ensureDirectories();
     storage.ensureIndex();
@@ -183,33 +222,16 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
   // Atomic State Persistence
   // ==========================================================================
   public persistSessionStateAtomic(state: PipelineSessionState): void {
+    validateSessionId(state.sessionId);
+    const sessionDir = state.workspaceDir || state.outputDir || path.join(resolveAiStudioSessionsRoot(), state.sessionId);
+    assertSessionWorkspaceOwner(state, sessionDir, resolveAiStudioSessionsRoot());
+    state.workspaceDir = path.resolve(sessionDir);
+    state.mediaDir ||= state.artifacts?.mediaDir || path.join(sessionDir, '05_media');
     state.updatedAt = Date.now();
+    writeSessionCheckpoint(path.join(sessionDir, 'session.json'), state);
+    // Stable catalog permits lookup after restart regardless of the selected project.
+    writeSessionCheckpoint(path.join(resolveAiStudioSessionsRoot(), `${state.sessionId}.json`), state);
     this.activeSessions.set(state.sessionId, state);
-
-    try {
-      const sessionDir = this.getSessionDir(state.sessionId);
-      fs.mkdirSync(sessionDir, { recursive: true });
-
-      const finalPath = path.join(sessionDir, 'session.json');
-      const tempPath = path.join(sessionDir, `session.json.tmp.${Date.now()}`);
-
-      fs.writeFileSync(tempPath, JSON.stringify(state, null, 2), 'utf8');
-      try {
-        fs.renameSync(tempPath, finalPath);
-      } catch {
-        // Fallback for cross-device renames
-        fs.copyFileSync(tempPath, finalPath);
-        try { fs.unlinkSync(tempPath); } catch {}
-      }
-
-      // Also maintain backward-compatible root session file if needed
-      const legacyPath = path.join(resolveAiStudioSessionsRoot(), `${state.sessionId}.json`);
-      try {
-        fs.writeFileSync(legacyPath, JSON.stringify(state, null, 2), 'utf8');
-      } catch {}
-    } catch (err) {
-      console.error(`[AiStudioPipelineEngine] Failed to persist session ${state.sessionId}:`, err);
-    }
   }
 
   public async getState(payload: GetPipelineStatePayload): Promise<PipelineSessionState | null> {
@@ -218,39 +240,15 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
       return this.activeSessions.get(sessionId)!;
     }
 
-    // Attempt loading from session folder
-    const sessionDir = this.getSessionDir(sessionId);
-    const sessionJsonPath = path.join(sessionDir, 'session.json');
+    return this.loadSessionState(sessionId);
+  }
 
-    if (fs.existsSync(sessionJsonPath)) {
-      try {
-        const state: PipelineSessionState = JSON.parse(fs.readFileSync(sessionJsonPath, 'utf8'));
-        if (state && typeof state === 'object') {
-          state.stages = state.stages || ({} as any);
-          state.artifacts = state.artifacts || ({} as any);
-        }
-        this.activeSessions.set(sessionId, state);
-        return state;
-      } catch (err) {
-        console.warn(`[AiStudioPipelineEngine] Corrupt session.json at ${sessionJsonPath}:`, err);
-      }
+  private persistFailureCheckpoint(state: PipelineSessionState): void {
+    try { this.persistSessionStateAtomic(state); }
+    catch (err) {
+      // A failed disk write must not turn the background error handler into an unhandled rejection.
+      console.error(`[AiStudioPipelineEngine] Cannot persist failed/cancelled session ${state.sessionId}:`, err);
     }
-
-    // Fallback: Attempt loading from legacy flat file
-    const legacyPath = path.join(resolveAiStudioSessionsRoot(), `${sessionId}.json`);
-    if (fs.existsSync(legacyPath)) {
-      try {
-        const state: PipelineSessionState = JSON.parse(fs.readFileSync(legacyPath, 'utf8'));
-        if (state && typeof state === 'object') {
-          state.stages = state.stages || ({} as any);
-          state.artifacts = state.artifacts || ({} as any);
-        }
-        this.activeSessions.set(sessionId, state);
-        return state;
-      } catch {}
-    }
-
-    return null;
   }
 
   // ==========================================================================
@@ -332,6 +330,11 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
       progress: 5,
       gatedMode,
       outputDir: resolvedOutputDir,
+      ownerProjectId: activeProject?.id,
+      workspaceDir: newSessionWorkspace(resolvedOutputDir, sessionId),
+      mediaDir: (config.channelProfile?.customMediaDir || config.flowEngine.downloadDir)
+        ? newSessionWorkspace(config.channelProfile?.customMediaDir || config.flowEngine.downloadDir!, sessionId)
+        : path.join(newSessionWorkspace(resolvedOutputDir, sessionId), '05_media'),
       flowProjectUrl: payload.flowProjectUrl?.trim() || activeProject?.flowProjectUrl?.trim() || undefined,
       stages: {
         1: { status: 'pending', stageName: STAGE_CONFIG[1].label },
@@ -368,7 +371,7 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
             session.stages[session.currentStage].status = 'error';
             session.stages[session.currentStage].error = 'Đã hủy bởi người dùng';
           }
-          this.persistSessionStateAtomic(session);
+          this.persistFailureCheckpoint(session);
           return;
         }
         console.error(`[AiStudioPipelineEngine] Error on session ${sessionId}:`, err);
@@ -377,7 +380,7 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
           session.stages[session.currentStage].status = 'error';
           session.stages[session.currentStage].error = err?.message || String(err);
         }
-        this.persistSessionStateAtomic(session);
+        this.persistFailureCheckpoint(session);
         onProgress({
           sessionId,
           stage: session.currentStage,
@@ -467,7 +470,7 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
             session.stages[session.currentStage].status = 'error';
             session.stages[session.currentStage].error = 'Đã hủy bởi người dùng';
           }
-          this.persistSessionStateAtomic(session);
+          this.persistFailureCheckpoint(session);
           return;
         }
         console.error(`[AiStudioPipelineEngine] Error on stage ${nextStage}:`, err);
@@ -476,7 +479,7 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
           session.stages[session.currentStage].status = 'error';
           session.stages[session.currentStage].error = err?.message || String(err);
         }
-        this.persistSessionStateAtomic(session);
+        this.persistFailureCheckpoint(session);
         onProgress({
           sessionId: session.sessionId,
           stage: session.currentStage,
@@ -561,7 +564,7 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
             session.stages[session.currentStage].status = 'error';
             session.stages[session.currentStage].error = 'Đã hủy bởi người dùng';
           }
-          this.persistSessionStateAtomic(session);
+          this.persistFailureCheckpoint(session);
           return;
         }
         console.error(`[AiStudioPipelineEngine] Resume error on session ${session.sessionId}:`, err);
@@ -570,7 +573,7 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
           session.stages[session.currentStage].status = 'error';
           session.stages[session.currentStage].error = err?.message || String(err);
         }
-        this.persistSessionStateAtomic(session);
+        this.persistFailureCheckpoint(session);
         onProgress({
           sessionId: session.sessionId,
           stage: session.currentStage,
@@ -602,8 +605,7 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
     const activeProject = config.savedProjects?.find((p) => p.id === config.activeProjectId);
     const sessionDir = this.getSessionDir(session.sessionId);
     const effectiveOutputDir =
-      session.outputDir ||
-      activeProject?.outputDir ||
+      session.workspaceDir || session.outputDir ||
       (fs.existsSync(sessionDir) ? sessionDir : undefined);
 
     if (!effectiveOutputDir || !effectiveOutputDir.trim()) {
@@ -614,7 +616,7 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
     }
 
     const assetsDir = this.getSessionAssetsDir(session.sessionId, effectiveOutputDir);
-    const effectiveMediaDir = config.channelProfile?.customMediaDir || config.flowEngine.downloadDir || undefined;
+    const effectiveMediaDir = session.mediaDir;
     const storage = this.getDiskStorageManager(session.sessionId, effectiveMediaDir, effectiveOutputDir);
 
     session.stages = session.stages || ({} as any);
@@ -1861,16 +1863,17 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
   ): Promise<RegenerateSceneAssetResult> {
     if (payload.sessionId) {
       const config = getDecryptedAiStudioConfig();
+      const ownerSession = await this.getState({ sessionId: payload.sessionId });
+      if (!ownerSession) throw new Error('Không tìm thấy phiên AI Studio để tạo lại media.');
+      // Ownership failures must not be swallowed by the legacy provider fallback.
+      const storage = this.getDiskStorageManager(payload.sessionId, ownerSession.mediaDir);
       try {
-        const customMediaDir = config.channelProfile?.customMediaDir;
-        const storage = this.getDiskStorageManager(payload.sessionId, customMediaDir);
         const shotId = payload.sceneId;
         const sceneId = shotId.includes('_shot_') ? shotId.split('_shot_')[0] : shotId;
         const sessionMgr = GoogleVeoSessionManager.getInstance();
         const mutex = GoogleFlowBrowserMutex.getInstance();
 
         const activeProj = config.savedProjects?.find((p) => p.id === config.activeProjectId);
-        const ownerSession = await this.getState({ sessionId: payload.sessionId });
         const targetFlowProjectId = extractFlowProjectId(
           ownerSession?.flowProjectUrl ||
           payload.flowConfig?.projectId ||
@@ -2184,8 +2187,9 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
     }
 
     try {
-      const config = getDecryptedAiStudioConfig();
-      const storage = this.getDiskStorageManager(sessionId, config.channelProfile?.customMediaDir);
+      const ownerSession = await this.getState({ sessionId });
+      if (!ownerSession) throw new Error('Không tìm thấy phiên AI Studio để nhập media.');
+      const storage = this.getDiskStorageManager(sessionId, ownerSession.mediaDir);
       const shotId = sceneId;
       const actualSceneId = shotId.includes('_shot_') ? shotId.split('_shot_')[0] : shotId;
 

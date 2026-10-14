@@ -635,6 +635,10 @@ export interface PipelineSessionArtifacts {
 
 export interface PipelineSessionState {
   sessionId: string;
+  ownerProjectId?: string;
+  outputDir?: string;
+  workspaceDir?: string;
+  mediaDir?: string;
   topic: string;
   currentStage: number;
   stageName?: string;
