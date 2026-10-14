@@ -138,6 +138,7 @@ const vanhsub = {
     openVideoFile: () => ipcRenderer.invoke('dialog:openVideoFile'),
     openSrtFile: () => ipcRenderer.invoke('dialog:openSrtFile'),
     openImageFile: () => ipcRenderer.invoke('dialog:openImageFile'),
+    openAudioFile: () => ipcRenderer.invoke('dialog:openAudioFile'),
     showInFolder: (filePath: string) => ipcRenderer.invoke('dialog:showInFolder', filePath),
     openFolder: (folderPath: string) => ipcRenderer.invoke('dialog:openFolder', folderPath),
     chooseDirectory: () => ipcRenderer.invoke('dialog:chooseDirectory'),

@@ -959,9 +959,22 @@ export default function AiStudioSettingsTab() {
                 <label className="mb-1 block font-medium text-text">
                   Âm lượng nhạc nền ({Math.round(form.rendering.bgmVolume * 100)}%)
                 </label>
+                <div className="mb-2 flex items-center gap-2">
+                  <input className="min-w-0 flex-1 rounded border border-border bg-surface px-2 py-1 text-xs" readOnly value={form.rendering.defaultBgmPath || ''} placeholder="Chưa chọn nhạc nền" title={form.rendering.defaultBgmPath} />
+                  <button type="button" disabled={isSaving} className="rounded border border-border px-2 py-1 text-xs" onClick={async () => {
+                    try {
+                      if (!window.vanhsub?.dialog?.openAudioFile) throw new Error('Chức năng chọn nhạc chưa sẵn sàng.');
+                      const selected = await window.vanhsub.dialog.openAudioFile();
+                      if (!selected) return;
+                      dirtySections.current.set('rendering', ++editVersion.current);
+                      setFormState(current => ({ ...current, rendering: { ...current.rendering, defaultBgmPath: selected } }));
+                    } catch (error) { setSaveMessage(`Lỗi chọn nhạc: ${error instanceof Error ? error.message : String(error)}`); }
+                  }}>Chọn</button>
+                  {form.rendering.defaultBgmPath && <button type="button" disabled={isSaving} className="rounded border border-border px-2 py-1 text-xs" onClick={() => setForm({ ...form, rendering: { ...form.rendering, defaultBgmPath: undefined } })}>Bỏ</button>}
+                </div>
                 <input
                   type="range"
-                  min="0.05"
+                  min="0"
                   max="0.30"
                   step="0.01"
                   value={form.rendering.bgmVolume}

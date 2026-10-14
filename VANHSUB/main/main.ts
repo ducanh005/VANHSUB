@@ -1262,6 +1262,17 @@ ipcMain.handle('dialog:openImageFile', async () => {
   return result.filePaths[0]
 })
 
+// Chọn nhạc nền cho AI Studio
+ipcMain.handle('dialog:openAudioFile', async () => {
+  if (!mainWindow) return null
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: 'Chọn nhạc nền',
+    properties: ['openFile'],
+    filters: [{ name: 'Âm thanh', extensions: ['mp3', 'wav', 'm4a', 'aac', 'ogg', 'flac'] }],
+  })
+  return result.canceled ? null : (result.filePaths[0] || null)
+})
+
 // Chọn 1 file video (dùng cho node Tải Video / Workflow)
 ipcMain.handle('dialog:openVideoFile', async () => {
   if (!mainWindow) return null

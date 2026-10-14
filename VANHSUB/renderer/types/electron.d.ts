@@ -367,6 +367,7 @@ export interface VanhsubAPI {
     openVideoFile?: () => Promise<string | null>;
     openSrtFile: () => Promise<string | null>;
     openImageFile: () => Promise<string | null>;
+    openAudioFile: () => Promise<string | null>;
     showInFolder: (filePath: string) => Promise<void>;
     openFolder: (folderPath: string) => Promise<void>;
     chooseDirectory: () => Promise<string | null>;

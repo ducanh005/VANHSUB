@@ -197,7 +197,7 @@ export class AiStudioVideoAssembler {
       );
       if (sfxInputsCount > 0) {
         filterParts.push(
-          `[voice_main][bgm_ducked]amix=inputs=2:duration=first:dropout_transition=2[audio_mix]`
+          `[voice_main][bgm_ducked]amix=inputs=2:duration=first:dropout_transition=2,volume=2[audio_mix]`
         );
         let currentMix = '[audio_mix]';
         for (let i = 0; i < sfxInputsCount; i++) {
@@ -205,15 +205,15 @@ export class AiStudioVideoAssembler {
           const sfxDelayMs = Math.max(0, Math.round((cutTime - 0.2) * 1000));
           const sfxDelayedLabel = `[sfx_${i}_delayed]`;
           const nextMixLabel = i === sfxInputsCount - 1 ? '[aout]' : `[sfx_mix_${i}]`;
-          filterParts.push(`[sfx_${i}]adelay=${sfxDelayMs}|${sfxDelayMs}${sfxDelayedLabel}`);
+          filterParts.push(`[sfx_${i}]adelay=${sfxDelayMs}|${sfxDelayMs},apad${sfxDelayedLabel}`);
           filterParts.push(
-            `${currentMix}${sfxDelayedLabel}amix=inputs=2:duration=first:dropout_transition=0${nextMixLabel}`
+            `${currentMix}${sfxDelayedLabel}amix=inputs=2:duration=first:dropout_transition=0,volume=2${nextMixLabel}`
           );
           currentMix = nextMixLabel;
         }
       } else {
         filterParts.push(
-          `[voice_main][bgm_ducked]amix=inputs=2:duration=first:dropout_transition=2[aout]`
+          `[voice_main][bgm_ducked]amix=inputs=2:duration=first:dropout_transition=2,volume=2[aout]`
         );
       }
     } else {
@@ -495,14 +495,17 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     const voiceInputIdx = segments.length;
     cmd.input(voiceoverAudioPath);
 
-    const hasBgm = Boolean(
-      renderingConfig.defaultBgmPath && fs.existsSync(renderingConfig.defaultBgmPath)
-    );
+    const requestedBgmVolume = renderingConfig.bgmVolume ?? 0.12;
+    if (!Number.isFinite(requestedBgmVolume) || requestedBgmVolume < 0 || requestedBgmVolume > 1) {
+      throw new Error('Âm lượng nhạc nền phải nằm trong khoảng 0–100%.');
+    }
+    const hasBgm = Boolean(renderingConfig.defaultBgmPath && requestedBgmVolume > 0);
+    if (hasBgm && !fs.existsSync(renderingConfig.defaultBgmPath!)) throw new Error('Không tìm thấy file nhạc nền đã cấu hình.');
 
     let bgmInputIdx = -1;
     if (hasBgm) {
       bgmInputIdx = segments.length + 1;
-      cmd.input(renderingConfig.defaultBgmPath!);
+      cmd.input(renderingConfig.defaultBgmPath!).inputOptions(['-stream_loop -1']);
     }
 
     // Calculate cut timestamps Tk between consecutive scenes for transition SFX insertion
@@ -550,12 +553,14 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     }
 
     // Construct Audio Ducking & SFX Filtergraph
+    // Bundled FFmpeg 4.x normalizes amix by two. Restore the sum; padded SFX
+    // keeps both inputs alive so normalization cannot change after a short effect.
     const autoDucking = renderingConfig.autoAudioDucking !== false;
-    const bgmVol = renderingConfig.bgmVolume || 0.12;
+    const bgmVol = requestedBgmVolume;
 
     if (hasBgm) {
-      filterChain.push(`[${voiceInputIdx}:a]volume=1.0[voice_in]`);
-      filterChain.push(`[${bgmInputIdx}:a]volume=${bgmVol}[bgm_in]`);
+      filterChain.push(`[${voiceInputIdx}:a]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,volume=1.0[voice_in]`);
+      filterChain.push(`[${bgmInputIdx}:a]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,atrim=duration=${audioDurationSec},asetpts=PTS-STARTPTS,volume=${bgmVol}[bgm_in]`);
 
       if (autoDucking) {
         const duckingChain = AiStudioVideoAssembler.buildDuckingAndSfxFilterChain(
@@ -566,21 +571,21 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         filterChain.push(duckingChain);
       } else {
         if (hasSfx) {
-          filterChain.push(`[voice_in][bgm_in]amix=inputs=2:duration=first:dropout_transition=2[audio_mix]`);
+          filterChain.push(`[voice_in][bgm_in]amix=inputs=2:duration=first:dropout_transition=2,volume=2[audio_mix]`);
           let currentMix = '[audio_mix]';
           for (let i = 0; i < cutTimestampsSec.length; i++) {
             const cutTime = cutTimestampsSec[i] || (i + 1) * 4.0;
             const sfxDelayMs = Math.max(0, Math.round((cutTime - 0.2) * 1000));
             const sfxDelayedLabel = `[sfx_${i}_delayed]`;
             const nextMixLabel = i === cutTimestampsSec.length - 1 ? '[aout]' : `[sfx_mix_${i}]`;
-            filterChain.push(`[sfx_${i}]adelay=${sfxDelayMs}|${sfxDelayMs}${sfxDelayedLabel}`);
+            filterChain.push(`[sfx_${i}]adelay=${sfxDelayMs}|${sfxDelayMs},apad${sfxDelayedLabel}`);
             filterChain.push(
-              `${currentMix}${sfxDelayedLabel}amix=inputs=2:duration=first:dropout_transition=0${nextMixLabel}`
+              `${currentMix}${sfxDelayedLabel}amix=inputs=2:duration=first:dropout_transition=0,volume=2${nextMixLabel}`
             );
             currentMix = nextMixLabel;
           }
         } else {
-          filterChain.push(`[voice_in][bgm_in]amix=inputs=2:duration=first:dropout_transition=2[aout]`);
+          filterChain.push(`[voice_in][bgm_in]amix=inputs=2:duration=first:dropout_transition=2,volume=2[aout]`);
         }
       }
     } else if (hasSfx) {
@@ -591,15 +596,16 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         const sfxDelayMs = Math.max(0, Math.round((cutTime - 0.2) * 1000));
         const sfxDelayedLabel = `[sfx_${i}_delayed]`;
         const nextMixLabel = i === cutTimestampsSec.length - 1 ? '[aout]' : `[sfx_mix_${i}]`;
-        filterChain.push(`[sfx_${i}]adelay=${sfxDelayMs}|${sfxDelayMs}${sfxDelayedLabel}`);
+        filterChain.push(`[sfx_${i}]adelay=${sfxDelayMs}|${sfxDelayMs},apad${sfxDelayedLabel}`);
         filterChain.push(
-          `${currentMix}${sfxDelayedLabel}amix=inputs=2:duration=first:dropout_transition=0${nextMixLabel}`
+          `${currentMix}${sfxDelayedLabel}amix=inputs=2:duration=first:dropout_transition=0,volume=2${nextMixLabel}`
         );
         currentMix = nextMixLabel;
       }
     }
 
     const hasAudioMix = hasBgm || hasSfx;
+    if (hasAudioMix) filterChain.push('[aout]alimiter=limit=0.95:level=0[audio_safe]');
 
     onRegisterProcess?.(cmd);
 
@@ -620,7 +626,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         .complexFilter(filterChain.join(';'))
         .outputOptions([
           '-map [vout]',
-          hasAudioMix ? '-map [aout]' : `-map ${voiceInputIdx}:a`,
+          hasAudioMix ? '-map [audio_safe]' : `-map ${voiceInputIdx}:a`,
           '-c:v libx264',
           '-pix_fmt yuv420p',
           '-preset veryfast',

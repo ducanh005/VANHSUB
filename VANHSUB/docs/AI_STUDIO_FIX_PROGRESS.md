@@ -148,3 +148,13 @@ Commit đợt 12: `1d8e5d0` (đã push main).
 - Chặn hoàn tất bước 6 nếu còn shot thiếu file, kể cả khi selected subset đã thành công. No-op missing không gọi provider.
 - `tests/test_ai_studio_visual_jobs.ts`: pass qua pipeline loop/router/service với provider và bridge giả lập; kiểm tra subset merge, cache retry/regenerate, workspace, tên file không đè, both/image và missing gate. Session operations/config và TypeScript: pass.
 - Không gọi Google Flow live. Cache theo nội dung reference file và các khác biệt model/provider đầy đủ còn cần kiểm tra cùng AS-16; đợt này không tuyên bố đã nghiệm thu toàn bộ Flow.
+
+Commit đợt 13: `f1ad24f` (đã push main).
+
+## Đợt 14 — Nhạc nền có tác dụng đúng khi render (AS-20)
+
+- 0% tắt BGM thật; không fallback thành 12% hoặc làm nhỏ giọng đọc. Nhạc ngắn được loop/trim đúng thời lượng voice; file đã cấu hình nhưng mất hoặc volume sai báo lỗi.
+- Sửa channel-layout khiến ducking fail trên FFmpeg 4.x đi kèm app. Bù normalization của amix theo cách tương thích FFmpeg cũ; pad SFX để level không thay đổi khi effect ngắn kết thúc. Limiter bảo vệ peak của audio đã trộn, không tự nâng gain.
+- Settings có chọn/bỏ file nhạc và slider tới 0%; dialog qua preload/IPC. Kết quả dialog merge vào form hiện hành để không ghi đè edit khác khi đang chọn file. Config vẫn theo snapshot tập như đợt 4.
+- `tests/test_ai_studio_bgm_audio.ts`: pass với render/giải mã FFmpeg thật; đo phổ 400Hz voice/1000Hz BGM, kiểm tra 0%, loop track 0,3s tại 1,5s, mức voice, ducking, SFX ngắn và lỗi config. TypeScript main/renderer kiểm tra trước commit.
+- Chưa nghiệm thu dialog/UI Electron trực quan và loudness mục tiêu LUFS cho nhiều loại nguồn âm thanh; limiter không thay thế loudness normalization.
