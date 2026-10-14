@@ -1,3 +1,4 @@
+import { selectVisualJobs } from './visualJobs';
 import { applySceneMedia } from './sceneArtifacts';
 import { fullDecodeMediaWithFfmpeg } from '../browser-automation/mediaValidator';
 import { toStoredScriptScenes } from './scriptStorage';
@@ -526,6 +527,11 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
         }
       }
 
+      if (payload.mode && payload.mode !== 'resume_missing') {
+        if (targetStage !== 6) throw new Error('Tạo lại media phải bắt đầu từ Bước 6.');
+        selectVisualJobs(session.artifacts.scenes || [], payload.mode, payload.selectedShotIds);
+      }
+
       if (payload.storyboardOptions) {
         if (targetStage !== 5) throw new Error('Thay đổi cách phân cảnh phải chạy lại từ Bước 5.');
         const { shotMode, granularity } = payload.storyboardOptions;
@@ -1037,6 +1043,13 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
                 }
               }
 
+              const jobs = selectVisualJobs(scenes, runOptions?.mode, runOptions?.selectedShotIds);
+              if (!jobs.length) {
+                session.artifacts.scenes = scenes;
+                session.progress = 85;
+                break;
+              }
+
               const targetVisualDir = storage.paths.mediaDir || assetsDir;
 
               const onSceneComplete = (completedScene: StoryboardScene, idx: number) => {
@@ -1070,14 +1083,14 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
 
                 this.persistSessionStateAtomic(session);
 
-                const stepProgress = 70 + Math.round(((idx + 1) / scenes.length) * 15);
+                const stepProgress = 70 + Math.round(((idx + 1) / jobs.length) * 15);
                 onProgress({
                   sessionId: session.sessionId,
                   stage: 6,
                   stageName: STAGE_CONFIG[6].label,
                   progress: Math.min(84, stepProgress),
                   status: 'running',
-                  message: `[RPC] Hoàn tất media phân cảnh ${idx + 1}/${scenes.length}`,
+                  message: `[RPC] Hoàn tất media phân cảnh ${idx + 1}/${jobs.length}`,
                   artifacts: {
                     ...session.artifacts,
                     scenes: session.artifacts.scenes,
@@ -1145,10 +1158,11 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
               const effectiveFlowEngineConfig: AiStudioFlowEngineConfig = {
                 ...config.flowEngine,
                 projectId: targetFlowProjectId || undefined,
+                generationNonce: runOptions?.mode && runOptions.mode !== 'resume_missing' ? crypto.randomUUID() : undefined,
               };
 
               const dispatchResult = await aiStudioVisualService.dispatchVisualAssets(
-                scenes,
+                jobs,
                 effectiveFlowEngineConfig,
                 targetVisualDir,
                 (pct, msg) => {
@@ -1164,7 +1178,11 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
                 signal,
                 onSceneComplete
               );
-              session.artifacts.scenes = dispatchResult.scenes;
+              const results = new Map(dispatchResult.scenes.map(scene => [scene.shotId || scene.id, scene]));
+              session.artifacts.scenes = scenes.map(scene => results.get(scene.shotId || scene.id) || scene);
+              if (selectVisualJobs(session.artifacts.scenes).length) {
+                throw new Error('Còn shot thiếu media. Hãy chạy phần còn thiếu trước khi duyệt dựng video.');
+              }
               session.artifacts.mediaDir = targetVisualDir;
               session.progress = 85;
               this.persistSessionStateAtomic(session);

@@ -71,6 +71,8 @@ export interface StoryboardSynthesis {
 }
 
 export interface AiStudioFlowEngineConfig {
+  /** Runtime request identity for explicit regeneration; stable across retries. */
+  generationNonce?: string;
   /** Động cơ sinh visual media: 'flow' (Google Flow Automation) | 'synthetic' | 'rpc' | 'flow_rpc' */
   engine?: 'flow' | 'synthetic' | 'rpc' | 'flow_rpc' | string;
   /** Mã dự án trên Google Flow (UUID hoặc target project ID) */

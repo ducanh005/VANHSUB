@@ -59,6 +59,8 @@ export interface JobRecord {
 }
 
 export interface IdempotencyKeyParams {
+  workspaceScope?: string;
+  generationNonce?: string;
   projectId?: string;
   sceneId?: string;
   sceneIndex?: number;
@@ -93,6 +95,8 @@ export class VisualProviderRouter {
    */
   public generateIdempotencyKey(params: IdempotencyKeyParams): string {
     const parts = [
+      params.workspaceScope || 'legacy_scope',
+      params.generationNonce || 'resume',
       params.projectId || 'default',
       params.sceneId || (params.sceneIndex !== undefined ? `scene_${params.sceneIndex}` : 'scene_0'),
       params.mediaType,

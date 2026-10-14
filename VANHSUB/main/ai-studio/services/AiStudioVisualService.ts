@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
@@ -334,9 +335,9 @@ export class AiStudioVisualService {
       }
 
       const scene = scenes[i];
-      const isSceneVideo = scene.motionType === 'video' || flowConfig.outputMode === 'video';
+      const isSceneVideo = scene.motionType === 'video';
       const ext = isSceneVideo && useGoogleFlow ? 'mp4' : 'png';
-      const assetPath = path.join(assetsDir, `scene_${String(i + 1).padStart(2, '0')}.${ext}`);
+      const assetPath = path.join(assetsDir, `scene_${(scene.shotId || scene.id).replace(/[^a-zA-Z0-9_-]/g, '_')}_${crypto.randomUUID()}.${ext}`);
 
       const sceneBasePct = Math.round((i / scenes.length) * 100);
       const sceneWeight = Math.round(100 / scenes.length);
@@ -598,7 +599,7 @@ export class AiStudioVisualService {
       throw new GoogleFlowRpcError('Tác vụ đã bị người dùng huỷ bỏ.', { code: 'CANCELLED', retryable: false });
     }
 
-    const isVideo = scene.motionType === 'video' || flowConfig.outputMode === 'video';
+    const isVideo = scene.motionType === 'video';
     const isPlaywrightEngine = flowConfig.engine === 'browser_automation' || flowConfig.engine === 'playwright';
     const isAutomationAvailable = FlowBridgeServer.getInstance().isConnected() || isPlaywrightEngine || BrowserAutomationAdapter.getInstance().isConnected('flow');
 
@@ -626,6 +627,8 @@ export class AiStudioVisualService {
     const router = VisualProviderRouter.getInstance();
     const sceneIndex = typeof scene.sceneNumber === 'number' ? scene.sceneNumber : (scene.lineIndex ?? 0);
     const idempotencyKey = router.generateIdempotencyKey({
+      workspaceScope: path.resolve(path.dirname(targetPath)),
+      generationNonce: flowConfig.generationNonce,
       projectId: effectiveProjectId,
       sceneId: scene.id,
       sceneIndex,
@@ -1877,9 +1880,9 @@ export class AiStudioVisualService {
     const targetDir = assetsDir || path.join(os.tmpdir(), 'vanhsub-single-scenes');
     fs.mkdirSync(targetDir, { recursive: true });
 
-    const isVideo = payload.mode === 'video' || payload.flowConfig?.outputMode === 'video';
+    const isVideo = payload.mode ? payload.mode !== 'image' : payload.flowConfig?.outputMode === 'video';
     const ext = isVideo ? 'mp4' : 'png';
-    const outPath = path.join(targetDir, `scene_${payload.sceneId}_${Date.now()}.${ext}`);
+    const outPath = path.join(targetDir, `scene_${payload.sceneId.replace(/[^a-zA-Z0-9_-]/g, '_')}_${crypto.randomUUID()}.${ext}`);
 
     const mockScene: StoryboardScene = {
       id: payload.sceneId,
@@ -1908,6 +1911,7 @@ export class AiStudioVisualService {
       maxRetries: payload.flowConfig?.maxRetries,
       projectId: payload.flowConfig?.projectId,
       referenceImagePath: payload.referenceImagePath || payload.flowConfig?.referenceImagePath,
+      generationNonce: crypto.randomUUID(),
       skipCooldown: payload.flowConfig?.skipCooldown,
       cooldownSec: payload.flowConfig?.cooldownSec,
       fallbackToSynthetic: (payload.flowConfig as any)?.fallbackToSynthetic,
@@ -1982,7 +1986,7 @@ export class AiStudioVisualService {
           return {
             assetPath: finalPath,
             videoPath: isVideo ? finalPath : undefined,
-            imagePath: !isVideo ? finalPath : undefined,
+            imagePath: isVideo ? mockScene.imagePath : finalPath,
           };
         } catch (err: any) {
           if (signal?.aborted) {

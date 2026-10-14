@@ -541,7 +541,7 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
 
     if (!session) return;
 
-    if (session.status === 'awaiting_approval') {
+    if (session.status === 'awaiting_approval' && mode === 'resume_missing' && fromStageOverride === undefined) {
       await handleApproveStage();
       return;
     }
@@ -550,7 +550,7 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
     setSession((prev) => (prev ? { ...prev, status: 'running' } : null));
 
     try {
-      const effectiveStage = fromStageOverride ?? (session.status === 'cancelled' && (session.stages as any)?.[session.currentStage]?.status === 'success'
+      const effectiveStage = mode !== 'resume_missing' ? 6 : fromStageOverride ?? (session.status === 'cancelled' && (session.stages as any)?.[session.currentStage]?.status === 'success'
         ? session.currentStage + 1 : session.currentStage);
       if (window.vanhsub?.aiStudio?.resumePipeline) {
         await window.vanhsub.aiStudio.resumePipeline({

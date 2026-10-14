@@ -137,3 +137,14 @@ Commit đợt 11: `84cb13e` (đã push main).
 - Version scanner/current lookup hỗ trợ đúng extension thực (JPEG/WebP/GIF/WebM), đường dẫn theo customMediaDir; không mặc định current version luôn PNG/MP4.
 - `tests/test_ai_studio_media_import.ts`: pass với PNG/JPEG/MP4 sinh và giải mã bằng FFmpeg thật, file hỏng/sai loại/scene lạ, source bất biến, thay ảnh/video, invalidation, custom media và giữ lịch sử. Session isolation regression/TypeScript: pass.
 - Validator hiện nhận các định dạng ảnh phổ biến và video nhận diện MP4/WebM; container khác không được coi đã hỗ trợ chỉ dựa vào extension. AS-09 RPC cache/scope vẫn cần đợt riêng.
+
+Commit đợt 12: `1d8e5d0` (đã push main).
+
+## Đợt 13 — RPC chạy đúng shot và tạo sản phẩm mới (AS-09)
+
+- Chọn job theo missing/selected/all; validate selected và yêu cầu tạo lại bắt đầu từ bước 6 trước khi invalidation. Pipeline chỉ dispatch subset và merge lại vào toàn bộ scenes; không mất/đổi shot ngoài lựa chọn. UI regenerate không bị redirect sang approve/currentStage khác.
+- Dispatch và single regeneration dùng tên file có shot ID + UUID; không đè file cũ hoặc đánh số lại selected thành scene_01. Cache key có workspace scope; explicit regenerate có nonce mới, cố định trong vòng retry. Hai tập dùng chung Flow project/prompt không nhận lại asset của workspace khác.
+- Mode both dùng I2V tạo keyframe và video, trả cả hai path; mode image tường minh ưu tiên hơn outputMode chung. RPC giữ media_type của storyboard, không biến tất cả shot ảnh thành video vì defaults.
+- Chặn hoàn tất bước 6 nếu còn shot thiếu file, kể cả khi selected subset đã thành công. No-op missing không gọi provider.
+- `tests/test_ai_studio_visual_jobs.ts`: pass qua pipeline loop/router/service với provider và bridge giả lập; kiểm tra subset merge, cache retry/regenerate, workspace, tên file không đè, both/image và missing gate. Session operations/config và TypeScript: pass.
+- Không gọi Google Flow live. Cache theo nội dung reference file và các khác biệt model/provider đầy đủ còn cần kiểm tra cùng AS-16; đợt này không tuyên bố đã nghiệm thu toàn bộ Flow.
