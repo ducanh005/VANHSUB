@@ -926,7 +926,6 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
               backgroundPrompt: config.channelProfile?.projectBackgroundPrompt,
               shotMode: config.flowEngine.shotMode,
               granularity: config.flowEngine.granularity || 'balanced',
-              enableClustering: true,
               llmConfig: config.llm,
               topic: session.artifacts.blueprint?.title || session.artifacts.blueprint?.topic || 'Video Production',
             });

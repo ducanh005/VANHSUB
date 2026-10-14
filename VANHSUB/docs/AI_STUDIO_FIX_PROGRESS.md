@@ -107,3 +107,12 @@ Commit đợt 8: `b0d36ca` (đã push main).
 - Timing chỉ dùng văn bản đã sanitize để đọc; chặn dòng chỉ chứa emoji/ký hiệu. Lưu và hiển thị nguồn timing: metadata, ước lượng theo đoạn, hoặc hỗn hợp; legacy chưa có nguồn được đánh dấu rõ.
 - `tests/test_ai_studio_tts_alignment.ts`: pass với metadata/provider/audio probe giả lập; kiểm tra audio 400ms, hai dòng 600ms/5400ms, metadata thiếu, loại emoji, timeline không vượt audio và stage 4 không ghi đè mốc từ. Snapshot/invalidation regression và TypeScript: pass.
 - Chưa đo word boundary qua Edge/TikTok live hoặc nghiệm thu karaoke trực quan; ước lượng vẫn có sai số trong nội bộ từng dòng khi provider không có metadata.
+
+Commit đợt 9: `e3c2791` (đã push main).
+
+## Đợt 10 — Tôn trọng chế độ shot và thời lượng storyboard (AS-14)
+
+- Pipeline không ép enableClustering=true. Service bảo vệ chế độ single/multi tường minh kể cả khi caller gửi clustering=true: single giữ 1:1, multi phân rã trong từng câu thay vì gộp câu.
+- Thời lượng playback của shot giữ toàn bộ narration; thời lượng clip yêu cầu provider là ràng buộc riêng. Không cắt timeline 14 giây thành 8 giây hoặc kéo đoạn dưới 2 giây thành 2 giây. Clip ngắn được assembler lặp theo timeline từ đợt 2.
+- `tests/test_ai_studio_storyboard_modes.ts`: pass trên storage thật, không gọi LLM; kiểm tra 4 câu/4 shot ở cả ba granularity, single dài 14 giây, multi và tổng duration. TypeScript main và diff kiểm tra trước commit.
+- Chỉ dẫn hình ảnh/camera bị mất khi đổi dạng script (AS-15) xử lý đợt tiếp theo. Chưa nghiệm thu visual provider live.

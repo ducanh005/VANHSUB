@@ -1241,12 +1241,12 @@ export class AiStudioStoryboardService {
       };
     });
 
-    const enableClustering = options.enableClustering === true ||
+    const enableClustering = options.shotMode !== 'single' && options.shotMode !== 'multi' && (options.enableClustering === true ||
       (options.enableClustering !== false &&
        options.shotMode !== 'single' &&
        options.shotMode !== 'multi' &&
        !options.customPromptGenerator &&
-       script.scenes.length >= 4);
+       script.scenes.length >= 4));
 
     let storyboardScenes: StoryboardSceneItem[] = [];
 
@@ -1459,17 +1459,14 @@ export class AiStudioStoryboardService {
               shotDur,
               explicitMedia ? { suggestedMediaType: explicitMedia } : undefined
             );
-            let effectiveShotDur = shotDur;
-            if (decision.media_type === 'video') {
-              effectiveShotDur = Math.min(8.0, Math.max(2.0, shotDur));
-            }
+            const effectiveShotDur = shotDur;
 
             shots.push({
               shot_id: shotId,
               shot_index: i,
               start_sec: Math.round(shotCurrentSec * 100) / 100,
               duration_sec: effectiveShotDur,
-              expected_duration_sec: effectiveShotDur,
+              expected_duration_sec: decision.media_type === 'video' ? Math.min(maxVideoClipSec, Math.max(2, effectiveShotDur)) : effectiveShotDur,
               assigned_sentences: [scIdx + 1],
               assigned_scene_ids: [scriptScene.scene_id],
               dialogue_lines: [scriptScene.narration],
@@ -1526,10 +1523,7 @@ export class AiStudioStoryboardService {
                   cameraAngle: decision.camera_angle,
                 });
 
-            let effectiveShotDur = raw.durationSec;
-            if (decision.media_type === 'video') {
-              effectiveShotDur = Math.min(8.0, Math.max(2.0, raw.durationSec));
-            }
+            const effectiveShotDur = raw.durationSec;
 
             // Multi-clip splitting: if video shot exceeds model limit, split into sub-shots
             if (decision.media_type === 'video' && effectiveShotDur > maxVideoClipSec && !isSingleShot) {
@@ -1559,7 +1553,7 @@ export class AiStudioStoryboardService {
                 shot_index: raw.index,
                 start_sec: Math.round(shotCurrentSec * 100) / 100,
                 duration_sec: effectiveShotDur,
-                expected_duration_sec: effectiveShotDur,
+                expected_duration_sec: decision.media_type === 'video' ? Math.min(maxVideoClipSec, Math.max(2, effectiveShotDur)) : effectiveShotDur,
                 assigned_sentences: [scIdx + 1],
                 assigned_scene_ids: [scriptScene.scene_id],
                 dialogue_lines: [scriptScene.narration],
@@ -1584,18 +1578,14 @@ export class AiStudioStoryboardService {
           (shot as any).shot_index = idx + 1;
         });
 
-        // Duration integrity check: total shots must match scene duration (±0.1s)
-        const totalShotDur = shots.reduce((acc, s) => acc + (s.expected_duration_sec || 0), 0);
-        const diff = Math.abs(Math.round((totalShotDur - durationSec) * 100) / 100);
-        if (diff > 0.1 && shots.length > 0) {
-          // Correct by adjusting last shot
+        // Playback duration follows narration; generation clip length is a separate constraint.
+        const totalShotDur = shots.reduce((acc, shot) => acc + (shot.duration_sec || 0), 0);
+        const diff = durationSec - totalShotDur;
+        if (Math.abs(diff) > 0.01 && shots.length > 0) {
           const lastShot = shots[shots.length - 1];
-          let adjustment = durationSec - (totalShotDur - (lastShot.expected_duration_sec || 0));
-          if (lastShot.media_type === 'video') {
-            adjustment = Math.min(8.0, Math.max(2.0, adjustment));
-          }
-          lastShot.expected_duration_sec = Math.round(adjustment * 100) / 100;
-          lastShot.duration_sec = lastShot.expected_duration_sec;
+          lastShot.duration_sec = Math.round((lastShot.duration_sec! + diff) * 100) / 100;
+          lastShot.expected_duration_sec = lastShot.media_type === 'video'
+            ? Math.min(maxVideoClipSec, Math.max(2, lastShot.duration_sec)) : lastShot.duration_sec;
         }
 
         storyboardScenes.push({
