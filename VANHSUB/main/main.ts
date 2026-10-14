@@ -769,7 +769,9 @@ ipcMain.handle('tts:cancel', async (_event, id: string) => {
 
 // Tạo lại audio cho 1 dòng phụ đề (sau khi sửa text / đổi giọng)
 ipcMain.handle('tts:regenerateLine', async (_event, id: string, lineIndex: number) => {
-  return TTSRunner.regenerateLine(id, lineIndex)
+  const result = await TTSRunner.regenerateLine(id, lineIndex)
+  broadcastTasksUpdate()
+  return result
 })
 
 // Ghép lại hoặc xuất file MP3 tổng hợp chính xác theo timeline cho dự án

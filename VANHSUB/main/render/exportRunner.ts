@@ -4,7 +4,6 @@ import os from 'os';
 import type ffmpeg from 'fluent-ffmpeg';
 import { parseSrt } from '../lib/srt';
 import { TaskStore, type Task } from '../store/taskStore';
-import { SettingsStore } from '../store/settingsStore';
 import { nextAvailablePath } from '../lib/paths';
 import { getOrCreateProjectDir } from '../utils/projectFolder';
 import { compileToAss, type SubtitleEntryStyle, type GlobalAssStyle, type KineticConfig } from './assCompiler';
@@ -28,6 +27,7 @@ export interface DualSubtitleOption {
 }
 
 export interface AdvancedExportOptions {
+  videoSource?: 'auto' | 'original' | 'dubbed';
   customMask?: CustomMaskRegion | null;
   customMasks?: CustomMaskRegion[] | null;
   watermark?: WatermarkOptions | null;
@@ -195,12 +195,10 @@ export class ExportRunner {
     this.cancelledTasks.delete(taskId);
 
     // Xác định đường dẫn xuất
-    const videoPath = task.filePath;
-    const videoDir = path.dirname(videoPath);
-    const videoExt = path.extname(videoPath);
-    const videoBase = path.basename(videoPath, videoExt);
-
-    const exportDirSetting = SettingsStore.get('exportDir');
+    const source = advancedOptions?.videoSource || 'auto';
+    const useDubbed = source === 'dubbed' || (source === 'auto' && !!task.dubbedVideoPath);
+    const videoPath = useDubbed ? task.dubbedVideoPath : task.filePath;
+    const videoBase = path.parse(task.filePath).name;
     // Lưu vào thư mục dự án riêng của video
     const projectDir = getOrCreateProjectDir(task);
     const targetDir = projectDir;
@@ -214,6 +212,11 @@ export class ExportRunner {
     let tempAssFile: string | null = null;
 
     try {
+      if (!videoPath || !fs.existsSync(videoPath)) {
+        throw new Error(useDubbed
+          ? 'Không tìm thấy video đã lồng tiếng. Hãy ghép lồng tiếng lại hoặc chọn nguồn Video gốc.'
+          : 'Không tìm thấy video gốc.');
+      }
       if (this.cancelledTasks.has(taskId) || TaskStore.getById(taskId)?.status === 'cancelled') {
         if (TaskStore.getById(taskId)?.status !== 'cancelled') {
           TaskStore.update(taskId, {

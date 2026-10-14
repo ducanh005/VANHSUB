@@ -150,7 +150,7 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
   const isDubbingRunning = selectedTask?.status === 'exporting';
   const hasSrtFile = !!selectedTask?.srtPath;
   const hasTtsAudio = !!selectedTask?.ttsAudioDir && !isTtsRunning;
-  const dubbedOutput = selectedTask?.outputPath;
+  const dubbedOutput = selectedTask?.dubbedVideoPath || selectedTask?.outputPath;
   const customVoiceCount = Object.keys(voiceOverrides).length;
 
   // Reset trạng thái gán giọng & audio khi đổi tác vụ (playback 1 mạch vẫn chạy tiếp)

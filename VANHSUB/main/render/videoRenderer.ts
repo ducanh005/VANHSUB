@@ -318,6 +318,7 @@ function buildAspectRatioFilter(aspectRatio: string | undefined, inLabel: string
 export interface VideoMetadata {
   duration: number;
   hasAudio: boolean;
+  audioStreamCount?: number;
   width?: number;
   height?: number;
 }
@@ -333,11 +334,12 @@ export function getVideoMetadata(videoPath: string): Promise<VideoMetadata> {
         return;
       }
       const duration = Number(metadata.format?.duration) || 0;
-      const hasAudio = Array.isArray(metadata.streams) && metadata.streams.some((s) => s.codec_type === 'audio');
+      const audioStreamCount = metadata.streams?.filter((s) => s.codec_type === 'audio').length || 0;
+      const hasAudio = audioStreamCount > 0;
       const vStream = Array.isArray(metadata.streams) ? metadata.streams.find((s) => s.codec_type === 'video') : undefined;
       const width = vStream?.width;
       const height = vStream?.height;
-      resolve({ duration, hasAudio, width, height });
+      resolve({ duration, hasAudio, audioStreamCount, width, height });
     });
   });
 }
@@ -398,11 +400,13 @@ export interface HardsubFilterGraphInput {
   escapedSubPath: string;
   styleSuffix?: string;
   hasAudio: boolean;
+  audioStreamCount?: number;
 }
 
 export interface HardsubFilterGraphOutput {
   filterChains: string[];
   hasAudioFilter: boolean;
+  audioOutputLabels: string[];
   effectiveSpeed: number;
 }
 
@@ -589,14 +593,20 @@ export function buildHardsubFilterGraph(options: HardsubFilterGraphInput): Hards
 
   // 7. CapCut Mini: Tua nhanh âm thanh (Speedup atempo) - Chỉ khi video có audio stream
   let hasAudioFilter = false;
+  const audioOutputLabels: string[] = [];
   if (hasAudio && speed > 1.0) {
-    filterChains.push(`[0:a:0]atempo=${speed}[aout]`);
+    for (let index = 0; index < (options.audioStreamCount ?? 1); index++) {
+      const label = index === 0 ? 'aout' : `aout_${index}`;
+      filterChains.push(`[0:a:${index}]atempo=${speed}[${label}]`);
+      audioOutputLabels.push(label);
+    }
     hasAudioFilter = true;
   }
 
   return {
     filterChains,
     hasAudioFilter,
+    audioOutputLabels,
     effectiveSpeed: speed,
   };
 }
@@ -621,13 +631,13 @@ export async function burnHardsub(options: RenderOptions): Promise<void> {
   fs.copyFileSync(srtPath, tempSrtPath);
 
   const escapedSubPath = escapeFfmpegSubtitlesPath(tempSrtPath);
-  const { duration: rawDuration, hasAudio } = await getVideoMetadata(videoPath);
+  const { duration: rawDuration, hasAudio, audioStreamCount } = await getVideoMetadata(videoPath);
 
   const styleSuffix = !isAss && options.style
     ? `:force_style='${buildForceStyle(options.style)}'`
     : '';
 
-  const { filterChains, hasAudioFilter, effectiveSpeed } = buildHardsubFilterGraph({
+  const { filterChains, hasAudioFilter, audioOutputLabels, effectiveSpeed } = buildHardsubFilterGraph({
     formatOptions,
     customMasks: options.customMasks,
     customMask,
@@ -636,6 +646,7 @@ export async function burnHardsub(options: RenderOptions): Promise<void> {
     escapedSubPath,
     styleSuffix,
     hasAudio,
+    audioStreamCount,
   });
 
   const effectiveDuration = calculateEffectiveDuration(rawDuration, effectiveSpeed);
@@ -664,12 +675,12 @@ export async function burnHardsub(options: RenderOptions): Promise<void> {
     if (hasAudioFilter) {
       command.outputOptions([
         '-map', '[vout]',
-        '-map', '[aout]',
+        ...audioOutputLabels.flatMap((label) => ['-map', `[${label}]`]),
       ]);
     } else if (hasAudio) {
       command.outputOptions([
         '-map', '[vout]',
-        '-map', '0:a:0?',
+        '-map', '0:a?',
       ]);
     } else {
       command.outputOptions([

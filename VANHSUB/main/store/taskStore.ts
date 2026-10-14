@@ -40,6 +40,8 @@ export interface Task {
   translatedSrtPath?: string;
   audioPath?: string;
   outputPath?: string;
+  /** Last successful dub, kept separately from subsequent subtitle exports. */
+  dubbedVideoPath?: string;
   /** Thư mục dự án gom toàn bộ file liên quan đến video này (sub, audio, export) */
   projectDir?: string;
   errorMessage?: string;
@@ -139,6 +141,7 @@ export const TaskStore = {
       translatedSrtPath: input.translatedSrtPath,
       audioPath: input.audioPath,
       outputPath: input.outputPath,
+      dubbedVideoPath: input.dubbedVideoPath,
       projectDir: input.projectDir,
       errorMessage: input.errorMessage,
       ttsVoice: input.ttsVoice,
@@ -163,6 +166,9 @@ export const TaskStore = {
     const updatedTask: Task = {
       ...tasks[index],
       ...updates,
+      // Existing ASR/OCR/translation resets invalidate all rendered outputs.
+      ...(Object.prototype.hasOwnProperty.call(updates, 'outputPath') && updates.outputPath === undefined
+        ? { dubbedVideoPath: undefined } : {}),
       updatedAt: new Date().toISOString(),
     };
 

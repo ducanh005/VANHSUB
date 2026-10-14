@@ -147,6 +147,7 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
     else setInternalTaskId(id);
   };
   const [mode, setMode] = useState<ExportMode>('hardsub');
+  const [videoSource, setVideoSource] = useState<'auto' | 'original' | 'dubbed'>('auto');
   const [maskEnabled, setMaskEnabled] = useState(false);
   const [mask, setMask] = useState<SubMaskRegion>(DEFAULT_MASK);
   const [message, setMessage] = useState('');
@@ -289,6 +290,13 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
   const outputPath = selectedTask?.outputPath;
   const hasTtsAudio = !!selectedTask?.ttsAudioDir;
   const hasBothSrt = !!(selectedTask?.srtPath && selectedTask?.translatedSrtPath);
+  const sourceVideoPath = videoSource === 'original'
+    ? selectedTask?.filePath
+    : videoSource === 'dubbed'
+      ? selectedTask?.dubbedVideoPath
+      : selectedTask?.dubbedVideoPath || selectedTask?.filePath;
+
+  useEffect(() => { setVideoSource('auto'); }, [selectedTaskId]);
 
   // Tải danh sách phụ đề mỗi khi chọn task
   useEffect(() => {
@@ -413,6 +421,7 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
       const advancedOptions: AdvancedExportOptions | null =
         mode === 'hardsub'
           ? {
+              videoSource,
               perLineStyles: Object.keys(perLineStyles).length > 0 ? perLineStyles : undefined,
               customMask: customMaskEnabled && customMasks.length > 0 ? customMasks[0] : null,
               customMasks: customMaskEnabled ? customMasks.filter((m) => m.enabled !== false) : [],
@@ -426,7 +435,7 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
                 : null,
               kineticConfig: kineticConfig.preset !== 'none' ? kineticConfig : null,
             }
-          : null;
+          : { videoSource };
 
       await window.vanhsub.export.start(selectedTaskId, mode, maskParam, styleParam, advancedOptions);
       setMessage(`Đã bắt đầu xuất video (${mode === 'hardsub' ? 'Hardsub' : 'Softsub'})...`);
@@ -558,13 +567,35 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
             })}
           </div>
 
+          {(mode === 'hardsub' || mode === 'softsub') && (
+            <div className="rounded-lg border border-border bg-surface p-4 text-xs">
+              <label className="flex items-center gap-3">
+                Nguồn video và âm thanh:
+                <select
+                  value={videoSource}
+                  onChange={(e) => setVideoSource(e.target.value as 'auto' | 'original' | 'dubbed')}
+                  disabled={isExporting}
+                  className="rounded-md border border-border bg-surface-2 px-3 py-1.5 text-text"
+                >
+                  <option value="auto">Tự động — ưu tiên bản đã lồng tiếng</option>
+                  <option value="original">Video gốc</option>
+                  <option value="dubbed" disabled={!selectedTask.dubbedVideoPath}>Video đã lồng tiếng</option>
+                </select>
+              </label>
+              <p className="mt-2 break-all text-text-muted">Đang dùng: {sourceVideoPath || 'Chưa có video đã lồng tiếng — hãy ghép lại hoặc chọn Video gốc.'}</p>
+              {hasTtsAudio && !selectedTask.dubbedVideoPath && (
+                <p className="mt-2 text-amber-400">Để xuất kèm giọng TTS, hãy ghép lồng tiếng vào video trước.</p>
+              )}
+            </div>
+          )}
+
           {/* Tùy chọn nâng cao chế độ Hardsub */}
           {mode === 'hardsub' && (
             <div className="flex flex-col gap-3">
               {/* Mini CapCut Live Video Studio Preview */}
               {selectedTask.filePath && (
                 <VideoPreviewCanvas
-                  videoPath={selectedTask.filePath}
+                  videoPath={sourceVideoPath}
                   aspectRatio={formatOptions.aspectRatio || 'original'}
                   mirrorHorizontal={formatOptions.mirrorHorizontal}
                   speed={formatOptions.speed}

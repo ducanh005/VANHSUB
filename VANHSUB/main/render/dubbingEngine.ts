@@ -491,7 +491,7 @@ export async function muxAudioToVideo(
           '-map', '0:a:0',
           '-map', '1:a:0',
           '-disposition:a:0', 'default',
-          '-disposition:a:1', 'alternate',
+          '-disposition:a:1', 'dub',
         );
       } else if (mixOriginal) {
         // Mix: nhạc nền/SFX gốc nhỏ lại (0.22) dưới lời thoại lồng tiếng

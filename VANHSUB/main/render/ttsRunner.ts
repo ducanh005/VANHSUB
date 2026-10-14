@@ -72,6 +72,7 @@ export class TTSRunner {
         voice || task.ttsVoiceOverrides?.[String(lineIndex)] || task.ttsVoice;
       const engineForLine: TTSEngine = this.resolveEngine(task, engine);
 
+      TaskStore.update(taskId, { dubbedVideoPath: undefined });
       await regenerateTtsLine(
         srtPath,
         task.ttsAudioDir,
@@ -169,6 +170,7 @@ export class TTSRunner {
       // (pipeline) thì giữ nguyên gán đã lưu
       TaskStore.update(taskId, {
         status: 'dubbing',
+        dubbedVideoPath: undefined,
         progress: 0,
         ttsVoice: voiceToUse,
         ttsSpeed: speedToUse,
