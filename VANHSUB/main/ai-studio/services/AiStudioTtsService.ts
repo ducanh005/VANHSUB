@@ -32,12 +32,14 @@ export interface TtsSynthesisResult {
   sizeBytes: number;
   rawMetadata: any[];
   wordTimestamps: WordTimestamp[];
+  alignmentSource?: 'word_boundary' | 'estimated_per_line' | 'mixed';
 }
 
 export interface AlignmentResult {
   wordsAlignment: WordTimestamp[];
   alignedLines: ScriptBeatLine[];
   totalDurationMs: number;
+  alignmentSource: 'word_boundary' | 'estimated_per_line';
 }
 
 export class AiStudioTtsService {
@@ -226,7 +228,8 @@ export class AiStudioTtsService {
     prosody: ProsodyOptions,
     outputPath: string,
     signal?: AbortSignal,
-    provider?: TtsVoiceProvider
+    provider?: TtsVoiceProvider,
+    onMetadata?: (items: any[]) => void
   ): Promise<Buffer> {
     const isTikTok = provider === 'tiktok_tts' || targetVoice.startsWith('BV0') || targetVoice.startsWith('en_');
 
@@ -289,14 +292,19 @@ export class AiStudioTtsService {
 
       try {
         await tts.setMetadata(targetVoice, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3, {
-          wordBoundaryEnabled: false,
+          wordBoundaryEnabled: true,
           sentenceBoundaryEnabled: false,
         });
 
         const { audioStream, metadataStream } = tts.toStream(text, prosody);
-        if (metadataStream) {
-          metadataStream.resume(); // consume to prevent stream stall
-        }
+        const metadata: any[] = [];
+        metadataStream?.on('data', (chunk: Buffer) => {
+          try {
+            const packet = JSON.parse(chunk.toString('utf8'));
+            if (Array.isArray(packet.Metadata)) metadata.push(...packet.Metadata);
+          } catch { /* Missing/malformed boundaries use explicitly estimated alignment. */ }
+        });
+        metadataStream?.on('error', () => {});
 
         const audioChunks: Buffer[] = [];
 
@@ -323,6 +331,7 @@ export class AiStudioTtsService {
 
           audioStream.on('data', (chunk: Buffer) => audioChunks.push(chunk));
           audioStream.on('error', (err) => {
+            signal?.removeEventListener('abort', abortHandler);
             clearTimeout(timeoutTimer);
             try {
               tts.close();
@@ -330,6 +339,7 @@ export class AiStudioTtsService {
             reject(err);
           });
           audioStream.on('end', () => {
+            signal?.removeEventListener('abort', abortHandler);
             clearTimeout(timeoutTimer);
             try {
               tts.close();
@@ -344,6 +354,7 @@ export class AiStudioTtsService {
         }
 
         fs.writeFileSync(outputPath, audioBuffer);
+        onMetadata?.(metadata);
         return audioBuffer;
       } catch (err: any) {
         lastError = err;
@@ -401,6 +412,8 @@ export class AiStudioTtsService {
 
       const lineAudioPaths: string[] = [];
       const allWordTimestamps: WordTimestamp[] = [];
+      const allMetadata: any[] = [];
+      let boundaryLines = 0;
       let currentMs = 0;
 
       for (let i = 0; i < textOrLines.length; i++) {
@@ -413,11 +426,12 @@ export class AiStudioTtsService {
         }
 
         const line = textOrLines[i];
-        const sanitizedLine = this.sanitizeTextForTts(line.text) || line.text.trim();
-        if (!sanitizedLine) continue;
+        const sanitizedLine = this.sanitizeTextForTts(line.text);
+        if (!sanitizedLine) throw new Error(`Dòng ${i + 1} không có nội dung đọc được.`);
 
         const lineAudioPath = path.join(voiceDir, `line_${line.index || i + 1}.mp3`);
-        await this.synthesizeSingleSpeechChunk(sanitizedLine, targetVoice, prosody, lineAudioPath, signal, provider);
+        let metadata: any[] = [];
+        await this.synthesizeSingleSpeechChunk(sanitizedLine, targetVoice, prosody, lineAudioPath, signal, provider, items => { metadata = items; });
 
         const durSec = await this.probeMediaDuration(lineAudioPath);
         const durMs = Math.round(durSec * 1000);
@@ -427,7 +441,9 @@ export class AiStudioTtsService {
         line.startMs = currentMs;
         line.endMs = currentMs + durMs;
 
-        const lineWords = this.calculateSyllabicAlignment(line.text, durMs);
+        const lineWords = this.extractWordTimestamps(metadata, sanitizedLine, durMs);
+        if (this.hasCompleteBoundaries(metadata, sanitizedLine, durMs)) boundaryLines++;
+        allMetadata.push(...metadata.map(item => ({ ...item, Data: { ...item.Data, Offset: Number(item.Data?.Offset || 0) + currentMs * 10000 } })));
         for (const wt of lineWords) {
           allWordTimestamps.push({
             word: wt.word,
@@ -448,8 +464,9 @@ export class AiStudioTtsService {
         audioPath: outputPath,
         durationMs: totalDurationMs,
         sizeBytes: fs.existsSync(outputPath) ? fs.statSync(outputPath).size : 0,
-        rawMetadata: [],
+        rawMetadata: allMetadata,
         wordTimestamps: allWordTimestamps,
+        alignmentSource: boundaryLines === textOrLines.length ? 'word_boundary' : boundaryLines ? 'mixed' : 'estimated_per_line',
       };
     }
 
@@ -461,7 +478,8 @@ export class AiStudioTtsService {
       throw new Error('Văn bản lồng tiếng không được để trống.');
     }
 
-    const sanitized = this.sanitizeTextForTts(rawFullText) || rawFullText;
+    const sanitized = this.sanitizeTextForTts(rawFullText);
+    if (!sanitized) throw new Error('Văn bản không có nội dung đọc được.');
 
     // If text is long (>= 220 chars for TikTok, >= 1000 chars for Edge), split into sentence chunks
     const chunkThreshold = provider === 'tiktok_tts' ? 220 : 1000;
@@ -481,23 +499,35 @@ export class AiStudioTtsService {
     }
 
     // Short text: Synthesize directly
-    await this.synthesizeSingleSpeechChunk(sanitized, targetVoice, prosody, outputPath, signal, provider);
+    let metadata: any[] = [];
+    await this.synthesizeSingleSpeechChunk(sanitized, targetVoice, prosody, outputPath, signal, provider, items => { metadata = items; });
     const durationSec = await this.probeMediaDuration(outputPath);
     const durationMs = Math.round(durationSec * 1000);
-    const wordTimestamps = this.calculateSyllabicAlignment(sanitized, durationMs);
+    const wordTimestamps = this.extractWordTimestamps(metadata, sanitized, durationMs);
 
     return {
       audioPath: outputPath,
       durationMs,
       sizeBytes: fs.existsSync(outputPath) ? fs.statSync(outputPath).size : 0,
-      rawMetadata: [],
+      rawMetadata: metadata,
       wordTimestamps,
+      alignmentSource: this.hasCompleteBoundaries(metadata, sanitized, durationMs) ? 'word_boundary' : 'estimated_per_line',
     };
   }
 
   // ==========================================================================
   // Stage 4: Word-Boundary Alignment Extraction
   // ==========================================================================
+  private hasCompleteBoundaries(metadata: any[], text: string, durationMs: number): boolean {
+    const key = (value: string) => value.toLocaleLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+    const boundaries = metadata.filter(item => item?.Type === 'WordBoundary' && item.Data);
+    return boundaries.length > 0 && boundaries.every(item => {
+      const start = Number(item.Data.Offset) / 10000;
+      const duration = Number(item.Data.Duration) / 10000;
+      return typeof item.Data.text?.Text === 'string' && Number.isFinite(start) && Number.isFinite(duration) && start >= 0 && start < durationMs && duration > 0;
+    }) && key(boundaries.map(item => item.Data.text.Text).join(' ')) === key(text);
+  }
+
   public extractWordTimestamps(
     rawMetadata: any[],
     fullText: string,
@@ -505,7 +535,7 @@ export class AiStudioTtsService {
   ): WordTimestamp[] {
     const extracted: WordTimestamp[] = [];
 
-    if (Array.isArray(rawMetadata) && rawMetadata.length > 0) {
+    if (Array.isArray(rawMetadata) && this.hasCompleteBoundaries(rawMetadata, fullText, totalDurationMs)) {
       for (const item of rawMetadata) {
         if (item.Type === 'WordBoundary' && item.Data) {
           const offsetTicks = item.Data.Offset || 0;
@@ -514,8 +544,8 @@ export class AiStudioTtsService {
           // 1 tick = 100 ns = 0.0001 ms
           const startMs = Math.round(offsetTicks / 10000);
           const endMs = Math.round((offsetTicks + durationTicks) / 10000);
-          if (text && endMs > startMs) {
-            extracted.push({ word: text, startMs, endMs });
+          if (text && Number.isFinite(startMs) && Number.isFinite(endMs) && startMs >= 0 && endMs > startMs && startMs < totalDurationMs) {
+            extracted.push({ word: text, startMs, endMs: Math.min(endMs, totalDurationMs) });
           }
         }
       }
@@ -526,47 +556,52 @@ export class AiStudioTtsService {
       return this.calculateSyllabicAlignment(fullText, totalDurationMs);
     }
 
-    return extracted;
+    return extracted.sort((a, b) => a.startMs - b.startMs);
   }
 
   public extractAlignment(
     rawMetadata: any[],
     scriptText: string,
     scriptLines: ScriptBeatLine[],
-    totalDurationMs: number
+    totalDurationMs: number,
+    existingWords?: WordTimestamp[]
   ): AlignmentResult {
-    const wordsAlignment = this.extractWordTimestamps(rawMetadata, scriptText, totalDurationMs);
     const alignedLines: ScriptBeatLine[] = JSON.parse(JSON.stringify(scriptLines));
-
-    const totalChars = alignedLines.reduce((sum, l) => sum + l.text.length, 0);
+    const measured = alignedLines.every(line => line.durationMs && line.durationMs > 0);
+    const weights = alignedLines.map(line => measured ? line.durationMs! : this.sanitizeTextForTts(line.text).length);
+    const sum = weights.reduce((a, b) => a + b, 0);
     let currentMs = 0;
 
     for (let i = 0; i < alignedLines.length; i++) {
       const line = alignedLines[i];
-      const lineDurationMs = (line.durationMs && line.durationMs > 0)
-        ? line.durationMs
-        : Math.max(
-            1500,
-            Math.round((line.text.length / Math.max(1, totalChars)) * totalDurationMs)
-          );
-
+      const lineDurationMs = i === alignedLines.length - 1 ? totalDurationMs - currentMs : Math.round(weights[i] / Math.max(1, sum) * totalDurationMs);
       line.startMs = currentMs;
       line.endMs = currentMs + lineDurationMs;
       line.durationMs = lineDurationMs;
       currentMs += lineDurationMs;
     }
 
+    const preserved = existingWords?.length && existingWords.every((word, index) =>
+      Number.isFinite(word.startMs) && Number.isFinite(word.endMs) && word.startMs >= 0 && word.endMs > word.startMs &&
+      word.startMs < totalDurationMs && word.endMs <= totalDurationMs + 100 && (!index || word.startMs >= existingWords[index - 1].startMs));
+    const wordsAlignment = preserved ? existingWords!.map(word => ({ ...word, endMs: Math.min(word.endMs, totalDurationMs) }))
+      : rawMetadata.length ? this.extractWordTimestamps(rawMetadata, this.sanitizeTextForTts(scriptText), totalDurationMs)
+      : alignedLines.flatMap(line => this.calculateSyllabicAlignment(this.sanitizeTextForTts(line.text), line.durationMs || 0)
+        .map(word => ({ ...word, startMs: word.startMs + (line.startMs || 0), endMs: word.endMs + (line.startMs || 0) })));
+
     return {
       wordsAlignment,
       alignedLines,
       totalDurationMs,
+      alignmentSource: this.hasCompleteBoundaries(rawMetadata, this.sanitizeTextForTts(scriptText), totalDurationMs) ? 'word_boundary' : 'estimated_per_line',
     };
   }
 
   public calculateSyllabicAlignment(text: string, totalDurationMs: number): WordTimestamp[] {
     const words = text.trim().split(/\s+/).filter(Boolean);
     if (words.length === 0) return [];
-    const safeDuration = Math.max(1000, totalDurationMs);
+    if (!Number.isFinite(totalDurationMs) || totalDurationMs <= 0) return [];
+    const safeDuration = totalDurationMs;
     const perWord = safeDuration / words.length;
 
     return words.map((w, idx) => ({

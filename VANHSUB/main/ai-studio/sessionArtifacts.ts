@@ -14,7 +14,7 @@ export function invalidateSessionArtifacts(session: PipelineSessionState, from: 
     artifacts.scriptLines = artifacts.scriptLines?.map(clearTiming);
   }
   if (from <= 2) { artifacts.scriptLines = undefined; artifacts.scriptEvaluation = undefined; }
-  if (from <= 4) artifacts.wordsAlignment = undefined;
+  if (from <= 4) { artifacts.wordsAlignment = undefined; artifacts.alignmentSource = undefined; }
   if (from <= 5) { artifacts.scenes = undefined; artifacts.storyboardSynthesis = undefined; }
   if (from <= 7) { artifacts.videoPath = undefined; artifacts.srtPath = undefined; }
   artifacts.metadata = undefined;

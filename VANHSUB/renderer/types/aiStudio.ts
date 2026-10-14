@@ -616,6 +616,7 @@ export interface PipelineSessionArtifacts {
   audioPath?: string;
   srtPath?: string;
   wordsAlignment?: WordTimestamp[];
+  alignmentSource?: 'word_boundary' | 'estimated_per_line' | 'mixed';
   scenes?: StoryboardScene[];
   storyboardSynthesis?: StoryboardSynthesis;
   mediaDir?: string;

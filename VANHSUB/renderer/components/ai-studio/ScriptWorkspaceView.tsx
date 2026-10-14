@@ -623,6 +623,14 @@ export default function ScriptWorkspaceView({
               </span>
               <span className="text-[11px] font-mono text-text-muted">
                 {stats.count} phân đoạn &bull; {stats.words} từ &bull; {stats.duration}
+                {session.artifacts?.wordsAlignment?.length ? (
+                  <span className="block mt-1 text-[10px] text-text-muted">
+                    {session.artifacts.alignmentSource === 'word_boundary' ? 'Mốc từ từ metadata TTS'
+                      : session.artifacts.alignmentSource === 'mixed' ? 'Mốc từ: metadata và ước lượng theo đoạn'
+                      : session.artifacts.alignmentSource === 'estimated_per_line' ? 'Mốc từ ước lượng theo thời lượng audio từng đoạn'
+                      : 'Mốc từ từ phiên bản cũ chưa xác định phương pháp; nên chạy lại alignment'}
+                  </span>
+                ) : null}
               </span>
             </div>
 

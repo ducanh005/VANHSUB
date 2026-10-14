@@ -97,3 +97,13 @@ Commit đợt 7: `330f51a` (đã push main).
 - Không dùng API key/baseURL của provider hiện hành để gọi API provider khác. Do settings chỉ có một bộ API credential, lựa chọn API chấm khác provider hiện hành báo thiếu cấu hình; web hoặc cùng API provider hoạt động theo cấu hình đã lưu.
 - IPC evaluate/refine dùng script/blueprint hiện hành trong session, trả canonical session và kiểm tra abort trước lưu. UI hiển thị lỗi chấm điểm. Không sinh điểm giả khi provider/JSON lỗi; auto-evaluation lỗi không chặn script đã tạo.
 - `tests/test_ai_studio_script_evaluation.ts`, refinement, session operations/config và TypeScript: kiểm tra bằng provider giả lập. Không chạy provider live hoặc nghiên cứu nguồn bên ngoài. Chức năng research/fact-check vẫn còn cần xử lý riêng; không coi điểm LLM là kiểm chứng dữ kiện.
+
+Commit đợt 8: `b0d36ca` (đã push main).
+
+## Đợt 9 — Giữ timing TTS theo đoạn và lấy word boundary (AS-07)
+
+- Edge TTS bật wordBoundary, đọc metadata stream theo cấu trúc SDK đang cài; gom offset đúng vị trí từng dòng. Metadata thiếu/sai/không bao phủ đầy đủ lời đã đọc chuyển sang ước lượng theo chính thời lượng audio của dòng đó.
+- Stage 4 giữ word timestamps đã lưu ở stage 3, kể cả khi mở lại app; không chia đều lại toàn video. Khi không có metadata, dùng duration từng dòng, bỏ ép audio ngắn thành tối thiểu 1 giây/ép dòng thành tối thiểu 1,5 giây.
+- Timing chỉ dùng văn bản đã sanitize để đọc; chặn dòng chỉ chứa emoji/ký hiệu. Lưu và hiển thị nguồn timing: metadata, ước lượng theo đoạn, hoặc hỗn hợp; legacy chưa có nguồn được đánh dấu rõ.
+- `tests/test_ai_studio_tts_alignment.ts`: pass với metadata/provider/audio probe giả lập; kiểm tra audio 400ms, hai dòng 600ms/5400ms, metadata thiếu, loại emoji, timeline không vượt audio và stage 4 không ghi đè mốc từ. Snapshot/invalidation regression và TypeScript: pass.
+- Chưa đo word boundary qua Edge/TikTok live hoặc nghiệm thu karaoke trực quan; ước lượng vẫn có sai số trong nội bộ từng dòng khi provider không có metadata.

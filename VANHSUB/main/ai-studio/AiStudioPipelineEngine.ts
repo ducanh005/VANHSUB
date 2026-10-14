@@ -758,6 +758,7 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
             signal.throwIfAborted();
             session.artifacts.audioPath = ttsResult.audioPath;
             session.artifacts.scriptLines = scriptLines;
+            session.artifacts.alignmentSource = ttsResult.alignmentSource;
             if (ttsResult.wordTimestamps && ttsResult.wordTimestamps.length > 0) {
               session.artifacts.wordsAlignment = ttsResult.wordTimestamps;
             }
@@ -806,9 +807,11 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
               rawMetadata,
               fullText,
               session.artifacts.scriptLines || [],
-              totalDurationMs
+              totalDurationMs,
+              session.artifacts.wordsAlignment
             );
             session.artifacts.wordsAlignment = alignResult.wordsAlignment;
+            session.artifacts.alignmentSource ||= alignResult.alignmentSource;
             session.artifacts.scriptLines = alignResult.alignedLines;
 
             // Probe timing if 02_voice exists
