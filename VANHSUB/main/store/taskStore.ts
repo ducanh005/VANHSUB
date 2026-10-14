@@ -42,6 +42,8 @@ export interface Task {
   outputPath?: string;
   /** Last successful dub, kept separately from subsequent subtitle exports. */
   dubbedVideoPath?: string;
+  /** Subtitle/original-audio time scale belonging to dubbedVideoPath. */
+  dubbedVideoStretchFactor?: number;
   /** Thư mục dự án gom toàn bộ file liên quan đến video này (sub, audio, export) */
   projectDir?: string;
   errorMessage?: string;
@@ -142,6 +144,7 @@ export const TaskStore = {
       audioPath: input.audioPath,
       outputPath: input.outputPath,
       dubbedVideoPath: input.dubbedVideoPath,
+      dubbedVideoStretchFactor: input.dubbedVideoStretchFactor,
       projectDir: input.projectDir,
       errorMessage: input.errorMessage,
       ttsVoice: input.ttsVoice,
@@ -168,7 +171,9 @@ export const TaskStore = {
       ...updates,
       // Existing ASR/OCR/translation resets invalidate all rendered outputs.
       ...(Object.prototype.hasOwnProperty.call(updates, 'outputPath') && updates.outputPath === undefined
-        ? { dubbedVideoPath: undefined } : {}),
+        ? { dubbedVideoPath: undefined, dubbedVideoStretchFactor: undefined } : {}),
+      ...(Object.prototype.hasOwnProperty.call(updates, 'dubbedVideoPath') && updates.dubbedVideoPath === undefined
+        ? { dubbedVideoStretchFactor: undefined } : {}),
       updatedAt: new Date().toISOString(),
     };
 

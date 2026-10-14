@@ -24,6 +24,7 @@ export interface Task {
   audioPath?: string;
   outputPath?: string;
   dubbedVideoPath?: string;
+  dubbedVideoStretchFactor?: number;
   /** Thư mục dự án gom toàn bộ file liên quan đến video này */
   projectDir?: string;
   errorMessage?: string;

@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import type ffmpeg from 'fluent-ffmpeg';
-import { parseSrt } from '../lib/srt';
+import { parseSrt, parseSrtStrict, serializeSrt, scaleSrtLines } from '../lib/srt';
 import { TaskStore, type Task } from '../store/taskStore';
 import { nextAvailablePath } from '../lib/paths';
 import { getOrCreateProjectDir } from '../utils/projectFolder';
@@ -198,6 +198,7 @@ export class ExportRunner {
     const source = advancedOptions?.videoSource || 'auto';
     const useDubbed = source === 'dubbed' || (source === 'auto' && !!task.dubbedVideoPath);
     const videoPath = useDubbed ? task.dubbedVideoPath : task.filePath;
+    const subtitleTimeScale = useDubbed ? task.dubbedVideoStretchFactor ?? 1 : 1;
     const videoBase = path.parse(task.filePath).name;
     // Lưu vào thư mục dự án riêng của video
     const projectDir = getOrCreateProjectDir(task);
@@ -210,6 +211,7 @@ export class ExportRunner {
 
     let finalSubPath = rawSrtPath;
     let tempAssFile: string | null = null;
+    let tempScaledSrtFile: string | null = null;
 
     try {
       if (!videoPath || !fs.existsSync(videoPath)) {
@@ -234,6 +236,16 @@ export class ExportRunner {
         stageDescription: `Đang khởi tạo xuất video (${mode === 'hardsub' ? 'Hardsub' : 'Softsub'})...`,
       });
       onUpdate?.();
+
+      if (!Number.isFinite(subtitleTimeScale) || subtitleTimeScale < 1 || subtitleTimeScale > 1.25) {
+        throw new Error('Hệ số giãn của video lồng tiếng không hợp lệ. Hãy ghép lồng tiếng lại.');
+      }
+      if (subtitleTimeScale > 1) {
+        const lines = scaleSrtLines(parseSrtStrict(fs.readFileSync(rawSrtPath, 'utf-8')), subtitleTimeScale);
+        tempScaledSrtFile = path.join(os.tmpdir(), `vanhsub_export_scaled_${Date.now()}.srt`);
+        fs.writeFileSync(tempScaledSrtFile, serializeSrt(lines), 'utf-8');
+        finalSubPath = tempScaledSrtFile;
+      }
 
       if (mode === 'hardsub') {
         const hasPerLine = advancedOptions?.perLineStyles && Object.keys(advancedOptions.perLineStyles).length > 0;
@@ -268,7 +280,7 @@ export class ExportRunner {
             targetHeight = 1080;
           }
 
-          const srtContent = fs.readFileSync(rawSrtPath, 'utf-8');
+          const srtContent = fs.readFileSync(finalSubPath, 'utf-8');
           const parsedLines = parseSrt(srtContent);
           const items = parsedLines.map((line, idx) => ({
             id: line.id,
@@ -307,7 +319,7 @@ export class ExportRunner {
             const secSrtPath = rawSrtPath === task.translatedSrtPath ? task.srtPath! : task.translatedSrtPath!;
             if (fs.existsSync(secSrtPath)) {
               const secContent = fs.readFileSync(secSrtPath, 'utf-8');
-              const secParsed = parseSrt(secContent);
+              const secParsed = scaleSrtLines(parseSrt(secContent), subtitleTimeScale);
               secondaryItems = secParsed.map((line) => ({
                 id: line.id,
                 startMs: line.startMs,
@@ -427,7 +439,7 @@ export class ExportRunner {
 
         await muxSoftsub({
           videoPath,
-          srtPath: rawSrtPath,
+          srtPath: finalSubPath,
           outputPath,
           onCommandCreated: (command) => {
             this.runningCommands.set(taskId, command);
@@ -522,6 +534,9 @@ export class ExportRunner {
       onUpdate?.();
       return updated;
     } finally {
+      if (tempScaledSrtFile) {
+        try { fs.unlinkSync(tempScaledSrtFile); } catch {}
+      }
       if (tempAssFile && fs.existsSync(tempAssFile)) {
         try {
           fs.unlinkSync(tempAssFile);

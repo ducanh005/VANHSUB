@@ -25,7 +25,7 @@ import type {
   KineticPreset,
   KineticConfig,
 } from '../types/electron';
-import { parseSrt, type SrtLine } from '../lib/srt';
+import { parseSrt, scaleSrtLines, type SrtLine } from '../lib/srt';
 import { SubtitlesStyleEditor } from './export/SubtitlesStyleEditor';
 import { OverlayMaskEditor } from './export/OverlayMaskEditor';
 import { VideoPreviewCanvas } from './export/VideoPreviewCanvas';
@@ -295,6 +295,8 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
     : videoSource === 'dubbed'
       ? selectedTask?.dubbedVideoPath
       : selectedTask?.dubbedVideoPath || selectedTask?.filePath;
+  const subtitleTimeScale = selectedTask?.dubbedVideoPath && sourceVideoPath === selectedTask.dubbedVideoPath
+    ? selectedTask.dubbedVideoStretchFactor ?? 1 : 1;
 
   useEffect(() => { setVideoSource('auto'); }, [selectedTaskId]);
 
@@ -318,7 +320,7 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
       .readSrt(mainSrtPath)
       .then((content) => {
         if (!canceled && content) {
-          setSrtLines(parseSrt(content));
+          setSrtLines(scaleSrtLines(parseSrt(content), subtitleTimeScale));
         }
       })
       .catch(() => {
@@ -334,7 +336,7 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
         .readSrt(secSrtPath)
         .then((content) => {
           if (!canceled && content) {
-            setSecondarySrtLines(parseSrt(content));
+            setSecondarySrtLines(scaleSrtLines(parseSrt(content), subtitleTimeScale));
           }
         })
         .catch(() => {
@@ -347,7 +349,7 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
     return () => {
       canceled = true;
     };
-  }, [selectedTaskId, selectedTask?.translatedSrtPath, selectedTask?.srtPath]);
+  }, [selectedTaskId, selectedTask?.translatedSrtPath, selectedTask?.srtPath, subtitleTimeScale]);
 
   const handleUpdateLineStyle = (lineIndex: number, lineStyle: PerLineSubtitleStyle | null) => {
     setPerLineStyles((prev) => {

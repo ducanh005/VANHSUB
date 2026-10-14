@@ -4,7 +4,8 @@ import os from 'os';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import ffmpeg from 'fluent-ffmpeg';
-import { parseSrt, parseSrtStrict, serializeSrt, formatMs, type SrtLine } from '../lib/srt';
+import { parseSrtStrict, serializeSrt, formatMs, scaleSrtLines } from '../lib/srt';
+export { scaleSrtLines } from '../lib/srt';
 import { getFfmpegBinPath, getMediaDurationSec, extractFullQualityAudio } from '../asr/audioExtractor';
 import { separateVocals } from '../audio/vocalSeparation';
 import { groupSubtitlesForTts, type SubtitleLine } from './ttsEngine';
@@ -82,26 +83,14 @@ export type SyncMode = 'strict' | 'flexible' | 'video-stretch';
 
 /** Any real overrun must be stretched; otherwise the fixed-length chunk cuts speech. */
 const TEMPO_THRESHOLD = 1.0;
-/** Tăng tốc tối đa trước khi cắt bớt audio */
+/** Maximum compression; larger overruns fail instead of cutting speech. */
 const MAX_TEMPO = 1.5;
 /** Hệ số kéo giãn video tối đa (quá làm video chậm khó chịu) */
 const MAX_STRETCH_FACTOR = 1.25;
-/** Đuôi thêm sau mỗi câu trước khi sang câu kế */
-
-/**
- * Kéo giãn toàn bộ timestamp SRT theo hệ số (hàm thuần — dùng cho video-stretch)
- */
-export function scaleSrtLines(lines: SrtLine[], factor: number): SrtLine[] {
-  return lines.map((l) => ({
-    ...l,
-    startMs: Math.round(l.startMs * factor),
-    endMs: Math.round(l.endMs * factor),
-  }));
-}
 
 /**
  * Tính hệ số kéo giãn video tối thiểu để câu nào cũng đủ chỗ chứa audio
- * (ở tốc độ đọc tự nhiên). Xét từng câu: slot = từ start câu này tới start câu kế.
+ * (ở tốc độ đọc tự nhiên), dùng cùng nhóm câu và khung thoại như bước ghép audio.
  * Trả về 1 nếu audio đã vừa (không cần giãn).
  */
 export async function computeVideoStretchFactor(
@@ -110,35 +99,32 @@ export async function computeVideoStretchFactor(
   cache?: DurationCache,
 ): Promise<number> {
   const subtitles = parseSrtFile(srtPath);
+  const groups = buildAudioGroups(subtitles, ttsAudioDir, loadAudioManifest(ttsAudioDir));
   const durations = new Map<number, number>();
   const durationCache = cache ?? new Map<string, number>();
 
   // Probe duration các file audio song song theo lô 8 để không nghẽn đĩa/CPU
-  for (let base = 0; base < subtitles.length; base += 8) {
-    const batch = subtitles.slice(base, base + 8);
+  for (let base = 0; base < groups.length; base += 8) {
+    const batch = groups.slice(base, base + 8);
     await Promise.all(
-      batch.map(async (sub) => {
-        const audioFile = path.join(ttsAudioDir, `subtitle_${String(sub.index).padStart(4, '0')}.mp3`);
-        if (!fs.existsSync(audioFile)) return;
-        durations.set(sub.index, await probeAudioDurationSec(audioFile, durationCache));
+      batch.map(async (group) => {
+        durations.set(group.startIndex, await probeAudioDurationSec(group.audioFile, durationCache));
       })
     );
   }
 
   let maxFactor = 1;
-  for (let i = 0; i < subtitles.length; i++) {
-    const sub = subtitles[i];
-    const next = subtitles[i + 1];
-    const slotSec = Math.max(((next ? next.startMs : sub.endMs) - sub.startMs) / 1000, 0.2);
-    const audioDur = durations.get(sub.index);
+  for (const group of groups) {
+    const slotSec = (group.endMs - group.startMs) / 1000;
+    if (!(slotSec > 0)) throw new Error(`Invalid dialogue duration at subtitle ${group.startIndex}`);
+    const audioDur = durations.get(group.startIndex);
     if (!audioDur) continue;
-    // Cho phép tràn nhẹ 5% như ngưỡng atempo hiện hành, tránh giãn oan
     const factor = audioDur / slotSec / TEMPO_THRESHOLD;
     if (factor > maxFactor) maxFactor = factor;
   }
 
   if (maxFactor <= 1) return 1;
-  return Math.min(MAX_STRETCH_FACTOR, Math.round(maxFactor * 100) / 100);
+  return Math.min(MAX_STRETCH_FACTOR, Math.ceil(maxFactor * 100) / 100);
 }
 
 /**
@@ -277,6 +263,14 @@ function buildAudioGroups(
   }));
 }
 
+function loadAudioManifest(ttsAudioDir: string): Record<string, any> {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(ttsAudioDir, 'manifest.json'), 'utf-8')) || {};
+  } catch {
+    return {};
+  }
+}
+
 export async function mergeAudioFiles(
   srtPath: string,
   ttsAudioDir: string,
@@ -293,15 +287,7 @@ export async function mergeAudioFiles(
   }
 
   // Đọc manifest.json nếu có để nhận diện SentenceGroup
-  let manifest: Record<string, any> = {};
-  try {
-    const manifestPath = path.join(ttsAudioDir, 'manifest.json');
-    if (fs.existsSync(manifestPath)) {
-      manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
-    }
-  } catch {
-    // Không có manifest hoặc hỏng — fallback sang groupSubtitlesForTts
-  }
+  const manifest = loadAudioManifest(ttsAudioDir);
 
   const groups = buildAudioGroups(subtitles, ttsAudioDir, manifest);
   for (const group of groups) {
@@ -468,6 +454,7 @@ export async function muxAudioToVideo(
     onProgress?.(10);
 
     const videoDurationSec = await getMediaDurationSec(videoPath);
+    const outputDurationSec = videoDurationSec * (stretchFactor || 1);
 
     await new Promise<void>((resolve, reject) => {
       const command = ffmpeg(videoPath).input(audioPath);
@@ -488,18 +475,23 @@ export async function muxAudioToVideo(
         // Bilingual: giữ audio gốc + thêm track lồng tiếng
         outputOptions.push(
           '-c:a', 'aac',
-          '-map', '0:a:0',
+          '-map', needReencode ? '[original_audio]' : '0:a:0',
           '-map', '1:a:0',
           '-disposition:a:0', 'default',
           '-disposition:a:1', 'dub',
         );
+        if (needReencode) {
+          outputOptions.push('-filter_complex', `[0:a:0]atempo=${1 / stretchFactor}[original_audio]`);
+        }
       } else if (mixOriginal) {
         // Mix: nhạc nền/SFX gốc nhỏ lại (0.22) dưới lời thoại lồng tiếng
         outputOptions.push(
           '-c:a', 'aac',
           '-b:a', '192k',
           '-filter_complex',
-          '[0:a]volume=0.22[bg];[bg][1:a]amix=inputs=2:duration=longest:normalize=0,alimiter=limit=0.97[aout]',
+          // Bundled FFmpeg has no amix normalize option. Pad both inputs to keep
+          // its 1/2 normalization constant, compensate, then bound the output.
+          `[0:a:0]${needReencode ? `atempo=${1 / stretchFactor},` : ''}volume=0.22,apad[bg];[1:a]apad[tts];[bg][tts]amix=inputs=2:duration=longest:dropout_transition=0,volume=2,atrim=duration=${outputDurationSec},alimiter=limit=0.97[aout]`,
           '-map', '[aout]',
         );
       } else {
@@ -511,8 +503,8 @@ export async function muxAudioToVideo(
       // -shortest sẽ cắt mất toàn bộ video phía sau đó (credit, outro...).
       // Giới hạn output bằng -t theo thời lượng video; nếu không đọc được
       // thời lượng thì bỏ qua — lệch tối đa 0.5s đuôi audio là vô hại.
-      if (!flexible && !needReencode && videoDurationSec > 0) {
-        outputOptions.push('-t', videoDurationSec.toFixed(3));
+      if (!flexible && videoDurationSec > 0) {
+        outputOptions.push('-t', outputDurationSec.toFixed(3));
       }
 
       if (videoFilters) command.videoFilters(videoFilters);
@@ -596,7 +588,7 @@ export async function dubVideo(
       stretchFactor = await computeVideoStretchFactor(srtPath, ttsAudioDir);
       if (stretchFactor > 1.001) {
         console.log(`[Dubbing] Video-stretch: giãn video ${stretchFactor}x để vừa audio`);
-        const scaled = scaleSrtLines(parseSrt(srtPath), stretchFactor);
+        const scaled = scaleSrtLines(parseSrtStrict(fs.readFileSync(srtPath, 'utf-8')), stretchFactor);
         if (scaled.length > 0) {
           scaledSrtPath = path.join(os.tmpdir(), `vanhsub_scaled_${Date.now()}.srt`);
           fs.writeFileSync(scaledSrtPath, serializeSrt(scaled), 'utf-8');
@@ -650,7 +642,7 @@ export async function dubVideo(
         '-i', audioPath,
         '-i', backgroundAudioPath,
         '-filter_complex',
-        '[0:a]volume=1.0[tts];[1:a]volume=1.0[bg];[tts][bg]amix=inputs=2:duration=longest:normalize=0[aout]',
+        `[0:a]apad[tts];[1:a]${stretchFactor > 1.001 ? `atempo=${1 / stretchFactor},` : ''}apad[bg];[tts][bg]amix=inputs=2:duration=longest:dropout_transition=0,volume=2,atrim=duration=${sourceDurationSec * stretchFactor}[aout]`,
         '-map', '[aout]',
         '-c:a', 'aac', '-b:a', '192k',
         '-y', mixedAudioPath,
@@ -703,7 +695,10 @@ export async function dubVideo(
       // bỏ qua
     }
     try {
-      if (scaledSrtPath && fs.existsSync(scaledSrtPath)) fs.unlinkSync(scaledSrtPath);
+      if (scaledSrtPath) {
+        fs.rmSync(scaledSrtPath, { force: true });
+        fs.rmSync(scaledSrtPath.replace(/\.srt$/i, '.timeline.json'), { force: true });
+      }
     } catch {
       // bỏ qua
     }

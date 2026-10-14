@@ -168,6 +168,7 @@ export class DubbingRunner {
         progress: 100,
         outputPath: finalPath,
         dubbedVideoPath: finalPath,
+        dubbedVideoStretchFactor: stretchFactor,
         projectDir,
         // Ghi đè báo cáo câu tràn của lần dubbing này (rỗng = không có câu nào tràn)
         ttsOverruns: overruns,

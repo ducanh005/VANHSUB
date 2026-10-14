@@ -29,6 +29,22 @@ export interface SrtLine {
   evidenceConfidence?: { asr?: number; ocr?: number };
 }
 
+/** Scale subtitle timing for a video whose entire timeline has been stretched. */
+export function scaleSrtLines(lines: SrtLine[], factor: number): SrtLine[] {
+  if (!Number.isFinite(factor) || factor <= 0) throw new Error('Invalid subtitle time scale');
+  const scale = (value: number) => Math.round(value * factor);
+  return lines.map((line) => ({
+    ...line,
+    startMs: scale(line.startMs),
+    endMs: scale(line.endMs),
+    ...(line.words ? { words: line.words.map((word) => ({ ...word, startMs: scale(word.startMs), endMs: scale(word.endMs) })) } : {}),
+    ...(line.speechStartMs !== undefined ? { speechStartMs: scale(line.speechStartMs) } : {}),
+    ...(line.speechEndMs !== undefined ? { speechEndMs: scale(line.speechEndMs) } : {}),
+    ...(line.displayStartMs !== undefined ? { displayStartMs: scale(line.displayStartMs) } : {}),
+    ...(line.displayEndMs !== undefined ? { displayEndMs: scale(line.displayEndMs) } : {}),
+  }));
+}
+
 const SRT_TIME_RE = /^(\d{1,3}):(\d{1,2}):(\d{1,2})[,.](\d{1,3})$/;
 const SRT_TIME_RE_SHORT = /^(\d{1,3}):(\d{1,2})[,.](\d{1,3})$/;
 const SRT_TIME_RE_SECONDS = /^(\d+)(?:[.,](\d{1,3}))?$/;
