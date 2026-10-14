@@ -30,6 +30,7 @@ export type SettingKey =
   | 'vietTtsEndpoint'
   | 'ttsVoice'
   | 'ttsSpeed'
+  | 'ttsAllowShortening'
   | 'ocrLanguage'
   | 'ocrFps'
   | 'ocrRegion'

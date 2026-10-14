@@ -466,6 +466,7 @@ export async function generateTtsFromSrt(
       const isCacheHit =
         manifestEntry &&
         !manifestEntry.isGroupMember &&
+        (SettingsStore.get('ttsAllowShortening') || !manifestEntry.spokenText || manifestEntry.spokenText === group.text) &&
         !group.subtitles.some((sub) => options?.forceLineIndices?.includes(sub.index)) &&
         (manifestEntry.engine || 'viettts') === group.engine &&
         manifestEntry.voice === group.voice &&
@@ -490,7 +491,7 @@ export async function generateTtsFromSrt(
           const result = await adaptTtsDuration({
             text: group.text, speed: group.speed, slotMs, maxTempo,
             supportsRate: group.engine !== 'tiktok',
-            shorten: SettingsStore.hasGeminiKey() ? async (text, ratio) => {
+            shorten: SettingsStore.get('ttsAllowShortening') && SettingsStore.hasGeminiKey() ? async (text, ratio) => {
               try { return await shortenForSpeech(text, ratio); }
               catch (err) { console.warn('[TTS] Shortening unavailable:', err); return null; }
             } : undefined,

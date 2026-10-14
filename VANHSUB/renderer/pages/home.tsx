@@ -230,6 +230,17 @@ export default function HomePage() {
   }, [loadTasks]);
 
   useEffect(() => {
+    if (typeof window === 'undefined' || !window.vanhsub?.settings?.onChange) return;
+    let mounted = true;
+    const unsubscribe = window.vanhsub.settings.onChange((key) => {
+      if (key === 'asrModel') window.vanhsub.settings.get(key).then((value) => {
+        if (mounted) setAsrModel(String(value || 'base'));
+      }).catch(() => {});
+    });
+    return () => { mounted = false; unsubscribe(); };
+  }, []);
+
+  useEffect(() => {
     if (activeDownload?.completedTask) {
       loadTasks();
     }

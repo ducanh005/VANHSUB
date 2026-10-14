@@ -146,6 +146,7 @@ export default function SettingsPage() {
   const [autoTranslateAfterAsr, setAutoTranslateAfterAsr] = useState(false);
   const [ttsVoice, setTtsVoice] = useState('BV074_streaming');
   const [ttsSpeed, setTtsSpeed] = useState(1.0);
+  const [ttsAllowShortening, setTtsAllowShortening] = useState(false);
   const [ocrLanguage, setOcrLanguage] = useState('vie');
   const [ocrFps, setOcrFps] = useState(2);
   const [ocrMode, setOcrMode] = useState<OcrMode>('auto');
@@ -244,8 +245,10 @@ export default function SettingsPage() {
       window.vanhsub.settings.get('ocrDualEngine'),
       window.vanhsub.settings.get('glossary'),
       window.vanhsub.settings.get('translationStyleGuide'),
+      window.vanhsub.settings.get('ttsAllowShortening'),
     ])
-      .then(([key, gModel, lang, aModel, expDir, batchSize, concurrency, autoTrans, voice, spd, oLang, oFps, oMode, oDual, glossaryVal, styleVal]) => {
+      .then(([key, gModel, lang, aModel, expDir, batchSize, concurrency, autoTrans, voice, spd, oLang, oFps, oMode, oDual, glossaryVal, styleVal, allowShortening]) => {
+        setTtsAllowShortening(Boolean(allowShortening));
         if (key) setApiKey(key);
         if (gModel) {
           setGeminiModel(gModel);
@@ -284,6 +287,7 @@ export default function SettingsPage() {
       asrModel: setAsrModel, exportDir: setExportDir, translateBatchSize: setTranslateBatchSize,
       translateConcurrency: setTranslateConcurrency, autoTranslateAfterAsr: setAutoTranslateAfterAsr,
       ttsVoice: setTtsVoice, ttsSpeed: setTtsSpeed, ocrLanguage: setOcrLanguage,
+      ttsAllowShortening: setTtsAllowShortening,
       ocrFps: setOcrFps, ocrMode: setOcrMode, ocrDualEngine: setOcrDualEngine,
       glossary: setGlossary, translationStyleGuide: setTranslationStyleGuide,
     };
@@ -328,6 +332,7 @@ export default function SettingsPage() {
         window.vanhsub.settings.set('autoTranslateAfterAsr', autoTranslateAfterAsr),
         window.vanhsub.settings.set('ttsVoice', ttsVoice),
         window.vanhsub.settings.set('ttsSpeed', Number(ttsSpeed) || 1.0),
+        window.vanhsub.settings.set('ttsAllowShortening', ttsAllowShortening),
         window.vanhsub.settings.set('ocrLanguage', ocrLanguage),
         window.vanhsub.settings.set('ocrFps', Math.min(5, Math.max(0.5, Number(ocrFps) || 2))),
         window.vanhsub.settings.set('ocrMode', ocrMode),
@@ -1206,6 +1211,16 @@ export default function SettingsPage() {
             </div>
           </div>
         </div>
+
+        <label className="flex items-start gap-2 rounded-lg border border-border bg-surface p-4 text-xs text-text">
+          <input type="checkbox" checked={ttsAllowShortening} onChange={(event) => {
+            setTtsAllowShortening(event.target.checked);
+            void autoSaveSetting('ttsAllowShortening', event.target.checked);
+          }} />
+          <span>Cho phép AI rút gọn lời đọc khi câu quá dài (cần API Key).
+            <span className="mt-1 block text-text-muted">Phụ đề giữ nguyên; lời đọc có thể khác câu chữ. Khi tắt, app chỉ điều chỉnh tốc độ và báo lỗi nếu vẫn không vừa khung.</span>
+          </span>
+        </label>
 
         {/* Khối 5: OCR — quét phụ đề cứng trong video */}
         <div className="flex flex-col gap-4 rounded-lg border border-border bg-surface p-5">

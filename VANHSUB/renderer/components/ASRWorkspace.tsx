@@ -67,6 +67,7 @@ export default function ASRWorkspace({ tasks, selectedTaskId: propSelectedTaskId
   const [fwStatus, setFwStatus] = useState<{ available: boolean; useCuda: boolean; reason?: string } | null>(null);
   const [srtContent, setSrtContent] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
+  const [loadingConfig, setLoadingConfig] = useState(false);
   const [message, setMessage] = useState('');
   const [isError, setIsError] = useState(false);
   const [isOcrModalOpen, setIsOcrModalOpen] = useState(false);
@@ -77,7 +78,7 @@ export default function ASRWorkspace({ tasks, selectedTaskId: propSelectedTaskId
   const isHybridRunning =
     (selectedTask?.status as string) === 'hybrid' ||
     Boolean(selectedTask?.stageDescription?.includes('[Hybrid]') && (isTranscribing || isOcrRunning));
-  const isBusy = isTranscribing || isOcrRunning || isHybridRunning || starting ||
+  const isBusy = isTranscribing || isOcrRunning || isHybridRunning || starting || loadingConfig ||
     ['translating', 'dubbing', 'exporting'].includes(selectedTask?.status || '');
   const isAudio = selectedTask ? isAudioFile(selectedTask.filePath) : false;
   const hasSrt = !!selectedTask?.srtPath;
@@ -103,12 +104,25 @@ export default function ASRWorkspace({ tasks, selectedTaskId: propSelectedTaskId
 
   // Đồng bộ model, engine và diarization khi đổi tác vụ
   useEffect(() => {
+    let cancelled = false;
+    setLoadingConfig(false);
     if (selectedTask) {
       setModel(selectedTask.asrModel || 'base');
       setAsrEngine(selectedTask.asrEngine || 'faster-whisper');
       setEnableDiarization(Boolean(selectedTask.enableDiarization));
-      if (selectedTask.speakerCount) setSpeakerCount(selectedTask.speakerCount);
+      setSpeakerCount(selectedTask.speakerCount || 2);
+      if ((!selectedTask.asrModel || !selectedTask.asrEngine || selectedTask.enableDiarization === undefined) && window.vanhsub?.settings) {
+        setLoadingConfig(true);
+        Promise.all((['asrModel', 'asrEngine', 'enableDiarization'] as const).map((key) => window.vanhsub.settings.get(key)))
+          .then(([defaultModel, defaultEngine, defaultDiarization]) => {
+            if (cancelled) return;
+            setModel(selectedTask.asrModel || defaultModel || 'base');
+            setAsrEngine(selectedTask.asrEngine || defaultEngine || 'faster-whisper');
+            setEnableDiarization(selectedTask.enableDiarization ?? Boolean(defaultDiarization));
+          }).catch(() => {}).finally(() => { if (!cancelled) setLoadingConfig(false); });
+      }
     }
+    return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedTask?.id]);
 

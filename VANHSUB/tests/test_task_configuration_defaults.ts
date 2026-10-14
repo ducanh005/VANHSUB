@@ -12,6 +12,9 @@ async function main() {
     const { SettingsStore } = await import('../main/store/settingsStore');
     const { TaskStore } = await import('../main/store/taskStore');
     assert.equal(SettingsStore.get('ttsVoice'), 'vi-VN-HoaiMyNeural');
+    assert.equal(SettingsStore.get('ttsAllowShortening'), false, 'Do not rewrite spoken text without explicit opt-in');
+    SettingsStore.set('ttsAllowShortening', true);
+    assert.equal(SettingsStore.get('ttsAllowShortening'), true);
     SettingsStore.set('asrModel', 'large-v3');
     SettingsStore.set('asrEngine', 'whisper-cpp');
     SettingsStore.set('enableDiarization', true);

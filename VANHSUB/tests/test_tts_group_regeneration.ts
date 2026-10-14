@@ -24,7 +24,7 @@ async function main() {
       calls.push({ text, voice, speed });
       const duration = (text.includes('Too long') ? 12 : text === 'Hello changed.' ? 2.6 : 0.4) / speed;
       const { stdout } = await promisify(execFile)(getFfmpegBinPath(), ['-v', 'error', '-f', 'lavfi',
-        '-i', `sine=frequency=${440 + (++generation % 3) * 110}:duration=${duration}`,
+        '-i', `sine=frequency=${440 + (++generation % 97) * 110}:duration=${duration}`,
         '-c:a', 'libmp3lame', '-f', 'mp3', 'pipe:1'], { encoding: 'buffer' });
       return { audio: stdout };
     };
@@ -40,6 +40,13 @@ async function main() {
     const manifest = () => JSON.parse(fs.readFileSync(path.join(audioDir, 'manifest.json'), 'utf8'));
     const previous = audio(1);
     const untouched = audio(3);
+    const shortenedCache = manifest();
+    shortenedCache['1'].spokenText = 'Shortened speech from an earlier run.';
+    fs.writeFileSync(path.join(audioDir, 'manifest.json'), JSON.stringify(shortenedCache));
+    calls.length = 0;
+    const restored = await TTSRunner.runTTS(task.id);
+    assert.equal(restored?.status, 'done', restored?.errorMessage);
+    assert.deepEqual(calls.map((c) => c.text), ['Hello world.'], 'Opting out must not reuse shortened spoken text');
     calls.length = 0;
     assert.equal((await TTSRunner.regenerateLine(task.id, 2)).ok, true);
     assert.deepEqual(calls.map((c) => c.text), ['Hello world.']);

@@ -520,7 +520,12 @@ ipcMain.handle('tasks:runPipeline', async (_event, id: string, opts?: { replaceA
 ipcMain.handle('tasks:runPipelineBatch', async (_event, ids: string[]) => {
   let enqueued = 0
   for (const id of ids || []) {
-    if (enqueuePipeline(id)) enqueued++
+    try {
+      if (enqueuePipeline(id)) enqueued++
+    } catch (error: any) {
+      TaskStore.update(id, { status: 'error', errorMessage: error?.message || String(error),
+        stageDescription: 'Không thể thêm vào hàng đợi' })
+    }
   }
   drainPipelines()
   console.log(`[Pipeline] Batch: nhận ${enqueued}/${ids?.length || 0} tác vụ vào hàng đợi`)
@@ -646,6 +651,7 @@ const SETTING_KEYS: Array<keyof AppSettings> = [
   'vietTtsEndpoint',
   'ttsVoice',
   'ttsSpeed',
+  'ttsAllowShortening',
   'ocrLanguage',
   'ocrFps',
   'ocrMode',
