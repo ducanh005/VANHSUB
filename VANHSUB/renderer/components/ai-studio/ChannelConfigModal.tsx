@@ -43,6 +43,7 @@ export default function ChannelConfigModal({
   onSaved,
 }: ChannelConfigModalProps) {
   const { config, updateChannelProfileConfig } = useAiStudioStore();
+  const profileVersion = JSON.stringify(config.channelProfile);
 
   // Local state for the modal
   const [profile, setProfile] = useState<ChannelProfileConfig>({
@@ -78,7 +79,7 @@ export default function ChannelConfigModal({
           .catch(() => setHasTikTokSession(false));
       }
     }
-  }, [isOpen, config.channelProfile]);
+  }, [isOpen, profileVersion]);
 
   if (!isOpen) return null;
 
@@ -240,7 +241,11 @@ Output NOTHING else. No analysis, no planning, no alternative titles, no word co
   const handleSave = async () => {
     setIsSaving(true);
     try {
-      await updateChannelProfileConfig(profile);
+      const saved = await updateChannelProfileConfig(profile);
+      if (!saved) {
+        alert(useAiStudioStore.getState().error || 'Không thể lưu cấu hình kênh. Vui lòng thử lại.');
+        return;
+      }
       onSaved?.(profile);
       onClose();
     } catch (err: any) {

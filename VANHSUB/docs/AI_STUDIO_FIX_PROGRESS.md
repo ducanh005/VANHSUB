@@ -30,3 +30,16 @@ Commit đợt 1: `e27fd6a` (đã push main).
 - TypeScript main/renderer và diff whitespace được kiểm tra trước commit.
 
 AS-12 còn phần preset phụ đề và các thông số transition/zoom; chưa coi toàn bộ AS-12 đã hoàn tất. Chưa nghiệm thu footage/giọng thật hoặc bản đóng gói.
+
+Commit đợt 2: `7d2d583` (đã push main).
+
+## Đợt 3 — Lưu đúng cấu hình kênh và kết quả lưu (AS-10, một phần AS-11)
+
+- Backend lưu chỉnh sửa channelProfile vào savedProjects của project active; đổi kênh hoặc mở lại store không mất avatar/mô tả/voice/master prompt. Checkpoint mang bản sao profile cũ không được ghi đè profile hiện hành.
+- Settings chỉ gửi các section người dùng sửa, không gửi cả project list/profile cũ. Form giữ section đang chỉnh khi có cập nhật tiến độ; các section chưa sửa vẫn nhận cấu hình mới. Edit phát sinh trong lúc save không bị đánh dấu đã lưu nhầm.
+- Settings/reset/modal kênh/setup/chuyển/xóa project kiểm tra boolean lưu thành công; lỗi giữ nguyên màn hình và hiển thị thông báo lỗi. Setup dùng một lần saveProject thay vì nhiều lần ghi cùng dữ liệu.
+- Modal kênh không reset draft chỉ vì response checkpoint tạo object profile mới có cùng nội dung.
+- `tests/test_ai_studio_channel_settings.ts`: pass; kiểm chứng qua renderer store nối backend thật trên thư mục tạm, A→B→A, restart, checkpoint profile cũ, bảo toàn draft và rollback lỗi ghi.
+- TypeScript main/renderer và diff whitespace: kiểm tra trước commit. Chưa nghiệm thu UI Electron trực quan.
+
+AS-11 còn việc tuần tự/version hóa toàn bộ request store và cập nhật checkpoint/project data đồng thời; đợt này không coi tất cả race condition đã xử lý. Snapshot cấu hình của tập (AS-02) vẫn thuộc đợt riêng.

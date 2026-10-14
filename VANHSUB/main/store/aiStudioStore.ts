@@ -349,6 +349,23 @@ export function updateAiStudioConfig(
     ...(nextFlowProjectUrl !== undefined ? { flowProjectUrl: nextFlowProjectUrl } : {}),
   };
 
+  // Progress checkpoints send project lists too; their older profile copies must not undo channel edits.
+  if (Array.isArray(partial.savedProjects) && !isPlainRecord(partial.channelProfile)) {
+    updated.savedProjects = (updated.savedProjects || []).map((project) => {
+      const existing = current.savedProjects?.find((p) => p.id === project.id);
+      return existing ? { ...project, channelProfile: existing.channelProfile } : project;
+    });
+  }
+
+  // Channel edits belong to the active project, not only to the global working copy.
+  if (isPlainRecord(partial.channelProfile) && updated.activeProjectId) {
+    updated.savedProjects = (updated.savedProjects || []).map((project) =>
+      project.id === updated.activeProjectId
+        ? { ...project, channelProfile: JSON.parse(JSON.stringify(updated.channelProfile)), updatedAt: Date.now() }
+        : project
+    );
+  }
+
   // Encrypt llm.apiKey if modified
   if (partial.llm && 'apiKey' in partial.llm && partial.llm.apiKey !== undefined) {
     if (typeof partial.llm.apiKey === 'string') {

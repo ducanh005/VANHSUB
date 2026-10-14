@@ -143,10 +143,6 @@ export default function ProjectSetupScreen({
 }: ProjectSetupScreenProps) {
   const {
     config,
-    updateLlmConfig,
-    updateFlowConfig,
-    updateConfig,
-    updateChannelProfileConfig,
     saveProject,
     deleteProject,
     switchProject,
@@ -336,13 +332,19 @@ export default function ProjectSetupScreen({
   };
 
   const handleQuickEnterProject = async (p: SavedProjectProfile) => {
-    await switchProject(p.id);
+    if (!await switchProject(p.id)) {
+      setValidationError(useAiStudioStore.getState().error || 'Không thể chuyển dự án. Vui lòng thử lại.');
+      return;
+    }
     onEnterStudio();
   };
 
   const handleDeleteProject = async (id: string, name: string) => {
     if (window.confirm(`Bạn có chắc muốn xóa dự án "${name}"?`)) {
-      await deleteProject(id);
+      if (!await deleteProject(id)) {
+        setValidationError(useAiStudioStore.getState().error || 'Không thể xóa dự án. Vui lòng thử lại.');
+        return;
+      }
       if (editingProjectId === id) {
         handleCreateNewProject();
       }
@@ -438,7 +440,7 @@ export default function ProjectSetupScreen({
         visualArtStylePreset: selectedStyleId,
       };
 
-      await saveProject({
+      const saved = await saveProject({
         id: newProjId,
         name: trimmedName,
         channelProfile: newChannelProfile,
@@ -452,21 +454,10 @@ export default function ProjectSetupScreen({
         updatedAt: Date.now(),
       });
 
-      if (selectedProvider) {
-        await updateLlmConfig({ provider: selectedProvider as any });
+      if (!saved) {
+        setValidationError(useAiStudioStore.getState().error || 'Không thể lưu dự án. Vui lòng thử lại.');
+        return;
       }
-      if (aspectRatio) {
-        await updateFlowConfig({ aspectRatio });
-      }
-      await updateChannelProfileConfig({
-        projectBackgroundPrompt: projectBackgroundPrompt.trim(),
-        visualArtStylePreset: selectedStyleId,
-        videoStyleId: selectedStyleId,
-      });
-      await updateConfig({
-        outputDir: trimmedOutputDir,
-        flowProjectUrl: flowProjectUrl.trim(),
-      });
 
       setIsCreatingNew(false);
       setEditingProjectId(newProjId);
@@ -490,7 +481,7 @@ export default function ProjectSetupScreen({
       visualArtStylePreset: selectedStyleId,
     };
 
-    await saveProject({
+    const saved = await saveProject({
       id: editingProjectId,
       name: trimmedName,
       channelProfile: updatedChannelProfile,
@@ -504,21 +495,10 @@ export default function ProjectSetupScreen({
       updatedAt: Date.now(),
     });
 
-    if (selectedProvider) {
-      await updateLlmConfig({ provider: selectedProvider as any });
+    if (!saved) {
+      setValidationError(useAiStudioStore.getState().error || 'Không thể lưu dự án. Vui lòng thử lại.');
+      return;
     }
-    if (aspectRatio) {
-      await updateFlowConfig({ aspectRatio });
-    }
-    await updateChannelProfileConfig({
-      projectBackgroundPrompt: projectBackgroundPrompt.trim(),
-      visualArtStylePreset: selectedStyleId,
-      videoStyleId: selectedStyleId,
-    });
-    await updateConfig({
-      outputDir: trimmedOutputDir,
-      flowProjectUrl: flowProjectUrl.trim(),
-    });
 
     onEnterStudio();
   };

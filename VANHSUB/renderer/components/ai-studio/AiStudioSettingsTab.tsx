@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Save,
   RotateCcw,
@@ -16,6 +16,7 @@ import {
   ExternalLink,
 } from 'lucide-react';
 import { useAiStudioStore } from '../../lib/store/aiStudioStore';
+import { mergeSettingsDraft, settingsDraftPatch, STUDIO_CONFIG_SECTIONS, type StudioConfigSection } from '../../lib/studioConfigDraft';
 import type {
   AiStudioConfig,
   LlmProviderType,
@@ -29,7 +30,15 @@ export default function AiStudioSettingsTab() {
   const { config, updateConfig, resetConfig, isLoading, isSaving } =
     useAiStudioStore();
 
-  const [form, setForm] = useState<AiStudioConfig>(config);
+  const [form, setFormState] = useState<AiStudioConfig>(config);
+  const dirtySections = useRef(new Map<StudioConfigSection, number>());
+  const editVersion = useRef(0);
+  const setForm = (next: AiStudioConfig) => {
+    for (const section of STUDIO_CONFIG_SECTIONS) {
+      if (next[section] !== form[section]) dirtySections.current.set(section, ++editVersion.current);
+    }
+    setFormState(next);
+  };
   const [showApiKey, setShowApiKey] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
 
@@ -211,14 +220,12 @@ export default function AiStudioSettingsTab() {
   };
 
   useEffect(() => {
-    setForm(config);
-    checkTikTokStatus();
-    if (config.llm.provider === 'chatgpt_web') {
-      checkChatGptStatus();
-    } else if (config.llm.provider === 'gemini_web') {
-      checkGeminiStatus();
-    }
+    setFormState((draft) => mergeSettingsDraft(draft, config, dirtySections.current.keys()));
   }, [config]);
+
+  useEffect(() => {
+    checkTikTokStatus();
+  }, []);
 
   useEffect(() => {
     if (form.llm.provider === 'chatgpt_web') {
@@ -230,7 +237,20 @@ export default function AiStudioSettingsTab() {
 
   const handleSave = async () => {
     try {
-      await updateConfig(form);
+      const submitted = new Map(dirtySections.current);
+      if (!submitted.size) {
+        setSaveMessage('Không có thay đổi cần lưu.');
+        return;
+      }
+      const saved = await updateConfig(settingsDraftPatch(form, submitted.keys()));
+      if (!saved) {
+        setSaveMessage(`Lỗi: ${useAiStudioStore.getState().error || 'Không thể lưu cấu hình.'}`);
+        return;
+      }
+      for (const [section, version] of submitted) {
+        if (dirtySections.current.get(section) === version) dirtySections.current.delete(section);
+      }
+      setFormState((draft) => mergeSettingsDraft(draft, useAiStudioStore.getState().config, dirtySections.current.keys()));
       setSaveMessage('Đã lưu cấu hình AI Studio thành công!');
       setTimeout(() => setSaveMessage(null), 3000);
     } catch (err: any) {
@@ -240,7 +260,13 @@ export default function AiStudioSettingsTab() {
 
   const handleReset = async () => {
     if (window.confirm('Bạn có chắc muốn khôi phục toàn bộ cấu hình AI Studio về mặc định?')) {
-      await resetConfig();
+      const reset = await resetConfig();
+      if (!reset) {
+        setSaveMessage(`Lỗi: ${useAiStudioStore.getState().error || 'Không thể khôi phục cấu hình.'}`);
+        return;
+      }
+      dirtySections.current.clear();
+      setFormState(useAiStudioStore.getState().config);
       setSaveMessage('Đã khôi phục cài đặt mặc định.');
       setTimeout(() => setSaveMessage(null), 3000);
     }
@@ -260,8 +286,8 @@ export default function AiStudioSettingsTab() {
         </div>
         <div className="flex items-center gap-3">
           {saveMessage && (
-            <span className="flex items-center gap-1.5 text-xs text-emerald-400 bg-emerald-500/10 px-3 py-1.5 rounded-lg border border-emerald-500/20">
-              <CheckCircle2 className="h-4 w-4" />
+            <span className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border ${saveMessage.startsWith('Lỗi:') ? 'text-rose-400 bg-rose-500/10 border-rose-500/20' : 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20'}`}>
+              {saveMessage.startsWith('Lỗi:') ? <AlertCircle className="h-4 w-4" /> : <CheckCircle2 className="h-4 w-4" />}
               {saveMessage}
             </span>
           )}
