@@ -314,6 +314,11 @@ export const PipelineTrackerPanel: React.FC<PipelineTrackerPanelProps> = ({
             )}
 
             {/* Overall Progress Bar */}
+            {session.configSnapshot && (
+              <p className="text-[11px] text-text-muted" title="Thông số được lưu riêng cho tập này. Đổi cấu hình chung chỉ áp dụng cho tập mới.">
+                Cấu hình tập: {session.configSnapshot.flowEngine.aspectRatio} · {session.configSnapshot.rendering.resolution} · {session.configSnapshot.rendering.fps} fps
+              </p>
+            )}
             <div className="h-1.5 w-full rounded-full bg-surface-2 overflow-hidden">
               <div
                 className="h-full bg-gradient-to-r from-orange-500 to-amber-400 rounded-full transition-all duration-500"

@@ -38,6 +38,7 @@ import { aiStudioTtsService } from './services/AiStudioTtsService';
 import { aiStudioVisualService } from './services/AiStudioVisualService';
 import { aiStudioVideoAssembler } from './services/AiStudioVideoAssembler';
 import { AiStudioDiskStorageManager } from './storage/AiStudioDiskStorageManager';
+import { captureSessionConfig, resolveProductionConfig, restoreSessionConfig } from './sessionConfig';
 import {
   assertSessionWorkspaceOwner,
   newSessionWorkspace,
@@ -251,6 +252,44 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
     }
   }
 
+  public async getSessionConfig(sessionId: string): Promise<AiStudioConfig> {
+    const session = await this.getState({ sessionId });
+    if (!session) throw new Error('Không tìm thấy phiên AI Studio.');
+    return this.resolveSessionConfig(session);
+  }
+
+  private resolveSessionConfig(session: PipelineSessionState): AiStudioConfig {
+    const current = getDecryptedAiStudioConfig();
+    let owner = current.savedProjects?.find((p) => p.id === session.ownerProjectId);
+    if (!session.configSnapshot && !session.ownerProjectId && session.outputDir) {
+      const canonical = (dir: string) => (fs.existsSync(dir) ? fs.realpathSync(dir) : path.resolve(dir)).toLowerCase();
+      const owners = (current.savedProjects || []).filter((p) => p.outputDir && canonical(p.outputDir) === canonical(session.outputDir!));
+      if (owners.length === 1) {
+        owner = owners[0];
+        session.ownerProjectId = owner.id;
+      }
+    }
+    if (!session.configSnapshot) {
+      // Legacy sessions have no historical global config; recover only from their verified owner.
+      if (!owner && current.activeProjectId) {
+        throw new Error('Phiên cũ chưa có cấu hình cố định và chưa xác định được dự án sở hữu. Hãy mở đúng dự án chứa phiên hoặc tạo tập mới.');
+      }
+      const base = owner ? { ...current, channelProfile: owner.channelProfile, flowEngine: {
+        ...current.flowEngine, ...owner.flowConfig,
+        projectId: extractFlowProjectId(owner.flowProjectUrl) || owner.flowConfig?.projectId,
+        projectName: owner.name,
+      } } : current;
+      session.flowProjectUrl ||= owner?.flowProjectUrl;
+      session.configSnapshot = captureSessionConfig(resolveProductionConfig(base, {}, session.artifacts.blueprint));
+      this.persistSessionStateAtomic(session);
+    }
+    return {
+      ...current, ...restoreSessionConfig(session.configSnapshot),
+      activeProjectId: session.ownerProjectId || '', outputDir: session.outputDir,
+      flowProjectUrl: session.flowProjectUrl,
+    };
+  }
+
   // ==========================================================================
   // Pipeline Cancellation
   // ==========================================================================
@@ -303,7 +342,7 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
     const gatedMode = payload.gatedMode !== false;
 
     // Hard-block check: outputDir bắt buộc phải có để tránh rò rỉ chéo dự án
-    const config: AiStudioConfig = getDecryptedAiStudioConfig();
+    const config = resolveProductionConfig(getDecryptedAiStudioConfig(), payload.options, payload.blueprint);
     const activeProject = config.savedProjects?.find((p) => p.id === config.activeProjectId);
     const resolvedOutputDir =
       payload.outputDir?.trim() ||
@@ -331,6 +370,7 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
       gatedMode,
       outputDir: resolvedOutputDir,
       ownerProjectId: activeProject?.id,
+      configSnapshot: captureSessionConfig(config),
       workspaceDir: newSessionWorkspace(resolvedOutputDir, sessionId),
       mediaDir: (config.channelProfile?.customMediaDir || config.flowEngine.downloadDir)
         ? newSessionWorkspace(config.channelProfile?.customMediaDir || config.flowEngine.downloadDir!, sessionId)
@@ -522,6 +562,19 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
       }
     }
 
+    if (payload.storyboardOptions) {
+      if (targetStage !== 5) throw new Error('Thay đổi cách phân cảnh phải chạy lại từ Bước 5.');
+      const { shotMode, granularity } = payload.storyboardOptions;
+      if ((shotMode && !['single', 'multi'].includes(shotMode)) ||
+          (granularity && !['detailed', 'balanced', 'fast'].includes(granularity))) {
+        throw new Error('Cấu hình phân cảnh không hợp lệ.');
+      }
+      const config = this.resolveSessionConfig(session);
+      session.configSnapshot = captureSessionConfig({ ...config, flowEngine: {
+        ...config.flowEngine, ...(shotMode ? { shotMode } : {}), ...(granularity ? { granularity } : {}),
+      } });
+    }
+
     // Upstream Preservation & Downstream Eviction:
     // Reset downstream stages from targetStage to 8
     for (let s = targetStage; s <= 8; s++) {
@@ -601,7 +654,7 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
       selectedShotIds?: string[];
     }
   ): Promise<void> {
-    const config: AiStudioConfig = getDecryptedAiStudioConfig();
+    const config = this.resolveSessionConfig(session);
     const activeProject = config.savedProjects?.find((p) => p.id === config.activeProjectId);
     const sessionDir = this.getSessionDir(session.sessionId);
     const effectiveOutputDir =
@@ -1862,11 +1915,11 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
     signal?: AbortSignal
   ): Promise<RegenerateSceneAssetResult> {
     if (payload.sessionId) {
-      const config = getDecryptedAiStudioConfig();
       const ownerSession = await this.getState({ sessionId: payload.sessionId });
       if (!ownerSession) throw new Error('Không tìm thấy phiên AI Studio để tạo lại media.');
       // Ownership failures must not be swallowed by the legacy provider fallback.
       const storage = this.getDiskStorageManager(payload.sessionId, ownerSession.mediaDir);
+      const config = this.resolveSessionConfig(ownerSession);
       try {
         const shotId = payload.sceneId;
         const sceneId = shotId.includes('_shot_') ? shotId.split('_shot_')[0] : shotId;
@@ -1889,6 +1942,7 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
         const effectivePayload: RegenerateSceneAssetPayload = {
           ...payload,
           flowConfig: {
+            ...config.flowEngine,
             ...payload.flowConfig,
             projectId: payload.flowConfig?.projectId || targetFlowProjectId || undefined,
           },
@@ -2265,7 +2319,7 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
       throw new Error(`Session assets không tìm thấy cho việc dựng lại video: ${payload.sessionId}`);
     }
 
-    const config = getDecryptedAiStudioConfig();
+    const config = this.resolveSessionConfig(session);
     const assetsDir = this.getSessionAssetsDir(session.sessionId);
     const outputPath = path.join(assetsDir, `final_video_${Date.now()}.mp4`);
 

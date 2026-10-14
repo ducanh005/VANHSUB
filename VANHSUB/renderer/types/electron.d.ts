@@ -459,6 +459,7 @@ export interface VanhsubAPI {
       fromStage?: number;
       mode?: 'resume_missing' | 'regenerate_selected' | 'regenerate_all';
       selectedShotIds?: string[];
+      storyboardOptions?: { shotMode?: 'single' | 'multi'; granularity?: 'detailed' | 'balanced' | 'fast' };
     }) => Promise<{ success: boolean }>;
     cancelPipeline: (payload: { sessionId: string }) => Promise<{ success: boolean }>;
     getPipelineState: (payload: { sessionId: string }) => Promise<PipelineSessionState | null>;

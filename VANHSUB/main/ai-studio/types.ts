@@ -671,6 +671,7 @@ export interface ScriptQualityAuditResult {
 
 export interface PipelineSessionState {
   sessionId: string;
+  configSnapshot?: AiStudioSessionConfig;
   topic: string;
   currentStage: AiStudioStageId;
   stageName: AiStudioStageName;
@@ -715,6 +716,8 @@ export interface PipelineSessionState {
   workspaceDir?: string;
   mediaDir?: string;
 }
+
+export type AiStudioSessionConfig = Pick<AiStudioConfig, 'llm' | 'voice' | 'flowEngine' | 'rendering' | 'subtitles' | 'channelProfile'>;
 
 export interface PipelineProgressPayload {
   sessionId: string;
@@ -776,6 +779,7 @@ export interface ResumePipelinePayload {
   fromStage?: number;
   mode?: 'resume_missing' | 'regenerate_selected' | 'regenerate_all';
   selectedShotIds?: string[];
+  storyboardOptions?: Pick<AiStudioFlowEngineConfig, 'shotMode' | 'granularity'>;
 }
 
 export interface ResumePipelineResult {

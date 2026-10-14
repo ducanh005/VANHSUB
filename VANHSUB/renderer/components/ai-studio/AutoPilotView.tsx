@@ -45,7 +45,6 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
   const {
     config,
     updateChannelProfileConfig,
-    updateFlowConfig,
     getActiveProject,
     saveActiveProjectData,
     switchProject,
@@ -688,19 +687,29 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
     }
   };
 
+  const refreshSessionConfig = async (sessionId: string) => {
+    try {
+      const latest = await window.vanhsub?.aiStudio?.getPipelineState({ sessionId });
+      if (latest?.configSnapshot) {
+        setSession((prev) => prev?.sessionId === sessionId ? { ...prev, configSnapshot: latest.configSnapshot } : prev);
+      }
+    } catch (err) {
+      console.warn('Không thể cập nhật cấu hình tập trên UI:', err);
+    }
+  };
+
   const handleRegenerateStoryboardOneToOne = async () => {
     if (!session?.sessionId || isRunning) return;
     showSceneNotice('Đang cập nhật chế độ 1:1 và tạo lại Storyboard từ Bước 5...');
     setIsRunning(true);
     try {
-      if (updateFlowConfig) {
-        await updateFlowConfig({ shotMode: 'single' });
-      }
       if (window.vanhsub?.aiStudio?.resumePipeline) {
         await window.vanhsub.aiStudio.resumePipeline({
           sessionId: session.sessionId,
           fromStage: 5,
+          storyboardOptions: { shotMode: 'single' },
         });
+        await refreshSessionConfig(session.sessionId);
       }
     } catch (err: any) {
       setIsRunning(false);
@@ -714,14 +723,13 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
     showSceneNotice(`Đang cập nhật mức "${names[newGranularity]}" và tái tạo Storyboard từ Bước 5...`);
     setIsRunning(true);
     try {
-      if (updateFlowConfig) {
-        await updateFlowConfig({ granularity: newGranularity });
-      }
       if (window.vanhsub?.aiStudio?.resumePipeline) {
         await window.vanhsub.aiStudio.resumePipeline({
           sessionId: session.sessionId,
           fromStage: 5,
+          storyboardOptions: { granularity: newGranularity },
         });
+        await refreshSessionConfig(session.sessionId);
       }
     } catch (err: any) {
       setIsRunning(false);
@@ -825,6 +833,7 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
         updatedAt: Date.now(),
       };
       setSession(initialSession);
+      void refreshSessionConfig(result.sessionId);
 
       void saveActiveProjectData({
         ideas: nextIdeas,
@@ -976,12 +985,13 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
   };
 
   const projectName = config.channelProfile?.projectName || 'Chưa đặt tên';
+  const episodeProvider = session?.configSnapshot?.llm.provider || config.llm.provider;
   const aiProviderName =
-    config.llm.provider === 'chatgpt_web'
+    episodeProvider === 'chatgpt_web'
       ? 'ChatGPT Web'
-      : config.llm.provider === 'gemini_web'
+      : episodeProvider === 'gemini_web'
       ? 'Gemini Web'
-      : config.llm.provider.toUpperCase();
+      : episodeProvider.toUpperCase();
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-[#070B13] text-text select-none">
@@ -1285,9 +1295,9 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
                     selectedShotIds={selectedShotIds}
                     onToggleSelectShot={toggleSelectShot}
                     onSelectAllShots={handleSelectAllShots}
-                    granularity={(config.flowEngine as any)?.granularity || 'balanced'}
+                    granularity={session?.configSnapshot?.flowEngine.granularity || config.flowEngine.granularity || 'balanced'}
                     onChangeGranularity={handleChangeGranularity}
-                    shotMode={config.flowEngine?.shotMode || 'single'}
+                    shotMode={session?.configSnapshot?.flowEngine.shotMode || config.flowEngine.shotMode || 'single'}
                     mediaDir={session?.artifacts?.mediaDir || config.channelProfile?.customMediaDir}
                     onSelectCustomMediaDir={handleSelectCustomMediaDir}
                     onOpenFolder={handleOpenFolder}

@@ -537,6 +537,7 @@ export interface PipelineResumeInput {
   fromStage?: number;
   mode?: 'resume_missing' | 'regenerate_selected' | 'regenerate_all';
   selectedShotIds?: string[];
+  storyboardOptions?: Pick<AiStudioFlowEngineConfig, 'shotMode' | 'granularity'>;
 }
 export type ResumePipelinePayload = PipelineResumeInput;
 
@@ -635,6 +636,7 @@ export interface PipelineSessionArtifacts {
 
 export interface PipelineSessionState {
   sessionId: string;
+  configSnapshot?: Pick<AiStudioConfig, 'llm' | 'voice' | 'flowEngine' | 'rendering' | 'subtitles' | 'channelProfile'>;
   ownerProjectId?: string;
   outputDir?: string;
   workspaceDir?: string;

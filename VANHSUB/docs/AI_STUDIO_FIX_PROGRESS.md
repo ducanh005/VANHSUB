@@ -43,3 +43,15 @@ Commit đợt 2: `7d2d583` (đã push main).
 - TypeScript main/renderer và diff whitespace: kiểm tra trước commit. Chưa nghiệm thu UI Electron trực quan.
 
 AS-11 còn việc tuần tự/version hóa toàn bộ request store và cập nhật checkpoint/project data đồng thời; đợt này không coi tất cả race condition đã xử lý. Snapshot cấu hình của tập (AS-02) vẫn thuộc đợt riêng.
+
+Commit đợt 3: `1c9c422` (đã push main).
+
+## Đợt 4 — Cấu hình cố định theo từng tập (AS-02)
+
+- Tập mới chụp riêng các section sản xuất, áp dụng options và tỷ lệ của blueprint khi start. Không chụp cả danh sách project. API key LLM/visual dùng cùng codec bảo vệ secret của settings store trước khi ghi checkpoint.
+- Duyệt/resume, tạo lại scene, dựng lại video và IPC chấm/sửa script lấy cấu hình của session. Chuyển kênh/đổi model/giọng/thông số chung không đổi cấu hình của tập đang làm.
+- Lựa chọn provider/voice tường minh trong options không bị profile kênh ghi đè; thông tin dự án Flow vẫn gắn với owner/session.
+- Đổi shotMode/granularity của tập là override tường minh khi chạy lại từ bước 5, có kiểm tra enum và bước. Không sửa defaults của kênh khác. UI hiển thị tỷ lệ/resolution/FPS đã chụp và đọc mức phân cảnh/provider từ snapshot.
+- Legacy có owner xác minh được sẽ chụp profile owner cùng cấu hình chung hiện tại vào lần sử dụng đầu. Không thể phục hồi cấu hình chung lịch sử đã bị thay đổi; session không xác định được owner khi đang có project active được chặn, thay vì lấy cấu hình kênh khác.
+- `tests/test_ai_studio_session_config.ts`: pass trên store/checkpoint thật; các provider giả lập. Kiểm tra options, credential không có plaintext trong checkpoint, A→B/restart, đường gọi script/voice/render/regeneration và override storyboard. Không coi đây là nghiệm thu provider live.
+- Regression cách ly session và TypeScript main/renderer được kiểm tra. Chưa xử lý AS-03 (khóa job), AS-04 (revision/invalidation) hoặc nội dung AI/refiner ở đợt này.

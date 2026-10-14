@@ -76,6 +76,7 @@ export interface IAiStudioPipelineEngineDelegate {
   cancel(payload: CancelPipelinePayload): Promise<CancelPipelineResult>;
 
   getState(payload: GetPipelineStatePayload): Promise<PipelineSessionState | null>;
+  getSessionConfig?(sessionId: string): Promise<AiStudioConfig>;
 
   persistSessionStateAtomic?(state: PipelineSessionState): void;
 
@@ -414,11 +415,13 @@ export function registerAiStudioIpc(): void {
       payload: EvaluateScriptPayload
     ): Promise<EvaluateScriptResult> => {
       try {
-        const config = getDecryptedAiStudioConfig();
+        const config = payload.sessionId && pipelineEngineDelegate?.getSessionConfig
+          ? await pipelineEngineDelegate.getSessionConfig(payload.sessionId)
+          : getDecryptedAiStudioConfig();
         const evaluation = await aiStudioLlmService.evaluateScript(
           payload.lines || [],
           payload.blueprint,
-          payload.channelProfile || config.channelProfile,
+          payload.sessionId ? config.channelProfile : (payload.channelProfile || config.channelProfile),
           config.llm
         );
 
@@ -452,13 +455,15 @@ export function registerAiStudioIpc(): void {
       payload: RefineScriptPayload
     ): Promise<RefineScriptResult> => {
       try {
-        const config = getDecryptedAiStudioConfig();
+        const config = payload.sessionId && pipelineEngineDelegate?.getSessionConfig
+          ? await pipelineEngineDelegate.getSessionConfig(payload.sessionId)
+          : getDecryptedAiStudioConfig();
         const refined = await aiStudioLlmService.refineScript(
           payload.lines || [],
           payload.instructions,
           payload.mode || 'improve_weaknesses',
           payload.blueprint,
-          payload.channelProfile || config.channelProfile,
+          payload.sessionId ? config.channelProfile : (payload.channelProfile || config.channelProfile),
           config.llm
         );
 
