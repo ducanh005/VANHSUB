@@ -488,7 +488,7 @@ export class AiStudioDiskStorageManager {
     const nextVersion = Math.max(maxVersionOnDisk, maxVersionInIndex) + 1;
     const ext = type === 'img' ? 'png' : 'mp4';
     const filename = `${shotId}_${type}_v${nextVersion}.${ext}`;
-    const relativePath = path.join('05_media', filename).replace(/\\/g, '/');
+    const relativePath = path.relative(this._paths.projectDir, path.join(this._paths.mediaDir, filename)).replace(/\\/g, '/');
     const absolutePath = path.join(this._paths.mediaDir, filename);
 
     return {
@@ -508,10 +508,11 @@ export class AiStudioDiskStorageManager {
       return null;
     }
     const currentVersion = Math.max(...existingVersions);
-    const ext = type === 'img' ? 'png' : 'mp4';
-    const filename = `${shotId}_${type}_v${currentVersion}.${ext}`;
-    const relativePath = path.join('05_media', filename).replace(/\\/g, '/');
+    const filename = this.scanMediaFilesForShot(shotId, type)
+      .find(name => name.startsWith(`${shotId}_${type}_v${currentVersion}.`));
+    if (!filename) return null;
     const absolutePath = path.join(this._paths.mediaDir, filename);
+    const relativePath = path.relative(this._paths.projectDir, absolutePath).replace(/\\/g, '/');
 
     return {
       version: currentVersion,
@@ -529,7 +530,7 @@ export class AiStudioDiskStorageManager {
       return [];
     }
     const escapedShotId = shotId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const pattern = new RegExp(`^${escapedShotId}_${type}_v(\\d+)\\.(png|mp4|webp|jpg)$`, 'i');
+    const pattern = new RegExp(`^${escapedShotId}_${type}_v(\\d+)\\.(png|mp4|webm|webp|jpe?g|gif)$`, 'i');
 
     const files = fs.readdirSync(this._paths.mediaDir);
     const versions: number[] = [];
@@ -554,7 +555,7 @@ export class AiStudioDiskStorageManager {
   private scanMediaFilesForShot(shotId: string, type: MediaAssetType): string[] {
     if (!fs.existsSync(this._paths.mediaDir)) return [];
     const escapedShotId = shotId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const pattern = new RegExp(`^${escapedShotId}_${type}_v\\d+\\.(png|mp4|webp|jpg)$`, 'i');
+    const pattern = new RegExp(`^${escapedShotId}_${type}_v\\d+\\.(png|mp4|webm|webp|jpe?g|gif)$`, 'i');
     return fs.readdirSync(this._paths.mediaDir)
       .filter(f => pattern.test(f))
       .filter(f => this.isFileValidNonEmpty(path.join(this._paths.mediaDir, f)));

@@ -1,3 +1,5 @@
+import { applySceneMedia } from './sceneArtifacts';
+import { fullDecodeMediaWithFfmpeg } from '../browser-automation/mediaValidator';
 import { toStoredScriptScenes } from './scriptStorage';
 import { invalidateSessionArtifacts } from './sessionArtifacts';
 import fs from 'fs';
@@ -1837,7 +1839,10 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
   ): Promise<RegenerateSceneAssetResult> {
     if (payload.sessionId) {
       const ownerSession = await this.getState({ sessionId: payload.sessionId });
+      signal?.throwIfAborted();
       if (!ownerSession) throw new Error('Không tìm thấy phiên AI Studio để tạo lại media.');
+      if (!ownerSession.artifacts.scenes?.some(scene => scene.id === payload.sceneId || scene.shotId === payload.sceneId)) throw new Error('Phân cảnh không tồn tại trong phiên này.');
+      if (!/^[\w-]+$/.test(payload.sceneId)) throw new Error('ID phân cảnh không hợp lệ.');
       // Ownership failures must not be swallowed by the legacy provider fallback.
       const storage = this.getDiskStorageManager(payload.sessionId, ownerSession.mediaDir);
       const config = this.resolveSessionConfig(ownerSession);
@@ -1891,16 +1896,7 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
               signal?.throwIfAborted();
               const targetScene = session.artifacts.scenes.find((s) => s.id === shotId || s.shotId === shotId);
               if (targetScene) {
-                if (rpcRes.videoPath) {
-                  targetScene.videoPath = rpcRes.videoPath;
-                  targetScene.assetPath = rpcRes.assetPath;
-                } else if (rpcRes.imagePath) {
-                  targetScene.imagePath = rpcRes.imagePath;
-                  targetScene.assetPath = rpcRes.assetPath;
-                  delete targetScene.videoPath;
-                }
-                targetScene.visualPrompt = payload.visualPrompt;
-                targetScene.status = 'ready';
+                applySceneMedia(session, shotId, { imagePath: rpcRes.imagePath, videoPath: rpcRes.videoPath, visualPrompt: payload.visualPrompt });
                 this.persistSessionStateAtomic(session);
               }
             }
@@ -1979,9 +1975,7 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
               signal?.throwIfAborted();
               const targetScene = session.artifacts.scenes.find((s) => s.id === shotId || s.shotId === shotId);
               if (targetScene) {
-                targetScene.videoPath = vidResult.videoPath;
-                targetScene.assetPath = vidResult.videoPath;
-                targetScene.status = 'ready';
+                applySceneMedia(session, shotId, { videoPath: vidResult.videoPath });
                 this.persistSessionStateAtomic(session);
               }
             }
@@ -2032,11 +2026,7 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
               signal?.throwIfAborted();
               const sc = session.artifacts.scenes.find((s) => s.id === shotId || s.shotId === shotId);
               if (sc) {
-                sc.imagePath = imgResult.imagePath;
-                sc.shotId = shotId;
-                sc.assetPath = sc.videoPath || imgResult.imagePath;
-                sc.visualPrompt = payload.visualPrompt;
-                sc.status = 'ready';
+                applySceneMedia(session, shotId, { imagePath: imgResult.imagePath, visualPrompt: payload.visualPrompt });
                 this.persistSessionStateAtomic(session);
               }
             }
@@ -2104,15 +2094,7 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
               signal?.throwIfAborted();
               const targetScene = session.artifacts.scenes.find((s) => s.id === shotId || s.shotId === shotId);
               if (targetScene) {
-                targetScene.imagePath = imgResult.imagePath;
-                if (videoPath) {
-                  targetScene.videoPath = videoPath;
-                  targetScene.assetPath = videoPath;
-                } else {
-                  targetScene.assetPath = imgResult.imagePath;
-                }
-                targetScene.visualPrompt = payload.visualPrompt;
-                targetScene.status = 'ready';
+                applySceneMedia(session, shotId, { imagePath: imgResult.imagePath, videoPath, visualPrompt: payload.visualPrompt });
                 this.persistSessionStateAtomic(session);
               }
             }
@@ -2176,31 +2158,52 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
       const ownerSession = await this.getState({ sessionId });
       signal.throwIfAborted();
       if (!ownerSession) throw new Error('Không tìm thấy phiên AI Studio để nhập media.');
+      if (!ownerSession.artifacts.scenes?.some(scene => scene.id === sceneId || scene.shotId === sceneId)) throw new Error('Phân cảnh không tồn tại trong phiên này.');
+      if (!/^[\w-]+$/.test(sceneId)) throw new Error('ID phân cảnh không hợp lệ.');
       const storage = this.getDiskStorageManager(sessionId, ownerSession.mediaDir);
       const shotId = sceneId;
       const actualSceneId = shotId.includes('_shot_') ? shotId.split('_shot_')[0] : shotId;
 
       const ext = path.extname(filePath).toLowerCase();
-      const isVideo = mediaType === 'video' || ['.mp4', '.mkv', '.mov', '.avi', '.webm'].includes(ext);
+      const isVideo = mediaType ? mediaType === 'video' : ['.mp4', '.mkv', '.mov', '.avi', '.webm'].includes(ext);
       const targetKind = isVideo ? 'vid' : 'img';
 
       // Tạo đường dẫn phiên bản mới trong thư mục media
       const nextVer = storage.getNextMediaVersion(shotId, targetKind);
-      const destPath = nextVer.absolutePath;
+      let destPath = nextVer.absolutePath;
 
       // Copy tệp vào thư mục media của session
       fs.copyFileSync(filePath, destPath);
 
+      try {
+        destPath = await aiStudioVisualService.validateMediaFile(destPath, isVideo ? 'video' : 'image', { fullDecode: true });
+        if (fs.statSync(destPath).size < 512) await fullDecodeMediaWithFfmpeg(destPath);
+        signal.throwIfAborted();
+      } catch (error) {
+        // Only discard the new failed candidate, never the user's source or prior versions.
+        if (fs.existsSync(destPath)) fs.unlinkSync(destPath);
+        if (destPath !== nextVer.absolutePath && fs.existsSync(nextVer.absolutePath)) fs.unlinkSync(nextVer.absolutePath);
+        const candidateBase = nextVer.absolutePath.slice(0, -path.extname(nextVer.absolutePath).length);
+        for (const extension of ['.png', '.jpg', '.webp', '.gif', '.mp4', '.webm']) {
+          const candidate = candidateBase + extension;
+          if (fs.existsSync(candidate)) fs.unlinkSync(candidate);
+        }
+        throw error;
+      }
+      const relativePath = path.relative(storage.paths.projectDir, destPath).replace(/\\/g, '/');
+
       // Cập nhật index.json
       if (isVideo) {
         storage.updateShotMetadata(actualSceneId, shotId, {
-          video_path: nextVer.relativePath,
+          video_path: relativePath,
           current_video_version: nextVer.version,
         });
       } else {
         storage.updateShotMetadata(actualSceneId, shotId, {
-          image_path: nextVer.relativePath,
+          image_path: relativePath,
           current_image_version: nextVer.version,
+          video_path: '',
+          current_video_version: undefined,
         });
       }
 
@@ -2221,16 +2224,7 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
       if (session && session.artifacts.scenes) {
         const targetScene = session.artifacts.scenes.find((s) => s.id === shotId || s.shotId === shotId);
         if (targetScene) {
-          if (isVideo) {
-            targetScene.videoPath = destPath;
-            targetScene.assetPath = destPath;
-          } else {
-            targetScene.imagePath = destPath;
-            if (!targetScene.videoPath) {
-              targetScene.assetPath = destPath;
-            }
-          }
-          targetScene.status = 'ready';
+          applySceneMedia(session, shotId, { imagePath: isVideo ? undefined : destPath, videoPath: isVideo ? destPath : undefined });
           this.persistSessionStateAtomic(session);
         }
       }

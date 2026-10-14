@@ -206,11 +206,23 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
     setTimeout(() => setSceneActionNotice(null), 4000);
   };
 
+  const refreshSceneSession = async (sessionId: string, projectId: string | undefined) => {
+    if (!window.vanhsub?.aiStudio?.getPipelineState) throw new Error('Không thể tải trạng thái phiên sau khi đổi media.');
+    const updated = await window.vanhsub.aiStudio.getPipelineState({ sessionId });
+    if (!updated) throw new Error('Không tìm thấy trạng thái phiên đã lưu.');
+    if ((loadedProjectIdRef.current || undefined) === projectId) {
+      setSession(current => current?.sessionId === sessionId ? updated : current);
+    }
+    await saveActiveProjectData({ savedSession: updated, lastSessionId: sessionId }, updated.ownerProjectId || projectId);
+  };
+
   const handleRegenerateScene = async (
     scene: StoryboardScene,
     mode: 'image' | 'video' | 'both'
   ) => {
     if (!session?.sessionId || regeneratingSceneId) return;
+    const targetSessionId = session.sessionId;
+    const targetProjectId = loadedProjectIdRef.current || undefined;
     const targetId = scene.shotId || scene.id;
     setRegeneratingSceneId(targetId);
     showSceneNotice(`Đang tạo lại ${mode === 'image' ? 'Ảnh AI' : mode === 'video' ? 'Video AI' : 'Media'} cho phân cảnh ${targetId} qua Flow...`);
@@ -218,7 +230,7 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
     try {
       if (window.vanhsub?.aiStudio?.regenerateSceneAsset) {
         const result = await window.vanhsub.aiStudio.regenerateSceneAsset({
-          sessionId: session.sessionId,
+          sessionId: targetSessionId,
           sceneId: targetId,
           visualPrompt: scene.visualPrompt,
           mode,
@@ -229,43 +241,8 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
         });
 
         if (result && (result.assetPath || result.imagePath || result.videoPath)) {
-          let sessionToSave: PipelineSessionState | null = null;
-          setSession((prev) => {
-            if (!prev || !prev.artifacts?.scenes) return prev;
-            const updatedScenes = prev.artifacts.scenes.map((s) => {
-              if (s.id === scene.id || s.shotId === targetId) {
-                return {
-                  ...s,
-                  imagePath: result.imagePath || s.imagePath,
-                  videoPath: result.videoPath || s.videoPath,
-                  assetPath: result.assetPath || s.assetPath,
-                  status: 'ready' as const,
-                };
-              }
-              return s;
-            });
-            const updatedSession = {
-              ...prev,
-              artifacts: {
-                ...prev.artifacts,
-                scenes: updatedScenes,
-              },
-            };
-            sessionToSave = updatedSession;
-            return updatedSession;
-          });
-          if (sessionToSave) {
-            const toSave: PipelineSessionState = sessionToSave;
-            queueMicrotask(() => {
-              void saveActiveProjectData(
-                {
-                  savedSession: toSave,
-                  lastSessionId: toSave.sessionId,
-                },
-                loadedProjectIdRef.current || undefined
-              );
-            });
-          }
+          await refreshSceneSession(targetSessionId, targetProjectId);
+          if ((loadedProjectIdRef.current || undefined) !== targetProjectId) return;
           showSceneNotice(`✓ Đã tạo lại thành công media cho ${targetId}!`);
           setErrorMessage(null);
           setErrorCode(null);
@@ -276,13 +253,14 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
         }
       }
     } catch (err: any) {
+      if ((loadedProjectIdRef.current || undefined) !== targetProjectId) return;
       console.error('Lỗi khi tạo lại media phân cảnh:', err);
       const msg = err?.message || String(err);
       showSceneNotice(`✗ Lỗi: ${msg}`);
       setErrorMessage(msg);
       setErrorCode(err?.code || 'REGENERATE_FAILED');
     } finally {
-      setRegeneratingSceneId(null);
+      if ((loadedProjectIdRef.current || undefined) === targetProjectId) setRegeneratingSceneId(null);
     }
   };
 
@@ -291,6 +269,8 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
     mediaType: 'image' | 'video'
   ) => {
     if (!session?.sessionId || importingSceneId) return;
+    const targetSessionId = session.sessionId;
+    const targetProjectId = loadedProjectIdRef.current || undefined;
     const targetId = scene.shotId || scene.id;
     setImportingSceneId(targetId);
 
@@ -303,7 +283,7 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
       }
 
       if (!chosenFilePath) {
-        setImportingSceneId(null);
+        if ((loadedProjectIdRef.current || undefined) === targetProjectId) setImportingSceneId(null);
         return;
       }
 
@@ -311,99 +291,28 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
 
       if (window.vanhsub?.aiStudio?.importSceneMedia) {
         const importRes = await window.vanhsub.aiStudio.importSceneMedia({
-          sessionId: session.sessionId,
+          sessionId: targetSessionId,
           sceneId: targetId,
           filePath: chosenFilePath,
           mediaType,
         });
 
         if (importRes && importRes.success) {
-          let sessionToSave: PipelineSessionState | null = null;
-          setSession((prev) => {
-            if (!prev || !prev.artifacts?.scenes) return prev;
-            const updatedScenes = prev.artifacts.scenes.map((s) => {
-              if (s.id === scene.id || s.shotId === targetId) {
-                return {
-                  ...s,
-                  imagePath: importRes.imagePath || s.imagePath,
-                  videoPath: importRes.videoPath || s.videoPath,
-                  assetPath: importRes.assetPath || s.assetPath,
-                  status: 'ready' as const,
-                };
-              }
-              return s;
-            });
-            const updatedSession = {
-              ...prev,
-              artifacts: {
-                ...prev.artifacts,
-                scenes: updatedScenes,
-              },
-            };
-            sessionToSave = updatedSession;
-            return updatedSession;
-          });
-          if (sessionToSave) {
-            const toSave: PipelineSessionState = sessionToSave;
-            queueMicrotask(() => {
-              void saveActiveProjectData(
-                {
-                  savedSession: toSave,
-                  lastSessionId: toSave.sessionId,
-                },
-                loadedProjectIdRef.current || undefined
-              );
-            });
-          }
+          await refreshSceneSession(targetSessionId, targetProjectId);
+          if ((loadedProjectIdRef.current || undefined) !== targetProjectId) return;
           showSceneNotice(`✓ Đã nạp thành công tệp vào ${targetId}!`);
         } else {
           showSceneNotice(`✗ Lỗi nạp tệp: ${importRes?.error || 'Không rõ nguyên nhân'}`);
         }
       } else {
-        let sessionToSave: PipelineSessionState | null = null;
-        setSession((prev) => {
-          if (!prev || !prev.artifacts?.scenes) return prev;
-          const updatedScenes = prev.artifacts.scenes.map((s) => {
-            if (s.id === scene.id || s.shotId === targetId) {
-              return {
-                ...s,
-                imagePath: mediaType === 'image' ? chosenFilePath! : s.imagePath,
-                videoPath: mediaType === 'video' ? chosenFilePath! : s.videoPath,
-                assetPath: chosenFilePath!,
-                status: 'ready' as const,
-              };
-            }
-            return s;
-          });
-          const updatedSession = {
-            ...prev,
-            artifacts: {
-              ...prev.artifacts,
-              scenes: updatedScenes,
-            },
-          };
-          sessionToSave = updatedSession;
-          return updatedSession;
-        });
-        if (sessionToSave) {
-          const toSave: PipelineSessionState = sessionToSave;
-          queueMicrotask(() => {
-            void saveActiveProjectData(
-              {
-                savedSession: toSave,
-                lastSessionId: toSave.sessionId,
-              },
-              loadedProjectIdRef.current || undefined
-            );
-          });
-        }
-        showSceneNotice(`✓ Đã nạp đường dẫn tệp vào ${targetId}!`);
+        throw new Error('Chức năng nhập media chưa sẵn sàng.');
       }
     } catch (err: any) {
+      if ((loadedProjectIdRef.current || undefined) !== targetProjectId) return;
       console.error('Lỗi khi nạp tệp media thủ công:', err);
       showSceneNotice(`✗ Lỗi: ${err?.message || err}`);
     } finally {
-      setImportingSceneId(null);
+      if ((loadedProjectIdRef.current || undefined) === targetProjectId) setImportingSceneId(null);
     }
   };
 

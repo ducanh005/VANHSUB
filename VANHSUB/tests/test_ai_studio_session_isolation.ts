@@ -1,3 +1,5 @@
+import { execFileSync } from 'node:child_process';
+import ffmpegInstaller from '@ffmpeg-installer/ffmpeg';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -48,7 +50,7 @@ async function main() {
     assert.equal(fs.readFileSync(path.join(b.workspaceDir!, 'session.json'), 'utf8'), unchangedSecond);
     assert.equal(engine.getDiskStorageManager(a.sessionId).paths.mediaDir, a.mediaDir);
     const manualImage = path.join(root, 'manual.png');
-    fs.writeFileSync(manualImage, 'test fixture');
+    execFileSync(ffmpegInstaller.path, ['-v', 'error', '-f', 'lavfi', '-i', 'color=red:s=64x64', '-frames:v', '1', manualImage], { windowsHide: true });
     a.artifacts.scenes = [{ id: 'scene_01_shot_1', lineIndex: 0, startMs: 0, endMs: 1000, durationMs: 1000, lineText: 'First', visualPrompt: 'First', motionType: 'ken_burns', status: 'pending' }];
     const imported = await engine.importSceneMedia({ sessionId: a.sessionId, sceneId: 'scene_01_shot_1', filePath: manualImage, mediaType: 'image' });
     assert.equal(imported.success, true, imported.error);

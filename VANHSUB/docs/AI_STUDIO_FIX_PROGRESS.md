@@ -126,3 +126,14 @@ Commit đợt 10: `9ef7aa7` (đã push main).
 - Visual note tường minh được giữ nguyên ngữ nghĩa/ngôn ngữ, không bị dictionary thay Tokyo hiện đại thành Nhật thế kỷ 19. Prompt có thể chứa chỉ dẫn tiếng Việt; không giả vờ đã dịch toàn bộ sang tiếng Anh.
 - `tests/test_ai_studio_visual_directions.ts`: pass qua script.json và storyboard thật, kiểm tra chỉ dẫn mới thay prompt cũ, camera, media và voiceDirection được lưu. Storyboard-mode regression và TypeScript kiểm tra trước commit.
 - Chưa áp dụng văn bản voiceDirection tự do thành prosody TTS; preset rate/pitch/volume vẫn là cấu hình thực thi. Quy tắc hợp nhất các chỉ dẫn xung đột trong clustering legacy và chất lượng visual provider live còn cần nghiệm thu riêng.
+
+Commit đợt 11: `84cb13e` (đã push main).
+
+## Đợt 12 — Nhập media hợp lệ và bỏ sản phẩm dựng cũ (AS-17)
+
+- Manual import kiểm tra scene thuộc session, ID an toàn và giải mã media thật trước cập nhật index/checkpoint. Kiểm tra cả ảnh nhỏ dưới 512 byte. File sai/hỏng/sai loại bị từ chối; chỉ dọn bản copy mới lỗi, không sửa file nguồn hoặc các phiên bản trước.
+- Thay ảnh xóa video pointer của shot trong session/index và chuyển playback về Ken Burns. Thay video giữ keyframe ảnh. Import/regenerate thành công đều xóa pointer video/sub/metadata cuối và reset bước dựng/SEO; quay về cổng duyệt media nếu các cảnh đã sẵn sàng.
+- UI lấy canonical checkpoint sau import/regenerate, không merge videoPath cũ; bỏ fallback chỉ gắn đường dẫn khi backend không tồn tại. Capture owner/session, không để response muộn đổi UI/loading của project mới.
+- Version scanner/current lookup hỗ trợ đúng extension thực (JPEG/WebP/GIF/WebM), đường dẫn theo customMediaDir; không mặc định current version luôn PNG/MP4.
+- `tests/test_ai_studio_media_import.ts`: pass với PNG/JPEG/MP4 sinh và giải mã bằng FFmpeg thật, file hỏng/sai loại/scene lạ, source bất biến, thay ảnh/video, invalidation, custom media và giữ lịch sử. Session isolation regression/TypeScript: pass.
+- Validator hiện nhận các định dạng ảnh phổ biến và video nhận diện MP4/WebM; container khác không được coi đã hỗ trợ chỉ dựa vào extension. AS-09 RPC cache/scope vẫn cần đợt riêng.
