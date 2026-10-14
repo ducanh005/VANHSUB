@@ -516,7 +516,7 @@ export interface VanhsubAPI {
       lines: any[];
       blueprint?: any;
       channelProfile?: any;
-    }) => Promise<{ evaluation: any }>;
+    }) => Promise<{ evaluation: any; session?: import('./aiStudio').PipelineSessionState }>;
     refineScript: (payload: {
       sessionId?: string;
       lines: any[];

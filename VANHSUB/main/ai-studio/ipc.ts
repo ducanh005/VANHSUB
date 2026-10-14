@@ -418,29 +418,27 @@ export function registerAiStudioIpc(): void {
     ): Promise<EvaluateScriptResult> => {
       const execute = async (signal?: AbortSignal): Promise<EvaluateScriptResult> => {
         try {
+          const session = payload.sessionId && pipelineEngineDelegate
+            ? await pipelineEngineDelegate.getState({ sessionId: payload.sessionId }) : undefined;
+          signal?.throwIfAborted();
+          if (payload.sessionId && !session) throw new Error('Session không tồn tại.');
           const config = payload.sessionId && pipelineEngineDelegate?.getSessionConfig
             ? await pipelineEngineDelegate.getSessionConfig(payload.sessionId)
             : getDecryptedAiStudioConfig();
           const evaluation = await aiStudioLlmService.evaluateScript(
-            payload.lines || [],
-            payload.blueprint,
+            session?.artifacts.scriptLines || payload.lines || [],
+            session?.artifacts.blueprint || payload.blueprint,
             payload.sessionId ? config.channelProfile : (payload.channelProfile || config.channelProfile),
             config.llm
           );
           signal?.throwIfAborted();
 
-          if (payload.sessionId && pipelineEngineDelegate) {
-            const session = await pipelineEngineDelegate.getState({ sessionId: payload.sessionId });
-            if (session) {
-              session.artifacts = session.artifacts || {};
-              session.artifacts.scriptEvaluation = evaluation;
-              if (typeof pipelineEngineDelegate.persistSessionStateAtomic === 'function') {
-                pipelineEngineDelegate.persistSessionStateAtomic(session);
-              }
-            }
+          if (session && pipelineEngineDelegate) {
+            session.artifacts.scriptEvaluation = evaluation;
+            pipelineEngineDelegate.persistSessionStateAtomic?.(session);
           }
 
-          return { evaluation };
+          return { evaluation, session: session ? { ...session, jobActive: false } : undefined };
         } catch (err: any) {
           console.error('[AI-Studio-IPC] Error evaluating script:', err);
           throw new Error(`Lỗi chấm điểm kịch bản: ${err?.message || err}`);
@@ -462,32 +460,29 @@ export function registerAiStudioIpc(): void {
     ): Promise<RefineScriptResult> => {
       const execute = async (signal?: AbortSignal): Promise<RefineScriptResult> => {
         try {
+          const session = payload.sessionId && pipelineEngineDelegate
+            ? await pipelineEngineDelegate.getState({ sessionId: payload.sessionId }) : undefined;
+          signal?.throwIfAborted();
+          if (payload.sessionId && !session) throw new Error('Session không tồn tại.');
           const config = payload.sessionId && pipelineEngineDelegate?.getSessionConfig
             ? await pipelineEngineDelegate.getSessionConfig(payload.sessionId)
             : getDecryptedAiStudioConfig();
           const refined: RefineScriptResult = await aiStudioLlmService.refineScript(
-            payload.lines || [],
+            session?.artifacts.scriptLines || payload.lines || [],
             payload.instructions,
             payload.mode || 'improve_weaknesses',
-            payload.blueprint,
+            session?.artifacts.blueprint || payload.blueprint,
             payload.sessionId ? config.channelProfile : (payload.channelProfile || config.channelProfile),
             config.llm
           );
           signal?.throwIfAborted();
 
-          if (payload.sessionId && pipelineEngineDelegate) {
-            const session = await pipelineEngineDelegate.getState({ sessionId: payload.sessionId });
-            if (!session) throw new Error('Session không tồn tại.');
-            {
-              signal?.throwIfAborted();
-              applyScriptLines(session, refined.lines);
-              session.artifacts.scriptEvaluation = refined.evaluation;
-              refined.lines = session.artifacts.scriptLines!;
-              refined.session = { ...session, jobActive: false };
-              if (typeof pipelineEngineDelegate.persistSessionStateAtomic === 'function') {
-                pipelineEngineDelegate.persistSessionStateAtomic(session);
-              }
-            }
+          if (session && pipelineEngineDelegate) {
+            applyScriptLines(session, refined.lines);
+            session.artifacts.scriptEvaluation = refined.evaluation;
+            refined.lines = session.artifacts.scriptLines!;
+            refined.session = { ...session, jobActive: false };
+            pipelineEngineDelegate.persistSessionStateAtomic?.(session);
           }
 
           return refined;

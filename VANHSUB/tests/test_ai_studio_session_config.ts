@@ -72,6 +72,7 @@ async function main() {
     await assert.rejects(() => engine.getSessionConfig(unknown.sessionId), /chưa xác định được/);
 
     let scriptConfig: any, voiceConfig: any, renderConfig: any, visualConfig: any;
+    aiStudioLlmService.evaluateScript = async () => ({ overallScore: 80, lowestScore: 8, criteria: [], failedCriteria: [], critique: 'Mock review for configuration routing', evaluatedAt: Date.now() });
     aiStudioLlmService.generateScript = async (_topic, config, _progress, _blueprint, channel) => {
       scriptConfig = { config, channel };
       return [{ id: 'line_1', index: 1, text: 'Test narration' }];

@@ -1,0 +1,45 @@
+import assert from 'node:assert/strict';
+import { AiStudioLlmService } from '../main/ai-studio/services/AiStudioLlmService';
+import { parseScriptEvaluation, resolveEvaluationConfig, SCRIPT_REVIEW_CRITERIA } from '../main/ai-studio/scriptEvaluation';
+
+async function main() {
+  const service = new AiStudioLlmService();
+  const reply = { criteria: SCRIPT_REVIEW_CRITERIA.map(([id], index) => ({ id, score: index, feedback: `${id}: Nhận xét cụ thể cho lời thoại` })), critique: 'Cần làm rõ luận điểm.' };
+  let captured = '', selected = '';
+  (service as any).requestScriptReview = async (prompt: string, config: any) => { captured = prompt; selected = config.provider; return JSON.stringify(reply); };
+  const config: any = { provider: 'deepseek', apiKey: 'configured-key', baseUrl: 'https://api.deepseek.com/v1' };
+  const original: any[] = [{ id: 'line', index: 1, text: 'Mặt trăng được làm bằng phô mai.' }];
+  const evaluation = await service.evaluateScript(original, undefined, { evaluationLlm: 'gemini_web' }, config);
+  assert.equal(selected, 'gemini_web');
+  assert.ok(captured.includes(original[0].text));
+  assert.ok(captured.includes('Không dùng điểm cố định'));
+  assert.equal(evaluation.overallScore, 45, 'Total is derived from actual criterion scores');
+  assert.equal(evaluation.criteria.find(item => item.id === 'D2')!.score, 1, 'Facts no longer always score 9');
+  assert.equal(evaluation.lowestScore, 0);
+  assert.equal(evaluation.failedCriteria.length, 8);
+  assert.equal(evaluation.method, 'llm');
+  assert.equal(evaluation.provider, 'gemini_web');
+  assert.ok(evaluation.notice?.includes('chưa được đối chiếu'));
+  await service.evaluateScript(original, undefined, { evaluationLlm: 'deepseek' }, config);
+  assert.equal(selected, 'deepseek');
+  await service.evaluateScript(original, undefined, undefined, { provider: 'chatgpt_web' } as any);
+  assert.equal(selected, 'chatgpt_web');
+  assert.throws(() => resolveEvaluationConfig(config, { evaluationLlm: 'openai' }), /API riêng/);
+  assert.equal(resolveEvaluationConfig(config, { evaluationLlm: 'deepseek' }).baseUrl, config.baseUrl);
+  assert.throws(() => parseScriptEvaluation('{"criteria":[],"critique":"test"}', 'deepseek'), /thiếu/);
+  const invalid = structuredClone(reply); invalid.criteria[0].score = 11;
+  assert.throws(() => parseScriptEvaluation(JSON.stringify(invalid), 'deepseek'), /D1/);
+  invalid.criteria[0].score = -1;
+  assert.throws(() => parseScriptEvaluation(JSON.stringify(invalid), 'deepseek'), /D1/);
+  invalid.criteria[0] = invalid.criteria[1];
+  assert.throws(() => parseScriptEvaluation(JSON.stringify(invalid), 'deepseek'), /thiếu/);
+  (service as any).requestScriptReview = async () => 'provider not ready';
+  await assert.rejects(() => service.evaluateScript(original, undefined, undefined, config));
+  (service as any).requestScriptReview = async () => { throw new Error('provider failed'); };
+  await assert.rejects(() => service.evaluateScript(original, undefined, undefined, config), /provider failed/);
+  const empty = await service.evaluateScript([], undefined, undefined, config);
+  assert.equal(empty.overallScore, 0);
+  assert.equal(empty.criteria.length, 0);
+  console.log('PASS: actual provider ratings, evaluationLlm routing, credential boundary, full schema validation and no fabricated fallback');
+}
+main().catch(error => { console.error(error); process.exitCode = 1; });

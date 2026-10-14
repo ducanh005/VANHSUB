@@ -244,10 +244,11 @@ export default function ScriptWorkspaceView({
       });
       if (result?.evaluation) {
         setEvaluation(result.evaluation);
-        notifySessionUpdate(lines, result.evaluation);
+        notifySessionUpdate(lines, result.evaluation, result.session);
       }
     } catch (err) {
       console.error('[ScriptWorkspaceView] Evaluate error:', err);
+      setCopyToast(`Lỗi chấm điểm: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setIsEvaluating(false);
     }
@@ -571,11 +572,11 @@ export default function ScriptWorkspaceView({
             </p>
           )}
 
-          {/* Notice banner for Web Automation mode */}
-          {evaluation?.notice && (
+          {/* Review provenance, including checkpoints predating provider evaluation. */}
+          {evaluation && (
             <div className="rounded-md border border-amber-500/30 bg-amber-950/20 px-3 py-2 text-[11px] text-amber-200/90 leading-relaxed flex items-start gap-2">
               
-              <span>{evaluation.notice}</span>
+              <span>{evaluation.method === 'llm' ? evaluation.notice : 'Điểm lưu từ phiên bản cũ chưa xác định phương pháp chấm. Hãy chấm lại bằng provider đã chọn; dữ kiện chưa được đối chiếu nguồn.'}</span>
             </div>
           )}
 

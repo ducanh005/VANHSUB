@@ -87,3 +87,13 @@ Commit đợt 6: `61690dd` (đã push main).
 - Prompt yêu cầu giữ dữ kiện/chủ đề, không bịa số liệu/xung đột. Parser chỉ nhận nội dung lời và chỉ dẫn, giữ ID/thứ tự/số dòng; chặn thiếu dòng, ID sai, lời rỗng hoặc enum sai. Không nhận audio/timing/file pointer từ model. Rút gọn hiện thực hiện trong từng dòng.
 - Provider lỗi hoặc JSON không hợp lệ sẽ báo lỗi, không trả bản sửa mẫu giả thành công. UI hiển thị lỗi và giữ yêu cầu tự nhập để thử lại. Nếu bản sửa hợp lệ nhưng chấm lại lỗi, giữ bản sửa và bỏ điểm cũ.
 - `tests/test_ai_studio_script_refinement.ts`: pass với provider giả lập; kiểm tra yêu cầu tùy ý, đầu vào chủ đề, không thêm mẫu khảo cổ, schema và thất bại không fallback. TypeScript main/renderer kiểm tra trước commit. Chưa xác minh chất lượng phản hồi provider live; chấm điểm heuristics AS-06 xử lý riêng.
+
+Commit đợt 7: `330f51a` (đã push main).
+
+## Đợt 8 — Chấm điểm có nguồn gốc và cấu hình đúng (AS-06, phần chấm kịch bản)
+
+- Bỏ chấm regex/điểm cố định, bỏ lời khẳng định dữ kiện đúng và thông báo so sánh chất lượng provider không có bằng chứng. Gửi toàn bộ lời thoại tới `evaluationLlm` của tập; phản hồi phải đủ D1–D10, điểm 0–10, nhận xét từng tiêu chí và critique. Điểm tổng/thấp nhất/tiêu chí yếu tính từ phản hồi đã kiểm tra.
+- Lưu method/provider và hiển thị nguồn gốc nhận xét. Đánh dấu rõ chưa kiểm chứng nguồn độc lập; D2 là dữ kiện cần kiểm chứng. Điểm legacy chưa biết phương pháp được nhắc chấm lại.
+- Không dùng API key/baseURL của provider hiện hành để gọi API provider khác. Do settings chỉ có một bộ API credential, lựa chọn API chấm khác provider hiện hành báo thiếu cấu hình; web hoặc cùng API provider hoạt động theo cấu hình đã lưu.
+- IPC evaluate/refine dùng script/blueprint hiện hành trong session, trả canonical session và kiểm tra abort trước lưu. UI hiển thị lỗi chấm điểm. Không sinh điểm giả khi provider/JSON lỗi; auto-evaluation lỗi không chặn script đã tạo.
+- `tests/test_ai_studio_script_evaluation.ts`, refinement, session operations/config và TypeScript: kiểm tra bằng provider giả lập. Không chạy provider live hoặc nghiên cứu nguồn bên ngoài. Chức năng research/fact-check vẫn còn cần xử lý riêng; không coi điểm LLM là kiểm chứng dữ kiện.

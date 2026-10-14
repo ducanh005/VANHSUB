@@ -6,6 +6,7 @@ async function main() {
   const service = new AiStudioLlmService();
   const original: any[] = [{ id: 'line-1', index: 1, text: 'Cây cà chua cần ánh sáng.', visualAction: 'Tomato plant', audioPath: 'old.mp3', durationMs: 9000 }];
   const before = structuredClone(original);
+  service.evaluateScript = async () => ({ overallScore: 60, lowestScore: 6, criteria: [], failedCriteria: ['D1'], critique: 'Cần làm rõ lời mở đầu', evaluatedAt: Date.now() });
   let captured = '', provider = '';
   (service as any).requestScriptReview = async (prompt: string, config: any) => {
     captured = prompt; provider = config.provider;

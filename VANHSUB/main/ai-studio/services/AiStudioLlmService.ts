@@ -1,3 +1,4 @@
+import { parseScriptEvaluation, resolveEvaluationConfig, SCRIPT_REVIEW_CRITERIA } from '../scriptEvaluation';
 import { parseRefinedScript } from '../scriptRefinement';
 import OpenAI from 'openai';
 import { jsonrepair } from 'jsonrepair';
@@ -12,7 +13,6 @@ import type {
   ScriptQualityAuditResult,
   ChannelProfileConfig,
   ScriptEvaluation,
-  ScriptCriteriaScore,
 } from '../types';
 import type { PipelineTimingData } from '../types/storage';
 
@@ -901,128 +901,20 @@ Yêu cầu cấu trúc Kịch bản 2 Cột Điện ảnh (Two-Column Audiovisua
       };
     }
 
-    const fullText = lines.map((l) => l.text).join('\n');
-    const firstLine = lines[0]?.text || '';
-    const lastLine = lines[lines.length - 1]?.text || '';
-
-    // D1: Hook 6s đầu
-    const hasNumbers = /\d+/.test(firstLine);
-    const hasFact = /(năm|thế kỷ|nghìn|triệu|km|mét|tuổi|hang|ngôi mộ|xác|di chỉ|bí ẩn|sự thật|bất ngờ|kinh hoàng)/i.test(firstLine);
-    const wordCount1 = firstLine.split(/\s+/).filter(Boolean).length;
-    let d1Score = 8;
-    let d1Feedback = 'Hook mở đầu tương đối tốt, tạo được sự chú ý ban đầu.';
-    if (!hasNumbers && !hasFact) {
-      d1Score = 6;
-      d1Feedback = 'Phần mở đầu có một địa danh nhưng không có mốc số liệu hoặc sự kiện cụ thể trong sáu giây đầu, sau đó mới tạo xung đột khám phá.';
-    } else if (hasNumbers && hasFact && wordCount1 >= 10 && wordCount1 <= 40) {
-      d1Score = 9;
-      d1Feedback = 'Hook sắc sảo, có số liệu và mốc sự kiện cụ thể, giữ chân người xem ngay lập tức.';
-    }
-
-    // D2: Dữ kiện & Sự thật
-    const d2Score = 9;
-    const d2Feedback = 'Dữ kiện khảo cứu logic, bám sát các phát hiện thực tế.';
-
-    // D3: Nhịp giữ chân (Retention Pace)
-    const d3Score = lines.length >= 6 ? 8 : 7;
-    const d3Feedback = 'Nhịp kể chuyện duy trì được sự tò mò qua từng phân cảnh.';
-
-    // D4: Văn phong lồng tiếng (Voice Flow)
-    const avgWords = lines.reduce((sum, l) => sum + l.text.split(/\s+/).filter(Boolean).length, 0) / lines.length;
-    let d4Score = 8;
-    let d4Feedback = 'Câu từ tự nhiên, dễ đọc to, phù hợp lồng tiếng.';
-    if (avgWords > 28) {
-      d4Score = 7;
-      d4Feedback = 'Lớp narration còn mang tính văn viết: có câu dài, một số con số dạng ký tự, tên riêng khó đọc, và có đoạn giới thiệu kênh làm giảm lực mở đầu.';
-    }
-
-    // D5: Xung đột & Cao trào (Climax)
-    const hasConflict = /(nhưng|tuy nhiên|nguy hiểm|bí mật|bất ngờ|kỳ lạ|kinh hoàng|không ai biết|nghi vấn)/i.test(fullText);
-    let d5Score = 8;
-    let d5Feedback = 'Xung đột khám phá rõ nét, tạo điểm nhấn cao trào tốt.';
-    if (!hasConflict) {
-      d5Score = 5;
-      d5Feedback = 'Thiếu xung đột khám phá kịch tính, nhịp kể còn đều đều.';
-    } else if (lines.length < 5) {
-      d5Score = 6;
-      d5Feedback = 'Xung đột có nhưng chưa được đẩy lên đỉnh điểm ở phần giữa kịch bản.';
-    }
-
-    // D6: Cảm xúc & Lay động
-    const d6Score = 9;
-    const d6Feedback = 'Gợi được chiều sâu cảm xúc về số phận và ý nghĩa của câu chuyện.';
-
-    // D7: Nhận diện kênh (Channel DNA)
-    const hasHook = channelProfile?.channelHook ? fullText.includes(channelProfile.channelHook) : false;
-    let d7Score = 7;
-    let d7Feedback = 'D7 cũng hơi yếu vì nhịp nhận diện của kênh chưa đủ rõ ngoài công thức khám phá lịch sử.';
-    if (hasHook || (channelProfile?.projectName && fullText.includes(channelProfile.projectName))) {
-      d7Score = 9;
-      d7Feedback = 'Đậm chất nhận diện thương hiệu kênh với câu chốt và phong cách đặc trưng.';
-    }
-
-    // D8: Cấu trúc câu chuyện
-    const d8Score = 9;
-    const d8Feedback = 'Cấu trúc lớp lang chặt chẽ từ mở đầu, khai mở dữ kiện đến cao trào và đúc kết.';
-
-    // D9: Sáng sủa, dễ hiểu
-    const d9Score = 8;
-    const d9Feedback = 'Ngôn ngữ mạch lạc, giải thích chi tiết trực quan, dễ liên tưởng.';
-
-    // D10: Lời kết & CTA
-    const hasCta = /(đăng ký|theo dõi|bình luận|chia sẻ|bạn nghĩ sao|để lại ý kiến)/i.test(lastLine);
-    const d10Score = hasCta ? 9 : 8;
-    const d10Feedback = hasCta
-      ? 'Đúc kết câu chuyện lắng đọng, kêu gọi tương tác tự nhiên.'
-      : 'Lời kết ý nghĩa, có thể thêm một câu gợi mở thảo luận để tăng tương tác.';
-
-    const criteria: ScriptCriteriaScore[] = [
-      { id: 'D1', name: 'Hook 6s đầu', score: d1Score, feedback: d1Feedback },
-      { id: 'D2', name: 'Dữ kiện & Sự thật', score: d2Score, feedback: d2Feedback },
-      { id: 'D3', name: 'Nhịp giữ chân', score: d3Score, feedback: d3Feedback },
-      { id: 'D4', name: 'Văn phong lồng tiếng', score: d4Score, feedback: d4Feedback },
-      { id: 'D5', name: 'Xung đột & Cao trào', score: d5Score, feedback: d5Feedback },
-      { id: 'D6', name: 'Cảm xúc & Lay động', score: d6Score, feedback: d6Feedback },
-      { id: 'D7', name: 'Nhận diện kênh', score: d7Score, feedback: d7Feedback },
-      { id: 'D8', name: 'Cấu trúc câu chuyện', score: d8Score, feedback: d8Feedback },
-      { id: 'D9', name: 'Sáng sủa, dễ hiểu', score: d9Score, feedback: d9Feedback },
-      { id: 'D10', name: 'Lời kết & CTA', score: d10Score, feedback: d10Feedback },
-    ];
-
-    const sum = criteria.reduce((acc, c) => acc + c.score, 0);
-    const overallScore = Math.min(100, Math.round(sum));
-    const lowestScore = Math.min(...criteria.map((c) => c.score));
-    const failedCriteria = criteria.filter((c) => c.score < 8).map((c) => c.id);
-
-    let critique = '';
-    if (failedCriteria.length > 0) {
-      const weaknessList = failedCriteria.join(' và ');
-      const weakFeedbacks = criteria.filter((c) => c.score < 8).map((c) => c.feedback).join(' ');
-      critique = `Điểm yếu lớn nhất: ${weaknessList}. ${weakFeedbacks}`;
-    } else {
-      critique = 'Kịch bản đạt chất lượng xuất sắc! Mọi tiêu chí đều đạt từ 8/10 trở lên, nhịp kể dồn dập, câu từ lồng tiếng tự nhiên và giàu cảm xúc.';
-    }
-
-    let notice: string | undefined;
-    const provider = channelProfile?.aiProvider && channelProfile.aiProvider !== 'default'
-      ? channelProfile.aiProvider
-      : config?.provider || 'gemini_web';
-
-    if (provider === 'gemini_web') {
-      notice = 'Đang chạy CHẾ ĐỘ TIẾT KIỆM trên Gemini bản web: kịch bản được chia nhiều đoạn gửi qua một hội thoại, nên miễn phí nhưng AI đọc theo mảnh chữ không đọc một hơi — điểm và chất lượng sửa thấp hơn DeepSeek. Chạy cũng lâu hơn.';
-    } else if (provider === 'chatgpt_web') {
-      notice = 'Đang chạy CHẾ ĐỘ TIẾT KIỆM trên ChatGPT bản web: tự động hóa qua phiên trình duyệt cá nhân, không tốn token API.';
-    }
-
-    return {
-      overallScore,
-      lowestScore,
-      criteria,
-      failedCriteria,
-      critique,
-      notice,
-      evaluatedAt: Date.now(),
-    };
+    if (!config) throw new Error('Chưa có cấu hình provider chấm điểm.');
+    const evaluationConfig = resolveEvaluationConfig(config, channelProfile);
+    const prompt = `Bạn là người phản biện kịch bản video. Đọc toàn bộ nội dung rồi đánh giá từng tiêu chí dựa trên chính văn bản.
+Không dùng điểm cố định, không suy ra chất lượng từ vài từ khóa. Nêu chi tiết hoặc trích dẫn ngắn từ kịch bản để giải thích mỗi điểm.
+Chủ đề có thể là hướng dẫn, tin tức, giải trí hay tài liệu: không bắt buộc mọi chủ đề phải có bí ẩn, khảo cổ, cao trào hoặc CTA thương mại.
+D2: chỉ đánh giá mức độ có căn cứ trong tài liệu được cung cấp. Không khẳng định dữ kiện đúng khi chưa đối chiếu nguồn; chỉ rõ những phát biểu cần kiểm chứng.
+Blueprint/tài liệu đầu vào: ${JSON.stringify(blueprint || {})}
+Phong cách kênh: ${JSON.stringify({ name: channelProfile?.projectName, orientation: channelProfile?.channelOrientation, hook: channelProfile?.channelHook })}
+Kịch bản: ${JSON.stringify(lines.map(({ id, text, voiceDirection, visualAction }) => ({ id, text, voiceDirection, visualAction })))}
+Tiêu chí: ${JSON.stringify(SCRIPT_REVIEW_CRITERIA)}
+Trả về DUY NHẤT JSON chứa đủ D1–D10, mỗi điểm số từ 0 đến 10 và nhận xét cụ thể:
+{"criteria":[{"id":"D1","score":6,"feedback":"Nhận xét dựa trên kịch bản"}],"critique":"Điểm mạnh, điểm yếu và đề xuất ưu tiên"}.
+Không tự tính điểm tổng, không khẳng định đã nghiên cứu nguồn ngoài.`;
+    return parseScriptEvaluation(await this.requestScriptReview(prompt, evaluationConfig, channelProfile), evaluationConfig.provider);
   }
 
   private async requestScriptReview(prompt: string, config: AiStudioLlmConfig, channelProfile?: Partial<ChannelProfileConfig>): Promise<string> {

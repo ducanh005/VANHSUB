@@ -871,6 +871,8 @@ export interface ScriptCriteriaScore {
 }
 
 export interface ScriptEvaluation {
+  method?: 'llm';
+  provider?: AiStudioLlmConfig['provider'];
   overallScore: number; // 0 - 100
   lowestScore: number; // 0 - 10
   criteria: ScriptCriteriaScore[];
@@ -888,6 +890,7 @@ export interface EvaluateScriptPayload {
 }
 
 export interface EvaluateScriptResult {
+  session?: PipelineSessionState;
   evaluation: ScriptEvaluation;
 }
 
