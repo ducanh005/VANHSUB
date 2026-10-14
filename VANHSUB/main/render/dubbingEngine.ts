@@ -205,7 +205,7 @@ function buildAudioGroups(
   manifest: Record<string, any>
 ): SentenceAudioGroup[] {
   const hasManifestGroups = Object.values(manifest).some(
-    (m: any) => m && (m.isGroupLeader || m.isGroupMember)
+    (m: any) => m && (m.isGroupLeader || m.isGroupMember || Array.isArray(m.groupIndices))
   );
 
   if (hasManifestGroups) {

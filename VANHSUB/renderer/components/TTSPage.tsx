@@ -165,7 +165,7 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
     setMergedDuration(0);
     setShowVoicePanel(false);
     setSrtLines([]);
-    setVoiceOverrides({});
+    setVoiceOverrides(selectedTask?.ttsVoiceOverrides || {});
     setLinePreviewing(null);
     setRegeneratingLine(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -225,7 +225,6 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
         const content = await window.vanhsub.tasks.readSrt(srtPath);
         setSrtLines(parseSrt(content));
         // Khôi phục gán giọng đã lưu trên task (nếu có)
-        setVoiceOverrides(selectedTask?.ttsVoiceOverrides || {});
       } catch {
         // bỏ qua — panel sẽ hiện trạng thái rỗng
       }
@@ -313,14 +312,15 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
     setIsError(false);
     setRegeneratingLine(lineNumber);
     try {
-      const res = await window.vanhsub.tts.regenerateLine(selectedTaskId, lineNumber);
+      const res = await window.vanhsub.tts.regenerateLine(selectedTaskId, lineNumber,
+        { voice, speed, engine: ttsEngine, voiceOverrides });
       if (!res?.ok) {
         setIsError(true);
         setMessage(res?.error || 'Không thể tạo lại audio cho dòng này.');
         return;
       }
       setMessage(
-        `Đã tạo lại audio dòng ${lineNumber} — bấm "Ghép audio vào video" để áp dụng vào video.`
+        `Đã tạo lại nhóm câu chứa dòng ${lineNumber} và cập nhật MP3 — bấm "Ghép audio vào video" để áp dụng.`
       );
     } catch (err: any) {
       setIsError(true);

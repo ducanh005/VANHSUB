@@ -48,7 +48,9 @@ export class TTSRunner {
     lineIndex: number,
     voice?: string,
     speed?: number,
-    engine?: TTSEngine
+    engine?: TTSEngine,
+    voiceOverrides?: Record<string, string>,
+    onUpdate?: () => void
   ): Promise<{ ok: boolean; error?: string }> {
     const task = TaskStore.getById(taskId);
     if (!task) return { ok: false, error: 'Không tìm thấy tác vụ.' };
@@ -57,10 +59,12 @@ export class TTSRunner {
     }
 
     const key = `${taskId}:${lineIndex}`;
-    if (this.regeneratingLines.has(key)) {
-      return { ok: false, error: `Dòng ${lineIndex} đang được tạo lại.` };
+    if (this.runningTasks.has(taskId)) {
+      return { ok: false, error: 'Tác vụ đang tạo audio. Hãy chờ hoàn tất.' };
     }
     this.regeneratingLines.add(key);
+    this.runningTasks.add(taskId);
+    this.cancelledTasks.delete(taskId);
 
     try {
       const srtPath = task.translatedSrtPath || task.srtPath;
@@ -68,25 +72,41 @@ export class TTSRunner {
 
       // Giọng của dòng: gán riêng trên task (ttsVoiceOverrides) ưu tiên trước
       // giọng chung — trước đây bỏ qua nên "Tạo lại audio dòng" luôn ra giọng mặc định
-      const voiceForLine =
-        voice || task.ttsVoiceOverrides?.[String(lineIndex)] || task.ttsVoice;
+      const voiceToUse = voice || task.ttsVoice || SettingsStore.get('ttsVoice');
+      const overrides = voiceOverrides ?? task.ttsVoiceOverrides;
       const engineForLine: TTSEngine = this.resolveEngine(task, engine);
 
-      TaskStore.update(taskId, { dubbedVideoPath: undefined });
+      TaskStore.update(taskId, { status: 'dubbing', progress: 0, dubbedVideoPath: undefined,
+        ttsMergedAudioPath: undefined, ttsVoice: voiceToUse, ttsSpeed: speed ?? task.ttsSpeed,
+        ttsEngine: engineForLine, ttsVoiceOverrides: overrides,
+        stageDescription: `Đang tạo lại nhóm câu chứa dòng ${lineIndex}...`, errorMessage: undefined });
+      onUpdate?.();
       await regenerateTtsLine(
         srtPath,
         task.ttsAudioDir,
         lineIndex,
-        voiceForLine,
+        voiceToUse,
         speed || task.ttsSpeed,
-        engineForLine
+        engineForLine,
+        overrides,
+        () => this.cancelledTasks.has(taskId)
       );
+      if (this.cancelledTasks.has(taskId)) throw new Error('Đã huỷ tạo lại audio');
+      const merged = await this.exportMergedAudio(taskId);
+      if (!merged.ok) throw new Error(merged.error);
+      TaskStore.update(taskId, { status: 'done', progress: 100,
+        stageDescription: `Đã tạo lại nhóm câu chứa dòng ${lineIndex} và cập nhật MP3 tổng hợp` });
       return { ok: true };
     } catch (err: any) {
+      TaskStore.update(taskId, { status: this.cancelledTasks.has(taskId) ? 'cancelled' : 'error',
+        errorMessage: err?.message, stageDescription: 'Tạo lại audio chưa hoàn tất' });
       console.error(`Lỗi khi tạo lại audio dòng ${lineIndex} task ${taskId}:`, err);
       return { ok: false, error: err?.message || 'Không thể tạo lại audio cho dòng này.' };
     } finally {
       this.regeneratingLines.delete(key);
+      this.runningTasks.delete(taskId);
+      this.cancelledTasks.delete(taskId);
+      onUpdate?.();
     }
   }
 
@@ -120,9 +140,7 @@ export class TTSRunner {
         undefined,
         { mode, maxTempo: configuredMaxTempo() }
       );
-      if (overruns && overruns.length > 0) {
-        TaskStore.update(taskId, { ttsOverruns: overruns });
-      }
+      TaskStore.update(taskId, { ttsOverruns: overruns });
       TaskStore.update(taskId, { ttsMergedAudioPath: outputPath });
       return { ok: true, audioPath };
     } catch (err: any) {

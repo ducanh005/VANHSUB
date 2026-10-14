@@ -40,6 +40,8 @@ export interface TTSOptions {
   shouldStop?: () => boolean;
   /** Maximum pitch-preserving tempo in the final merge. */
   maxTempo?: number;
+  /** Rebuild the sentence containing these lines even when its cache matches. */
+  forceLineIndices?: number[];
 }
 
 export interface SubtitleLine {
@@ -395,7 +397,9 @@ export async function regenerateTtsLine(
   lineIndex: number,
   voice?: string,
   speed?: number,
-  engine?: TTSEngine
+  engine?: TTSEngine,
+  voiceOverrides?: Record<string, string>,
+  shouldStop?: () => boolean
 ): Promise<void> {
   const subtitles = parseSrtFile(srtPath);
   // Tìm theo số dòng ghi trong file; không thấy thì theo vị trí (file đánh số lệch)
@@ -404,26 +408,11 @@ export async function regenerateTtsLine(
     throw new Error(`Không tìm thấy dòng ${lineIndex} trong file phụ đề.`);
   }
 
-  const voiceToUse = voice || SettingsStore.get('ttsVoice') || 'BV074_streaming';
-  const speedToUse = speed || SettingsStore.get('ttsSpeed') || 1.0;
-  const engineToUse: TTSEngine = engine || 'tiktok';
-
-  console.log(`[TTS] Tạo lại audio dòng ${lineIndex} (${engineToUse}/${voiceToUse}): "${sub.text.slice(0, 50)}..."`);
-  const audioBuffer = await withRetry(() => generateAudio(sub.text, voiceToUse, speedToUse, engineToUse));
-
-  if (!fs.existsSync(ttsAudioDir)) {
-    fs.mkdirSync(ttsAudioDir, { recursive: true });
-  }
-  const audioPath = path.join(ttsAudioDir, `subtitle_${String(lineIndex).padStart(4, '0')}.mp3`);
-  fs.writeFileSync(audioPath, audioBuffer);
-
-  // Cập nhật manifest cache để lần TTS chạy lại không regenerate dòng này
-  const manifest = loadManifest(ttsAudioDir);
-  manifest[String(lineIndex)] = { voice: voiceToUse, speed: speedToUse, text: sub.text, engine: engineToUse,
-    sourceTextVerified: true };
-  saveManifest(ttsAudioDir, manifest);
-
-  console.log(`[TTS] ✓ Đã ghi đè ${audioPath}`);
+  // Rebuild group membership from current SRT, then use the normal timing and
+  // cache checks. A former member must never be treated as standalone audio.
+  await generateTtsFromSrt(srtPath, ttsAudioDir, {
+    voice, speed, engine, voiceOverrides, shouldStop, forceLineIndices: [sub.index],
+  });
 }
 
 /**
@@ -450,7 +439,6 @@ export async function generateTtsFromSrt(
   let totalDuration = 0;
   const manifest = loadManifest(outputDir);
   let cacheHits = 0;
-  let cacheSkipped = 0;
 
   const groups = groupSubtitlesForTts(subtitles, options);
   console.log(
@@ -477,6 +465,8 @@ export async function generateTtsFromSrt(
       const manifestEntry = manifest[String(group.startIndex)];
       const isCacheHit =
         manifestEntry &&
+        !manifestEntry.isGroupMember &&
+        !group.subtitles.some((sub) => options?.forceLineIndices?.includes(sub.index)) &&
         (manifestEntry.engine || 'viettts') === group.engine &&
         manifestEntry.voice === group.voice &&
         Number(manifestEntry.speed) === Number(group.speed) &&
@@ -570,9 +560,7 @@ export async function generateTtsFromSrt(
             leaderIndex: group.startIndex,
           };
 
-          if (!fs.existsSync(memberPath) || fs.statSync(memberPath).size === 0) {
-            fs.copyFileSync(masterPath, memberPath);
-          }
+          fs.copyFileSync(masterPath, memberPath);
         }
 
         audioFiles.set(sub.index, memberPath);
@@ -580,7 +568,7 @@ export async function generateTtsFromSrt(
       }
 
       // Ghi manifest sau mỗi câu — app đóng giữa chừng vẫn giữ cache phần đã tạo
-      if (++cacheSkipped % 10 === 0) saveManifest(outputDir, manifest);
+      saveManifest(outputDir, manifest);
     } catch (err) {
       if (String(err).includes('TTS timing conflict')) {
         recordDubbingTiming(srtPath, { startIndex: group.startIndex, endIndex: group.endIndex,

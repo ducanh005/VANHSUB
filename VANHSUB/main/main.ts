@@ -768,8 +768,11 @@ ipcMain.handle('tts:cancel', async (_event, id: string) => {
 })
 
 // Tạo lại audio cho 1 dòng phụ đề (sau khi sửa text / đổi giọng)
-ipcMain.handle('tts:regenerateLine', async (_event, id: string, lineIndex: number) => {
-  const result = await TTSRunner.regenerateLine(id, lineIndex)
+ipcMain.handle('tts:regenerateLine', async (_event, id: string, lineIndex: number, options?: {
+  voice?: string; speed?: number; engine?: 'edge' | 'tiktok' | 'viettts'; voiceOverrides?: Record<string, string>
+}) => {
+  const result = await TTSRunner.regenerateLine(id, lineIndex, options?.voice, options?.speed,
+    options?.engine, options?.voiceOverrides, broadcastTasksUpdate)
   broadcastTasksUpdate()
   return result
 })

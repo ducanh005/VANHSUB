@@ -229,7 +229,9 @@ export interface VanhsubAPI {
       engine?: 'viettts' | 'tiktok' | 'edge'
     ) => Promise<boolean>;
     cancel: (id: string) => Promise<boolean>;
-    regenerateLine: (id: string, lineIndex: number) => Promise<{ ok: boolean; error?: string }>;
+    regenerateLine: (id: string, lineIndex: number, options?: {
+      voice?: string; speed?: number; engine?: 'edge' | 'tiktok' | 'viettts'; voiceOverrides?: Record<string, string>
+    }) => Promise<{ ok: boolean; error?: string }>;
     exportMergedAudio: (
       id: string,
       targetPath?: string,
