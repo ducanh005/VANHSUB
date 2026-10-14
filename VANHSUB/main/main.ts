@@ -8,6 +8,7 @@ import si from 'systeminformation'
 import { createWindow } from './helpers/create-window'
 import { TaskStore, type CreateTaskInput, type Task } from './store/taskStore'
 import { saveTaskSubtitle, importTaskSubtitle } from './lib/subtitleArtifacts'
+import { assertTaskAvailable, reserveTaskOperation, isTaskOperationActive } from './lib/taskOperations'
 import { SettingsStore, type AppSettings } from './store/settingsStore'
 import { polishSubtitleLine, translateSubtitleLine, cleanAndDeduplicateSubtitles } from './ai/geminiClient'
 import { normalizeSrtLines, normalizeSrt } from './lib/srtNormalizer'
@@ -396,12 +397,41 @@ ipcMain.handle('downloader:cancel', async (_event, downloadId?: string) => {
 const MAX_PARALLEL_PIPELINES = 2;
 const pipelineActive = new Set<string>();
 const pipelineQueued: string[] = [];
+const pipelineReleases = new Map<string, () => void>();
+const cancelledOperations = new Set<string>();
+
+function finishTaskOperation(id: string, release: () => void): void {
+  if (cancelledOperations.delete(id)) {
+    TaskStore.update(id, { status: 'cancelled', stageDescription: 'Đã huỷ tác vụ' });
+  }
+  release();
+  broadcastTasksUpdate();
+}
+
+function launchTaskOperation(id: string, work: () => Promise<unknown>): boolean {
+  if (!TaskStore.getById(id)) throw new Error('Không tìm thấy tác vụ.');
+  const release = reserveTaskOperation(id);
+  void Promise.resolve().then(() => cancelledOperations.has(id) ? undefined : work()).catch((error) => {
+    if (!cancelledOperations.has(id)) {
+      TaskStore.update(id, { status: 'error', errorMessage: error?.message || String(error),
+        stageDescription: 'Không thể xử lý tác vụ' });
+    }
+  }).finally(() => finishTaskOperation(id, release));
+  return true;
+}
+
+async function awaitTaskOperation<T>(id: string, work: () => Promise<T>): Promise<T> {
+  const release = reserveTaskOperation(id);
+  try { return await work(); } finally { finishTaskOperation(id, release); }
+}
 
 function enqueuePipeline(id: string): boolean {
   const task = TaskStore.getById(id);
   if (!task) return false;
   if (['transcribing', 'translating', 'dubbing', 'exporting'].includes(task.status)) return false;
   if (pipelineActive.has(id) || pipelineQueued.includes(id)) return false;
+  if (isTaskOperationActive(id)) return false;
+  pipelineReleases.set(id, reserveTaskOperation(id));
   pipelineQueued.push(id);
   return true;
 }
@@ -412,7 +442,8 @@ function drainPipelines(): void {
     pipelineActive.add(id);
     void executePipeline(id).finally(() => {
       pipelineActive.delete(id);
-      broadcastTasksUpdate();
+      finishTaskOperation(id, pipelineReleases.get(id) || (() => {}));
+      pipelineReleases.delete(id);
       drainPipelines();
     });
   }
@@ -421,6 +452,7 @@ function drainPipelines(): void {
 async function executePipeline(id: string): Promise<void> {
   const onUpdate = () => broadcastTasksUpdate()
   const stop = (t: Task | undefined, label: string): boolean => {
+    if (cancelledOperations.has(id)) return true
     if (!t || t.status === 'error' || t.status === 'cancelled') {
       console.log(`[Pipeline] Dừng ở bước ${label} (status: ${t?.status || 'unknown'})`)
       return true
@@ -459,6 +491,7 @@ async function executePipeline(id: string): Promise<void> {
     console.log(`[Pipeline] Hoàn tất quy trình cho task ${id}`)
   } catch (err) {
     console.error('[Pipeline] Lỗi không mong muốn:', err)
+    if (!cancelledOperations.has(id)) TaskStore.update(id, { status: 'error', errorMessage: String(err) })
   }
 }
 
@@ -488,6 +521,7 @@ ipcMain.handle('tasks:create', async (_event, input: CreateTaskInput) => {
 })
 
 ipcMain.handle('tasks:update', async (_event, id: string, updates: Partial<Task>) => {
+  assertTaskAvailable(id)
   const task = TaskStore.update(id, updates)
   broadcastTasksUpdate()
   return task
@@ -498,8 +532,11 @@ function cancelTaskExecution(id: string): boolean {
   const qIdx = pipelineQueued.indexOf(id)
   if (qIdx !== -1) {
     pipelineQueued.splice(qIdx, 1)
+    pipelineReleases.get(id)?.()
+    pipelineReleases.delete(id)
   }
-  pipelineActive.delete(id)
+  const activeOperation = isTaskOperationActive(id)
+  if (activeOperation) cancelledOperations.add(id)
 
   // 2. Huỷ bỏ các runner có thể đang chạy
   const asrCancelled = TaskRunner.cancel(id)
@@ -512,14 +549,14 @@ function cancelTaskExecution(id: string): boolean {
 
   // 3. Cập nhật trạng thái Store nếu task đang trong quá trình chạy
   const currentTask = TaskStore.getById(id)
-  if (currentTask && ['queued', 'transcribing', 'ocr', 'translating', 'dubbing', 'exporting'].includes(currentTask.status)) {
+  if (currentTask && (qIdx !== -1 || activeOperation || ['queued', 'transcribing', 'ocr', 'translating', 'dubbing', 'exporting'].includes(currentTask.status))) {
     TaskStore.update(id, {
       status: 'cancelled',
       stageDescription: 'Đã huỷ tác vụ',
     })
   }
 
-  return asrCancelled || ocrCancelled || hybridCancelled || translateCancelled || ttsCancelled || exportCancelled || dubbingCancelled
+  return qIdx !== -1 || activeOperation || asrCancelled || ocrCancelled || hybridCancelled || translateCancelled || ttsCancelled || exportCancelled || dubbingCancelled
 }
 
 ipcMain.handle('tasks:delete', async (_event, id: string) => {
@@ -530,10 +567,9 @@ ipcMain.handle('tasks:delete', async (_event, id: string) => {
 })
 
 ipcMain.handle('tasks:start', async (_event, id: string) => {
-  TaskRunner.runTask(id, () => {
+  return launchTaskOperation(id, () => TaskRunner.runTask(id, () => {
     broadcastTasksUpdate()
-  })
-  return true
+  }))
 })
 
 // Huỷ tác vụ đang chạy hoặc đang chờ trong hàng đợi
@@ -545,10 +581,9 @@ ipcMain.handle('tasks:cancel', async (_event, id: string) => {
 
 // Chạy kết hợp kép Whisper ASR + Quét OCR (R2 - Độ chính xác tuyệt đối)
 ipcMain.handle('tasks:startHybrid', async (_event, id: string, options?: HybridRunOptions) => {
-  HybridRunner.runHybrid(id, options, () => {
+  return launchTaskOperation(id, () => HybridRunner.runHybrid(id, options, () => {
     broadcastTasksUpdate()
-  })
-  return true
+  }))
 })
 
 // Huỷ tác vụ kết hợp Whisper + OCR
@@ -664,10 +699,9 @@ ipcMain.handle('subtitles:normalize', async (_event, input: string | any[], opti
 // Quét phụ đề cứng (hardsub) trong video bằng OCR — kết quả là file .srt
 // như phiên âm, nên sau đó dịch / tạo lồng tiếng / ghép video chạy bình thường
 ipcMain.handle('ocr:start', async (_event, id: string, options?: any) => {
-  OcrRunner.runOcr(id, options, () => {
+  return launchTaskOperation(id, () => OcrRunner.runOcr(id, options, () => {
     broadcastTasksUpdate()
-  })
-  return true
+  }))
 })
 
 // Huỷ quét OCR đang chạy (hiệu lực trước khung hình kế tiếp)
@@ -677,10 +711,9 @@ ipcMain.handle('ocr:cancel', async (_event, id: string) => {
 
 // Dịch thuật AI qua TranslateRunner
 ipcMain.handle('translate:start', async (_event, id: string, targetLanguage?: string) => {
-  TranslateRunner.runTranslate(id, targetLanguage, () => {
+  return launchTaskOperation(id, () => TranslateRunner.runTranslate(id, targetLanguage, () => {
     broadcastTasksUpdate()
-  })
-  return true
+  }))
 })
 
 // Huỷ dịch đang chạy (hiệu lực sau khi batch hiện tại xong)
@@ -699,7 +732,7 @@ ipcMain.handle(
     style?: SubtitleStyle | null,
     advancedOptions?: AdvancedExportOptions | null
   ) => {
-    ExportRunner.runExport(
+    return launchTaskOperation(id, () => ExportRunner.runExport(
       id,
       mode,
       mask,
@@ -708,17 +741,15 @@ ipcMain.handle(
       },
       style ?? null,
       advancedOptions ?? null
-    )
-    return true
+    ))
   }
 )
 
 // Tách nhạc nền / giọng khỏi video bằng AI Demucs — xuất 2 file mp3 cạnh video gốc
 ipcMain.handle('export:separateStems', async (_event, id: string) => {
-  StemExportRunner.runStemExport(id, () => {
+  return launchTaskOperation(id, () => StemExportRunner.runStemExport(id, () => {
     broadcastTasksUpdate()
-  })
-  return true
+  }))
 })
 
 // Tạo lồng tiếng bằng VietTTS hoặc TikTok TTS (voiceOverrides: gán giọng riêng theo dòng)
@@ -732,10 +763,9 @@ ipcMain.handle(
     voiceOverrides?: Record<string, string>,
     engine?: 'viettts' | 'tiktok' | 'edge'
   ) => {
-    TTSRunner.runTTS(id, voice, speed, () => {
+    return launchTaskOperation(id, () => TTSRunner.runTTS(id, voice, speed, () => {
       broadcastTasksUpdate()
-    }, voiceOverrides, engine)
-    return true
+    }, voiceOverrides, engine))
   }
 )
 
@@ -753,8 +783,8 @@ ipcMain.handle('tts:cancel', async (_event, id: string) => {
 ipcMain.handle('tts:regenerateLine', async (_event, id: string, lineIndex: number, options?: {
   voice?: string; speed?: number; engine?: 'edge' | 'tiktok' | 'viettts'; voiceOverrides?: Record<string, string>
 }) => {
-  const result = await TTSRunner.regenerateLine(id, lineIndex, options?.voice, options?.speed,
-    options?.engine, options?.voiceOverrides, broadcastTasksUpdate)
+  const result = await awaitTaskOperation(id, () => TTSRunner.regenerateLine(id, lineIndex, options?.voice, options?.speed,
+    options?.engine, options?.voiceOverrides, broadcastTasksUpdate))
   broadcastTasksUpdate()
   return result
 })
@@ -763,7 +793,7 @@ ipcMain.handle('tts:regenerateLine', async (_event, id: string, lineIndex: numbe
 ipcMain.handle(
   'tts:export-merged-audio',
   async (_event, id: string, targetPath?: string, mode?: 'strict' | 'flexible') => {
-    const res = await TTSRunner.exportMergedAudio(id, targetPath, mode)
+    const res = await awaitTaskOperation(id, () => TTSRunner.exportMergedAudio(id, targetPath, mode))
     broadcastTasksUpdate()
     return res
   }
@@ -1009,10 +1039,9 @@ ipcMain.handle(
     replaceAudio: boolean = true,
     options?: { syncMode?: 'strict' | 'flexible' | 'video-stretch'; mixOriginalAudio?: boolean; vocalSeparation?: boolean }
   ) => {
-    DubbingRunner.runDubbing(id, replaceAudio, () => {
+    return launchTaskOperation(id, () => DubbingRunner.runDubbing(id, replaceAudio, () => {
       broadcastTasksUpdate()
-    }, options)
-    return true
+    }, options))
   }
 )
 

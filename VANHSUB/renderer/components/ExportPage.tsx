@@ -287,6 +287,7 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
 
   const selectedTask = tasks.find((t) => t.id === selectedTaskId) || null;
   const isExporting = selectedTask?.status === 'exporting';
+  const isTaskBusy = ['transcribing', 'ocr', 'translating', 'dubbing', 'exporting'].includes(selectedTask?.status || '');
   const outputPath = selectedTask?.outputPath;
   const hasTtsAudio = !!selectedTask?.ttsAudioDir && !selectedTask?.ttsNeedsRegeneration;
   const hasBothSrt = !!(selectedTask?.srtPath && selectedTask?.translatedSrtPath);
@@ -1589,7 +1590,7 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
               <button
                 type="button"
                 onClick={handleExport}
-                disabled={isExporting || startingDub || separatingStems || (mode === 'dub' && !hasTtsAudio)}
+                disabled={isTaskBusy || startingDub || separatingStems || (mode === 'dub' && !hasTtsAudio)}
                 className="bg-accent text-white hover:bg-accent-hover inline-flex items-center gap-2 rounded-md px-5 py-2.5 text-xs font-semibold cursor-pointer disabled:opacity-50"
               >
                 {isExporting || startingDub || separatingStems ? (

@@ -4,7 +4,7 @@ import { TaskStore, type Task } from '../store/taskStore';
 import { SettingsStore } from '../store/settingsStore';
 import { generateTtsFromSrt, regenerateTtsLine, type TTSEngine } from '../render/ttsEngine';
 import { resolveTtsEngine } from '../lib/ttsConfig';
-import { isCancelledError } from '../lib/cancel';
+import { CancelledError, isCancelledError } from '../lib/cancel';
 import { getOrCreateProjectDir, getProjectArtifactPaths } from '../utils/projectFolder';
 import { mergeAudioFiles } from './dubbingEngine';
 import { configuredMaxTempo } from './ttsTiming';
@@ -84,6 +84,7 @@ export class TTSRunner {
       );
       if (this.cancelledTasks.has(taskId)) throw new Error('Đã huỷ tạo lại audio');
       const merged = await this.exportMergedAudio(taskId, undefined, 'strict', true);
+      if (this.cancelledTasks.has(taskId)) throw new Error('Đã huỷ tạo lại audio');
       if (!merged.ok) throw new Error(merged.error);
       TaskStore.update(taskId, { status: 'done', progress: 100, ttsNeedsRegeneration: false,
         stageDescription: `Đã tạo lại nhóm câu chứa dòng ${lineIndex} và cập nhật MP3 tổng hợp` });
@@ -220,6 +221,7 @@ export class TTSRunner {
       );
 
       // Tự động ghép các câu thành 1 file MP3 tổng hợp chuẩn xác theo timeline dự án
+      if (this.cancelledTasks.has(taskId)) throw new CancelledError();
       const artifactPaths = getProjectArtifactPaths(task);
       const mergedMp3Path = artifactPaths.ttsMergedAudioPath;
       let finalMergedPath: string | undefined = undefined;
@@ -247,6 +249,7 @@ export class TTSRunner {
         throw new Error(`TTS timing conflict during audio merge: ${mergeErr}`);
       }
 
+      if (this.cancelledTasks.has(taskId)) throw new CancelledError();
       const updated = TaskStore.update(taskId, {
         status: 'done',
         progress: 100,

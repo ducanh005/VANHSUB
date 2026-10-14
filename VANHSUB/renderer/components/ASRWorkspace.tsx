@@ -77,7 +77,8 @@ export default function ASRWorkspace({ tasks, selectedTaskId: propSelectedTaskId
   const isHybridRunning =
     (selectedTask?.status as string) === 'hybrid' ||
     Boolean(selectedTask?.stageDescription?.includes('[Hybrid]') && (isTranscribing || isOcrRunning));
-  const isBusy = isTranscribing || isOcrRunning || isHybridRunning || starting;
+  const isBusy = isTranscribing || isOcrRunning || isHybridRunning || starting ||
+    ['translating', 'dubbing', 'exporting'].includes(selectedTask?.status || '');
   const isAudio = selectedTask ? isAudioFile(selectedTask.filePath) : false;
   const hasSrt = !!selectedTask?.srtPath;
 

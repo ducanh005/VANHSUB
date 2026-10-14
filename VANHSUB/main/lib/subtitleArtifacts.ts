@@ -4,8 +4,10 @@ import { TaskStore, type Task } from '../store/taskStore';
 import { parseSrtStrict } from './srt';
 import { nextAvailablePath } from './paths';
 import { getProjectArtifactPaths } from '../utils/projectFolder';
+import { assertTaskAvailable } from './taskOperations';
 
 function assertIdle(task: Task) {
+  assertTaskAvailable(task.id);
   if (['transcribing', 'ocr', 'translating', 'dubbing', 'exporting'].includes(task.status)) {
     throw new Error('Tác vụ đang xử lý. Hãy chờ hoặc huỷ trước khi thay phụ đề.');
   }
