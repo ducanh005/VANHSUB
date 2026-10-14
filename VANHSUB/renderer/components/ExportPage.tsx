@@ -102,36 +102,6 @@ const POSITION_PRESETS: Array<{
   { name: '⏺ Chính giữa tâm', alignment: 5, marginV: 25, marginH: 20, isVertical: false },
 ];
 
-const STYLE_PRESETS: Array<{ name: string; style: SubStyle }> = [
-  { name: 'Chuẩn', style: DEFAULT_STYLE },
-  {
-    name: 'TikTok nổi',
-    style: { ...DEFAULT_STYLE, fontName: 'Arial', fontSize: 30, primaryColour: '#FFE135', outline: 3, shadow: 0, bold: true, marginV: 30 },
-  },
-  {
-    name: 'Nhạc Douyin (Dọc)',
-    style: {
-      ...DEFAULT_STYLE,
-      fontName: 'Arial',
-      fontSize: 20,
-      primaryColour: '#FFE135',
-      outline: 2,
-      alignment: 4,
-      marginH: 35,
-      marginV: 25,
-      isVertical: true,
-    },
-  },
-  {
-    name: 'Nền box',
-    style: { ...DEFAULT_STYLE, borderStyle: 3, outline: 3, shadow: 0, outlineColour: '#000000' },
-  },
-  {
-    name: 'Chiếu rạp',
-    style: { ...DEFAULT_STYLE, fontName: 'Georgia', fontSize: 20, outlineColour: '#101010', shadow: 2, marginV: 20 },
-  },
-];
-
 const FONT_OPTIONS = ['Arial', 'Segoe UI', 'Verdana', 'Tahoma', 'Times New Roman', 'Georgia', 'Impact', 'Courier New'];
 
 const DEFAULT_MASK: SubMaskRegion = {

@@ -626,30 +626,34 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
             <button
               type="button"
               onClick={() => {
+                if (ttsEngine !== 'edge') setVoiceOverrides({});
                 setTtsEngine('edge');
                 setVoice('vi-VN-HoaiMyNeural');
               }}
+              disabled={isTtsRunning || isDubbingRunning}
               className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition cursor-pointer ${
                 ttsEngine === 'edge'
                   ? 'bg-accent-tint text-accent border border-accent/40'
                   : 'text-text-muted hover:text-white'
               }`}
-              title="Edge TTS miễn phí 100%, không cần tài khoản, giọng đọc Azure Neural tự nhiên"
+              title="Edge TTS miễn phí. Đổi provider sẽ đặt lại gán giọng từng dòng để bạn chọn giọng tương ứng."
             >
               Edge TTS (Free)
             </button>
             <button
               type="button"
               onClick={() => {
+                if (ttsEngine !== 'tiktok') setVoiceOverrides({});
                 setTtsEngine('tiktok');
                 setVoice('BV074_streaming');
               }}
+              disabled={isTtsRunning || isDubbingRunning}
               className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition cursor-pointer ${
                 ttsEngine === 'tiktok'
                   ? 'bg-accent-tint text-accent border border-accent/40'
                   : 'text-text-muted hover:text-white'
               }`}
-              title="TikTok TTS (yêu cầu sessionid đã lưu trong Cài đặt)"
+              title="TikTok TTS cần session. Đổi provider sẽ đặt lại gán giọng từng dòng để bạn chọn giọng tương ứng."
             >
               TikTok TTS
             </button>

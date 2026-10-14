@@ -58,8 +58,7 @@ export class TTSRunner {
       const srtPath = task.translatedSrtPath || task.srtPath;
       if (!srtPath) return { ok: false, error: 'Tác vụ không có file phụ đề.' };
 
-      // Giọng của dòng: gán riêng trên task (ttsVoiceOverrides) ưu tiên trước
-      // giọng chung — trước đây bỏ qua nên "Tạo lại audio dòng" luôn ra giọng mặc định
+      // Rebuild with current per-line assignments and the project's default voice.
       const voiceToUse = voice || task.ttsVoice || SettingsStore.get('ttsVoice');
       const overrides = voiceOverrides ?? task.ttsVoiceOverrides;
       const engineForLine: TTSEngine = this.resolveEngine(task, engine, voiceToUse);
