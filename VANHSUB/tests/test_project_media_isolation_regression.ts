@@ -25,6 +25,7 @@ async function main() {
         motionType: 'ken_burns', status: 'pending' }] },
     });
     const engine = new AiStudioPipelineEngine();
+    await assert.rejects(() => engine.start({ topic: 'stale project request', projectId: 'A' }, () => {}), /đã thay đổi/);
     const a = makeSession('session_A', 'A', aDir), b = makeSession('session_B', 'B', bDir);
     engine.persistSessionStateAtomic(a); engine.persistSessionStateAtomic(b);
     const imageA = path.join(root, 'a.png'), imageB = path.join(root, 'b.png');

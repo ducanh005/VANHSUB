@@ -360,7 +360,11 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
     const gatedMode = payload.gatedMode !== false;
 
     // Hard-block check: outputDir bắt buộc phải có để tránh rò rỉ chéo dự án
-    const config = resolveProductionConfig(getDecryptedAiStudioConfig(), payload.options, payload.blueprint);
+    const currentConfig = getDecryptedAiStudioConfig();
+    if (payload.projectId && payload.projectId !== currentConfig.activeProjectId) {
+      throw new Error('Dự án đang chọn đã thay đổi. Mở lại đúng dự án trước khi bắt đầu để tránh dùng nhầm cấu hình.');
+    }
+    const config = resolveProductionConfig(currentConfig, payload.options, payload.blueprint);
     const activeProject = config.savedProjects?.find((p) => p.id === config.activeProjectId);
     const resolvedOutputDir =
       payload.outputDir?.trim() ||
