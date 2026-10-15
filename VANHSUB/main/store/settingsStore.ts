@@ -3,6 +3,7 @@ import path from 'path';
 import Store from 'electron-store';
 import { safeStorage } from 'electron';
 import { encryptPlatformSecret } from '../security/secretStorage';
+import { planLegacySecretMigration } from '../security/legacySecrets';
 
 /**
  * Chiến lược tìm phụ đề khi quét OCR:
@@ -188,6 +189,13 @@ function decryptSecret(stored: string): string {
 }
 
 export const SettingsStore = {
+  migrateLegacySecrets(): number {
+    const store = getStore();
+    const replacements = planLegacySecretMigration(store.store as any, ENCRYPTED_KEYS, encryptSecret, decryptSecret);
+    const count = Object.keys(replacements).length;
+    if (count) store.set(replacements as any);
+    return count;
+  },
   /** get() tự động giải mã các secret (geminiApiKey, veoSessionCookie, veoSessionAuthToken) */
   get<K extends keyof AppSettings>(key: K): AppSettings[K] {
     const raw = getStore().get(key);

@@ -3,6 +3,7 @@ import path from 'path';
 import fs from 'fs';
 import Store from 'electron-store';
 import { encryptPlatformSecret } from '../security/secretStorage';
+import { planLegacySecretMigration } from '../security/legacySecrets';
 import {
   AiStudioConfig,
   DEFAULT_AI_STUDIO_CONFIG,
@@ -261,6 +262,7 @@ export function getAiStudioConfig(options?: { decrypted?: boolean }): AiStudioCo
 
   if (options?.decrypted) {
     merged.llm.apiKey = decryptSecret(merged.llm.apiKey);
+    if (merged.flowEngine.apiKey) merged.flowEngine.apiKey = decryptSecret(merged.flowEngine.apiKey);
   }
 
   return merged;
@@ -375,6 +377,10 @@ export function updateAiStudioConfig(
   }
 
   // Persist to disk
+  if (partial.flowEngine?.apiKey !== undefined) {
+    if (typeof partial.flowEngine.apiKey !== 'string') throw new TypeError('Invalid Flow API key type');
+    updated.flowEngine.apiKey = encryptSecret(partial.flowEngine.apiKey.trim());
+  }
   try {
     store.store = updated;
   } catch (err) {
@@ -391,10 +397,24 @@ export function updateAiStudioConfig(
         ...updated.llm,
         apiKey: decryptSecret(updated.llm.apiKey),
       },
+      flowEngine: { ...updated.flowEngine, ...(updated.flowEngine.apiKey ? { apiKey: decryptSecret(updated.flowEngine.apiKey) } : {}) },
     };
   }
 
   return JSON.parse(JSON.stringify(updated));
+}
+
+/** Migrate only current config keys; preserve unknown fields and existing episode snapshots. */
+export function migrateAiStudioLegacySecrets(): number {
+  const store = getAiStudioStore();
+  const raw = store.store;
+  const replacements = planLegacySecretMigration({ llm: raw.llm?.apiKey, flow: raw.flowEngine?.apiKey }, ['llm', 'flow'], encryptSecret, decryptSecret);
+  const count = Object.keys(replacements).length;
+  if (count) store.store = { ...raw,
+    ...(replacements.llm ? { llm: { ...raw.llm, apiKey: replacements.llm } } : {}),
+    ...(replacements.flow ? { flowEngine: { ...raw.flowEngine, apiKey: replacements.flow } } : {}),
+  };
+  return count;
 }
 
 /**

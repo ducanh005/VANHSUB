@@ -1,0 +1,15 @@
+import assert from 'node:assert/strict';
+import { planLegacySecretMigration } from '../main/security/legacySecrets';
+const encrypt = (value: string) => 'enc:v1:cipher-' + value;
+const decrypt = (value: string) => value.slice('enc:v1:cipher-'.length);
+const input = { first: 'synthetic-one', second: 'enc:v1:headless:' + Buffer.from('synthetic-two').toString('base64'), ready: encrypt('existing'), blank: '' };
+const replacements = planLegacySecretMigration(input, Object.keys(input), encrypt, decrypt);
+assert.deepEqual(Object.keys(replacements), ['first', 'second']);
+assert.equal(decrypt(replacements.first), 'synthetic-one');
+assert.equal(decrypt(replacements.second), 'synthetic-two');
+assert.equal(input.first, 'synthetic-one');
+assert.throws(() => planLegacySecretMigration(input, Object.keys(input), () => { throw new Error('DPAPI unavailable'); }, decrypt), /unavailable/);
+assert.equal(input.second.startsWith('enc:v1:headless:'), true);
+assert.throws(() => planLegacySecretMigration(input, Object.keys(input), encrypt, () => 'wrong'), /xác minh/);
+assert.throws(() => planLegacySecretMigration({ key: 'enc:v1:headless:corrupt$' }, ['key'], encrypt, decrypt), /không hợp lệ/);
+console.log('PASS: legacy migration is planned atomically, verifies encryption roundtrip and preserves source on DPAPI/corruption failures');
