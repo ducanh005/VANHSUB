@@ -11,14 +11,15 @@ const application = Object.entries(manifest.files).filter(([file]) => !/^(script
 const differences = application.filter(([file, hash]) => !fs.existsSync(path.join(root, file)) || sha(path.join(root, file)) !== hash || sha(path.join(build, file)) !== hash).map(([file]) => file);
 const archive = path.join(build, 'dist/win-unpacked/resources/app.asar'), files = asar.listPackage(archive).map(file => file.replaceAll('\\', '/'));
 const excludedBuildOnlyPackages = Object.fromEntries(['nodejs-whisper', 'braces', 'micromatch', 'fast-glob', 'shelljs', 'next', 'sharp'].map(name => [name, !files.some(file => file.includes('/node_modules/' + name + '/'))]));
+const packagedExtension = Object.fromEntries(application.filter(([file]) => /^extension[\\/]/.test(file)).map(([file, hash]) => [path.basename(file), fs.existsSync(path.join(build, 'dist/win-unpacked/resources', file)) && sha(path.join(build, 'dist/win-unpacked/resources', file)) === hash]));
 const prototypeGuardianExcluded = !files.some(file => /guardian/i.test(file)) && !fs.readdirSync(path.join(build, 'dist/win-unpacked/resources')).some(file => /guardian/i.test(file));
-write('source-and-package-integrity', { applicationFiles: application.length, differences, excludedBuildOnlyPackages, prototypeGuardianExcluded, asarSha256: sha(archive), checkedAt: new Date().toISOString() });
-if (differences.length || Object.values(excludedBuildOnlyPackages).some(v => !v) || !prototypeGuardianExcluded) throw new Error('Source/package integrity failed');
+write('source-and-package-integrity', { applicationFiles: application.length, differences, excludedBuildOnlyPackages, packagedExtension, prototypeGuardianExcluded, asarSha256: sha(archive), checkedAt: new Date().toISOString() });
+if (differences.length || Object.values(excludedBuildOnlyPackages).some(v => !v) || Object.values(packagedExtension).some(v => !v) || !prototypeGuardianExcluded) throw new Error('Source/package integrity failed');
 const ps = script => execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { encoding: 'utf8', windowsHide: true }).trim();
 const installers = fs.readdirSync(path.join(build, 'dist')).filter(name => /^VANHSUB Setup .*\.exe$/.test(name));
 if (installers.length !== 1) throw new Error('Expected one NSIS installer');
 const installer = path.join(build, 'dist', installers[0]);
-write('release-artifact', { name: installers[0], bytes: fs.statSync(installer).size, sha256: sha(installer), authenticodeStatus: ps(`(Get-AuthenticodeSignature -LiteralPath '${installer.replaceAll("'", "''")}').Status.ToString()`), electron: require(path.join(build, 'node_modules/electron/package.json')).version, next: require(path.join(build, 'node_modules/next/package.json')).version, host: 'development machine, isolated build dependencies and test profiles', cleanInstallation: 'BLOCKED: no accessible clean Windows VM or Sandbox' });
+write('release-artifact', { name: installers[0], bytes: fs.statSync(installer).size, sha256: sha(installer), authenticodeStatus: ps(`Import-Module "$PSHOME/Modules/Microsoft.PowerShell.Security/Microsoft.PowerShell.Security.psd1" -ErrorAction Stop; (Get-AuthenticodeSignature -LiteralPath '${installer.replaceAll("'", "''")}').Status.ToString()`), electron: require(path.join(build, 'node_modules/electron/package.json')).version, next: require(path.join(build, 'node_modules/next/package.json')).version, host: 'development machine, isolated build dependencies and test profiles', cleanInstallation: 'BLOCKED: no accessible clean Windows VM or Sandbox' });
 const rounded = n => +n.toFixed(2), ram = processes => rounded(processes.reduce((sum, p) => sum + p.workingSetKiB, 0) / 1024), cpu = processes => processes.reduce((sum, p) => sum + p.cpu, 0);
 const summary = {};
 for (const name of ['runtime-security-editor180', 'runtime-packaged']) {
@@ -34,3 +35,4 @@ const processText = ps(`@(Get-CimInstance Win32_Process | Where-Object { $_.Exec
 const processes = processText ? JSON.parse(processText) : [];
 write('process-after-close', { checkedAt: new Date().toISOString(), scope: 'Executables within owned RC unpacked build and fixed soak artifact only; not global/user browser process certification', processes, status: Array.isArray(processes) && processes.length === 0 ? 'PASS' : 'FAIL' });
 console.log(JSON.stringify({ applicationFiles: application.length, sourceDifferences: differences.length, idleSoak: summary.idleSoak, processes }));
+if (!Array.isArray(processes) || processes.length) throw new Error('Owned acceptance executable remains running');
