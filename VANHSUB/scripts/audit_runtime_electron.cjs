@@ -9,17 +9,50 @@ async function main() {
   const packaged = process.env.VANHSUB_AUDIT_PACKAGED === '1';
   const build = packaged ? manifest.packagingPath || manifest.path : manifest.path;
   const evidenceName = packaged ? 'runtime-packaged' : 'runtime-ui';
-  const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'vanhsub-ui-audit-'));
+  const rc = process.env.VANHSUB_RC_ACCEPTANCE === '1';
+  const profileRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'vanhsub-ui-audit-'));
+  const profile = rc ? path.join(profileRoot, 'Hồ sơ nghiệm thu RC') : profileRoot;
+  fs.mkdirSync(profile, { recursive: true });
+  if (rc) {
+    fs.mkdirSync(path.join(profile, 'settings')); fs.mkdirSync(path.join(profile, 'studio'));
+    fs.writeFileSync(path.join(profile, 'settings/vanhsub-settings.json'), JSON.stringify({ onboardingCompleted: true, geminiApiKey: 'synthetic-legacy-settings', hfToken: 'enc:v1:headless:' + Buffer.from('synthetic-legacy-hf').toString('base64') }));
+    fs.writeFileSync(path.join(profile, 'studio/vanhsub-ai-studio.json'), JSON.stringify({ llm: { apiKey: 'synthetic-legacy-studio' }, flowEngine: { apiKey: 'enc:v1:headless:' + Buffer.from('synthetic-legacy-flow').toString('base64') } }));
+  }
   const result = { classification: packaged ? 'WINDOWS_UNPACKED_UI_E2E_LOCAL_OFFLINE' : 'UI_E2E_LOCAL_OFFLINE', generationCount: 0, profile, build, passes: [], errors: [], pageErrors: [], metrics: [] };
   const launch = () => {
     const env = { ...process.env, NODE_ENV: 'production', VANHSUB_AUDIT_USER_DATA_DIR: profile,
       VANHSUB_TASKS_DIR: path.join(profile, 'tasks'), VANHSUB_SETTINGS_DIR: path.join(profile, 'settings'),
       VANHSUB_AI_STUDIO_DIR: path.join(profile, 'studio'), VANHSUB_BIBLE_DIR: path.join(profile, 'bible'),
-      VANHSUB_DISABLE_FLOW_BRIDGE: '1' };
+      VANHSUB_DISABLE_FLOW_BRIDGE: rc ? '0' : '1', VANHSUB_AUDIT_BRIDGE_EPHEMERAL: rc ? '1' : '0' };
     delete env.ELECTRON_RUN_AS_NODE; delete env.NODE_OPTIONS;
-    return _electron.launch({ executablePath: packaged ? path.join(build, 'dist/win-unpacked/VANHSUB.exe') : require('electron'), args: packaged ? [] : [build], env, timeout: 60000 });
+    return _electron.launch({ executablePath: packaged ? path.join(build, 'dist/win-unpacked/VANHSUB.exe') : require('electron'), args: packaged ? [] : [build], ...(rc ? { cwd: profile } : {}), env, timeout: 60000 });
   };
   let app;
+  let bridgeToken, bridgeSocket;
+  const connectBridge = async (page, auth) => {
+    const { WebSocket } = require('ws');
+    const status = await page.evaluate(() => window.vanhsub.veo.bridgeStatus());
+    const socket = new WebSocket(`ws://127.0.0.1:${status.port}`, { origin: 'chrome-extension://' + 'a'.repeat(32) });
+    socket.on('error', () => {});
+    const challengeEvent = require('node:events').once(socket, 'message');
+    await require('node:events').once(socket, 'open');
+    const challenge = JSON.parse(String((await challengeEvent)[0]));
+    if (challenge.type !== 'AUTH_CHALLENGE' || challenge.protocol !== 2 || challenge.port !== status.port) throw new Error('Invalid bridge challenge');
+    const context = 'chrome-extension://' + 'a'.repeat(32) + '|' + status.port + '|' + challenge.nonce;
+    const crypto = require('node:crypto');
+    const sha = value => crypto.createHash('sha256').update(value).digest('hex');
+    const hmac = (key, value) => crypto.createHmac('sha256', key).update(value).digest('hex');
+    const key = auth.code || auth.token ? sha(auth.code || auth.token) : null;
+    socket.on('message', data => {
+      const message = JSON.parse(String(data));
+      if (message.id) socket.send(JSON.stringify({ id: message.id, result: { tabId: 999, url: 'https://labs.google/fx/vi/tools/flow/project/rc-fixture', projectId: 'rc-fixture' } }));
+    });
+    const response = require('node:events').once(socket, 'message');
+    socket.send(JSON.stringify({ type: auth.type, protocol: 2, version: '1.0.8', ...(key ? { proof: hmac(key, 'client|' + context) } : {}) }));
+    const reply = JSON.parse(String((await response)[0]));
+    if (reply.type === 'AUTH_OK' && (!key || reply.serverProof !== hmac(key, 'server|' + context + (auth.code ? '|' + sha(reply.token) : '')))) throw new Error('Invalid server proof');
+    return { socket, response: reply };
+  };
   const start = Date.now();
   try {
     app = await launch();
@@ -39,6 +72,24 @@ async function main() {
     if (tasks.length) throw new Error('Isolated profile unexpectedly contains tasks');
     result.passes.push('Production renderer loaded and preload IPC returned isolated empty task store');
     result.startupMs = Date.now() - start;
+    if (rc) {
+      const migration = await page.evaluate(async () => ({ setting: await window.vanhsub.settings.get('geminiApiKey'), hf: await window.vanhsub.settings.get('hfToken'), config: await window.vanhsub.aiStudio.getConfig() }));
+      const settings = JSON.parse(fs.readFileSync(path.join(profile, 'settings/vanhsub-settings.json')));
+      const studio = JSON.parse(fs.readFileSync(path.join(profile, 'studio/vanhsub-ai-studio.json')));
+      for (const value of [settings.geminiApiKey, settings.hfToken, studio.llm.apiKey, studio.flowEngine.apiKey]) {
+        if (!value?.startsWith('enc:v1:') || value.startsWith('enc:v1:headless:')) throw new Error('Legacy secret was not migrated to platform ciphertext');
+      }
+      if (migration.setting !== 'synthetic-legacy-settings' || migration.hf !== 'synthetic-legacy-hf' || migration.config.llm.apiKey !== 'synthetic-legacy-studio' || migration.config.flowEngine.apiKey !== 'synthetic-legacy-flow') throw new Error('Migration lost legacy secret value');
+      result.passes.push('Actual Windows startup migrated synthetic plaintext/headless settings, Studio LLM and Flow keys without losing values');
+      result.electron = await app.evaluate(() => process.versions.electron);
+      const extension = path.join(build, 'dist/win-unpacked/resources/extension');
+      if (JSON.parse(fs.readFileSync(path.join(extension, 'manifest.json'))).version !== '1.0.8') throw new Error('Packaged extension missing/current manifest differs');
+      for (const file of ['background.js', 'content.js', 'injected.js', 'pairing.html', 'pairing.js', 'pairing.css']) if (!fs.existsSync(path.join(extension, file))) throw new Error('Packaged extension file missing');
+      await app.evaluate(({ shell }) => { shell.openPath = async () => ''; });
+      const folder = await page.evaluate(() => window.vanhsub.veo.openExtensionFolder());
+      if (!folder.ok || path.resolve(folder.path) !== path.resolve(extension)) throw new Error('Packaged extension path depends on working directory');
+      result.passes.push('Packaged extension1.0.8 and popup assets resolve from resources with Unicode working directory');
+    }
     if (process.env.VANHSUB_INTEGRATION_RUNTIME === '1') {
       result.testingCsp = true;
       const blocked = await page.evaluate(() => {
@@ -103,11 +154,58 @@ async function main() {
         await selection.waitFor({ state: 'visible', timeout: 30000 });
         if (await selection.count() !== 1) throw new Error('Cannot uniquely identify subtitle task selector');
         await selection.selectOption(created.taskId);
+        await page.waitForFunction(() => Array.from(document.querySelectorAll('textarea')).some(node => node.value === 'Synthetic line 0.'), { timeout: 30000 });
+        const firstPageMs = Date.now() - opened;
+        const editorTextareas = page.locator('textarea:visible');
+        if (await editorTextareas.count() > 100) throw new Error('Editor still mounts more than100 rows');
+        const firstInput = page.locator('textarea:visible').filter({ hasText: 'Synthetic line 0.' });
+        await firstInput.fill('RC first-page edit.');
+        await page.getByRole('spinbutton', { name: 'Trang phụ đề' }).fill('10');
         await page.waitForFunction(() => Array.from(document.querySelectorAll('textarea')).some(node => node.value === 'Synthetic line 999.'), { timeout: 30000 });
+        await page.locator('textarea:visible').filter({ hasText: 'Synthetic line 999.' }).fill('RC last-page edit.');
+        await page.getByRole('button', { name: 'Lưu thay đổi (*)', exact: true }).click();
+        await page.getByRole('button', { name: 'Đã lưu (.srt)', exact: true }).waitFor();
+        const task = await page.evaluate(id => window.vanhsub.tasks.get(id), created.taskId);
+        const saved = fs.readFileSync(task.srtPath, 'utf8');
+        if (!saved.includes('RC first-page edit.') || !saved.includes('RC last-page edit.') || !saved.includes('Synthetic line 500.')) throw new Error('Pagination lost edited or off-page subtitle data');
         const videoDuration = await page.evaluate(() => Array.from(document.querySelectorAll('video')).map(node => node.duration).find(value => Number.isFinite(value) && value > 990));
-        result.largeProject = { subtitleLines: 1000, editorLoadMs: Date.now() - opened, videoDurationSec: videoDuration ?? null };
+        result.largeProject = { subtitleLines: 1000, firstPageMs, editSaveAcrossPagesMs: Date.now() - opened, mountedTextareas: await editorTextareas.count(), videoDurationSec: videoDuration ?? null };
         await page.screenshot({ path: path.join(evidence, 'runtime-large-editor.png'), fullPage: true });
         result.passes.push('Actual editor loaded 1000 subtitle lines through imported SRT');
+        result.passes.push('Paginated editor saved first/last-page edits while preserving off-page subtitles');
+      }
+      if (rc) {
+        const unauthorized = await connectBridge(page, { type: 'HANDSHAKE', version: '1.0.6' });
+        if (unauthorized.response.type !== 'AUTH_REQUIRED') throw new Error('Unpaired client accepted');
+        unauthorized.socket.terminate();
+        await page.getByRole('button', { name: /AI Studio/ }).click();
+        await page.getByRole('button', { name: '🌐 Kết Nối Chrome (Khuyên Dùng)', exact: true }).click();
+        await page.getByRole('button', { name: 'Tạo mã ghép đôi', exact: true }).click();
+        const code = await page.getByRole('textbox', { name: 'Mã ghép đôi Chrome' }).inputValue();
+        const paired = await connectBridge(page, { type: 'PAIR', code });
+        if (paired.response.type !== 'AUTH_OK') throw new Error('Pairing code rejected');
+        bridgeToken = paired.response.token; bridgeSocket = paired.socket;
+        const pairingFile = path.join(profile, 'flow-bridge-pairing.json');
+        const persistedPairing = fs.readFileSync(pairingFile, 'utf8');
+        const device = JSON.parse(persistedPairing);
+        if (device.version !== 2 || !device.encryptedKey?.startsWith('enc:v1:') || device.encryptedKey.startsWith('enc:v1:headless:') || persistedPairing.includes(bridgeToken) || persistedPairing.includes(code)) throw new Error('Pairing key is not platform-encrypted');
+        await page.getByRole('button', { name: 'Đóng', exact: true }).click();
+        result.passes.push('Actual packaged bridge rejects unpaired socket and accepts a one-use code created through UI; peer is a synthetic extension client');
+        const denied = await page.evaluate(async root => {
+          const checks = [() => window.vanhsub.tasks.readSrt(root + '/settings/vanhsub-settings.json'),
+            () => window.vanhsub.tasks.update('synthetic-id', { id: 'changed-id' }),
+            () => window.vanhsub.export.start('synthetic-id', 'hardsub', null, null, { formatOptions: { resolution: '4k' } })];
+          return Promise.all(checks.map(check => check().then(() => false, error => /IPC_PAYLOAD_INVALID/.test(error.message))));
+        }, profile);
+        if (denied.some(value => !value)) throw new Error('Invalid critical IPC payload accepted');
+        const outside = path.join(profileRoot, 'outside grant.mp4'); fs.copyFileSync(paths.input, outside);
+        const media = await app.evaluate(async ({ net }, { known, outside, config }) => {
+          const get = async file => (await net.fetch('vanhmedia://local/' + encodeURIComponent(file), { headers: { Range: 'bytes=0-63' } })).status;
+          return { known: await get(known), outside: await get(outside), config: await get(config) };
+        }, { known: paths.input, outside, config: path.join(profile, 'settings/vanhsub-settings.json') });
+        if (media.known !== 206 || media.outside !== 403 || media.config !== 403) throw new Error('Packaged media grants/type boundary failed');
+        result.media = media;
+        result.passes.push('Actual IPC schemas reject malformed calls; media protocol serves granted range and denies outside/config files');
       }
     }
     await page.evaluate(() => window.vanhsub.settings.set('onboardingCompleted', true));
@@ -141,6 +239,17 @@ async function main() {
       if (!recovered.task?.srtPath || recovered.project !== 'Integration UI project' || !recovered.keyRetained) throw new Error('Task/project/encrypted setting did not survive restart');
       result.passes.push('Restart reopened saved task/subtitle/project and decrypted the synthetic setting');
     }
+    if (rc && bridgeToken) {
+      bridgeSocket?.terminate();
+      const reconnected = await connectBridge(restarted, { type: 'HANDSHAKE', token: bridgeToken, version: '1.0.8' });
+      bridgeSocket = reconnected.socket;
+      if (reconnected.response.type !== 'AUTH_OK') throw new Error('Persisted bridge token failed after app restart');
+      await restarted.evaluate(() => window.vanhsub.veo.revokePairing());
+      const rejected = await connectBridge(restarted, { type: 'HANDSHAKE', token: bridgeToken });
+      if (rejected.response.type !== 'AUTH_REQUIRED') throw new Error('Revoked token still accepted');
+      rejected.socket.terminate();
+      result.passes.push('Actual bridge token reconnect survives app restart and is rejected after revocation');
+    }
     result.passes.push('Close/reopen retained isolated settings');
     result.status = result.pageErrors.length || result.errors.length ? 'FAIL' : 'PASS_WITH_LIMITS';
     if (result.status === 'FAIL') process.exitCode = 1;
@@ -148,6 +257,7 @@ async function main() {
     result.status = 'FAIL'; result.errors.push(error.stack || String(error)); process.exitCode = 1;
     if (app) { const windows = app.windows(); if (windows[0]) await windows[0].screenshot({ path: path.join(evidence, 'runtime-failure.png') }).catch(() => {}); }
   } finally {
+    bridgeSocket?.terminate();
     if (app) await app.close().catch(() => {});
     result.elapsedMs = Date.now() - start;
     fs.writeFileSync(path.join(evidence, `${evidenceName}.json`), JSON.stringify(result, null, 2));

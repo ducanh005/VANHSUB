@@ -5,7 +5,7 @@ const asar = require('@electron/asar');
 const evidence = path.resolve(process.env.VANHSUB_AUDIT_EVIDENCE_DIR || path.resolve(__dirname, '../docs/audit-evidence/2026-10-15'));
 const manifest = JSON.parse(fs.readFileSync(path.join(evidence, 'build-workspace.json'), 'utf8'));
 const build = path.resolve(manifest.packagingPath || manifest.path);
-if (path.dirname(build) !== 'D:\\DEAN\\DEAN\\VANHSUB\\temp' || !/^codex-(?:audit-package|integration-build)-[a-f0-9]+$/.test(path.basename(build))) throw new Error('Unexpected package directory');
+if (path.dirname(build) !== 'D:\\DEAN\\DEAN\\VANHSUB\\temp' || !/^codex-(?:audit-package|integration-build|rc-build)-[a-f0-9]+$/.test(path.basename(build))) throw new Error('Unexpected package directory');
 const resources = path.join(build, 'dist/win-unpacked/resources');
 const archive = path.join(resources, 'app.asar');
 const files = asar.listPackage(archive);

@@ -19,6 +19,10 @@ suites.push('tests/test_srt_ocr_normalizer_and_translation.ts', 'tests/test_full
   'tests/test_export_resolution_and_silent_softsub.ts', 'tests/test_video_stretch_timeline_sync.ts', 'tests/test_chatgpt_script_collector.ts');
 const results = [];
 suites.push('tests/test_integration_security_storage.ts', 'tests/test_integration_http_dependency.ts');
+if (process.env.VANHSUB_RC_ACCEPTANCE === '1') suites.push(
+  'tests/test_rc_bridge_pairing.ts', 'tests/test_rc_extension_pairing.ts', 'tests/test_rc_legacy_secrets.ts',
+  'tests/test_rc_ipc_payload.ts', 'tests/test_rc_media_capabilities.ts', 'tests/test_rc_tts_cancel_retry.ts',
+  'tests/test_ui_fallback_timeout_decoupling.ts');
 for (const suite of suites) {
   const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'vanhsub-regression-'));
   const started = Date.now();

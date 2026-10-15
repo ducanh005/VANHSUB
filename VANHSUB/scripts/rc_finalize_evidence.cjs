@@ -1,0 +1,36 @@
+const fs = require('node:fs'), path = require('node:path'), crypto = require('node:crypto');
+const { execFileSync } = require('node:child_process');
+const asar = require('@electron/asar');
+const root = path.resolve(__dirname, '..'), evidence = path.join(root, 'docs/rc-evidence/2026-10-15');
+const read = name => JSON.parse(fs.readFileSync(path.join(evidence, name + '.json')));
+const write = (name, value) => fs.writeFileSync(path.join(evidence, name + '.json'), JSON.stringify(value, null, 2) + '\n');
+const manifest = read('build-workspace'), build = path.resolve(manifest.path);
+if (path.dirname(build) !== 'D:\\DEAN\\DEAN\\VANHSUB\\temp' || !/^codex-rc-build-[a-f0-9]+$/.test(path.basename(build))) throw new Error('Unexpected owned build');
+const sha = file => crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+const application = Object.entries(manifest.files).filter(([file]) => !/^(scripts|tests)[\\/]/.test(file));
+const differences = application.filter(([file, hash]) => !fs.existsSync(path.join(root, file)) || sha(path.join(root, file)) !== hash || sha(path.join(build, file)) !== hash).map(([file]) => file);
+const archive = path.join(build, 'dist/win-unpacked/resources/app.asar'), files = asar.listPackage(archive).map(file => file.replaceAll('\\', '/'));
+const excludedBuildOnlyPackages = Object.fromEntries(['nodejs-whisper', 'braces', 'micromatch', 'fast-glob', 'shelljs', 'next', 'sharp'].map(name => [name, !files.some(file => file.includes('/node_modules/' + name + '/'))]));
+const prototypeGuardianExcluded = !files.some(file => /guardian/i.test(file)) && !fs.readdirSync(path.join(build, 'dist/win-unpacked/resources')).some(file => /guardian/i.test(file));
+write('source-and-package-integrity', { applicationFiles: application.length, differences, excludedBuildOnlyPackages, prototypeGuardianExcluded, asarSha256: sha(archive), checkedAt: new Date().toISOString() });
+if (differences.length || Object.values(excludedBuildOnlyPackages).some(v => !v) || !prototypeGuardianExcluded) throw new Error('Source/package integrity failed');
+const ps = script => execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { encoding: 'utf8', windowsHide: true }).trim();
+const installers = fs.readdirSync(path.join(build, 'dist')).filter(name => /^VANHSUB Setup .*\.exe$/.test(name));
+if (installers.length !== 1) throw new Error('Expected one NSIS installer');
+const installer = path.join(build, 'dist', installers[0]);
+write('release-artifact', { name: installers[0], bytes: fs.statSync(installer).size, sha256: sha(installer), authenticodeStatus: ps(`(Get-AuthenticodeSignature -LiteralPath '${installer.replaceAll("'", "''")}').Status.ToString()`), electron: require(path.join(build, 'node_modules/electron/package.json')).version, next: require(path.join(build, 'node_modules/next/package.json')).version, host: 'development machine, isolated build dependencies and test profiles', cleanInstallation: 'BLOCKED: no accessible clean Windows VM or Sandbox' });
+const rounded = n => +n.toFixed(2), ram = processes => rounded(processes.reduce((sum, p) => sum + p.workingSetKiB, 0) / 1024), cpu = processes => processes.reduce((sum, p) => sum + p.cpu, 0);
+const summary = {};
+for (const name of ['runtime-security-editor180', 'runtime-packaged']) {
+  const data = read(name), samples = data.metrics || data.samples;
+  summary[name] = { startupMs: data.startupMs, largeProject: data.largeProject, sampleCount: samples.length, intervalSec: 5, firstWorkingSetMiB: ram(samples[0]), lastWorkingSetMiB: ram(samples.at(-1)), maxSampledWorkingSetMiB: Math.max(...samples.map(ram)), maxSampledSumCPU: rounded(Math.max(...samples.map(cpu))) };
+}
+summary.jobs = read('job-runtime').samples.map(sample => ({ label: sample.label, processCount: sample.processes.length, workingSetMiB: ram(sample.processes), appQuitListeners: sample.appQuitListeners, ipcEvents: sample.ipcEvents, kernel: sample.kernel, activeResources: Object.fromEntries([...new Set(sample.resources)].map(name => [name, sample.resources.filter(v => v === name).length])) }));
+const soak = read('idle-soak600');
+summary.idleSoak = { source: 'fixed artifact copy through0052135, bridge disabled; before protocol2-only auth changes', status: soak.status, samples: soak.samples.length, measuredMs: soak.measuredMs, firstWorkingSetMiB: ram(soak.samples[0].processes), lastWorkingSetMiB: ram(soak.samples.at(-1).processes), minWorkingSetMiB: Math.min(...soak.samples.map(s => ram(s.processes))), maxWorkingSetMiB: Math.max(...soak.samples.map(s => ram(s.processes))), maxSampledSumCPU: rounded(Math.max(...soak.samples.map(s => cpu(s.processes)))), processCounts: [...new Set(soak.samples.map(s => s.processes.length))], ipcEventCounts: [...new Set(soak.samples.map(s => s.ipcEvents))], beforeQuitListenerCounts: [...new Set(soak.samples.map(s => s.beforeQuitListeners))], handlesBefore: soak.handlesBefore, handlesAfter: soak.handlesAfter };
+summary.render = read('hard-crash-render').nativeRenderSample;
+write('performance-summary', summary);
+const processText = ps(`@(Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -and ($_.ExecutablePath.StartsWith('${build.replaceAll("'", "''")}\\dist\\win-unpacked', [StringComparison]::OrdinalIgnoreCase) -or $_.ExecutablePath.StartsWith('${soak.profile.replaceAll("'", "''")}\\Bản chạy cố định', [StringComparison]::OrdinalIgnoreCase)) } | Select-Object ProcessId,ParentProcessId,Name) | ConvertTo-Json -Compress`);
+const processes = processText ? JSON.parse(processText) : [];
+write('process-after-close', { checkedAt: new Date().toISOString(), scope: 'Executables within owned RC unpacked build and fixed soak artifact only; not global/user browser process certification', processes, status: Array.isArray(processes) && processes.length === 0 ? 'PASS' : 'FAIL' });
+console.log(JSON.stringify({ applicationFiles: application.length, sourceDifferences: differences.length, idleSoak: summary.idleSoak, processes }));
