@@ -19,7 +19,7 @@ Cầu nối extension giúp ứng dụng **VanhSub Desktop** gọi trực tiếp
 3. Mọi thao tác Tạo Ảnh và Tạo Video từ VanhSub sẽ được xử lý siêu tốc qua tab Chrome này!
 # Ghép đôi từ phiên bản 1.0.8
 
-Trong VANHSUB, mở **Kết nối Chrome → Tạo mã ghép đôi**. Mở popup extension VANHSUB trên Chrome, dán mã còn hạn và chọn **Ghép đôi**. Mã dùng một lần, hết hạn sau hai phút. Kết nối lại dùng token đã lưu trong extension; app chỉ lưu hash token, gắn với Origin extension. Ghép đôi mới thay thế kết nối cũ. **Thu hồi ghép đôi** trong app ngắt kết nối và vô hiệu token cũ.
+Trong VANHSUB, mở **Kết nối Chrome → Tạo mã ghép đôi**. Mở popup extension VANHSUB trên Chrome, dán mã còn hạn và chọn **Ghép đôi**. Mã dùng một lần, hết hạn sau hai phút. Giao thức 2 xác thực hai chiều bằng HMAC với nonce mới cho mỗi kết nối, gắn với Origin extension và cổng thực tế. Mã ghép đôi/token không được gửi thẳng trong yêu cầu WebSocket. Extension giữ token trong storage chỉ dành cho trusted contexts; app lưu khóa dẫn xuất đã mã hóa bằng Windows DPAPI. Phiên đã ghép đôi bằng giao thức cũ cần ghép đôi lại. Ghép đôi mới thay thế kết nối cũ. **Thu hồi ghép đôi** trong app ngắt kết nối và vô hiệu token cũ.
 
 Extension cũ không có xác thực sẽ không nhận lệnh. Sau khi cập nhật thư mục extension, tải lại extension trong `chrome://extensions` rồi ghép đôi. Bản app đóng gói chứa extension trong `resources/extension`; nút mở thư mục không phụ thuộc working directory của shortcut.
 
