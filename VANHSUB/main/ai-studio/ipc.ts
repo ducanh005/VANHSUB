@@ -1,5 +1,6 @@
 import { applyScriptLines, invalidateSessionArtifacts } from './sessionArtifacts';
 import { guardRendererInvoke } from '../security/rendererTrust';
+import { validateIpcPayload } from '../security/ipcPayload';
 /**
  * AI Video Studio - IPC Communication Router
  *
@@ -169,6 +170,7 @@ function safeHandle(
     // Ignore error if channel was not previously registered
   }
   ipcMain.handle(channel, guardRendererInvoke((event, ...args) => {
+    validateIpcPayload(channel, args);
     if (channel === 'aiStudio:scene:updateFillMode') {
       return withSessionOperation(args[0]?.sessionId, () => Promise.resolve(handler(event, ...args)));
     }
