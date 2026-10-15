@@ -1,0 +1,9 @@
+{
+  "conf": false,
+  "electron-store": true,
+  "fluent-ffmpeg": true,
+  "@ffmpeg-installer/win32-x64": false,
+  "@ffprobe-installer/win32-x64": false,
+  "playwright-core": true,
+  "uuid": true
+}

@@ -1,0 +1,21 @@
+--- 🧪 REGRESSION TEST: Project Media Isolation Across Different Output Dirs ---
+  1. Importing into Project A while Project B is active...
+  2. Importing into Project B...
+  3. Scenario (b): Testing Owner Not Found...
+  4. Scenario (c): Testing Conflicting Project Owners...
+  5. Scenario (d): Testing Mid-Flight Active Project Switch...
+✅ [PASS] All Project Media Isolation Regression Tests passed successfully!
+[AiStudioPipelineEngine] Lỗi importSceneMedia: Error: PROJECT_OWNER_NOT_FOUND: Không tìm thấy dự án sở hữu phiên làm việc "session_orphan_99999". Hệ thống từ chối thao tác và không sử dụng activeProjectId để bảo đảm cách ly dữ liệu.
+    at AiStudioPipelineEngine.resolveOwnerProject (C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\main\ai-studio\AiStudioPipelineEngine.ts:192:13)
+    at AiStudioPipelineEngine.importSceneMediaInternal (C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\main\ai-studio\AiStudioPipelineEngine.ts:2496:33)
+    at <anonymous> (C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\main\ai-studio\AiStudioPipelineEngine.ts:2480:63)
+    at withSessionOperation (C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\main\ai-studio\sessionOperations.ts:13:22)
+    at AiStudioPipelineEngine.importSceneMedia (C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\main\ai-studio\AiStudioPipelineEngine.ts:2480:12)
+    at main (C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\tests\test_project_media_isolation_regression.ts:142:34)
+[AiStudioPipelineEngine] Lỗi importSceneMedia: Error: CONFLICTING_PROJECT_OWNERS: Phát hiện 2 dự án cùng liên kết với session "session_conflict_888": [proj_X ("Project X"), proj_Y ("Project Y")]. Thao tác bị chặn để ngăn chặn ghi đè dữ liệu chéo giữa các dự án.
+    at AiStudioPipelineEngine.resolveOwnerProject (C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\main\ai-studio\AiStudioPipelineEngine.ts:185:13)
+    at AiStudioPipelineEngine.importSceneMediaInternal (C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\main\ai-studio\AiStudioPipelineEngine.ts:2496:33)
+    at <anonymous> (C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\main\ai-studio\AiStudioPipelineEngine.ts:2480:63)
+    at withSessionOperation (C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\main\ai-studio\sessionOperations.ts:13:22)
+    at AiStudioPipelineEngine.importSceneMedia (C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\main\ai-studio\AiStudioPipelineEngine.ts:2480:12)
+    at main (C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\tests\test_project_media_isolation_regression.ts:183:36)

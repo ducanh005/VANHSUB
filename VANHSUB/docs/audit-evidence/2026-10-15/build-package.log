@@ -1,0 +1,166 @@
+npm verbose cli C:\Program Files\nodejs\node.exe C:\Program Files\nodejs\node_modules\npm\bin\npm-cli.js
+npm info using npm@11.17.0
+npm info using node@v24.19.0
+npm verbose title npm run build
+npm verbose argv "run" "build"
+npm verbose logfile logs-max:10 dir:C:\Users\MTLS\AppData\Local\npm-cache\_logs\2026-10-15T09_26_59_769Z-
+npm verbose logfile C:\Users\MTLS\AppData\Local\npm-cache\_logs\2026-10-15T09_26_59_769Z-debug-0.log
+npm warn Unknown env config "msvs-version". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+
+> vanhsub@1.0.0 build
+> npm run build:whisper-cpp && nextron build
+
+npm verbose cli C:\Program Files\nodejs\node.exe C:\Program Files\nodejs\node_modules\npm\bin\npm-cli.js
+npm info using npm@11.17.0
+npm info using node@v24.19.0
+npm verbose title npm run build:whisper-cpp
+npm verbose argv "run" "build:whisper-cpp"
+npm verbose logfile logs-max:10 dir:C:\Users\MTLS\AppData\Local\npm-cache\_logs\2026-10-15T09_27_00_528Z-
+npm verbose logfile C:\Users\MTLS\AppData\Local\npm-cache\_logs\2026-10-15T09_27_00_528Z-debug-0.log
+npm warn Unknown env config "msvs-version". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+
+> vanhsub@1.0.0 build:whisper-cpp
+> cmake -S node_modules/nodejs-whisper/cpp/whisper.cpp -B node_modules/nodejs-whisper/cpp/whisper.cpp/build -DWHISPER_BUILD_EXAMPLES=ON -DWHISPER_BUILD_TESTS=OFF && cmake --build node_modules/nodejs-whisper/cpp/whisper.cpp/build --config Release --target whisper-cli --parallel 4
+
+CMake Warning (deprecated) at CMakeLists.txt:1 (cmake_minimum_required):
+  Compatibility with CMake < 3.10 will be removed from a future version of
+  CMake.
+
+  Update the VERSION argument <min> value.  Or, use the <min>...<max> syntax
+  to tell CMake that the project requires at least <min> but has been updated
+  to work with policies introduced by <max> or earlier.
+This warning is for project developers.  Use -Wno-author or -Wno-deprecated
+to suppress it.
+
+-- Selecting Windows SDK version 10.0.26100.0 to target Windows 10.0.26200.
+-- Warning: ccache not found - consider installing it for faster compilation or disable this warning with GGML_CCACHE=OFF
+-- CMAKE_SYSTEM_PROCESSOR: AMD64
+-- CMAKE_GENERATOR_PLATFORM:
+-- GGML_SYSTEM_ARCH: x86
+-- Including CPU backend
+-- x86 detected
+-- Adding CPU backend variant ggml-cpu: /arch:AVX2 GGML_AVX2;GGML_FMA;GGML_F16C
+-- ggml version: 0.15.1
+-- ggml commit:  df9d768
+-- Configuring done (1.1s)
+-- Generating done (0.2s)
+-- Build files have been written to: C:/Users/MTLS/.codex/worktrees/e9b1/DEAN/VANHSUB/node_modules/nodejs-whisper/cpp/whisper.cpp/build
+MSBuild version 18.9.1+a81b43525 for .NET Framework
+
+  1>Checking Build System
+  Building Custom Rule C:/Users/MTLS/.codex/worktrees/e9b1/DEAN/VANHSUB/node_modules/nodejs-whisper/cpp/whisper.cpp/ggml/src/CMakeLists.txt
+  ggml.c
+  ggml.cpp
+  ggml-alloc.c
+  ggml-quants.c
+  Generating Code...
+  ggml-backend.cpp
+  ggml-backend-meta.cpp
+  ggml-opt.cpp
+  ggml-threading.cpp
+  gguf.cpp
+  Generating Code...
+     Creating library C:/Users/MTLS/.codex/worktrees/e9b1/DEAN/VANHSUB/node_modules/nodejs-whisper/cpp/whisper.cpp/build/ggml/src/Release/ggml-base.lib and object C:/Users/MTLS/.codex/worktrees/e9b1/DEAN/VANHSUB/node_modules/nodejs-whisper/cpp/whisper.cpp/build/ggml/src/Release/ggml-base.exp
+  ggml-base.vcxproj -> C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\node_modules\nodejs-whisper\cpp\whisper.cpp\build\bin\Release\ggml-base.dll
+  Building Custom Rule C:/Users/MTLS/.codex/worktrees/e9b1/DEAN/VANHSUB/node_modules/nodejs-whisper/cpp/whisper.cpp/ggml/src/CMakeLists.txt
+  ggml-cpu.c
+  ggml-cpu.cpp
+  repack.cpp
+  hbm.cpp
+  traits.cpp
+  amx.cpp
+  mmq.cpp
+  binary-ops.cpp
+  unary-ops.cpp
+  vec.cpp
+  ops.cpp
+  Generating Code...
+  quants.c
+  quants.c
+  repack.cpp
+     Creating library C:/Users/MTLS/.codex/worktrees/e9b1/DEAN/VANHSUB/node_modules/nodejs-whisper/cpp/whisper.cpp/build/ggml/src/Release/ggml-cpu.lib and object C:/Users/MTLS/.codex/worktrees/e9b1/DEAN/VANHSUB/node_modules/nodejs-whisper/cpp/whisper.cpp/build/ggml/src/Release/ggml-cpu.exp
+  ggml-cpu.vcxproj -> C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\node_modules\nodejs-whisper\cpp\whisper.cpp\build\bin\Release\ggml-cpu.dll
+  Building Custom Rule C:/Users/MTLS/.codex/worktrees/e9b1/DEAN/VANHSUB/node_modules/nodejs-whisper/cpp/whisper.cpp/ggml/src/CMakeLists.txt
+  ggml-backend-dl.cpp
+  ggml-backend-reg.cpp
+  Generating Code...
+     Creating library C:/Users/MTLS/.codex/worktrees/e9b1/DEAN/VANHSUB/node_modules/nodejs-whisper/cpp/whisper.cpp/build/ggml/src/Release/ggml.lib and object C:/Users/MTLS/.codex/worktrees/e9b1/DEAN/VANHSUB/node_modules/nodejs-whisper/cpp/whisper.cpp/build/ggml/src/Release/ggml.exp
+  ggml.vcxproj -> C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\node_modules\nodejs-whisper\cpp\whisper.cpp\build\bin\Release\ggml.dll
+  Building Custom Rule C:/Users/MTLS/.codex/worktrees/e9b1/DEAN/VANHSUB/node_modules/nodejs-whisper/cpp/whisper.cpp/src/CMakeLists.txt
+  whisper.cpp
+  Auto build dll exports
+     Creating library C:/Users/MTLS/.codex/worktrees/e9b1/DEAN/VANHSUB/node_modules/nodejs-whisper/cpp/whisper.cpp/build/src/Release/whisper.lib and object C:/Users/MTLS/.codex/worktrees/e9b1/DEAN/VANHSUB/node_modules/nodejs-whisper/cpp/whisper.cpp/build/src/Release/whisper.exp
+  whisper.vcxproj -> C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\node_modules\nodejs-whisper\cpp\whisper.cpp\build\bin\Release\whisper.dll
+  Building Custom Rule C:/Users/MTLS/.codex/worktrees/e9b1/DEAN/VANHSUB/node_modules/nodejs-whisper/cpp/whisper.cpp/examples/CMakeLists.txt
+  common.cpp
+  common-ggml.cpp
+  common-whisper.cpp
+  grammar-parser.cpp
+  Generating Code...
+  common.vcxproj -> C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\node_modules\nodejs-whisper\cpp\whisper.cpp\build\examples\Release\common.lib
+  Building Custom Rule C:/Users/MTLS/.codex/worktrees/e9b1/DEAN/VANHSUB/node_modules/nodejs-whisper/cpp/whisper.cpp/examples/cli/CMakeLists.txt
+  cli.cpp
+  whisper-cli.vcxproj -> C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\node_modules\nodejs-whisper\cpp\whisper.cpp\build\bin\Release\whisper-cli.exe
+npm verbose cwd C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB
+npm verbose os Windows_NT 10.0.26200
+npm verbose node v24.19.0
+npm verbose npm  v11.17.0
+npm verbose exit 0
+npm info ok
+[nextron] Checking next config
+[nextron] Clearing previous builds
+[nextron] Building renderer process
+▲ Next.js 16.3.2 (Turbopack)
+✓ Running next.config.js took 28ms
+(node:1976) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/Users/MTLS/.codex/worktrees/e9b1/DEAN/VANHSUB/renderer/next.config.js is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+  Running TypeScript ...
+  Finished TypeScript in 6.6s ...
+  Creating an optimized production build ...
+(node:1976) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/Users/MTLS/.codex/worktrees/e9b1/DEAN/VANHSUB/renderer/next.config.js is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+-----
+FATAL: An unexpected Turbopack error occurred. A panic log has been written to C:\Users\MTLS\AppData\Local\Temp\next-panic-1ac2c05ab477f4debb952e8cda23684b.log.
+
+To help make Turbopack better, report this error by clicking here: https://bugs.nextjs.org/search?category=turbopack-error-report&title=Turbopack%20Error%3A%20Symlink%20%5Bproject%5D%2Fnode_modules%20is%20invalid%2C%20it%20points%20out%20of%20the%20filesystem%20root&body=Turbopack%20version%3A%20%60d0ac8828%60%0ANext.js%20version%3A%20%600.0.0%60%0A%0AError%20message%3A%0A%60%60%60%0ASymlink%20%5Bproject%5D%2Fnode_modules%20is%20invalid%2C%20it%20points%20out%20of%20the%20filesystem%20root%0A%0ADebug%20info%3A%0A-%20Execution%20of%20get_all_written_entrypoints_with_issues_operation%20failed%0A-%20Execution%20of%20EntrypointsOperation%3A%3Anew%20failed%0A-%20Execution%20of%20all_entrypoints_write_to_disk_operation%20failed%0A-%20Execution%20of%20output_assets_operation%20failed%0A-%20Execution%20of%20Project%3A%3Aget_all_endpoint_groups_with_app_route_filter%20failed%0A-%20Execution%20of%20Project%3A%3Aentrypoints_with_app_route_filter%20failed%0A-%20Execution%20of%20PagesProject%3A%3Aroutes%20failed%0A-%20Execution%20of%20get_pages_structure_for_root_directory%20failed%0A-%20Execution%20of%20try_get_next_package%20failed%0A-%20Execution%20of%20resolve%20failed%0A-%20Execution%20of%20resolve_internal%20failed%0A-%20Execution%20of%20find_package%20failed%0A-%20Symlink%20%5Bproject%5D%2Fnode_modules%20is%20invalid%2C%20it%20points%20out%20of%20the%20filesystem%20root%0A%60%60%60&labels=Turbopack,Turbopack%20Panic%20Backtrace
+-----
+
+
+> Build error occurred
+Error [TurbopackInternalError]: Symlink [project]/node_modules is invalid, it points out of the filesystem root
+
+Debug info:
+- Execution of get_all_written_entrypoints_with_issues_operation failed
+- Execution of EntrypointsOperation::new failed
+- Execution of all_entrypoints_write_to_disk_operation failed
+- Execution of output_assets_operation failed
+- Execution of Project::get_all_endpoint_groups_with_app_route_filter failed
+- Execution of Project::entrypoints_with_app_route_filter failed
+- Execution of PagesProject::routes failed
+- Execution of get_pages_structure_for_root_directory failed
+- Execution of try_get_next_package failed
+- Execution of resolve failed
+- Execution of resolve_internal failed
+- Execution of find_package failed
+- Symlink [project]/node_modules is invalid, it points out of the filesystem root
+    at ignore-listed frames {
+  type: 'TurbopackInternalError',
+  location: undefined
+}
+
+
+Cannot build electron packages:
+ExecaError: Command failed with exit code 1: next build "C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\renderer"
+
+npm verbose cwd C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB
+npm verbose os Windows_NT 10.0.26200
+npm verbose node v24.19.0
+npm verbose npm  v11.17.0
+npm verbose exit 1
+npm verbose code 1

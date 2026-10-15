@@ -1,0 +1,107 @@
+[
+  {
+    "suite": "tests/test_media_validator_ffmpeg_decoding.ts",
+    "status": "PASS",
+    "exitCode": 0,
+    "elapsedMs": 2153,
+    "classification": "OFFLINE_UNIT_OR_INTEGRATION"
+  },
+  {
+    "suite": "tests/test_video_processor_concat.ts",
+    "status": "PASS",
+    "exitCode": 0,
+    "elapsedMs": 1820,
+    "classification": "OFFLINE_UNIT_OR_INTEGRATION"
+  },
+  {
+    "suite": "tests/test_timeline_export_duration_guard.ts",
+    "status": "PASS",
+    "exitCode": 0,
+    "elapsedMs": 1906,
+    "classification": "OFFLINE_UNIT_OR_INTEGRATION"
+  },
+  {
+    "suite": "tests/test_project_media_isolation_regression.ts",
+    "status": "PASS",
+    "exitCode": 0,
+    "elapsedMs": 1293,
+    "classification": "OFFLINE_UNIT_OR_INTEGRATION"
+  },
+  {
+    "suite": "tests/test_tts_timing_adaptation.ts",
+    "status": "PASS",
+    "exitCode": 0,
+    "elapsedMs": 190,
+    "classification": "OFFLINE_UNIT_OR_INTEGRATION"
+  },
+  {
+    "suite": "tests/test_flow_project_isolation.ts",
+    "status": "PASS",
+    "exitCode": 0,
+    "elapsedMs": 905,
+    "classification": "OFFLINE_UNIT_OR_INTEGRATION"
+  },
+  {
+    "suite": "tests/test_full_audit_flow_tabs.ts",
+    "status": "PASS",
+    "exitCode": 0,
+    "elapsedMs": 242,
+    "classification": "OFFLINE_UNIT_OR_INTEGRATION"
+  },
+  {
+    "suite": "tests/test_srt_ocr_normalizer_and_translation.ts",
+    "status": "PASS",
+    "exitCode": 0,
+    "elapsedMs": 6618,
+    "classification": "OFFLINE_UNIT_OR_INTEGRATION"
+  },
+  {
+    "suite": "tests/test_full_audit_security.ts",
+    "status": "PASS",
+    "exitCode": 0,
+    "elapsedMs": 239,
+    "classification": "OFFLINE_UNIT_OR_INTEGRATION"
+  },
+  {
+    "suite": "tests/test_full_audit_data_integrity.ts",
+    "status": "PASS",
+    "exitCode": 0,
+    "elapsedMs": 890,
+    "classification": "OFFLINE_UNIT_OR_INTEGRATION"
+  },
+  {
+    "suite": "tests/test_full_audit_episode_storage.ts",
+    "status": "PASS",
+    "exitCode": 0,
+    "elapsedMs": 1259,
+    "classification": "OFFLINE_UNIT_OR_INTEGRATION"
+  },
+  {
+    "suite": "tests/test_full_audit_session_jobs.ts",
+    "status": "PASS",
+    "exitCode": 0,
+    "elapsedMs": 1255,
+    "classification": "OFFLINE_UNIT_OR_INTEGRATION"
+  },
+  {
+    "suite": "tests/test_ai_studio_script_evaluation.ts",
+    "status": "PASS",
+    "exitCode": 0,
+    "elapsedMs": 377,
+    "classification": "OFFLINE_UNIT_OR_INTEGRATION"
+  },
+  {
+    "suite": "tests/test_ai_studio_script_refinement.ts",
+    "status": "PASS",
+    "exitCode": 0,
+    "elapsedMs": 368,
+    "classification": "OFFLINE_UNIT_OR_INTEGRATION"
+  },
+  {
+    "suite": "tests/test_full_audit_script_artifacts.ts",
+    "status": "PASS",
+    "exitCode": 0,
+    "elapsedMs": 294,
+    "classification": "OFFLINE_UNIT_OR_INTEGRATION"
+  }
+]
