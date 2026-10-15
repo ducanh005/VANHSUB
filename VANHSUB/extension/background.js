@@ -17,6 +17,26 @@ const CAPTCHA_SLOT = '__CAPTCHA__';
 let ws = null;
 let reconnectTimer = null;
 let bridgeAuthenticated = false;
+let authContext = null;
+let pendingPairKey = null;
+const hex = bytes => Array.from(new Uint8Array(bytes), byte => byte.toString(16).padStart(2, '0')).join('');
+const sha = async value => hex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value)));
+async function authProof(key, value) {
+  const imported = await crypto.subtle.importKey('raw', new TextEncoder().encode(key), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  return hex(await crypto.subtle.sign('HMAC', imported, new TextEncoder().encode(value)));
+}
+async function sendAuthProof(socket, context) {
+  await trustedStorageReady;
+  const { bridgePairingToken } = await chrome.storage.local.get('bridgePairingToken');
+  const pairKey = pendingPairKey;
+  const key = pairKey || (/^[A-Za-z0-9_-]{43}$/.test(bridgePairingToken || '') ? await sha(bridgePairingToken) : null);
+  if (ws !== socket || authContext !== context || !key) return;
+  context.key = key; context.pair = Boolean(pairKey);
+  const proof = await authProof(key, 'client|' + context.value);
+  if (ws !== socket || authContext !== context || socket.readyState !== WebSocket.OPEN) return;
+  if (pairKey) pendingPairKey = null;
+  socket.send(JSON.stringify({ type: pairKey ? 'PAIR' : 'HANDSHAKE', protocol: 2, version: getExtensionVersion(), proof }));
+}
 const trustedStorageReady = chrome.storage.local.setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' });
 
 // Quản lý các tác vụ UI generation đang chạy để hỗ trợ hủy tức thì (cancel_ui_gen)
@@ -73,6 +93,7 @@ function connectWebSocket() {
     const socket = new WebSocket(wsUrl);
     ws = socket;
     bridgeAuthenticated = false;
+    authContext = null;
 
     ws.onopen = async () => {
       const ver = getExtensionVersion();
@@ -81,25 +102,31 @@ function connectWebSocket() {
         clearInterval(reconnectTimer);
         reconnectTimer = null;
       }
-      // Gửi thông báo handshake chuẩn version từ manifest.json
-      try {
-        await trustedStorageReady;
-        const { bridgePairingToken } = await chrome.storage.local.get('bridgePairingToken');
-        if (ws === socket && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: 'HANDSHAKE', version: ver, token: bridgePairingToken }));
-      } catch { socket.close(); }
+      socket.send(JSON.stringify({ type: 'HANDSHAKE', protocol: 2, version: ver }));
     };
 
     ws.onmessage = async (event) => {
       try {
         if (ws !== socket) return;
         const msg = JSON.parse(event.data);
+        if (msg.type === 'AUTH_CHALLENGE') {
+          if (bridgeAuthenticated || authContext || msg.protocol !== 2 || msg.port !== port || !/^[A-Za-z0-9_-]{43}$/.test(msg.nonce || '')) { socket.close(); return; }
+          authContext = { value: `chrome-extension://${chrome.runtime.id}|${port}|${msg.nonce}` };
+          await sendAuthProof(socket, authContext);
+          return;
+        }
         if (msg.type === 'AUTH_REQUIRED') { bridgeAuthenticated = false; return; }
         if (msg.type === 'AUTH_OK') {
-          if (msg.token) {
-            if (!/^[A-Za-z0-9_-]{43}$/.test(msg.token)) { socket.close(); return; }
-            await trustedStorageReady;
-            await chrome.storage.local.set({ bridgePairingToken: msg.token });
-          }
+          const context = authContext;
+          if (msg.protocol !== 2 || !context?.key || typeof msg.serverProof !== 'string') { socket.close(); return; }
+          if (context.pair ? !/^[A-Za-z0-9_-]{43}$/.test(msg.token || '') : msg.token !== undefined) { socket.close(); return; }
+          const suffix = context.pair ? '|' + await sha(msg.token) : '';
+          const expected = await authProof(context.key, 'server|' + context.value + suffix);
+          if (ws !== socket || authContext !== context) return;
+          if (msg.serverProof !== expected) { socket.close(); return; }
+          if (context.pair) { await trustedStorageReady; await chrome.storage.local.set({ bridgePairingToken: msg.token }); }
+          if (ws !== socket || authContext !== context) return;
+          context.key = null;
           bridgeAuthenticated = true;
           send({ type: 'HANDSHAKE', version: getExtensionVersion() });
           return;
@@ -2039,8 +2066,14 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
   } else if (message?.type === 'BRIDGE_PAIR') {
     if (typeof message.code !== 'string' || !/^[a-f0-9]{32}$/.test(message.code)) { respond({ ok: false, error: 'Mã ghép đôi không hợp lệ.' }); return; }
     if (!ws || ws.readyState !== WebSocket.OPEN) { connectWebSocket(); respond({ ok: false, error: 'Mở VANHSUB rồi thử lại sau vài giây.' }); return; }
-    ws.send(JSON.stringify({ type: 'PAIR', code: message.code }));
-    respond({ ok: true });
+    (async () => {
+      const key = await sha(message.code);
+      pendingPairKey = key;
+      if (authContext && !bridgeAuthenticated && ws?.readyState === WebSocket.OPEN) await sendAuthProof(ws, authContext);
+      else { const previous = ws; ws = null; bridgeAuthenticated = false; previous?.close(); connectWebSocket(); }
+      respond({ ok: true });
+    })().catch(() => respond({ ok: false, error: 'Không thể ghép đôi.' }));
+    return true;
   }
 });
 connectWebSocket();

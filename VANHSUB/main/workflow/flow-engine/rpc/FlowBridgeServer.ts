@@ -283,7 +283,7 @@ export class FlowBridgeServer {
     });
 
     server.on('connection', (ws: WebSocket, request) => {
-      this.pairing!.authenticateSocket(ws, String(request.headers.origin || ''), () => {
+      this.pairing!.authenticateSocket(ws, String(request.headers.origin || ''), request.socket.localPort!, () => {
         // One approved extension connection owns requests; reconnect invalidates stale peers.
         for (const client of this.clients) client.close(1008, 'CONNECTION_REPLACED');
         this.registerClient(ws);

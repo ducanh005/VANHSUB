@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
@@ -13,7 +14,7 @@ async function main() {
     close() { this.readyState = 3; this.onclose?.(); }
   }
   const extension = 'chrome-extension://' + 'a'.repeat(32) + '/';
-  const context: any = { WebSocket: Socket, console: { log() {}, warn() {}, error() {} }, setInterval: () => 1, clearInterval() {}, setTimeout,
+  const context: any = { crypto: crypto.webcrypto, TextEncoder, WebSocket: Socket, console: { log() {}, warn() {}, error() {} }, setInterval: () => 1, clearInterval() {}, setTimeout,
     handled, chrome: {
       storage: { local: {
         setAccessLevel: async ({ accessLevel }: any) => { trusted = accessLevel === 'TRUSTED_CONTEXTS'; },
@@ -29,26 +30,52 @@ async function main() {
   const socket = sockets[0]; socket.readyState = Socket.OPEN; await socket.onopen();
   assert.equal(socket.sent[0].type, 'HANDSHAKE');
   await socket.onmessage({ data: JSON.stringify({ type: 'EXECUTE_RPC' }) }); assert.equal(handled.length, 0);
+  const sha = (v: string) => crypto.createHash('sha256').update(v).digest('hex');
+  const hmac = (k: string, v: string) => crypto.createHmac('sha256', k).update(v).digest('hex');
+  const nonce = 'n'.repeat(43), value = extension.slice(0, -1) + '|9222|' + nonce;
+  await socket.onmessage({ data: JSON.stringify({ type: 'AUTH_CHALLENGE', protocol: 2, port: 9222, nonce }) });
   const code = 'a'.repeat(32); let response: any;
-  listener({ type: 'BRIDGE_PAIR', code }, { id: 'a'.repeat(32), tab: { id: 1 }, url: extension + 'pairing.html' }, (value: any) => { response = value; });
+  listener({ type: 'BRIDGE_PAIR', code }, { id: 'a'.repeat(32), tab: { id: 1 }, url: extension + 'pairing.html' }, (v: any) => { response = v; });
   assert.equal(response, undefined, 'Content scripts cannot issue pairing');
-  listener({ type: 'BRIDGE_PAIR', code }, { id: 'a'.repeat(32), url: extension + 'other.html' }, (value: any) => { response = value; });
+  listener({ type: 'BRIDGE_PAIR', code }, { id: 'a'.repeat(32), url: extension + 'other.html' }, (v: any) => { response = v; });
   assert.equal(response, undefined);
-  listener({ type: 'BRIDGE_PAIR', code }, { id: 'a'.repeat(32), url: extension + 'pairing.html' }, (value: any) => { response = value; });
+  await new Promise<void>(resolve => listener({ type: 'BRIDGE_PAIR', code }, { id: 'a'.repeat(32), url: extension + 'pairing.html' }, (v: any) => { response = v; resolve(); }));
   assert.equal(response.ok, true); assert.equal(socket.sent.at(-1).type, 'PAIR');
+  assert.equal(socket.sent.at(-1).proof, hmac(sha(code), 'client|' + value));
+  assert.ok(!JSON.stringify(socket.sent).includes(code));
   const token = 'a'.repeat(43);
-  await socket.onmessage({ data: JSON.stringify({ type: 'AUTH_OK', token }) });
+  await socket.onmessage({ data: JSON.stringify({ type: 'AUTH_OK', protocol: 2, token, serverProof: hmac(sha(code), 'server|' + value + '|' + sha(token)) }) });
   assert.equal(stored.bridgePairingToken, token);
   await socket.onmessage({ data: JSON.stringify({ type: 'EXECUTE_RPC' }) }); assert.equal(handled.length, 1);
   socket.close();
   vm.runInContext('connectWebSocket()', context);
   const reconnected = sockets[1]; reconnected.readyState = Socket.OPEN; await reconnected.onopen();
-  assert.equal(reconnected.sent[0].token, token, 'Reconnect uses persisted token');
-  await reconnected.onmessage({ data: JSON.stringify({ type: 'AUTH_OK' }) });
+  assert.equal(reconnected.sent[0].token, undefined, 'Reconnect never sends bearer token');
+  const nextNonce = 'b'.repeat(43), nextValue = extension.slice(0, -1) + '|9222|' + nextNonce;
+  await reconnected.onmessage({ data: JSON.stringify({ type: 'AUTH_CHALLENGE', protocol: 2, port: 9222, nonce: nextNonce }) });
+  assert.equal(reconnected.sent.at(-1).proof, hmac(sha(token), 'client|' + nextValue));
+  assert.ok(!JSON.stringify(reconnected.sent).includes(token));
+  await reconnected.onmessage({ data: JSON.stringify({ type: 'AUTH_OK', protocol: 2, serverProof: hmac(sha(token), 'server|' + nextValue) }) });
   socket.onclose();
   listener({ type: 'BRIDGE_PAIRING_STATUS' }, { id: 'a'.repeat(32), url: extension + 'pairing.html' }, (value: any) => { response = value; });
   assert.equal(response.connected, true, 'Stale socket callback does not reset new connection');
   assert.equal(response.token, undefined);
-  console.log('PASS: extension VM gates commands until auth, restricts pairing to its popup, isolates storage and reconnects without exposing tokens');
+  // A fake listener's AUTH_OK cannot authorize commands or overwrite the token.
+  reconnected.close(); vm.runInContext('connectWebSocket()', context);
+  const fake = sockets.at(-1); fake.readyState = Socket.OPEN; await fake.onopen();
+  await fake.onmessage({ data: JSON.stringify({ type: 'AUTH_OK', protocol: 2, token: 'z'.repeat(43) }) });
+  await fake.onmessage({ data: JSON.stringify({ type: 'EXECUTE_RPC' }) });
+  assert.equal(handled.length, 1); assert.equal(stored.bridgePairingToken, token);
+  vm.runInContext('connectWebSocket()', context);
+  const crossPort = sockets.at(-1); crossPort.readyState = Socket.OPEN; await crossPort.onopen();
+  await crossPort.onmessage({ data: JSON.stringify({ type: 'AUTH_CHALLENGE', protocol: 2, port: 8765, nonce }) });
+  assert.equal(crossPort.readyState, 3, 'Wrong-port challenge rejected');
+  vm.runInContext('connectWebSocket()', context);
+  const wrongProof = sockets.at(-1); wrongProof.readyState = Socket.OPEN; await wrongProof.onopen();
+  await wrongProof.onmessage({ data: JSON.stringify({ type: 'AUTH_CHALLENGE', protocol: 2, port: 9222, nonce }) });
+  await wrongProof.onmessage({ data: JSON.stringify({ type: 'AUTH_OK', protocol: 2, serverProof: '0'.repeat(64) }) });
+  await wrongProof.onmessage({ data: JSON.stringify({ type: 'EXECUTE_RPC' }) });
+  assert.equal(wrongProof.readyState, 3); assert.equal(handled.length, 1);
+  console.log('PASS: extension mutual proofs reject fake server and cross-port challenges; popup/storage isolation and token-free reconnect');
 }
-main().catch(error => { console.error(error.message); process.exitCode = 1; });
+main().catch(error => { console.error(error.stack); process.exitCode = 1; });
