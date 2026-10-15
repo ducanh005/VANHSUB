@@ -1,4 +1,5 @@
 import { handleRendererIpc } from './security/ipc'
+import { productionContentPolicy } from './security/contentPolicy'
 import { trustRenderer, isTrustedRendererEvent, validateFlowBrowserUrl, validateModelName, resolveBundledPath } from './security/rendererTrust'
 import fs from 'fs'
 import path from 'path'
@@ -103,7 +104,14 @@ if (isProd) {
         filePath = path.join(appDir, '404.html')
       }
 
-      return net.fetch(url.pathToFileURL(filePath).toString())
+      const resource = await net.fetch(url.pathToFileURL(filePath).toString())
+      if (path.extname(filePath).toLowerCase() === '.html') {
+        const html = await resource.text()
+        const headers = new Headers(resource.headers)
+        headers.set('Content-Security-Policy', productionContentPolicy(html))
+        return new Response(html, { status: resource.status, headers })
+      }
+      return resource
     })
   })
 } else if (!auditUserDataDir) {

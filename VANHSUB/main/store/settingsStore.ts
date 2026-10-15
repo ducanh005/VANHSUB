@@ -2,6 +2,7 @@ import os from 'os';
 import path from 'path';
 import Store from 'electron-store';
 import { safeStorage } from 'electron';
+import { encryptPlatformSecret } from '../security/secretStorage';
 
 /**
  * Chiến lược tìm phụ đề khi quét OCR:
@@ -172,19 +173,12 @@ const ENC_PREFIX = 'enc:v1:';
 const ENCRYPTED_KEYS = new Set(['geminiApiKey', 'veoSessionCookie', 'veoSessionAuthToken', 'hfToken']);
 
 function encryptSecret(plain: string): string {
-  if (!plain) return '';
-  try {
-    if (safeStorage.isEncryptionAvailable()) {
-      return ENC_PREFIX + safeStorage.encryptString(plain).toString('base64');
-    }
-  } catch {
-    // rơi xuống plaintext fallback bên dưới
-  }
-  return plain;
+  return encryptPlatformSecret(plain, safeStorage);
 }
 
 function decryptSecret(stored: string): string {
   if (!stored) return '';
+  if (stored.startsWith('enc:v1:headless:')) return Buffer.from(stored.slice('enc:v1:headless:'.length), 'base64').toString('utf8');
   if (!stored.startsWith(ENC_PREFIX)) return stored; // dữ liệu cũ chưa mã hoá
   try {
     return safeStorage.decryptString(Buffer.from(stored.slice(ENC_PREFIX.length), 'base64'));

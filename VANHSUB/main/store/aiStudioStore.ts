@@ -2,6 +2,7 @@ import os from 'os';
 import path from 'path';
 import fs from 'fs';
 import Store from 'electron-store';
+import { encryptPlatformSecret } from '../security/secretStorage';
 import {
   AiStudioConfig,
   DEFAULT_AI_STUDIO_CONFIG,
@@ -42,25 +43,14 @@ function getSafeStorage(): any | null {
 /**
  * Encrypts a secret string using Windows DPAPI (via safeStorage).
  * If safeStorage is available, returns 'enc:v1:<base64>'.
- * If unavailable (e.g. CLI, headless test runners), uses obfuscated fallback:
- * returns 'enc:v1:headless:<base64>' so secrets are NEVER stored in plaintext on disk.
+ * Fails closed when platform encryption is unavailable. Headless synthetic
+ * fixtures may explicitly opt into the insecure fallback through the test harness.
  */
 export function encryptSecret(plain: string): string {
   if (!plain) return '';
+  if (plain.startsWith(ENC_HEADLESS_PREFIX)) plain = Buffer.from(plain.slice(ENC_HEADLESS_PREFIX.length), 'base64').toString('utf8');
   if (plain.startsWith(ENC_PREFIX)) return plain; // Prevent double encryption (handles both enc:v1: and enc:v1:headless:)
-
-  const storage = getSafeStorage();
-  if (storage) {
-    try {
-      const encryptedBuffer = storage.encryptString(plain);
-      return ENC_PREFIX + encryptedBuffer.toString('base64');
-    } catch (err) {
-      console.warn('[aiStudioStore] DPAPI encryption failed, falling back to headless obfuscation:', err);
-    }
-  }
-
-  // Headless fallback: reversible base64 obfuscation so disk never has plaintext
-  return ENC_HEADLESS_PREFIX + Buffer.from(plain, 'utf8').toString('base64');
+  return encryptPlatformSecret(plain, getSafeStorage());
 }
 
 /**
@@ -374,7 +364,7 @@ export function updateAiStudioConfig(
         updated.llm.apiKey = '';
       } else if (rawKey.startsWith(ENC_PREFIX)) {
         // Already encrypted, retain without double-encrypting (handles both enc:v1: and enc:v1:headless:)
-        updated.llm.apiKey = rawKey;
+          updated.llm.apiKey = encryptSecret(rawKey);
       } else {
         // New plaintext key, encrypt with DPAPI or headless fallback
         updated.llm.apiKey = encryptSecret(rawKey);
