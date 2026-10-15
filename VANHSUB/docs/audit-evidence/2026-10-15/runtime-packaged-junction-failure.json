@@ -1,0 +1,14 @@
+{
+  "classification": "WINDOWS_UNPACKED_UI_E2E_LOCAL_OFFLINE",
+  "generationCount": 0,
+  "profile": "C:\\Users\\MTLS\\AppData\\Local\\Temp\\vanhsub-ui-audit-mk2qMS",
+  "build": "D:\\DEAN\\DEAN\\VANHSUB\\temp\\codex-audit-build-bc935a970b6c4803a87722bea6be9f31",
+  "passes": [],
+  "errors": [
+    "electron.launch: Timeout 60000ms exceeded.\nCall log:\n\u001b[2m  - <launching> \"D:\\DEAN\\DEAN\\VANHSUB\\temp\\codex-audit-build-bc935a970b6c4803a87722bea6be9f31\\dist\\win-unpacked\\VANHSUB.exe\" \"--inspect=0\" \"--remote-debugging-port=0\"\u001b[22m\n\u001b[2m  - <launched> pid=19748\u001b[22m\n\u001b[2m  - [pid=19748][out]\u001b[22m\n\u001b[2m  - [pid=19748][err] Debugger listening on ws://127.0.0.1:60334/dedb7095-4dd0-4fea-8456-5d32b8b9571b\u001b[22m\n\u001b[2m  - [pid=19748][err] For help, see: https://nodejs.org/learn/getting-started/debugging\u001b[22m\n\u001b[2m  - <ws connecting> ws://127.0.0.1:60334/dedb7095-4dd0-4fea-8456-5d32b8b9571b\u001b[22m\n\u001b[2m  - <ws connected> ws://127.0.0.1:60334/dedb7095-4dd0-4fea-8456-5d32b8b9571b\u001b[22m\n\u001b[2m  - [pid=19748][err] Debugger attached.\u001b[22m\n\n    at async main (C:\\Users\\MTLS\\.codex\\worktrees\\e9b1\\DEAN\\VANHSUB\\scripts\\audit_runtime_electron.cjs:24:11)"
+  ],
+  "pageErrors": [],
+  "metrics": [],
+  "status": "FAIL",
+  "elapsedMs": 60202
+}

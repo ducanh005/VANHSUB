@@ -1,0 +1,46 @@
+▲ Next.js 16.3.2 (webpack)
+⚠ Warning: Next.js inferred your workspace root, but it may not be correct.
+ We detected multiple lockfiles and selected the directory of D:\DEAN\DEAN\VANHSUB\package-lock.json as the root directory.
+ To silence this warning, set `outputFileTracingRoot` in your Next.js config, or consider removing one of the lockfiles if it's not needed.
+   See https://nextjs.org/docs/app/api-reference/config/next-config-js/output#caveats for more information.
+ Detected additional lockfiles:
+   * D:\DEAN\DEAN\VANHSUB\temp\codex-audit-build-bc935a970b6c4803a87722bea6be9f31\package-lock.json
+
+✓ Running next.config.js took 33ms
+(node:18080) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///D:/DEAN/DEAN/VANHSUB/temp/codex-audit-build-bc935a970b6c4803a87722bea6be9f31/renderer/next.config.js is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\D:\DEAN\DEAN\VANHSUB\temp\codex-audit-build-bc935a970b6c4803a87722bea6be9f31\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+- Experiments (use with caution):
+  ✓ externalDir
+
+  Running TypeScript ...
+  Finished TypeScript in 5.5s ...
+  Creating an optimized production build ...
+(node:8924) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///D:/DEAN/DEAN/VANHSUB/temp/codex-audit-build-bc935a970b6c4803a87722bea6be9f31/renderer/next.config.js is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\D:\DEAN\DEAN\VANHSUB\temp\codex-audit-build-bc935a970b6c4803a87722bea6be9f31\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:18784) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///D:/DEAN/DEAN/VANHSUB/temp/codex-audit-build-bc935a970b6c4803a87722bea6be9f31/renderer/next.config.js is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\D:\DEAN\DEAN\VANHSUB\temp\codex-audit-build-bc935a970b6c4803a87722bea6be9f31\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:23176) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///D:/DEAN/DEAN/VANHSUB/temp/codex-audit-build-bc935a970b6c4803a87722bea6be9f31/renderer/next.config.js is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\D:\DEAN\DEAN\VANHSUB\temp\codex-audit-build-bc935a970b6c4803a87722bea6be9f31\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✓ Compiled successfully in 31.4s
+  Collecting page data using 5 workers ...
+  Generating static pages using 5 workers (0/3) ...
+✓ Generating static pages using 5 workers (3/3) in 812ms
+  Finalizing page optimization ...
+  Collecting build traces ...
+  Exporting using 15 workers (0/3) ...
+✓ Exporting using 15 workers (3/3) in 506ms
+
+Route (pages)
+┌   /_app
+├ ○ /404
+└ ○ /home
+
+○  (Static)  prerendered as static content

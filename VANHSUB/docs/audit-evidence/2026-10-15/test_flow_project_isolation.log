@@ -1,0 +1,3 @@
+PASS: project creation, resume, missing owner, mismatch, failed creation, 3 activity blocks non-retryable, rate-limit retry.
+RESULTS: Passed: 8 | Failed: 0
+[AiStudioVisualService] Phát hiện PUBLIC_ERROR_UNUSUAL_ACTIVITY ở cảnh 1. Dừng retry tự động (ABORT_HALT) để bảo vệ tài khoản người dùng.

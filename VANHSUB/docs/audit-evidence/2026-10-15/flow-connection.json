@@ -1,0 +1,10 @@
+{
+  "checkedAt": "2026-10-15T10:03:12.768Z",
+  "generationCount": 0,
+  "browserOrTabCommands": 0,
+  "bridgeWaitMs": 30000,
+  "cdpAvailable": false,
+  "bridgePortsAvailableBeforeProbe": true,
+  "extensionConnected": true,
+  "status": "CONNECTION_AVAILABLE_NOT_YET_LIVE_TESTED"
+}

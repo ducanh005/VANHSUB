@@ -1,0 +1,30 @@
+▲ Next.js 16.3.2 (webpack)
+✓ Running next.config.js took 14ms
+(node:11404) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/Users/MTLS/.codex/worktrees/e9b1/DEAN/VANHSUB/renderer/next.config.js is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+- Experiments (use with caution):
+  ✓ externalDir
+
+  Running TypeScript ...
+  Finished TypeScript in 5.6s ...
+  Creating an optimized production build ...
+(node:13780) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/Users/MTLS/.codex/worktrees/e9b1/DEAN/VANHSUB/renderer/next.config.js is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:4172) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/Users/MTLS/.codex/worktrees/e9b1/DEAN/VANHSUB/renderer/next.config.js is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:14564) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/Users/MTLS/.codex/worktrees/e9b1/DEAN/VANHSUB/renderer/next.config.js is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+Failed to compile.
+
+Module not found: Error: Can't resolve './D:/DEAN/DEAN/VANHSUB/node_modules/next/dist/client/next.js' in 'C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\renderer'
+
+
+> Build failed because of webpack errors

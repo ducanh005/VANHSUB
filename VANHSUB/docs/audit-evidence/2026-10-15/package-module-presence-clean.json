@@ -1,0 +1,33 @@
+{
+  "build": "D:\\DEAN\\DEAN\\VANHSUB\\temp\\codex-audit-package-4327102f1f02451f85e4ea6ce02edefc",
+  "modules": {
+    "conf": true,
+    "electron-store": true,
+    "fluent-ffmpeg": true,
+    "@ffmpeg-installer/win32-x64": true,
+    "@ffprobe-installer/win32-x64": true,
+    "playwright-core": true,
+    "uuid": true
+  },
+  "binaries": [
+    {
+      "name": "ffmpeg",
+      "exists": true,
+      "exitCode": 0,
+      "firstLine": "ffmpeg version N-92722-gf22fcd4483 Copyright (c) 2000-2018 the FFmpeg developers"
+    },
+    {
+      "name": "ffprobe",
+      "exists": true,
+      "exitCode": 0,
+      "firstLine": "ffprobe version 2023-02-13-git-2296078397-essentials_build-www.gyan.dev Copyright (c) 2007-2023 the FFmpeg developers"
+    },
+    {
+      "name": "whisper",
+      "exists": true,
+      "exitCode": 0,
+      "firstLine": "usage: D:\\DEAN\\DEAN\\VANHSUB\\temp\\codex-audit-package-4327102f1f02451f85e4ea6ce02edefc\\dist\\win-unpacked\\resources\\whisper\\whisper-cli.exe [options] file0 file1 ..."
+    }
+  ],
+  "asarBytes": 90909704
+}

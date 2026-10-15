@@ -1,0 +1,51 @@
+asset preload.js 10.1 KiB [compared for emit] [minimized] (name: preload) 1 related asset
+orphan modules 42 bytes [orphan] 1 module
+./main/preload.ts + 1 modules 15.6 KiB [not cacheable] [built] [code generated]
+webpack 5.109.2 compiled successfully in 1690 ms
+asset main.js 1.98 MiB [emitted] [minimized] (name: main) 2 related assets
+asset 361.js 8.39 KiB [compared for emit] [minimized] 1 related asset
+asset 224.js 6.73 KiB [compared for emit] [minimized] 1 related asset
+orphan modules 2.74 MiB [orphan] 337 modules
+runtime modules 3.97 KiB 8 modules
+built modules 4.81 MiB [built]
+  modules by path ../../node_modules/ 1.37 MiB
+    javascript modules 1.23 MiB 113 modules
+    json modules 144 KiB
+      ../../node_modules/systeminformation/package.json 1.45 KiB [built] [code generated]
+      ../../node_modules/mime-db/db.json 143 KiB [built] [code generated]
+  modules by path ./main/ 3.44 MiB 28 modules
+  + 24 modules
+
+WARNING in ../../node_modules/ws/lib/buffer-util.js 117:23-44
+Module not found: Error: Can't resolve 'bufferutil' in 'D:\DEAN\DEAN\VANHSUB\node_modules\ws\lib'
+ @ ../../node_modules/ws/lib/receiver.js 12:42-66
+ @ ../../node_modules/ws/wrapper.mjs 4:0-41 10:0-19:2
+ @ ./main/workflow/flow-engine/rpc/FlowBridgeServer.ts 13:0-31 268:34-48 444:44-58 542:52-66 884:34-48
+ @ ./main/main.ts
+
+WARNING in ../../node_modules/ws/lib/validation.js 144:24-49
+Module not found: Error: Can't resolve 'utf-8-validate' in 'D:\DEAN\DEAN\VANHSUB\node_modules\ws\lib'
+ @ ../../node_modules/ws/lib/extension.js 3:23-46
+ @ ../../node_modules/ws/wrapper.mjs 2:0-43 10:0-19:2
+ @ ./main/workflow/flow-engine/rpc/FlowBridgeServer.ts 13:0-31 268:34-48 444:44-58 542:52-66 884:34-48
+ @ ./main/main.ts
+
+WARNING in ../../node_modules/systeminformation/lib/cpu.js 1565:26-59
+Module not found: Error: Can't resolve 'osx-temperature-sensor' in 'D:\DEAN\DEAN\VANHSUB\node_modules\systeminformation\lib'
+ @ ../../node_modules/systeminformation/lib/index.js 28:12-28
+ @ ./main/main.ts 9:0-35 957:29-35 958:26-32 959:29-38
+
+WARNING in ../../node_modules/systeminformation/lib/cpu.js 1583:28-63
+Module not found: Error: Can't resolve 'macos-temperature-sensor' in 'D:\DEAN\DEAN\VANHSUB\node_modules\systeminformation\lib'
+ @ ../../node_modules/systeminformation/lib/index.js 28:12-28
+ @ ./main/main.ts 9:0-35 957:29-35 958:26-32 959:29-38
+
+WARNING in ../../node_modules/systeminformation/lib/graphics.js 822:32-67
+Module not found: Error: Can't resolve 'macos-temperature-sensor' in 'D:\DEAN\DEAN\VANHSUB\node_modules\systeminformation\lib'
+ @ ../../node_modules/systeminformation/lib/index.js 31:17-38
+ @ ./main/main.ts 9:0-35 957:29-35 958:26-32 959:29-38
+
+5 warnings have detailed information that is not shown.
+Use 'stats.errorDetails: true' resp. '--stats-error-details' to show it.
+
+webpack 5.109.2 compiled with 5 warnings in 12408 ms

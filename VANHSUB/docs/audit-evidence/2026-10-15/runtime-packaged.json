@@ -1,0 +1,72 @@
+{
+  "classification": "WINDOWS_UNPACKED_UI_E2E_LOCAL_OFFLINE",
+  "generationCount": 0,
+  "profile": "C:\\Users\\MTLS\\AppData\\Local\\Temp\\vanhsub-ui-audit-LPB9nm",
+  "build": "D:\\DEAN\\DEAN\\VANHSUB\\temp\\codex-audit-package-4327102f1f02451f85e4ea6ce02edefc",
+  "passes": [
+    "Packaged renderer loaded and preload IPC returned isolated empty task store",
+    "UI navigation: AI Studio",
+    "UI navigation: Workflow AI",
+    "UI navigation: Phụ đề",
+    "UI navigation: Lồng tiếng",
+    "UI navigation: Xuất video",
+    "UI navigation: Cài đặt",
+    "Close/reopen retained isolated settings"
+  ],
+  "errors": [],
+  "pageErrors": [],
+  "metrics": [
+    [
+      {
+        "type": "Browser",
+        "pid": 23120,
+        "cpu": 0,
+        "workingSetKiB": 195960
+      },
+      {
+        "type": "GPU",
+        "pid": 23512,
+        "cpu": 0,
+        "workingSetKiB": 223996
+      },
+      {
+        "type": "Utility",
+        "pid": 19168,
+        "cpu": 0,
+        "workingSetKiB": 54504
+      },
+      {
+        "type": "Tab",
+        "pid": 21380,
+        "cpu": 0,
+        "workingSetKiB": 182152
+      }
+    ]
+  ],
+  "startupMs": 1302,
+  "buttons": [
+    "",
+    "Trang chủ",
+    "AI StudioHOT",
+    "Workflow AIMỚI",
+    "Phụ đề & ASR",
+    "Hiệu đính phụ đề",
+    "Lồng tiếng TTS",
+    "Xuất video",
+    "Cài đặt",
+    "Kết Nối Chrome (Khuyên Dùng)",
+    "Sảnh Electron",
+    "",
+    "Thêm tác vụ mới",
+    "Duyệt file từ máy tính",
+    "Tải video từ link",
+    "Tìm kiếm nhanhCtrl + K",
+    "Tạo phụ đề mớiCtrl + N",
+    "Mở trang hiệu đínhCtrl + E",
+    "Cài đặtCtrl + ,",
+    "Terminal Log"
+  ],
+  "soakSeconds": 5,
+  "status": "PASS_WITH_LIMITS",
+  "elapsedMs": 10327
+}
