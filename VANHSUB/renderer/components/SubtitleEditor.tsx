@@ -37,6 +37,7 @@ type Props = {
 };
 
 let lineSeq = 0;
+const EDITOR_PAGE_SIZE = 100;
 
 function makeLineId(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -154,6 +155,9 @@ export default function SubtitleEditor({
   };
 
   const [lines, setLines] = useState<SrtLine[]>([]);
+  const [editorPage, setEditorPage] = useState(0);
+  const pageCount = Math.max(1, Math.ceil(lines.length / EDITOR_PAGE_SIZE));
+  const pageStart = Math.min(editorPage, pageCount - 1) * EDITOR_PAGE_SIZE;
   const [loading, setLoading] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [statusMessage, setStatusMessage] = useState('');
@@ -387,11 +391,16 @@ export default function SubtitleEditor({
   }, [selectedTaskId, activeSrtPath, srtSource, reloadKey]);
 
   // Tự cuộn tới dòng đang phát
+  useEffect(() => { setEditorPage(0); }, [selectedTaskId, activeSrtPath]);
+  useEffect(() => { setEditorPage(page => Math.min(page, pageCount - 1)); }, [pageCount]);
+  useEffect(() => {
+    if (activeIndex >= 0 && isPlaying) setEditorPage(Math.floor(activeIndex / EDITOR_PAGE_SIZE));
+  }, [activeIndex, isPlaying]);
   useEffect(() => {
     if (activeIndex >= 0 && isPlaying) {
       activeRowRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     }
-  }, [activeIndex, isPlaying]);
+  }, [activeIndex, isPlaying, editorPage]);
 
   // Ngăn xếp Undo / Redo cho thao tác biên tập phụ đề
   const undoStackRef = useRef<SrtLine[][]>([]);
@@ -475,6 +484,7 @@ export default function SubtitleEditor({
   };
 
   const addLine = () => {
+    setEditorPage(Math.floor(lines.length / EDITOR_PAGE_SIZE));
     pushUndo(lines, true);
     const newId = makeLineId();
     const last = lines[lines.length - 1];
@@ -493,6 +503,7 @@ export default function SubtitleEditor({
   };
 
   const insertLineAfter = (index: number) => {
+    setEditorPage(Math.floor((index + 1) / EDITOR_PAGE_SIZE));
     pushUndo(lines, true);
     const newId = makeLineId();
     const current = lines[index];
@@ -1437,7 +1448,19 @@ export default function SubtitleEditor({
               </div>
             ) : (
               <div className="flex-1 space-y-2.5 overflow-y-auto pr-1">
-                {lines.map((item, index) => {
+                {lines.length > EDITOR_PAGE_SIZE && <div className="flex flex-wrap items-center gap-2 rounded border border-border p-2 text-xs" aria-label="Phân trang phụ đề">
+                  <button type="button" disabled={editorPage === 0} onClick={() => setEditorPage(page => page - 1)} className="rounded border border-border px-2 py-1 disabled:opacity-40">Trang trước</button>
+                  <label className="flex items-center gap-1">Trang
+                    <input aria-label="Trang phụ đề" type="number" min={1} max={pageCount} value={Math.min(editorPage + 1, pageCount)}
+                      className="w-16 rounded border border-border bg-surface px-2 py-1"
+                      onChange={event => { const page = Number(event.target.value); if (Number.isInteger(page) && page >= 1 && page <= pageCount) setEditorPage(page - 1); }} />
+                    / {pageCount}
+                  </label>
+                  <button type="button" disabled={editorPage >= pageCount - 1} onClick={() => setEditorPage(page => page + 1)} className="rounded border border-border px-2 py-1 disabled:opacity-40">Trang sau</button>
+                  <span className="text-text-muted">Dòng {pageStart + 1}–{Math.min(pageStart + EDITOR_PAGE_SIZE, lines.length)} / {lines.length}</span>
+                </div>}
+                {lines.slice(pageStart, pageStart + EDITOR_PAGE_SIZE).map((item, offset) => {
+                  const index = pageStart + offset;
                   const isActiveLine = index === activeIndex;
                   const isBusyThis = aiBusyIndex === index;
                   const isDragging = draggedIndex === index;
@@ -1743,6 +1766,7 @@ export default function SubtitleEditor({
                       key={line.id}
                       onClick={(e) => {
                         e.stopPropagation();
+                        setEditorPage(Math.floor(index / EDITOR_PAGE_SIZE));
                         seekTo(line.startMs);
                       }}
                       title={`#${index + 1} · ${formatMs(line.startMs)} → ${formatMs(line.endMs)}\n${line.text}`}
