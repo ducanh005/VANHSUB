@@ -1,3 +1,6 @@
+import os from 'os';
+import { spawnSync } from 'child_process';
+import ffmpegInstaller from '@ffmpeg-installer/ffmpeg';
 import assert from 'assert';
 import fs from 'fs';
 import path from 'path';
@@ -14,9 +17,21 @@ async function main() {
   console.log('════════════════════════════════════════════════════════════════════════════════\n');
 
   const assembler = AiStudioVideoAssembler.getInstance();
+  const testRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'vanhsub-timeline-audit-'));
+  process.once('exit', () => fs.rmSync(testRoot, { recursive: true, force: true }));
+  const videoPath = path.join(testRoot, 'fixture.mp4');
+  const imagePath = path.join(testRoot, 'fixture.jpg');
+  for (const args of [
+    ['-f', 'lavfi', '-i', 'color=red:s=160x90:r=25:d=4', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', videoPath],
+    ['-f', 'lavfi', '-i', 'color=blue:s=160x90', '-frames:v', '1', imagePath],
+  ]) {
+    const result = spawnSync(ffmpegInstaller.path, ['-v', 'error', '-y', ...args], { windowsHide: true });
+    assert.strictEqual(result.status, 0, result.stderr.toString());
+  }
 
-  const realVidFixture = path.resolve(__dirname, '..', 'temp_live_e2e_output', 'live_scene_2_1791646454362.mp4');
-  const realImgFixture = path.resolve(__dirname, '..', 'temp_live_e2e_output', 'live_scene_1_1791648384031.jpg');
+
+  const realVidFixture = videoPath;
+  const realImgFixture = imagePath;
 
   assert.ok(fs.existsSync(realVidFixture), `Fixture video file must exist: ${realVidFixture}`);
   assert.ok(fs.existsSync(realImgFixture), `Fixture image file must exist: ${realImgFixture}`);
@@ -106,7 +121,7 @@ async function main() {
     await assembler.assembleVideo({
       scenes: scenesCaseA,
       voiceoverAudioPath: realVidFixture, // Use valid media path as dummy audio
-      outputPath: path.resolve(__dirname, '..', 'temp_live_e2e_output', 'dummy_output.mp4'),
+      outputPath: path.join(testRoot, 'dummy_output.mp4'),
       renderingConfig: {} as any,
       subtitleConfig: {} as any,
     });
@@ -280,9 +295,9 @@ async function main() {
   console.log(`  ✔ [PASS] Validation E accepted scenes with freeze_last_frame (media duration: ${scenesCaseE[0].originalMediaDurationSec}s).`);
 
   // Render video with assembleVideo using dummy 19s audio
-  const outputCaseE = path.resolve(__dirname, '..', 'temp_live_e2e_output', 'test_freeze_last_frame_19s.mp4');
+  const outputCaseE = path.join(testRoot, 'freeze19.mp4');
   // First create a 19s dummy voiceover audio file using ffmpeg tone
-  const dummyVoicePath = path.resolve(__dirname, '..', 'temp_live_e2e_output', 'dummy_voice_19s.mp3');
+  const dummyVoicePath = path.join(testRoot, 'voice19.mp3');
   await new Promise<void>((resolve, reject) => {
     const ffmpegModule = require('fluent-ffmpeg');
     ffmpegModule()

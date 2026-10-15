@@ -1,3 +1,5 @@
+import { spawnSync } from 'child_process';
+import ffmpegInstaller from '@ffmpeg-installer/ffmpeg';
 /**
  * tests/test_media_validator_ffmpeg_decoding.ts
  *
@@ -40,6 +42,16 @@ async function main() {
   console.log('════════════════════════════════════════════════════════════════════════════════\n');
 
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'vanhsub_ffmpeg_test_'));
+  const generatedImage = path.join(tempDir, 'fixture.jpg');
+  const generatedVideo = path.join(tempDir, 'fixture.mp4');
+  for (const args of [
+    ['-f', 'lavfi', '-i', 'color=blue:s=64x64', '-frames:v', '1', generatedImage],
+    ['-f', 'lavfi', '-i', 'color=red:s=64x64:d=1', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', generatedVideo],
+  ]) {
+    const result = spawnSync(ffmpegInstaller.path, ['-v', 'error', '-y', ...args], { windowsHide: true });
+    assert.strictEqual(result.status, 0, result.stderr.toString());
+  }
+
 
   try {
     // ──────────────────────────────────────────────────────────────────────────
@@ -121,7 +133,7 @@ async function main() {
 
     await runTest('1.5 Timeout aborts hung FFmpeg process and rejects', async () => {
       // Use existing real video with impossible 1ms timeout
-      const realVideoPath = path.resolve(__dirname, '..', 'temp_live_e2e_output', 'live_scene_2_1791646454362.mp4');
+      const realVideoPath = generatedVideo;
       if (fs.existsSync(realVideoPath)) {
         let resolved = false;
         try {
@@ -142,8 +154,8 @@ async function main() {
     // ──────────────────────────────────────────────────────────────────────────
     console.log('\n▶ [SECTION 2] Positive Tests: Real Media Files Decode 100% Cleanly');
 
-    const realImgPath = path.resolve(__dirname, '..', 'temp_live_e2e_output', 'live_scene_1_1791648384031.jpg');
-    const realVidPath = path.resolve(__dirname, '..', 'temp_live_e2e_output', 'live_scene_2_1791646454362.mp4');
+    const realImgPath = generatedImage;
+    const realVidPath = generatedVideo;
 
     if (fs.existsSync(realImgPath)) {
       await runTest('2.1 Real JPEG image resolves with fullyDecoded: true', async () => {

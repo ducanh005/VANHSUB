@@ -605,8 +605,9 @@ export class AiStudioTtsService {
     return new Promise((resolve, reject) => {
       ffmpeg.ffprobe(mediaPath, (err, metadata) => {
         if (err) return reject(err);
-        const duration = metadata?.format?.duration || 0;
-        resolve(Number(duration) || 5);
+        const duration = Number(metadata?.format?.duration);
+        if (!Number.isFinite(duration) || duration <= 0) return reject(new Error('TTS audio không có thời lượng hợp lệ.'));
+        resolve(duration);
       });
     });
   }
