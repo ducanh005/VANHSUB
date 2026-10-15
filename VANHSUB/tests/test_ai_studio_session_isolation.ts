@@ -66,7 +66,7 @@ async function main() {
     const catalog = resolveAiStudioSessionsRoot();
     const legacyDir = path.join(root, 'legacy');
     fs.mkdirSync(legacyDir);
-    const legacy = { ...a, sessionId: 'legacy-one', outputDir: legacyDir, workspaceDir: undefined, mediaDir: undefined, artifacts: {} };
+    const legacy = { ...a, sessionId: 'legacy-one', outputDir: legacyDir, workspaceDir: undefined, mediaDir: undefined, artifacts: { scenes: structuredClone(a.artifacts.scenes) } };
     fs.writeFileSync(path.join(legacyDir, 'session.json'), JSON.stringify(legacy));
     fs.writeFileSync(path.join(catalog, 'legacy-one.json'), JSON.stringify(legacy));
     const oldEngine = new AiStudioPipelineEngine();

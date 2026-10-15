@@ -186,28 +186,14 @@ export class AiStudioDiskStorageManager {
       fs.mkdirSync(parentDir, { recursive: true });
     }
 
-    const tmpPath = `${filePath}.tmp.${Date.now()}.${Math.random().toString(36).substring(2, 8)}`;
+    const tmpPath = `${filePath}.tmp.${crypto.randomUUID()}`;
     fs.writeFileSync(tmpPath, content);
 
     try {
       fs.renameSync(tmpPath, filePath);
-    } catch (err: any) {
-      // Windows fallback if renameSync fails on existing target
-      if (fs.existsSync(filePath)) {
-        try {
-          fs.unlinkSync(filePath);
-          fs.renameSync(tmpPath, filePath);
-          return;
-        } catch {
-          // Fallback to copy and unlink
-          fs.copyFileSync(tmpPath, filePath);
-          try { fs.unlinkSync(tmpPath); } catch {}
-          return;
-        }
-      }
-      // If tmp still exists, clean up
+    } finally {
+      // A locked destination is an error. Never delete the last good version.
       try { if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath); } catch {}
-      throw err;
     }
   }
 

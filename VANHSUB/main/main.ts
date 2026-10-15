@@ -417,10 +417,11 @@ const pipelineReleases = new Map<string, () => void>();
 const cancelledOperations = new Set<string>();
 
 function finishTaskOperation(id: string, release: () => void): void {
-  if (cancelledOperations.delete(id)) {
-    TaskStore.update(id, { status: 'cancelled', stageDescription: 'Đã huỷ tác vụ' });
-  }
-  release();
+  try {
+    if (cancelledOperations.delete(id)) {
+      TaskStore.update(id, { status: 'cancelled', stageDescription: 'Đã huỷ tác vụ' });
+    }
+  } finally { release(); }
   broadcastTasksUpdate();
 }
 
@@ -434,7 +435,7 @@ function launchTaskOperation(id: string, work: () => Promise<unknown>): boolean 
       TaskStore.update(id, { status: 'error', errorMessage: error?.message || String(error),
         stageDescription: 'Không thể xử lý tác vụ' });
     }
-  }).finally(() => finishTaskOperation(id, release));
+  }).finally(() => finishTaskOperation(id, release)).catch(error => console.error('[Task] Cannot persist final state:', error));
   return true;
 }
 

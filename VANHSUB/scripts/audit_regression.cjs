@@ -4,10 +4,19 @@ const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
 const root = path.resolve(__dirname, '..');
-const evidence = path.join(root, 'docs/audit-evidence/2026-10-15');
+const evidence = path.resolve(process.env.VANHSUB_AUDIT_EVIDENCE_DIR || path.join(root, 'docs/audit-evidence/2026-10-15'));
+fs.mkdirSync(evidence, { recursive: true });
 // Explicit allowlist: no browser launch/attachment, provider generation or production runner.
 const suites = ['tests/test_media_validator_ffmpeg_decoding.ts', 'tests/test_video_processor_concat.ts', 'tests/test_timeline_export_duration_guard.ts', 'tests/test_project_media_isolation_regression.ts', 'tests/test_tts_timing_adaptation.ts', 'tests/test_flow_project_isolation.ts', 'tests/test_full_audit_flow_tabs.ts'];
-suites.push('tests/test_srt_ocr_normalizer_and_translation.ts', 'tests/test_full_audit_security.ts', 'tests/test_full_audit_data_integrity.ts', 'tests/test_full_audit_episode_storage.ts', 'tests/test_full_audit_session_jobs.ts', 'tests/test_ai_studio_script_evaluation.ts', 'tests/test_ai_studio_script_refinement.ts', 'tests/test_full_audit_script_artifacts.ts');
+suites.push('tests/test_srt_ocr_normalizer_and_translation.ts', 'tests/test_full_audit_security.ts', 'tests/test_full_audit_data_integrity.ts', 'tests/test_ai_studio_script_evaluation.ts', 'tests/test_ai_studio_script_refinement.ts', 'tests/test_full_audit_script_artifacts.ts',
+  'tests/test_ai_studio_session_isolation.ts', 'tests/test_ai_studio_session_config.ts', 'tests/test_ai_studio_session_operations.ts',
+  'tests/test_ai_studio_script_invalidation.ts', 'tests/test_ai_studio_channel_settings.ts', 'tests/test_ai_studio_render_timeline.ts',
+  'tests/test_ai_studio_bgm_audio.ts', 'tests/test_ai_studio_tts_alignment.ts', 'tests/test_ai_studio_visual_directions.ts',
+  'tests/test_ai_studio_storyboard_modes.ts', 'tests/test_ai_studio_media_import.ts', 'tests/test_ai_studio_visual_jobs.ts',
+  'tests/test_standard_project_directory_isolation.ts', 'tests/test_legacy_project_collision_guard.ts',
+  'tests/test_subtitle_artifact_invalidation.ts', 'tests/test_task_configuration_defaults.ts', 'tests/test_task_operation_exclusion.ts',
+  'tests/test_shared_dubbing_preferences.ts', 'tests/test_tts_group_regeneration.ts', 'tests/test_dubbed_subtitle_export.ts',
+  'tests/test_export_resolution_and_silent_softsub.ts', 'tests/test_video_stretch_timeline_sync.ts', 'tests/test_chatgpt_script_collector.ts');
 const results = [];
 for (const suite of suites) {
   const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'vanhsub-regression-'));

@@ -1,4 +1,5 @@
-import { applyScriptLines } from './sessionArtifacts';
+import { applyScriptLines, invalidateSessionArtifacts } from './sessionArtifacts';
+import { guardRendererInvoke } from '../security/rendererTrust';
 /**
  * AI Video Studio - IPC Communication Router
  *
@@ -167,7 +168,12 @@ function safeHandle(
   } catch {
     // Ignore error if channel was not previously registered
   }
-  ipcMain.handle(channel, handler);
+  ipcMain.handle(channel, guardRendererInvoke((event, ...args) => {
+    if (channel === 'aiStudio:scene:updateFillMode') {
+      return withSessionOperation(args[0]?.sessionId, () => Promise.resolve(handler(event, ...args)));
+    }
+    return handler(event, ...args);
+  }));
 }
 
 // ============================================================================
@@ -542,6 +548,10 @@ export function registerAiStudioIpc(): void {
         if (!payload.sessionId) {
           throw new Error('Thiếu sessionId khi cập nhật chế độ bù thời lượng phân cảnh.');
         }
+        if (!['freeze_last_frame', 'none'].includes(payload.fillMode) ||
+            (payload.sceneIds !== undefined && (!Array.isArray(payload.sceneIds) || payload.sceneIds.some(id => typeof id !== 'string')))) {
+          throw new Error('Chế độ hoặc danh sách phân cảnh không hợp lệ.');
+        }
 
         if (pipelineEngineDelegate) {
           const session = await pipelineEngineDelegate.getState({ sessionId: payload.sessionId });
@@ -556,6 +566,10 @@ export function registerAiStudioIpc(): void {
                 sc.fillMode = payload.fillMode;
               }
             });
+            invalidateSessionArtifacts(session, 7);
+            session.currentStage = 6;
+            session.stageName = 'visuals';
+            session.status = 'awaiting_approval';
             if (typeof pipelineEngineDelegate.persistSessionStateAtomic === 'function') {
               pipelineEngineDelegate.persistSessionStateAtomic(session);
             }

@@ -35,7 +35,8 @@ async function main() {
     const task = TaskStore.create({ fileName: 'source.mp4', filePath: path.join(dir, 'source.mp4'), srtPath: srt, projectDir: dir });
     const initial = await TTSRunner.runTTS(task.id, 'vi-VN-HoaiMyNeural', 1, undefined, {}, 'edge');
     assert.equal(initial?.status, 'done', initial?.errorMessage);
-    const audioDir = initial!.ttsAudioDir!;
+    let audioDir = initial!.ttsAudioDir!;
+    const initialAudioDir = audioDir;
     const audio = (index: number) => fs.readFileSync(path.join(audioDir, `subtitle_${String(index).padStart(4, '0')}.mp3`));
     const manifest = () => JSON.parse(fs.readFileSync(path.join(audioDir, 'manifest.json'), 'utf8'));
     const previous = audio(1);
@@ -47,6 +48,9 @@ async function main() {
     const restored = await TTSRunner.runTTS(task.id);
     assert.equal(restored?.status, 'done', restored?.errorMessage);
     assert.deepEqual(calls.map((c) => c.text), ['Hello world.'], 'Opting out must not reuse shortened spoken text');
+    audioDir = restored!.ttsAudioDir!;
+    assert.notEqual(audioDir, initialAudioDir);
+    assert.deepEqual(fs.readFileSync(path.join(initialAudioDir, 'subtitle_0001.mp3')), previous, 'The previous run must survive cache reuse');
     calls.length = 0;
     assert.equal((await TTSRunner.regenerateLine(task.id, 2)).ok, true);
     assert.deepEqual(calls.map((c) => c.text), ['Hello world.']);

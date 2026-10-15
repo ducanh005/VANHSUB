@@ -37,8 +37,13 @@ async function main() {
     const makeScene = (asset: string, i: number, startMs: number, durationMs: number): StoryboardScene => ({
       id: `scene_${i}`, lineIndex: i, startMs, endMs: startMs + durationMs, durationMs,
       lineText: 'test', visualPrompt: 'test', motionType: asset.endsWith('.mp4') ? 'video' : 'ken_burns', assetPath: asset, status: 'ready',
+      fillMode: asset.endsWith('.mp4') ? 'freeze_last_frame' : undefined,
     });
     const mixed = path.join(root, 'mixed.mp4');
+    await assert.rejects(() => assembler.assembleVideo({
+      scenes: [{ ...makeScene(blue, 0, 0, 4000), fillMode: 'none' }], voiceoverAudioPath: voice, outputPath: mixed,
+      renderingConfig: DEFAULT_AI_STUDIO_CONFIG.rendering, subtitleConfig: DEFAULT_AI_STUDIO_CONFIG.subtitles,
+    }), /TIMELINE|ngắn hơn/);
     await assembler.assembleVideo({
       scenes: [makeScene(red, 0, 0, 1000), makeScene(green, 1, 1000, 1000), makeScene(blue, 2, 2000, 2000)],
       voiceoverAudioPath: voice, outputPath: mixed,
@@ -92,7 +97,7 @@ async function main() {
     assert.equal(ultraStream.height, 2160);
     run(['-i', mixed, '-f', 'null', '-']);
     run(['-i', portrait, '-f', 'null', '-']);
-    console.log('PASS: real FFmpeg multi-scene timing with/without Ken Burns, looped short clips, audible narration tail, 30/60fps, portrait dimensions and actual 4K export');
+    console.log('PASS: real FFmpeg multi-scene timing, explicit frozen short clips, mismatch rejection, audible narration tail, 30/60fps, portrait and actual 4K export');
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 }
 main().catch((err) => { console.error(err); process.exitCode = 1; });

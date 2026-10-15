@@ -431,7 +431,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     }
 
     // Pre-validate timeline durations before running expensive FFmpeg rendering
-    const timelineCheck = await this.validateTimelineDurations(scenes, 25);
+    const timelineCheck = await this.validateTimelineDurations(scenes, renderingConfig.fps === 60 ? 60 : 30);
     if (!timelineCheck.valid) {
       throw new TimelineDurationMismatchError(timelineCheck.mismatches);
     }
@@ -542,7 +542,6 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     segments.forEach((seg, i) => {
       const safeScale = `scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height},setsar=1,fps=${fps}`;
       if (seg.isVideo) {
-        cmd.input(seg.path);
         const actualDur = seg.actualDurationSec || 0;
         const needsPadding =
           seg.fillMode === 'freeze_last_frame' &&
@@ -550,11 +549,14 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
           actualDur < seg.durationSec - 0.08;
 
         if (needsPadding) {
+          cmd.input(seg.path);
           const missingSec = Math.max(0.1, Number((seg.durationSec - actualDur + 0.5).toFixed(2)));
           filterChain.push(
             `[${i}:v]${safeScale},tpad=stop_mode=clone:stop_duration=${missingSec},trim=duration=${seg.durationSec},setpts=PTS-STARTPTS[v${i}]`
           );
         } else {
+          // Keep narration coverage if the last segment is extended to the audio tail.
+          cmd.input(seg.path).inputOptions(['-stream_loop -1']);
           filterChain.push(`[${i}:v]${safeScale},trim=duration=${seg.durationSec},setpts=PTS-STARTPTS[v${i}]`);
         }
       } else {
