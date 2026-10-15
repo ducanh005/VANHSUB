@@ -672,6 +672,9 @@ export interface ScriptQualityAuditResult {
 }
 
 export interface PipelineSessionState {
+  jobActive?: boolean;
+  workspaceDir?: string;
+  mediaDir?: string;
   sessionId: string;
   projectId?: string;
   topic: string;
@@ -874,6 +877,8 @@ export interface ScriptCriteriaScore {
 }
 
 export interface ScriptEvaluation {
+  method?: 'llm';
+  provider?: AiStudioLlmConfig['provider'];
   overallScore: number; // 0 - 100
   lowestScore: number; // 0 - 10
   criteria: ScriptCriteriaScore[];

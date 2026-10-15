@@ -1,3 +1,6 @@
+import { withSessionOperation } from './sessionOperations';
+import { applyScriptLines } from './sessionArtifacts';
+import { guardRendererInvoke } from '../security/rendererTrust';
 /**
  * AI Video Studio - IPC Communication Router
  *
@@ -164,7 +167,13 @@ function safeHandle(
   } catch {
     // Ignore error if channel was not previously registered
   }
-  ipcMain.handle(channel, handler);
+  ipcMain.handle(channel, guardRendererInvoke((event, ...args) => {
+    const sessionId = args[0]?.sessionId;
+    if (sessionId && ['aiStudio:script:evaluate', 'aiStudio:script:refine', 'aiStudio:script:updateLines', 'aiStudio:scene:updateFillMode'].includes(channel)) {
+      return withSessionOperation(sessionId, () => Promise.resolve(handler(event, ...args)));
+    }
+    return handler(event, ...args);
+  }));
 }
 
 // ============================================================================
@@ -468,15 +477,7 @@ export function registerAiStudioIpc(): void {
           const session = await pipelineEngineDelegate.getState({ sessionId: payload.sessionId });
           if (session) {
             session.artifacts = session.artifacts || {};
-            if (session.artifacts.scriptLines) {
-              session.artifacts.scriptHistory = session.artifacts.scriptHistory || [];
-              session.artifacts.scriptHistory.push({
-                lines: session.artifacts.scriptLines,
-                evaluation: session.artifacts.scriptEvaluation,
-                timestamp: Date.now(),
-              });
-            }
-            session.artifacts.scriptLines = refined.lines;
+            applyScriptLines(session, refined.lines);
             session.artifacts.scriptEvaluation = refined.evaluation;
             if (typeof pipelineEngineDelegate.persistSessionStateAtomic === 'function') {
               pipelineEngineDelegate.persistSessionStateAtomic(session);
@@ -511,7 +512,7 @@ export function registerAiStudioIpc(): void {
           const session = await pipelineEngineDelegate.getState({ sessionId: payload.sessionId });
           if (session) {
             session.artifacts = session.artifacts || {};
-            session.artifacts.scriptLines = payload.lines || [];
+            applyScriptLines(session, payload.lines);
             if (typeof pipelineEngineDelegate.persistSessionStateAtomic === 'function') {
               pipelineEngineDelegate.persistSessionStateAtomic(session);
             }

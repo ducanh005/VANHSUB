@@ -1,3 +1,5 @@
+import { reserveSessionOperation, withSessionOperation, isSessionOperationActive } from './sessionOperations';
+import { validateSessionIdentity, readOwnedSession, assertSessionDirectoryOwner, writeSessionCheckpoint } from './sessionPersistence';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
@@ -138,6 +140,7 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
    * Does NOT fall back to activeProjectId or global config.
    */
   public resolveOwnerProject(sessionId: string, explicitProjectId?: string): SavedProjectProfile {
+    validateSessionIdentity(sessionId);
     if (!sessionId || !sessionId.trim()) {
       throw new Error('MISSING_SESSION_ID: Session ID không hợp lệ.');
     }
@@ -201,6 +204,10 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
   // Session Directory Helpers
   // ==========================================================================
   public getSessionDir(sessionId: string, customOutputDir?: string): string {
+    validateSessionIdentity(sessionId);
+    const stored = this.activeSessions.get(sessionId) || readOwnedSession(path.join(resolveAiStudioSessionsRoot(), `${sessionId}.json`), sessionId);
+    if (stored?.workspaceDir) return path.resolve(stored.workspaceDir);
+
     if (customOutputDir && customOutputDir.trim()) {
       return path.resolve(customOutputDir.trim());
     }
@@ -215,7 +222,9 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
   }
 
   public getSessionAssetsDir(sessionId: string, customOutputDir?: string): string {
-    const dir = path.join(this.getSessionDir(sessionId, customOutputDir), 'assets');
+    const workspace = this.getSessionDir(sessionId, customOutputDir);
+    assertSessionDirectoryOwner(workspace, sessionId);
+    const dir = path.join(workspace, 'assets');
     fs.mkdirSync(dir, { recursive: true });
     return dir;
   }
@@ -243,10 +252,12 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
       );
     }
 
-    const sessionDir = path.resolve(effectiveOutputDir.trim());
+    const sessionDir = this.getSessionDir(sessionId, effectiveOutputDir);
+    assertSessionDirectoryOwner(sessionDir, sessionId);
+    const sessionState = this.activeSessions.get(sessionId) || readOwnedSession(path.join(resolveAiStudioSessionsRoot(), `${sessionId}.json`), sessionId);
     const storage = new AiStudioDiskStorageManager(sessionId, {
       baseDir: sessionDir,
-      customMediaDir: effectiveMediaDir,
+      customMediaDir: sessionState?.mediaDir || effectiveMediaDir,
       exactProjectDir: true,
     });
     storage.ensureDirectories();
@@ -271,39 +282,21 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
   // Atomic State Persistence
   // ==========================================================================
   public persistSessionStateAtomic(state: PipelineSessionState): void {
+    validateSessionIdentity(state.sessionId);
     state.updatedAt = Date.now();
     this.activeSessions.set(state.sessionId, state);
-
-    try {
-      const sessionDir = this.getSessionDir(state.sessionId);
-      fs.mkdirSync(sessionDir, { recursive: true });
-
-      const finalPath = path.join(sessionDir, 'session.json');
-      const tempPath = path.join(sessionDir, `session.json.tmp.${Date.now()}`);
-
-      fs.writeFileSync(tempPath, JSON.stringify(state, null, 2), 'utf8');
-      try {
-        fs.renameSync(tempPath, finalPath);
-      } catch {
-        // Fallback for cross-device renames
-        fs.copyFileSync(tempPath, finalPath);
-        try { fs.unlinkSync(tempPath); } catch {}
-      }
-
-      // Also maintain backward-compatible root session file if needed
-      const legacyPath = path.join(resolveAiStudioSessionsRoot(), `${state.sessionId}.json`);
-      try {
-        fs.writeFileSync(legacyPath, JSON.stringify(state, null, 2), 'utf8');
-      } catch {}
-    } catch (err) {
-      console.error(`[AiStudioPipelineEngine] Failed to persist session ${state.sessionId}:`, err);
-    }
+    const dir = this.getSessionDir(state.sessionId);
+    assertSessionDirectoryOwner(dir, state.sessionId);
+    writeSessionCheckpoint(path.join(dir, 'session.json'), state);
+    writeSessionCheckpoint(path.join(resolveAiStudioSessionsRoot(), `${state.sessionId}.json`), state);
   }
 
   public async getState(payload: GetPipelineStatePayload): Promise<PipelineSessionState | null> {
     const { sessionId } = payload;
+    validateSessionIdentity(sessionId);
     if (this.activeSessions.has(sessionId)) {
-      return this.activeSessions.get(sessionId)!;
+      const state = this.activeSessions.get(sessionId)!;
+      return { ...state, jobActive: isSessionOperationActive(sessionId) };
     }
 
     let diskState: PipelineSessionState | null = null;
@@ -317,7 +310,7 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
         if (fs.existsSync(sessionJsonPath)) {
           try {
             const state: PipelineSessionState = JSON.parse(fs.readFileSync(sessionJsonPath, 'utf8'));
-            if (state && typeof state === 'object') {
+            if (state && typeof state === 'object' && state.sessionId === sessionId) {
               state.stages = state.stages || ({} as any);
               state.artifacts = state.artifacts || ({} as any);
               diskState = state;
@@ -335,7 +328,7 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
       if (fs.existsSync(legacyPath)) {
         try {
           const state: PipelineSessionState = JSON.parse(fs.readFileSync(legacyPath, 'utf8'));
-          if (state && typeof state === 'object') {
+          if (state && typeof state === 'object' && state.sessionId === sessionId) {
             state.stages = state.stages || ({} as any);
             state.artifacts = state.artifacts || ({} as any);
             diskState = state;
@@ -359,14 +352,24 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
       const diskUpdated = diskState.updatedAt || 0;
       const cfgUpdated = configState.updatedAt || 0;
       resolved =
-        diskStage > cfgStage || (diskStage === cfgStage && diskUpdated >= cfgUpdated)
+        diskUpdated >= cfgUpdated
           ? diskState
           : configState;
     }
 
     if (resolved) {
       this.activeSessions.set(sessionId, resolved);
-      return resolved;
+      if (resolved.status === 'running' && !isSessionOperationActive(sessionId)) {
+        resolved.status = 'failed';
+        const stage = resolved.stages[resolved.currentStage];
+        if (stage) {
+          stage.status = 'error';
+          stage.error = 'Tác vụ bị gián đoạn ở phiên trước. Kiểm tra đầu ra rồi tiếp tục từ bước này.';
+        }
+        // Recovery reads must not write into a legacy directory owned by another episode.
+        // The next explicit resume persists after ownership checks succeed.
+      }
+      return { ...resolved, jobActive: isSessionOperationActive(sessionId) };
     }
 
     return null;
@@ -382,7 +385,6 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
     const controller = this.activeAbortControllers.get(sessionId);
     if (controller) {
       controller.abort();
-      this.activeAbortControllers.delete(sessionId);
     }
 
     // 2. Kill registered child processes / FFmpeg instances
@@ -460,6 +462,8 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
       progress: 5,
       gatedMode,
       outputDir: resolvedOutputDir,
+      workspaceDir: path.join(resolvedOutputDir, 'sessions', sessionId),
+      mediaDir: path.join(ownerProject.channelProfile?.customMediaDir || config.channelProfile?.customMediaDir || resolvedOutputDir, 'sessions', sessionId, '05_media'),
       flowProjectUrl: payload.flowProjectUrl?.trim() || ownerProject.flowProjectUrl?.trim() || undefined,
       stages: {
         1: { status: 'pending', stageName: STAGE_CONFIG[1].label },
@@ -481,6 +485,7 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
       updatedAt: Date.now(),
     };
 
+    this.activeSessions.set(sessionId, session);
     // Bind storage manager to this session permanently
     this.sessionProjectMap.set(sessionId, ownerProject.id);
     const effectiveMediaDir = ownerProject.channelProfile?.customMediaDir || config.channelProfile?.customMediaDir;
@@ -493,6 +498,7 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
 
     this.persistSessionStateAtomic(session);
 
+    const release = reserveSessionOperation(sessionId);
     const abortController = new AbortController();
     this.activeAbortControllers.set(sessionId, abortController);
     this.activeProcesses.set(sessionId, new Set());
@@ -526,6 +532,10 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
           errorCode: (err as any).code || (err as any).errorCode,
           code: (err as any).code,
         } as any);
+      }).catch(error => console.error('[AiStudioPipelineEngine] Không lưu được checkpoint lỗi:', error)).finally(() => {
+        this.activeAbortControllers.delete(session.sessionId);
+        this.activeProcesses.delete(session.sessionId);
+        release();
       });
     }, 20);
 
@@ -555,13 +565,24 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
     };
   }
 
-  public async approveStage(
+  public async approveStage(payload: ApproveStagePayload, onProgress: (event: PipelineProgressEvent) => void): Promise<ApproveStageResult> {
+    const release = reserveSessionOperation(payload.sessionId);
+    try { return await this.approveStageInternal(payload, onProgress, release); } catch (error) { release(); throw error; }
+  }
+
+  private async approveStageInternal(
     payload: ApproveStagePayload,
-    onProgress: (event: PipelineProgressEvent) => void
+    onProgress: (event: PipelineProgressEvent) => void,
+    release: () => void
   ): Promise<ApproveStageResult> {
     const session = await this.getState({ sessionId: payload.sessionId });
     if (!session) {
       throw new Error(`Session không tồn tại: ${payload.sessionId}`);
+    }
+
+    if (!Number.isInteger(payload.currentStage) || payload.currentStage !== session.currentStage ||
+        session.status !== 'awaiting_approval' || session.stages[session.currentStage]?.status !== 'success') {
+      throw new Error('Chỉ được duyệt bước hiện tại đã hoàn tất và đang chờ duyệt.');
     }
 
     if (payload.updatedArtifacts) {
@@ -585,6 +606,7 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
         message: 'Đã hoàn thành toàn bộ quy trình sản xuất video AI Studio!',
         artifacts: session.artifacts,
       });
+      release();
       return { success: true };
     }
 
@@ -627,6 +649,10 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
           errorCode: (err as any).code || (err as any).errorCode,
           code: (err as any).code,
         } as any);
+      }).catch(error => console.error('[AiStudioPipelineEngine] Không lưu được checkpoint lỗi:', error)).finally(() => {
+        this.activeAbortControllers.delete(session.sessionId);
+        this.activeProcesses.delete(session.sessionId);
+        release();
       });
     }, 20);
 
@@ -636,9 +662,15 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
   // ==========================================================================
   // Pipeline Resume (Checkpoint Restoration & Error Recovery)
   // ==========================================================================
-  public async resume(
+  public async resume(payload: ResumePipelinePayload, onProgress: (event: PipelineProgressEvent) => void): Promise<ResumePipelineResult> {
+    const release = reserveSessionOperation(payload.sessionId);
+    try { return await this.resumeInternal(payload, onProgress, release); } catch (error) { release(); throw error; }
+  }
+
+  private async resumeInternal(
     payload: ResumePipelinePayload,
-    onProgress: (event: PipelineProgressEvent) => void
+    onProgress: (event: PipelineProgressEvent) => void,
+    release: () => void
   ): Promise<ResumePipelineResult> {
     const session = await this.getState({ sessionId: payload.sessionId });
     if (!session) {
@@ -648,7 +680,8 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
     session.stages = session.stages || ({} as any);
     session.artifacts = session.artifacts || ({} as any);
 
-    const targetStage = (payload.fromStage || session.currentStage) as AiStudioStageId;
+    const targetStage = (payload.fromStage ?? session.currentStage) as AiStudioStageId;
+    if (!Number.isInteger(targetStage) || targetStage < 1 || targetStage > 8) throw new Error('Bước chạy phải trong khoảng 1–8.');
 
     // Validate state transition integrity: cannot resume stage N without completed stage N-1
     if (targetStage > 1) {
@@ -730,6 +763,10 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
           errorCode: (err as any).code || (err as any).errorCode,
           code: (err as any).code,
         } as any);
+      }).catch(error => console.error('[AiStudioPipelineEngine] Không lưu được checkpoint lỗi:', error)).finally(() => {
+        this.activeAbortControllers.delete(session.sessionId);
+        this.activeProcesses.delete(session.sessionId);
+        release();
       });
     }, 20);
 
@@ -1975,6 +2012,7 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
         }
 
         // Mark stage as completed
+        signal.throwIfAborted();
         session.stages[stage].status = 'success';
         session.stages[stage].completedAt = Date.now();
         session.progress = stageMeta.baseProgress;
@@ -2048,7 +2086,12 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
     return aiStudioTtsService.renderSingleLineVoice(payload);
   }
 
-  public async regenerateSceneAsset(
+  public async regenerateSceneAsset(payload: RegenerateSceneAssetPayload, onProgress?: (pct: number, msg: string) => void, signal?: AbortSignal): Promise<RegenerateSceneAssetResult> {
+    if (!payload.sessionId) throw new Error('Thiếu sessionId.');
+    return withSessionOperation(payload.sessionId, () => this.regenerateSceneAssetInternal(payload, onProgress, signal));
+  }
+
+  private async regenerateSceneAssetInternal(
     payload: RegenerateSceneAssetPayload,
     onProgress?: (pct: number, msg: string) => void,
     signal?: AbortSignal
@@ -2433,7 +2476,11 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
     return aiStudioVisualService.regenerateSceneAsset(effectiveFallbackPayload, undefined, onProgress, signal);
   }
 
-  public async importSceneMedia(
+  public async importSceneMedia(payload: ImportSceneMediaPayload): Promise<ImportSceneMediaResult> {
+    return withSessionOperation(payload.sessionId, () => this.importSceneMediaInternal(payload));
+  }
+
+  private async importSceneMediaInternal(
     payload: ImportSceneMediaPayload
   ): Promise<ImportSceneMediaResult> {
     const { sessionId, sceneId, filePath, mediaType } = payload;
@@ -2524,6 +2571,10 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
   }
 
   public async renderVideo(payload: RenderVideoPayload): Promise<RenderVideoResult> {
+    return withSessionOperation(payload.sessionId, () => this.renderVideoInternal(payload));
+  }
+
+  private async renderVideoInternal(payload: RenderVideoPayload): Promise<RenderVideoResult> {
     const session = await this.getState({ sessionId: payload.sessionId });
     if (!session || !session.artifacts.audioPath || !session.artifacts.scenes) {
       throw new Error(`Session assets không tìm thấy cho việc dựng lại video: ${payload.sessionId}`);
