@@ -293,12 +293,17 @@ async function withRetry<T>(
   fn: () => Promise<T>,
   attempts: number = 3,
   baseDelayMs: number = 1200,
+  shouldStop?: () => boolean,
 ): Promise<T> {
   let lastError: unknown;
   for (let attempt = 1; attempt <= attempts; attempt++) {
+    if (shouldStop?.()) throw new CancelledError();
     try {
-      return await fn();
+      const result = await fn();
+      if (shouldStop?.()) throw new CancelledError();
+      return result;
     } catch (err) {
+      if (shouldStop?.() || err instanceof CancelledError) throw new CancelledError();
       lastError = err;
       if (attempt < attempts) {
         const delay = baseDelayMs * attempt;
@@ -504,7 +509,7 @@ export async function generateTtsFromSrt(
               }
               first = false;
               const candidatePath = path.join(outputDir, `.subtitle_${group.startIndex}_${candidates.length}.mp3`);
-              const audioBuffer = await withRetry(() => generateAudio(text, group.voice, rate, group.engine));
+              const audioBuffer = await withRetry(() => generateAudio(text, group.voice, rate, group.engine), 3, 1200, options?.shouldStop);
               fs.writeFileSync(candidatePath, audioBuffer);
               candidates.push(candidatePath);
               generated.set(key, candidatePath);

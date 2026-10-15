@@ -178,9 +178,7 @@ export class TTSRunner {
       // (pipeline) thì giữ nguyên gán đã lưu
       TaskStore.update(taskId, {
         status: 'dubbing',
-        dubbedVideoPath: undefined,
         ttsNeedsRegeneration: true,
-        ttsMergedAudioPath: undefined,
         progress: 0,
         ttsVoice: voiceToUse,
         ttsSpeed: speedToUse,
@@ -257,6 +255,7 @@ export class TTSRunner {
         status: 'done',
         progress: 100,
         outputPath: undefined, errorMessage: undefined,
+        ttsMergedAudioPath: undefined,
         projectDir,
         ttsAudioDir, // Lưu thư mục audio để dùng cho bước dubbing tiếp theo
         ttsNeedsRegeneration: false,
