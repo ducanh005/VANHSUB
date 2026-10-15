@@ -5,7 +5,7 @@ import { parseSrtStrict } from './srt';
 import { nextAvailablePath } from './paths';
 import { getProjectArtifactPaths } from '../utils/projectFolder';
 import { assertTaskAvailable } from './taskOperations';
-import { assertProjectIsolation } from './projectIsolation';
+import { assertProjectIsolation, canonicalArtifactPath } from './projectIsolation';
 
 function assertIdle(task: Task) {
   assertProjectIsolation(task);
@@ -31,7 +31,7 @@ function invalidate(task: Task, original: boolean) {
 
 export function saveTaskSubtitle(srtPath: string, content: string): void {
   validate(content);
-  const normalize = (file: string) => path.resolve(file).toLowerCase();
+  const normalize = canonicalArtifactPath;
   const tasks = TaskStore.getAll().filter((task) => [task.srtPath, task.translatedSrtPath]
     .some((file) => file && normalize(file) === normalize(srtPath)));
   tasks.forEach(assertIdle);

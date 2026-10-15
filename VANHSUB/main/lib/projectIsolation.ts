@@ -2,13 +2,13 @@ import fs from 'fs';
 import path from 'path';
 import { TaskStore, type Task } from '../store/taskStore';
 
-function canonical(file: string): string {
+export function canonicalArtifactPath(file: string): string {
   try { return fs.realpathSync(file).toLowerCase(); }
   catch { return path.resolve(file).toLowerCase(); }
 }
 function resources(task: Task): string[] {
   return [task.projectDir, task.ttsAudioDir, task.srtPath, task.translatedSrtPath]
-    .filter((file): file is string => !!file).map(canonical);
+    .filter((file): file is string => !!file).map(canonicalArtifactPath);
 }
 
 /** Legacy tasks may already share artifacts; do not overwrite ambiguous data. */

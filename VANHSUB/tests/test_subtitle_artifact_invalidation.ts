@@ -61,6 +61,18 @@ async function main() {
     assert.equal(imported.translatedSrtPath, undefined);
     assert.equal(imported.subtitleRevision, 3);
     assert.deepEqual(imported.ttsVoiceOverrides, {});
+    const { reserveTaskOperation } = await import('../main/lib/taskOperations');
+    const actual = path.join(dir, 'physical'), alias = path.join(dir, 'alias');
+    fs.mkdirSync(actual); fs.symlinkSync(actual, alias, process.platform === 'win32' ? 'junction' : 'dir');
+    const realSrt = path.join(actual, 'aliased.srt'); fs.writeFileSync(realSrt, text('Last good.'));
+    const aliased = TaskStore.create({ fileName: 'alias.mp4', filePath: path.join(alias, 'alias.mp4'), projectDir: alias, srtPath: path.join(alias, 'aliased.srt') });
+    const release = reserveTaskOperation(aliased.id);
+    try { assert.throws(() => saveTaskSubtitle(realSrt, text('Busy edit.')), /đang xử lý/); }
+    finally { release(); }
+    assert.equal(fs.readFileSync(realSrt, 'utf8'), text('Last good.'));
+    saveTaskSubtitle(realSrt, text('Idle edit.'));
+    assert.equal(TaskStore.getById(aliased.id)?.subtitleRevision, 1, 'Physical and junction paths share ownership, lock and invalidation');
+    fs.unlinkSync(alias);
     console.log('PASS: subtitle save/import invalidation, unchanged-content preservation, busy/invalid-input guards and audio cache retention');
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 }
