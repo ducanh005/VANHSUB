@@ -20,6 +20,7 @@ async function main() {
     waitForTabReady: async () => {},
     chrome: {
       tabs: {
+        create: async (data: any) => { if (!rejectNavigation) url = data.url; return { id: 2, url }; },
         update: async (_id: number, data: any) => { if (!rejectNavigation) url = data.url; },
         get: async () => ({ id: 1, url }),
       },
