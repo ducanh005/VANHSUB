@@ -1,0 +1,7 @@
+{
+ "status":"INVALIDATED_NOT_ACCEPTANCE_PASS",
+ "reason":"RC rebuild was attempted against the same active output directory; Windows denied unlink of dxcompiler.dll. The idle measurement was stopped rather than relabeled PASS.",
+ "consoleObservationsMiB":[{"seconds":0,"workingSet":489.04},{"seconds":60,"workingSet":448.4},{"seconds":120,"workingSet":446.14},{"seconds":180,"workingSet":446.51},{"seconds":241,"workingSet":447.07},{"seconds":301,"workingSet":447.47}],
+ "source":"console progress only; complete raw sample set was not finalized",
+ "correction":"rebuild refuses active owned EXE; subsequent soak uses a private immutable artifact copy"
+}

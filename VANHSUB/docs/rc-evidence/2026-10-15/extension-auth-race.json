@@ -1,0 +1,10 @@
+{
+  "classification": "EXTENSION_SOURCE_IN_NODE_VM_NOT_INSTALLED_CHROME",
+  "beforeApplicationCommit": "b9efaab",
+  "observedFailure": "RPC dispatched immediately after AUTH_OK was ignored while asynchronous HMAC verification was pending",
+  "beforeHandledCommands": 0,
+  "expectedHandledCommands": 1,
+  "fixCommit": "a3082e3",
+  "after": "PASS: immediate command waits only for authentication; CANCEL_JOB executes while LONG_JOB is pending",
+  "suite": "tests/test_rc_extension_pairing.ts"
+}

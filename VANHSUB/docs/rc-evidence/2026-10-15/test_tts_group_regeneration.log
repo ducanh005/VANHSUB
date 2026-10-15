@@ -1,0 +1,74 @@
+[TTS] Engine: edge · giọng: vi-VN-HoaiMyNeural
+[TTS] Bắt đầu tạo audio từ 3 dòng phụ đề (2 nhóm câu, engine: edge, giọng: vi-VN-HoaiMyNeural)
+[TTS] Đang xử lý nhóm câu 1/2 (dòng 1-2, vi-VN-HoaiMyNeural): "Hello world...."
+[TTS] ✓ subtitle_0001.mp3: 440 ms / 2000 ms, tempo 0.22x
+[TTS] Đang xử lý nhóm câu 2/2 (dòng 3-3, vi-VN-HoaiMyNeural): "Last...."
+[TTS] ✓ subtitle_0003.mp3: 440 ms / 1000 ms, tempo 0.44x
+[TTS] Hoàn tất! Tạo 3 file audio
+[Dubbing] Ghép audio 3 dòng (2 nhóm câu, mode flexible)...
+[Dubbing] ✓ Audio merge successful: C:\Users\MTLS\AppData\Local\Temp\vanhsub-regenerate-SiO7dj\source_voice.mp3
+[TTS] Engine: edge · giọng: vi-VN-HoaiMyNeural
+[TTS] Bắt đầu tạo audio từ 3 dòng phụ đề (2 nhóm câu, engine: edge, giọng: vi-VN-HoaiMyNeural)
+[TTS] Đang xử lý nhóm câu 1/2 (dòng 1-2, vi-VN-HoaiMyNeural): "Hello world...."
+[TTS] ✓ subtitle_0001.mp3: 440 ms / 2000 ms, tempo 0.22x
+[TTS] Tái sử dụng 1/2 nhóm câu từ cache (không gọi lại server)
+[TTS] Hoàn tất! Tạo 3 file audio
+[Dubbing] Ghép audio 3 dòng (2 nhóm câu, mode flexible)...
+[Dubbing] ✓ Audio merge successful: C:\Users\MTLS\AppData\Local\Temp\vanhsub-regenerate-SiO7dj\source_voice_1.mp3
+[TTS] Bắt đầu tạo audio từ 3 dòng phụ đề (2 nhóm câu, engine: edge, giọng: vi-VN-HoaiMyNeural)
+[TTS] Đang xử lý nhóm câu 1/2 (dòng 1-2, vi-VN-HoaiMyNeural): "Hello world...."
+[TTS] ✓ subtitle_0001.mp3: 440 ms / 2000 ms, tempo 0.22x
+[TTS] Tái sử dụng 1/2 nhóm câu từ cache (không gọi lại server)
+[TTS] Hoàn tất! Tạo 3 file audio
+[Dubbing] Ghép audio 3 dòng (2 nhóm câu, mode strict)...
+[Dubbing] ✓ Audio merge successful: C:\Users\MTLS\AppData\Local\Temp\vanhsub-regenerate-SiO7dj\source_voice_2.mp3
+[TTS] Bắt đầu tạo audio từ 3 dòng phụ đề (2 nhóm câu, engine: edge, giọng: vi-VN-HoaiMyNeural)
+[TTS] Đang xử lý nhóm câu 1/2 (dòng 1-2, vi-VN-HoaiMyNeural): "Hello changed...."
+[TTS] ✓ subtitle_0001.mp3: 2510 ms / 2000 ms, tempo 1.25x
+[TTS] Tái sử dụng 1/2 nhóm câu từ cache (không gọi lại server)
+[TTS] Hoàn tất! Tạo 3 file audio
+[Dubbing] Ghép audio 3 dòng (2 nhóm câu, mode strict)...
+[Dubbing] Đã tăng tốc 1/3 câu để vừa timeline
+[Dubbing] ✓ Audio merge successful: C:\Users\MTLS\AppData\Local\Temp\vanhsub-regenerate-SiO7dj\source_voice_3.mp3
+[TTS] Bắt đầu tạo audio từ 3 dòng phụ đề (3 nhóm câu, engine: edge, giọng: vi-VN-HoaiMyNeural)
+[TTS] Đang xử lý nhóm câu 1/3 (dòng 1-1, vi-VN-HoaiMyNeural): "Hello..."
+[TTS] ✓ subtitle_0001.mp3: 440 ms / 1000 ms, tempo 0.44x
+[TTS] Đang xử lý nhóm câu 2/3 (dòng 2-2, vi-VN-NamMinhNeural): "changed...."
+[TTS] ✓ subtitle_0002.mp3: 440 ms / 1000 ms, tempo 0.44x
+[TTS] Tái sử dụng 1/3 nhóm câu từ cache (không gọi lại server)
+[TTS] Hoàn tất! Tạo 3 file audio
+[Dubbing] Ghép audio 3 dòng (3 nhóm câu, mode strict)...
+[Dubbing] ✓ Audio merge successful: C:\Users\MTLS\AppData\Local\Temp\vanhsub-regenerate-SiO7dj\source_voice_4.mp3
+[TTS] Bắt đầu tạo audio từ 3 dòng phụ đề (2 nhóm câu, engine: edge, giọng: vi-VN-HoaiMyNeural)
+[TTS] Đang xử lý nhóm câu 1/2 (dòng 1-2, vi-VN-HoaiMyNeural): "Hello changed...."
+[TTS] ✓ subtitle_0001.mp3: 2510 ms / 2000 ms, tempo 1.25x
+[TTS] Tái sử dụng 1/2 nhóm câu từ cache (không gọi lại server)
+[TTS] Hoàn tất! Tạo 3 file audio
+[Dubbing] Ghép audio 3 dòng (2 nhóm câu, mode strict)...
+[Dubbing] Đã tăng tốc 1/3 câu để vừa timeline
+[Dubbing] ✓ Audio merge successful: C:\Users\MTLS\AppData\Local\Temp\vanhsub-regenerate-SiO7dj\source_voice_5.mp3
+[TTS] Bắt đầu tạo audio từ 3 dòng phụ đề (2 nhóm câu, engine: edge, giọng: vi-VN-HoaiMyNeural)
+[TTS] Đang xử lý nhóm câu 1/2 (dòng 1-2, vi-VN-HoaiMyNeural): "Hello changed...."
+[TTS] ✓ subtitle_0001.mp3: 2510 ms / 2000 ms, tempo 1.25x
+[TTS] Tái sử dụng 1/2 nhóm câu từ cache (không gọi lại server)
+[TTS] Hoàn tất! Tạo 3 file audio
+[Dubbing] Ghép audio 3 dòng (2 nhóm câu, mode strict)...
+[Dubbing] Đã tăng tốc 1/3 câu để vừa timeline
+[Dubbing] ✓ Audio merge successful: C:\Users\MTLS\AppData\Local\Temp\vanhsub-regenerate-SiO7dj\source_voice_6.mp3
+[TTS] Bắt đầu tạo audio từ 3 dòng phụ đề (2 nhóm câu, engine: edge, giọng: vi-VN-HoaiMyNeural)
+[TTS] Đang xử lý nhóm câu 1/2 (dòng 1-2, vi-VN-HoaiMyNeural): "Hello Too long...."
+PASS: member regeneration, cache reuse, timing adaptation, voice split/rejoin, MP3 refresh and concurrent/failure guards
+[TTS] ✗ Lỗi tạo audio cho nhóm câu 1 (dòng 1-2): Error: TTS timing conflict: 10030 ms speech exceeds 2000 ms slot (needs 5.01x; limit 1.35x)
+    at adaptTtsDuration (D:\DEAN\DEAN\VANHSUB\temp\codex-rc-build-3122666765834fbfb9c4b68de492ae3d\main\render\ttsTiming.ts:61:11)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async generateTtsFromSrt (D:\DEAN\DEAN\VANHSUB\temp\codex-rc-build-3122666765834fbfb9c4b68de492ae3d\main\render\ttsEngine.ts:496:26)
+    at async regenerateTtsLine (D:\DEAN\DEAN\VANHSUB\temp\codex-rc-build-3122666765834fbfb9c4b68de492ae3d\main\render\ttsEngine.ts:418:3)
+    at async TTSRunner.regenerateLine (D:\DEAN\DEAN\VANHSUB\temp\codex-rc-build-3122666765834fbfb9c4b68de492ae3d\main\render\ttsRunner.ts:73:7)
+    at async main (D:\DEAN\DEAN\VANHSUB\temp\codex-rc-build-3122666765834fbfb9c4b68de492ae3d\tests\test_tts_group_regeneration.ts:94:20)
+Lỗi khi tạo lại audio dòng 2 task d48978a8-c617-437d-87aa-8078e11ef944: Error: TTS timing conflict: 10030 ms speech exceeds 2000 ms slot (needs 5.01x; limit 1.35x)
+    at adaptTtsDuration (D:\DEAN\DEAN\VANHSUB\temp\codex-rc-build-3122666765834fbfb9c4b68de492ae3d\main\render\ttsTiming.ts:61:11)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async generateTtsFromSrt (D:\DEAN\DEAN\VANHSUB\temp\codex-rc-build-3122666765834fbfb9c4b68de492ae3d\main\render\ttsEngine.ts:496:26)
+    at async regenerateTtsLine (D:\DEAN\DEAN\VANHSUB\temp\codex-rc-build-3122666765834fbfb9c4b68de492ae3d\main\render\ttsEngine.ts:418:3)
+    at async TTSRunner.regenerateLine (D:\DEAN\DEAN\VANHSUB\temp\codex-rc-build-3122666765834fbfb9c4b68de492ae3d\main\render\ttsRunner.ts:73:7)
+    at async main (D:\DEAN\DEAN\VANHSUB\temp\codex-rc-build-3122666765834fbfb9c4b68de492ae3d\tests\test_tts_group_regeneration.ts:94:20)

@@ -1,0 +1,12 @@
+{
+ "status":"NOT TESTED",
+ "generationCount":0,
+ "creditsFromThisAudit":0,
+ "dedicatedCdp9224":"TCP closed",
+ "bridge9222":"TCP closed before isolated test",
+ "bridge8765":"TCP closed before isolated test",
+ "packagedExtension":"1.0.8",
+ "tested":"source/VM tab ownership and I2V provenance regression; actual app WebSocket authentication/reconnect/revoke with a synthetic peer",
+ "notProven":"Chrome MV3 installed/loaded version, logged-in Flow provider generation, real download/correlation, live CDP reconnect",
+ "reason":"No dedicated authenticated Flow test session available; no personal tab opened or selected"
+}

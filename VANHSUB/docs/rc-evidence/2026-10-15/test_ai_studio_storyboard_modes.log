@@ -1,0 +1,9 @@
+[AiStudioStoryboardService] ✅ Storyboard tạo xong [FAST]: 4 scene, 4 shot (4 ảnh / 0 video, TB 0.5s/shot, ~1 phút, ~4 credits)
+[AiStudioStoryboardService] ✅ Storyboard tạo xong [BALANCED]: 4 scene, 4 shot (4 ảnh / 0 video, TB 0.5s/shot, ~1 phút, ~4 credits)
+[AiStudioStoryboardService] ✅ Storyboard tạo xong [DETAILED]: 4 scene, 4 shot (4 ảnh / 0 video, TB 0.5s/shot, ~1 phút, ~4 credits)
+[AiStudioStoryboardService] ✅ Storyboard tạo xong [BALANCED]: 1 scene, 1 shot (0 ảnh / 1 video, TB 14s/shot, ~1 phút, ~5 credits)
+[AiStudioStoryboardService] ✅ Storyboard tạo xong [DETAILED]: 1 scene, 4 shot (0 ảnh / 4 video, TB 3.5s/shot, ~4 phút, ~20 credits)
+PASS: single mode remains 1:1 at all granularities; multi mode decomposes; playback duration preserves narration
+[AiStudioStoryboardService] ⚠️ Phân cảnh đang quá vụn (trung bình 0.5s/shot < 2.5s). Khuyến nghị chuyển sang mức "Cân bằng" hoặc "Nhanh" để gộp các câu thoại liền kề, tối ưu thời gian sản xuất và tiết kiệm credit.
+[AiStudioStoryboardService] ⚠️ Phân cảnh đang quá vụn (trung bình 0.5s/shot < 2.5s). Khuyến nghị chuyển sang mức "Cân bằng" hoặc "Nhanh" để gộp các câu thoại liền kề, tối ưu thời gian sản xuất và tiết kiệm credit.
+[AiStudioStoryboardService] ⚠️ Phân cảnh đang quá vụn (trung bình 0.5s/shot < 2.5s). Khuyến nghị chuyển sang mức "Cân bằng" hoặc "Nhanh" để gộp các câu thoại liền kề, tối ưu thời gian sản xuất và tiết kiệm credit.

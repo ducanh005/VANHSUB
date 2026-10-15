@@ -1,0 +1,112 @@
+[TTS] Engine: viettts · giọng: alloy
+[TTS] Bắt đầu tạo audio từ 1 dòng phụ đề (1 nhóm câu, engine: viettts, giọng: alloy)
+[TTS] Đang xử lý nhóm câu 1/1 (dòng 1-1, alloy): "Xin chào...."
+VietTTS generation error: APIConnectionError: Connection error.
+    at OpenAI.makeRequest (D:\DEAN\DEAN\VANHSUB\node_modules\openai\src\client.ts:1007:13)
+    at async generateAudio (C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\main\render\ttsEngine.ts:273:22)
+    at async withRetry (C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\main\render\ttsEngine.ts:300:14)
+    at async synthesize (C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\main\render\ttsEngine.ts:507:35)
+    at async tryAudio (C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\main\render\ttsTiming.ts:38:24)
+    at async adaptTtsDuration (C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\main\render\ttsTiming.ts:44:14)
+    at async generateTtsFromSrt (C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\main\render\ttsEngine.ts:491:26)
+    at async TTSRunner.runTTS (C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\main\render\ttsRunner.ts:206:45)
+    at async main (C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\tests\test_rc_tts_cancel_retry.ts:38:23) {
+  status: undefined,
+  headers: undefined,
+  requestID: undefined,
+  error: undefined,
+  code: undefined,
+  param: undefined,
+  type: undefined,
+  cause: [TypeError: fetch failed] {
+    [cause]: SocketError: other side closed
+        at Socket.onHttpSocketEnd (node:internal/deps/undici/undici:7833:26)
+        at Socket.emit (node:events:521:24)
+        at endReadableNT (node:internal/streams/readable:1736:12)
+        at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {
+      code: 'UND_ERR_SOCKET',
+      socket: [Object]
+    }
+  }
+}
+[TTS] Lỗi (lần 1/3) — thử lại sau 1200ms
+VietTTS generation error: APIConnectionError: Connection error.
+    at OpenAI.makeRequest (D:\DEAN\DEAN\VANHSUB\node_modules\openai\src\client.ts:1007:13)
+    at async generateAudio (C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\main\render\ttsEngine.ts:273:22)
+    at async withRetry (C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\main\render\ttsEngine.ts:300:14)
+    at async synthesize (C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\main\render\ttsEngine.ts:507:35)
+    at async tryAudio (C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\main\render\ttsTiming.ts:38:24)
+    at async adaptTtsDuration (C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\main\render\ttsTiming.ts:44:14)
+    at async generateTtsFromSrt (C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\main\render\ttsEngine.ts:491:26)
+    at async TTSRunner.runTTS (C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\main\render\ttsRunner.ts:206:45)
+    at async main (C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\tests\test_rc_tts_cancel_retry.ts:38:23) {
+  status: undefined,
+  headers: undefined,
+  requestID: undefined,
+  error: undefined,
+  code: undefined,
+  param: undefined,
+  type: undefined,
+  cause: [TypeError: fetch failed] {
+    [cause]: SocketError: other side closed
+        at Socket.onHttpSocketEnd (node:internal/deps/undici/undici:7833:26)
+        at Socket.emit (node:events:521:24)
+        at endReadableNT (node:internal/streams/readable:1736:12)
+        at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {
+      code: 'UND_ERR_SOCKET',
+      socket: [Object]
+    }
+  }
+}
+[TTS] Lỗi (lần 2/3) — thử lại sau 2400ms
+VietTTS generation error: APIConnectionError: Connection error.
+    at OpenAI.makeRequest (D:\DEAN\DEAN\VANHSUB\node_modules\openai\src\client.ts:1007:13)
+    at async generateAudio (C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\main\render\ttsEngine.ts:273:22)
+    at async withRetry (C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\main\render\ttsEngine.ts:300:14)
+    at async synthesize (C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\main\render\ttsEngine.ts:507:35)
+    at async tryAudio (C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\main\render\ttsTiming.ts:38:24)
+    at async adaptTtsDuration (C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\main\render\ttsTiming.ts:44:14)
+    at async generateTtsFromSrt (C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\main\render\ttsEngine.ts:491:26)
+    at async TTSRunner.runTTS (C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\main\render\ttsRunner.ts:206:45)
+    at async main (C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\tests\test_rc_tts_cancel_retry.ts:38:23) {
+  status: undefined,
+  headers: undefined,
+  requestID: undefined,
+  error: undefined,
+  code: undefined,
+  param: undefined,
+  type: undefined,
+  cause: [TypeError: fetch failed] {
+    [cause]: SocketError: other side closed
+        at Socket.onHttpSocketEnd (node:internal/deps/undici/undici:7833:26)
+        at Socket.emit (node:events:521:24)
+        at endReadableNT (node:internal/streams/readable:1736:12)
+        at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {
+      code: 'UND_ERR_SOCKET',
+      socket: [Object]
+    }
+  }
+}
+[TTS] ✗ Lỗi tạo audio cho nhóm câu 1 (dòng 1-1): Error: Không thể tạo audio qua VietTTS: Error: Connection error.
+    at generateAudio (C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\main\render\ttsEngine.ts:283:11)
+    at async withRetry (C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\main\render\ttsEngine.ts:300:14)
+    at async synthesize (C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\main\render\ttsEngine.ts:507:35)
+    at async tryAudio (C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\main\render\ttsTiming.ts:38:24)
+    at async adaptTtsDuration (C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\main\render\ttsTiming.ts:44:14)
+    at async generateTtsFromSrt (C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\main\render\ttsEngine.ts:491:26)
+    at async TTSRunner.runTTS (C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\main\render\ttsRunner.ts:206:45)
+    at async main (C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\tests\test_rc_tts_cancel_retry.ts:38:23)
+Lỗi khi tạo lồng tiếng task 93213403-b45f-4336-a112-d6936073c683: Error: Không thể tạo audio qua VietTTS: Error: Connection error.
+    at generateAudio (C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\main\render\ttsEngine.ts:283:11)
+    at async withRetry (C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\main\render\ttsEngine.ts:300:14)
+    at async synthesize (C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\main\render\ttsEngine.ts:507:35)
+    at async tryAudio (C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\main\render\ttsTiming.ts:38:24)
+    at async adaptTtsDuration (C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\main\render\ttsTiming.ts:44:14)
+    at async generateTtsFromSrt (C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\main\render\ttsEngine.ts:491:26)
+    at async TTSRunner.runTTS (C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\main\render\ttsRunner.ts:206:45)
+    at async main (C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\tests\test_rc_tts_cancel_retry.ts:38:23)
+Expected values to be strictly equal:
++ actual - expected
+
++ 'error'
+- 'cancelled'

@@ -1,0 +1,47 @@
+{
+  "classification": "REAL_PACKAGED_APP_CLOSE_DURING_FFMPEG",
+  "profile": "C:\\Users\\MTLS\\AppData\\Local\\Temp\\vanhsub-rc-l3UPzv\\Hồ sơ RC kiểm thử",
+  "build": "D:\\DEAN\\DEAN\\VANHSUB\\temp\\codex-rc-build-3122666765834fbfb9c4b68de492ae3d",
+  "passes": [],
+  "errors": [
+    "FFmpeg survived ordinary application close"
+  ],
+  "appPid": 22264,
+  "observedWorkers": [
+    {
+      "ProcessId": 21192,
+      "ParentProcessId": 22264,
+      "Name": "ffmpeg.exe",
+      "CreationDate": "/Date(1792082430240)/"
+    }
+  ],
+  "taskAtClose": {
+    "id": "6ff2aafe-9561-4257-a03e-01ca5672a378",
+    "fileName": "Video mẫu có dấu.mp4",
+    "filePath": "C:\\Users\\MTLS\\AppData\\Local\\Temp\\vanhsub-rc-l3UPzv\\Hồ sơ RC kiểm thử\\Video mẫu có dấu.mp4",
+    "fileSize": "0 MB",
+    "duration": "00:00",
+    "workflow": "fast-transcribe",
+    "status": "exporting",
+    "progress": 3.8,
+    "stageDescription": "Đang xuất video Hardsub (3.8%)...",
+    "sourceLanguage": "vi",
+    "asrModel": "base",
+    "asrEngine": "faster-whisper",
+    "enableDiarization": false,
+    "projectDir": "C:\\Users\\MTLS\\AppData\\Local\\Temp\\vanhsub-rc-l3UPzv\\Hồ sơ RC kiểm thử",
+    "ttsVoice": "vi-VN-HoaiMyNeural",
+    "ttsSpeed": 1,
+    "ttsEngine": "edge",
+    "createdAt": "2026-10-15T16:40:29.088Z",
+    "updatedAt": "2026-10-15T16:40:32.398Z",
+    "srtPath": "C:\\Users\\MTLS\\AppData\\Local\\Temp\\vanhsub-rc-l3UPzv\\Hồ sơ RC kiểm thử\\Phụ đề đầu vào.srt",
+    "outputPath": "C:\\Users\\MTLS\\AppData\\Local\\Temp\\vanhsub-rc-l3UPzv\\Hồ sơ RC kiểm thử\\Bản xuất đã xong.mp4"
+  },
+  "closeMs": 29,
+  "orphanWorkers": [
+    21192
+  ],
+  "status": "FAIL",
+  "interruption": "SIGKILL of owned app main process"
+}

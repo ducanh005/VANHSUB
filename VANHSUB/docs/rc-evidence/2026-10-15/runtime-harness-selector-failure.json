@@ -1,0 +1,38 @@
+{
+  "classification": "WINDOWS_UNPACKED_UI_E2E_LOCAL_OFFLINE",
+  "generationCount": 0,
+  "profile": "C:\\Users\\MTLS\\AppData\\Local\\Temp\\vanhsub-ui-audit-QalU3l\\Hồ sơ nghiệm thu RC",
+  "build": "D:\\DEAN\\DEAN\\VANHSUB\\temp\\codex-rc-build-3122666765834fbfb9c4b68de492ae3d",
+  "passes": [
+    "Production renderer loaded and preload IPC returned isolated empty task store",
+    "Actual Windows startup migrated synthetic plaintext/headless settings, Studio LLM and Flow keys without losing values",
+    "Packaged extension1.0.8 and popup assets resolve from resources with Unicode working directory",
+    "Actual Chromium CSP blocked an injected inline script",
+    "Actual Electron IPC rejected an untrusted BrowserWindow using the same preload",
+    "Renderer IPC created a task, imported strict SRT and saved an AI Studio project",
+    "Actual Windows safeStorage persisted a synthetic secret without plaintext/headless fallback",
+    "Actual editor loaded 1000 subtitle lines through imported SRT",
+    "Paginated editor saved first/last-page edits while preserving off-page subtitles"
+  ],
+  "errors": [
+    "locator.click: Error: strict mode violation: getByRole('button', { name: /Kết Nối Chrome \\(Khuyên Dùng\\)/ }) resolved to 2 elements:\n    1) <button type=\"button\" title=\"Bấm để mở Google Chrome hoặc xem hướng dẫn nạp Extension 30s để tránh 100% lỗi reCAPTCHA.\" class=\"btn-secondary inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer border-border bg-surface-2 text-text hover:bg-surface-3\">…</button> aka getByRole('button', { name: 'Kết Nối Chrome (Khuyên Dùng)', exact: true })\n    2) <button type=\"button\" title=\"Bấm để mở Google Chrome hoặc xem hướng dẫn nạp Extension 30s để tránh 100% lỗi reCAPTCHA.\" class=\"flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-semibold transition cursor-pointer  border-blue-500/40 bg-blue-950/30 text-blue-400 hover:border-blue-500/70 hover:bg-blue-900/40 hover:text-blue-300\">…</button> aka getByRole('button', { name: '🌐 Kết Nối Chrome (Khuyên Dù' })\n\nCall log:\n\u001b[2m  - waiting for getByRole('button', { name: /Kết Nối Chrome \\(Khuyên Dùng\\)/ })\u001b[22m\n\n    at main (C:\\Users\\MTLS\\.codex\\worktrees\\e9b1\\DEAN\\VANHSUB\\scripts\\audit_runtime_electron.cjs:172:84)"
+  ],
+  "pageErrors": [],
+  "metrics": [],
+  "startupMs": 1430,
+  "electron": "43.5.0",
+  "testingCsp": false,
+  "expectedCspBlocks": [
+    "Executing inline script violates the following Content Security Policy directive 'script-src 'self' 'sha256-bGMaYPkEvll86iTKarla2Ur3UUEnwST6bMMqwAFr/sM=''. Either the 'unsafe-inline' keyword, a hash ('sha256-bbsCqdFH9KXWxa8HNv6YqMHgje4aVQiA58U5MK2hXHQ='), or a nonce ('nonce-...') is required to enab"
+  ],
+  "createdTaskId": "53ea6000-28e4-43fb-ac9b-4d34be83b658",
+  "largeProject": {
+    "subtitleLines": 1000,
+    "firstPageMs": 1150,
+    "editSaveAcrossPagesMs": 3301,
+    "mountedTextareas": 100,
+    "videoDurationSec": 1000
+  },
+  "status": "FAIL",
+  "elapsedMs": 11294
+}

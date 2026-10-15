@@ -1,0 +1,79 @@
+{
+  "classification": "REAL_PACKAGED_APP_CLOSE_DURING_FFMPEG",
+  "profile": "C:\\Users\\MTLS\\AppData\\Local\\Temp\\vanhsub-rc-AWWAFW\\Hồ sơ RC kiểm thử",
+  "build": "D:\\DEAN\\DEAN\\VANHSUB\\temp\\codex-rc-build-3122666765834fbfb9c4b68de492ae3d",
+  "passes": [
+    "SIGKILL of actual Electron main stopped the observed FFmpeg worker",
+    "Unicode profile/task/subtitle and completed output survived restart without phantom running state"
+  ],
+  "errors": [],
+  "appPid": 25000,
+  "launcherPid": 20728,
+  "observedWorkers": [
+    {
+      "ProcessId": 10516,
+      "ParentProcessId": 25000,
+      "Name": "ffmpeg.exe",
+      "CreationDate": "/Date(1792086567986)/"
+    }
+  ],
+  "taskAtClose": {
+    "id": "2504cae4-c000-490b-a0f5-b02f988930f9",
+    "fileName": "Video mẫu có dấu.mp4",
+    "filePath": "C:\\Users\\MTLS\\AppData\\Local\\Temp\\vanhsub-rc-AWWAFW\\Hồ sơ RC kiểm thử\\Video mẫu có dấu.mp4",
+    "fileSize": "0 MB",
+    "duration": "00:00",
+    "workflow": "fast-transcribe",
+    "status": "exporting",
+    "progress": 3.9,
+    "stageDescription": "Đang xuất video Hardsub (3.9%)...",
+    "sourceLanguage": "vi",
+    "asrModel": "base",
+    "asrEngine": "faster-whisper",
+    "enableDiarization": false,
+    "projectDir": "C:\\Users\\MTLS\\AppData\\Local\\Temp\\vanhsub-rc-AWWAFW\\Hồ sơ RC kiểm thử",
+    "ttsVoice": "vi-VN-HoaiMyNeural",
+    "ttsSpeed": 1,
+    "ttsEngine": "edge",
+    "createdAt": "2026-10-15T17:49:27.667Z",
+    "updatedAt": "2026-10-15T17:49:29.604Z",
+    "srtPath": "C:\\Users\\MTLS\\AppData\\Local\\Temp\\vanhsub-rc-AWWAFW\\Hồ sơ RC kiểm thử\\Phụ đề đầu vào.srt",
+    "outputPath": "C:\\Users\\MTLS\\AppData\\Local\\Temp\\vanhsub-rc-AWWAFW\\Hồ sơ RC kiểm thử\\Bản xuất đã xong.mp4"
+  },
+  "electronMetricsDuringRender": [
+    {
+      "pid": 25000,
+      "workingSetKiB": 189520,
+      "cpu": 0
+    },
+    {
+      "pid": 1844,
+      "workingSetKiB": 156064,
+      "cpu": 0
+    },
+    {
+      "pid": 18992,
+      "workingSetKiB": 56028,
+      "cpu": 0
+    },
+    {
+      "pid": 9336,
+      "workingSetKiB": 140080,
+      "cpu": 0
+    }
+  ],
+  "nativeRenderSample": {
+    "pid": 10516,
+    "sampleMs": 554.8215,
+    "workingSetKiB": 633884,
+    "privateKiB": 791404,
+    "handles": 267,
+    "cpuPercentOfMachine": 36.116359563413894,
+    "logicalProcessors": 16
+  },
+  "closeMs": 2180,
+  "orphanWorkers": [],
+  "recoveredStatus": "error",
+  "status": "PASS",
+  "interruption": "SIGKILL of owned app main process"
+}

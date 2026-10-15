@@ -1,0 +1,317 @@
+[
+  {
+    "suite": "tests/test_media_validator_ffmpeg_decoding.ts",
+    "status": "PASS",
+    "exitCode": 0,
+    "elapsedMs": 696,
+    "classification": "OFFLINE_UNIT_OR_INTEGRATION"
+  },
+  {
+    "suite": "tests/test_video_processor_concat.ts",
+    "status": "PASS",
+    "exitCode": 0,
+    "elapsedMs": 1883,
+    "classification": "OFFLINE_UNIT_OR_INTEGRATION"
+  },
+  {
+    "suite": "tests/test_timeline_export_duration_guard.ts",
+    "status": "PASS",
+    "exitCode": 0,
+    "elapsedMs": 2100,
+    "classification": "OFFLINE_UNIT_OR_INTEGRATION"
+  },
+  {
+    "suite": "tests/test_project_media_isolation_regression.ts",
+    "status": "PASS",
+    "exitCode": 0,
+    "elapsedMs": 1763,
+    "classification": "OFFLINE_UNIT_OR_INTEGRATION"
+  },
+  {
+    "suite": "tests/test_tts_timing_adaptation.ts",
+    "status": "PASS",
+    "exitCode": 0,
+    "elapsedMs": 186,
+    "classification": "OFFLINE_UNIT_OR_INTEGRATION"
+  },
+  {
+    "suite": "tests/test_flow_project_isolation.ts",
+    "status": "PASS",
+    "exitCode": 0,
+    "elapsedMs": 943,
+    "classification": "OFFLINE_UNIT_OR_INTEGRATION"
+  },
+  {
+    "suite": "tests/test_full_audit_flow_tabs.ts",
+    "status": "PASS",
+    "exitCode": 0,
+    "elapsedMs": 195,
+    "classification": "OFFLINE_UNIT_OR_INTEGRATION"
+  },
+  {
+    "suite": "tests/test_srt_ocr_normalizer_and_translation.ts",
+    "status": "PASS",
+    "exitCode": 0,
+    "elapsedMs": 6693,
+    "classification": "OFFLINE_UNIT_OR_INTEGRATION"
+  },
+  {
+    "suite": "tests/test_full_audit_security.ts",
+    "status": "PASS",
+    "exitCode": 0,
+    "elapsedMs": 246,
+    "classification": "OFFLINE_UNIT_OR_INTEGRATION"
+  },
+  {
+    "suite": "tests/test_full_audit_data_integrity.ts",
+    "status": "PASS",
+    "exitCode": 0,
+    "elapsedMs": 996,
+    "classification": "OFFLINE_UNIT_OR_INTEGRATION"
+  },
+  {
+    "suite": "tests/test_ai_studio_script_evaluation.ts",
+    "status": "PASS",
+    "exitCode": 0,
+    "elapsedMs": 436,
+    "classification": "OFFLINE_UNIT_OR_INTEGRATION"
+  },
+  {
+    "suite": "tests/test_ai_studio_script_refinement.ts",
+    "status": "PASS",
+    "exitCode": 0,
+    "elapsedMs": 386,
+    "classification": "OFFLINE_UNIT_OR_INTEGRATION"
+  },
+  {
+    "suite": "tests/test_full_audit_script_artifacts.ts",
+    "status": "PASS",
+    "exitCode": 0,
+    "elapsedMs": 331,
+    "classification": "OFFLINE_UNIT_OR_INTEGRATION"
+  },
+  {
+    "suite": "tests/test_ai_studio_session_isolation.ts",
+    "status": "PASS",
+    "exitCode": 0,
+    "elapsedMs": 1703,
+    "classification": "OFFLINE_UNIT_OR_INTEGRATION"
+  },
+  {
+    "suite": "tests/test_ai_studio_session_config.ts",
+    "status": "PASS",
+    "exitCode": 0,
+    "elapsedMs": 5990,
+    "classification": "OFFLINE_UNIT_OR_INTEGRATION"
+  },
+  {
+    "suite": "tests/test_ai_studio_session_operations.ts",
+    "status": "PASS",
+    "exitCode": 0,
+    "elapsedMs": 1799,
+    "classification": "OFFLINE_UNIT_OR_INTEGRATION"
+  },
+  {
+    "suite": "tests/test_ai_studio_script_invalidation.ts",
+    "status": "PASS",
+    "exitCode": 0,
+    "elapsedMs": 1402,
+    "classification": "OFFLINE_UNIT_OR_INTEGRATION"
+  },
+  {
+    "suite": "tests/test_ai_studio_channel_settings.ts",
+    "status": "PASS",
+    "exitCode": 0,
+    "elapsedMs": 522,
+    "classification": "OFFLINE_UNIT_OR_INTEGRATION"
+  },
+  {
+    "suite": "tests/test_ai_studio_render_timeline.ts",
+    "status": "PASS",
+    "exitCode": 0,
+    "elapsedMs": 3228,
+    "classification": "OFFLINE_UNIT_OR_INTEGRATION"
+  },
+  {
+    "suite": "tests/test_ai_studio_bgm_audio.ts",
+    "status": "PASS",
+    "exitCode": 0,
+    "elapsedMs": 2355,
+    "classification": "OFFLINE_UNIT_OR_INTEGRATION"
+  },
+  {
+    "suite": "tests/test_ai_studio_tts_alignment.ts",
+    "status": "PASS",
+    "exitCode": 0,
+    "elapsedMs": 591,
+    "classification": "OFFLINE_UNIT_OR_INTEGRATION"
+  },
+  {
+    "suite": "tests/test_ai_studio_visual_directions.ts",
+    "status": "PASS",
+    "exitCode": 0,
+    "elapsedMs": 546,
+    "classification": "OFFLINE_UNIT_OR_INTEGRATION"
+  },
+  {
+    "suite": "tests/test_ai_studio_storyboard_modes.ts",
+    "status": "PASS",
+    "exitCode": 0,
+    "elapsedMs": 547,
+    "classification": "OFFLINE_UNIT_OR_INTEGRATION"
+  },
+  {
+    "suite": "tests/test_ai_studio_media_import.ts",
+    "status": "PASS",
+    "exitCode": 0,
+    "elapsedMs": 1847,
+    "classification": "OFFLINE_UNIT_OR_INTEGRATION"
+  },
+  {
+    "suite": "tests/test_ai_studio_visual_jobs.ts",
+    "status": "PASS",
+    "exitCode": 0,
+    "elapsedMs": 1519,
+    "classification": "OFFLINE_UNIT_OR_INTEGRATION"
+  },
+  {
+    "suite": "tests/test_standard_project_directory_isolation.ts",
+    "status": "PASS",
+    "exitCode": 0,
+    "elapsedMs": 672,
+    "classification": "OFFLINE_UNIT_OR_INTEGRATION"
+  },
+  {
+    "suite": "tests/test_legacy_project_collision_guard.ts",
+    "status": "PASS",
+    "exitCode": 0,
+    "elapsedMs": 513,
+    "classification": "OFFLINE_UNIT_OR_INTEGRATION"
+  },
+  {
+    "suite": "tests/test_subtitle_artifact_invalidation.ts",
+    "status": "PASS",
+    "exitCode": 0,
+    "elapsedMs": 901,
+    "classification": "OFFLINE_UNIT_OR_INTEGRATION"
+  },
+  {
+    "suite": "tests/test_task_configuration_defaults.ts",
+    "status": "PASS",
+    "exitCode": 0,
+    "elapsedMs": 531,
+    "classification": "OFFLINE_UNIT_OR_INTEGRATION"
+  },
+  {
+    "suite": "tests/test_task_operation_exclusion.ts",
+    "status": "PASS",
+    "exitCode": 0,
+    "elapsedMs": 552,
+    "classification": "OFFLINE_UNIT_OR_INTEGRATION"
+  },
+  {
+    "suite": "tests/test_shared_dubbing_preferences.ts",
+    "status": "PASS",
+    "exitCode": 0,
+    "elapsedMs": 427,
+    "classification": "OFFLINE_UNIT_OR_INTEGRATION"
+  },
+  {
+    "suite": "tests/test_tts_group_regeneration.ts",
+    "status": "PASS",
+    "exitCode": 0,
+    "elapsedMs": 7240,
+    "classification": "OFFLINE_UNIT_OR_INTEGRATION"
+  },
+  {
+    "suite": "tests/test_dubbed_subtitle_export.ts",
+    "status": "PASS",
+    "exitCode": 0,
+    "elapsedMs": 4037,
+    "classification": "OFFLINE_UNIT_OR_INTEGRATION"
+  },
+  {
+    "suite": "tests/test_export_resolution_and_silent_softsub.ts",
+    "status": "PASS",
+    "exitCode": 0,
+    "elapsedMs": 1747,
+    "classification": "OFFLINE_UNIT_OR_INTEGRATION"
+  },
+  {
+    "suite": "tests/test_video_stretch_timeline_sync.ts",
+    "status": "PASS",
+    "exitCode": 0,
+    "elapsedMs": 7376,
+    "classification": "OFFLINE_UNIT_OR_INTEGRATION"
+  },
+  {
+    "suite": "tests/test_chatgpt_script_collector.ts",
+    "status": "PASS",
+    "exitCode": 0,
+    "elapsedMs": 5638,
+    "classification": "OFFLINE_UNIT_OR_INTEGRATION"
+  },
+  {
+    "suite": "tests/test_integration_security_storage.ts",
+    "status": "PASS",
+    "exitCode": 0,
+    "elapsedMs": 483,
+    "classification": "OFFLINE_UNIT_OR_INTEGRATION"
+  },
+  {
+    "suite": "tests/test_integration_http_dependency.ts",
+    "status": "PASS",
+    "exitCode": 0,
+    "elapsedMs": 614,
+    "classification": "OFFLINE_UNIT_OR_INTEGRATION"
+  },
+  {
+    "suite": "tests/test_rc_bridge_pairing.ts",
+    "status": "PASS",
+    "exitCode": 0,
+    "elapsedMs": 648,
+    "classification": "OFFLINE_UNIT_OR_INTEGRATION"
+  },
+  {
+    "suite": "tests/test_rc_extension_pairing.ts",
+    "status": "PASS",
+    "exitCode": 0,
+    "elapsedMs": 736,
+    "classification": "OFFLINE_UNIT_OR_INTEGRATION"
+  },
+  {
+    "suite": "tests/test_rc_legacy_secrets.ts",
+    "status": "PASS",
+    "exitCode": 0,
+    "elapsedMs": 468,
+    "classification": "OFFLINE_UNIT_OR_INTEGRATION"
+  },
+  {
+    "suite": "tests/test_rc_ipc_payload.ts",
+    "status": "PASS",
+    "exitCode": 0,
+    "elapsedMs": 489,
+    "classification": "OFFLINE_UNIT_OR_INTEGRATION"
+  },
+  {
+    "suite": "tests/test_rc_media_capabilities.ts",
+    "status": "PASS",
+    "exitCode": 0,
+    "elapsedMs": 474,
+    "classification": "OFFLINE_UNIT_OR_INTEGRATION"
+  },
+  {
+    "suite": "tests/test_rc_tts_cancel_retry.ts",
+    "status": "PASS",
+    "exitCode": 0,
+    "elapsedMs": 1854,
+    "classification": "OFFLINE_UNIT_OR_INTEGRATION"
+  },
+  {
+    "suite": "tests/test_ui_fallback_timeout_decoupling.ts",
+    "status": "PASS",
+    "exitCode": 0,
+    "elapsedMs": 883,
+    "classification": "OFFLINE_UNIT_OR_INTEGRATION"
+  }
+]

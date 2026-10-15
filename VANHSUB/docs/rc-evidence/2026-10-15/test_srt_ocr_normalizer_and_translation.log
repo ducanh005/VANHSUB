@@ -1,0 +1,68 @@
+╔══════════════════════════════════════════════════════════════════════════╗
+║   VANHSUB SRT OCR NORMALIZER & TRANSLATION PIPELINE TEST SUITE (R1-R3)   ║
+╚══════════════════════════════════════════════════════════════════════════╝
+
+--- Section 1: R1 - SRT OCR Normalizer Defect Correction ---
+  ✅ [PASS] 1.1. Exact duplicates in adjacent lines (gap <= 1200ms) are merged into single timeline
+  ✅ [PASS] 1.2. Exact duplicates with gap > 1200ms are preserved as independent events
+  ✅ [PASS] 1.3. Progressive karaoke / text expansion frames are collapsed into single full sentence
+  ✅ [PASS] 1.4. Broken sentence fragments without terminal punctuation are merged cleanly
+  ✅ [PASS] 1.5. Hyphenated word wrap breaks are cleanly repaired during fragment merge
+  ✅ [PASS] 1.6. Merged sentence duration is adjusted according to reading speed (CPS)
+  ✅ [PASS] 1.7. Inverted timestamps (startMs >= endMs) are automatically corrected
+  ✅ [PASS] 1.8. Ultra-short display duration (< 200ms) is extended to satisfy readability
+  ✅ [PASS] 1.9. Overlapping timestamps between consecutive lines are strictly resolved
+  ✅ [PASS] 1.10. OCR garbage lines (glyphs, single noise characters) are safely removed
+  ✅ [PASS] 1.11. 100% Monotonic Strict Timeline Invariant verified on complex messy dataset
+  ✅ [PASS] 1.12. Missing or zero endMs does NOT collapse startMs to 00:00:00
+  ✅ [PASS] 1.13. Optical bogus endMs with startMs - endMs > maxDurationMs preserves startMs
+  ✅ [PASS] 1.14. Single CJK dialogue characters (Hanzi, Kana) are preserved and not dropped as garbage
+  ✅ [PASS] 1.15. Dialogue dash ("- ") is recognized as speaker turn, not merged as sentence fragment
+  ✅ [PASS] 1.16. Sentence fragment continuation starting with quotes or brackets is merged cleanly
+  ✅ [PASS] 1.17. Sentence fragment ending with preposition/connector before proper noun is merged cleanly
+  ✅ [PASS] 1.18. Ellipsis suspension (...) trailing off into lowercase continuation is merged cleanly
+  ✅ [PASS] 1.19. Step 6 resolves short CJK containment without truncation or overlapping
+  ✅ [PASS] 1.20. Multi-fragment chaining (3+ lines) merges completely even when CPS extends prior endMs
+  ✅ [PASS] 1.21. Broken sentence fragment ending with abbreviation (Dr., TP., Mr.) merges with following proper noun
+  ✅ [PASS] 1.22. Quoted terminal punctuation (!", ?") preserves sentence boundary and avoids false merge
+  ✅ [PASS] 1.23. Step 6 resolves progressive overlap when earlier line contains trailing punctuation
+  ✅ [PASS] 1.24. Fragment chaining respects maxDurationMs (7000ms limit)
+
+--- Section 2: R2 - High-Precision Audio Alignment ---
+  ✅ [PASS] 2.1. OCR line with timeline drift is accurately aligned to Whisper speech timestamps
+  ✅ [PASS] 2.2. Visual banners/graphics without speech preserve original OCR timestamps
+  ✅ [PASS] 2.3. End-to-end normalizeSrtLines with audioSegments satisfies all integrity constraints
+  ✅ [PASS] 2.4. Multiple OCR speech lines matching single Whisper segment are partitioned within speech bounds
+  ✅ [PASS] 2.5. Audio alignment with punctuation in OCR lines correctly matches Whisper tokens
+  ✅ [PASS] 2.6. Audio alignment with CJK Chinese/Japanese text accurately matches Whisper speech
+  ✅ [PASS] 2.7. Interleaved unvoiced banners between multi-line OCR matches partition speech without collision
+
+--- Section 3: R3 - Context-Preserving Translation via Gemini API ---
+  ✅ [PASS] 3.1. System prompts contain sliding window context rules and strict 1-1 mapping
+  ✅ [PASS] 3.2. Mocked Gemini API translates 100% lines with sliding window context and 1-1 ID mapping
+  ✅ [PASS] 3.3. Escalated retry + single-line fallback guarantees 0% drop rate when model omits lines
+  ✅ [PASS] 3.4. Batch checkpointing saves progress to disk and supports resumption
+  ✅ [PASS] 3.5. Single-line fallback successfully uses customClient when all batch retries omit a line
+
+--- Section 4: File Round-Trip and Full Pipeline Integration ---
+  ✅ [PASS] 4.1. normalizeSrtFile normalizes an SRT file on disk with full report
+  ✅ [PASS] 4.2. Empty array and single line edge cases handled safely
+
+================================================================================
+📊 TEST SUITE SUMMARY: 38/38 TESTS PASSED (100% TARGET)
+🎉 ALL TESTS PASSED SUCCESSFULLY! ZERO REGRESSIONS DETECTED.
+================================================================================
+
+[Translate] Batch 1 lỗi hoặc thiếu dòng (lần 1/3):
+Batch phản hồi thiếu hoặc chưa dịch 1/3 dòng (line-1):
+  • SRT #2 [line-1] "Câu số 1 ở giữa": mô hình bỏ sót trong phản hồi (không có ID dòng)
+  — Tự động retry với prompt dự phòng sau 1500ms...
+[Translate] Batch 1 lỗi hoặc thiếu dòng (lần 1/3):
+Batch phản hồi thiếu hoặc chưa dịch 1/2 dòng (line-1):
+  • SRT #2 [line-1] "Dòng thứ hai bị bỏ rơi": mô hình bỏ sót trong phản hồi (không có ID dòng)
+  — Tự động retry với prompt dự phòng sau 1500ms...
+[Translate] Batch 1 lỗi hoặc thiếu dòng (lần 2/3):
+Batch phản hồi thiếu hoặc chưa dịch 1/2 dòng (line-1):
+  • SRT #2 [line-1] "Dòng thứ hai bị bỏ rơi": mô hình bỏ sót trong phản hồi (không có ID dòng)
+  — Tự động retry với prompt dự phòng sau 3000ms...
+[Translate] Kích hoạt cơ chế cứu hộ đơn lẻ (single-line fallback) cho 1 dòng bị bỏ sót...

@@ -1,0 +1,4 @@
+PASS: subtitle save/import invalidation, unchanged-content preservation, busy/invalid-input guards and audio cache retention
+Lỗi khi dubbing task 31248c6d-6311-4d84-90e9-ee2b718f5469: Error: Phụ đề đã thay đổi. Hãy tạo lại audio trước khi ghép lồng tiếng.
+    at DubbingRunner.runDubbing (D:\DEAN\DEAN\VANHSUB\temp\codex-rc-build-3122666765834fbfb9c4b68de492ae3d\main\render\dubbingRunner.ts:98:44)
+    at main (D:\DEAN\DEAN\VANHSUB\temp\codex-rc-build-3122666765834fbfb9c4b68de492ae3d\tests\test_subtitle_artifact_invalidation.ts:40:41)

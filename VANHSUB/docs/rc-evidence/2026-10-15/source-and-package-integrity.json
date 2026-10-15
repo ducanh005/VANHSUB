@@ -1,0 +1,26 @@
+{
+  "applicationFiles": 260,
+  "differences": [],
+  "excludedBuildOnlyPackages": {
+    "nodejs-whisper": true,
+    "braces": true,
+    "micromatch": true,
+    "fast-glob": true,
+    "shelljs": true,
+    "next": true,
+    "sharp": true
+  },
+  "packagedExtension": {
+    "background.js": true,
+    "content.js": true,
+    "injected.js": true,
+    "manifest.json": true,
+    "pairing.css": true,
+    "pairing.html": true,
+    "pairing.js": true,
+    "README.md": true
+  },
+  "prototypeGuardianExcluded": true,
+  "asarSha256": "03795210f55a1e3d7216970909b4640716026ad3bf5168349423f91fec439c27",
+  "checkedAt": "2026-10-15T17:50:41.387Z"
+}

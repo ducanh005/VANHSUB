@@ -1,0 +1,19 @@
+{
+  "branch": "codex/integration-stabilization-20261015",
+  "applicationCommit": "a3082e3",
+  "instructionsCommit": "5183bca",
+  "originMain": "899088f075891412f247e51f9433a29d4ab4223f",
+  "localMain": "df9d768251f9496f345090470cbfc81018f262fb",
+  "auditBranch": "f164e0fa18096bdb27c06272b838e1b889506369",
+  "originMainIsAncestor": true,
+  "newOriginMainCommitsSinceIntegration": 0,
+  "resetForcePushOrMainMerge": false,
+  "originalCheckoutTrackedChanges": [],
+  "originalUntrackedFilesPreserved": true,
+  "acceptanceHarnessCommit": "a3ebe7b",
+  "checkedAt": "2026-10-15T17:48:29.270155+00:00",
+  "acceptanceHarnessCommits": [
+    "a3ebe7b",
+    "ce6275e"
+  ]
+}

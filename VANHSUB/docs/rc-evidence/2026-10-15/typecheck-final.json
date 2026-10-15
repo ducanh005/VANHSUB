@@ -1,0 +1,15 @@
+{
+  "classification": "STATIC_FINAL_SOURCE",
+  "main": {
+    "exitCode": 0,
+    "command": "tsc --noEmit --incremental false"
+  },
+  "renderer": {
+    "exitCode": 0,
+    "command": "tsc --noEmit --incremental false -p renderer/tsconfig.json"
+  },
+  "applicationCommit": "b9efaab",
+  "instructionsCommit": "5183bca",
+  "dependencies": "own clean RC snapshot npm ci",
+  "scope": "Standalone main/renderer TypeScript unchanged after b9efaab; final full production build through a3082e3 also passes types. Extension JS verified by source/VM suite and package hash."
+}

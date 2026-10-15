@@ -1,0 +1,138 @@
+{
+  "runtime-security-editor180": {
+    "startupMs": 1417,
+    "largeProject": {
+      "subtitleLines": 1000,
+      "firstPageMs": 1152,
+      "editSaveAcrossPagesMs": 3089,
+      "mountedTextareas": 100,
+      "videoDurationSec": 1000
+    },
+    "sampleCount": 36,
+    "intervalSec": 5,
+    "firstWorkingSetMiB": 922.11,
+    "lastWorkingSetMiB": 651.26,
+    "maxSampledWorkingSetMiB": 922.11,
+    "maxSampledSumCPU": 1.06
+  },
+  "runtime-packaged": {
+    "startupMs": 1231,
+    "largeProject": {
+      "subtitleLines": 1000,
+      "firstPageMs": 921,
+      "editSaveAcrossPagesMs": 2662,
+      "mountedTextareas": 100,
+      "videoDurationSec": 1000
+    },
+    "sampleCount": 6,
+    "intervalSec": 5,
+    "firstWorkingSetMiB": 916,
+    "lastWorkingSetMiB": 680.14,
+    "maxSampledWorkingSetMiB": 916,
+    "maxSampledSumCPU": 1.13
+  },
+  "jobs": [
+    {
+      "label": "before repeated TTS",
+      "processCount": 4,
+      "workingSetMiB": 500.72,
+      "appQuitListeners": 0,
+      "ipcEvents": 3,
+      "kernel": {
+        "Id": 19760,
+        "HandleCount": 985,
+        "Threads": 52
+      },
+      "activeResources": {
+        "PipeWrap": 11,
+        "ProcessWrap": 3,
+        "Timeout": 1
+      }
+    },
+    {
+      "label": "after5 TTS jobs",
+      "processCount": 4,
+      "workingSetMiB": 549.26,
+      "appQuitListeners": 0,
+      "ipcEvents": 3,
+      "kernel": {
+        "Id": 19760,
+        "HandleCount": 975,
+        "Threads": 52
+      },
+      "activeResources": {
+        "PipeWrap": 26,
+        "ProcessWrap": 8
+      }
+    },
+    {
+      "label": "after network faults",
+      "processCount": 4,
+      "workingSetMiB": 539.77,
+      "appQuitListeners": 0,
+      "ipcEvents": 3,
+      "kernel": {
+        "Id": 13984,
+        "HandleCount": 981,
+        "Threads": 54
+      },
+      "activeResources": {
+        "PipeWrap": 2
+      }
+    },
+    {
+      "label": "after successful export",
+      "processCount": 4,
+      "workingSetMiB": 544.37,
+      "appQuitListeners": 0,
+      "ipcEvents": 3,
+      "kernel": {
+        "Id": 13984,
+        "HandleCount": 981,
+        "Threads": 54
+      },
+      "activeResources": {
+        "PipeWrap": 2
+      }
+    }
+  ],
+  "idleSoak": {
+    "source": "fixed artifact copy through0052135, bridge disabled; before protocol2-only auth changes",
+    "status": "PASS_WITH_LIMITS",
+    "samples": 121,
+    "measuredMs": 602577,
+    "firstWorkingSetMiB": 487.72,
+    "lastWorkingSetMiB": 448.45,
+    "minWorkingSetMiB": 447.3,
+    "maxWorkingSetMiB": 487.72,
+    "maxSampledSumCPU": 0.16,
+    "processCounts": [
+      4
+    ],
+    "ipcEventCounts": [
+      3
+    ],
+    "beforeQuitListenerCounts": [
+      0
+    ],
+    "handlesBefore": {
+      "Id": 4992,
+      "HandleCount": 979,
+      "Threads": 53
+    },
+    "handlesAfter": {
+      "Id": 4992,
+      "HandleCount": 960,
+      "Threads": 48
+    }
+  },
+  "render": {
+    "pid": 10516,
+    "sampleMs": 554.8215,
+    "workingSetKiB": 633884,
+    "privateKiB": 791404,
+    "handles": 267,
+    "cpuPercentOfMachine": 36.116359563413894,
+    "logicalProcessors": 16
+  }
+}

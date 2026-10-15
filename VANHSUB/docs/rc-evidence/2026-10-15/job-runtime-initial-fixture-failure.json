@@ -1,0 +1,14 @@
+{
+  "classification": "REAL_PACKAGED_LOCAL_ASR_AND_SYNTHETIC_HTTP_PROVIDER_FAULTS",
+  "generationCount": 0,
+  "liveProviderPass": false,
+  "profile": "C:\\Users\\MTLS\\AppData\\Local\\Temp\\vanhsub-rc-jobs-nKUeqb\\Dự án và hồ sơ có dấu",
+  "passes": [
+    "Actual packaged Whisper starts without JS wrapper; close/restart keeps prior SRT and leaves no observed native child"
+  ],
+  "samples": [],
+  "status": "FAIL",
+  "error": "TTS close lost completed audio pointer",
+  "speechRequests": 1,
+  "translationRequests": 0
+}

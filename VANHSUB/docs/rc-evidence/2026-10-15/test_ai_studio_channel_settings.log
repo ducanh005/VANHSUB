@@ -1,0 +1,6 @@
+PASS: persistent channel edits, switch/restart, stale checkpoint profile protection, settings draft preservation and failed save rollback
+[useAiStudioStore.updateConfig] Lỗi: Error: simulated save failure
+    at globalThis.window.vanhsub.aiStudio.updateConfig (D:\DEAN\DEAN\VANHSUB\temp\codex-rc-build-3122666765834fbfb9c4b68de492ae3d\tests\test_ai_studio_channel_settings.ts:50:84)
+    at Object.updateConfig (D:\DEAN\DEAN\VANHSUB\temp\codex-rc-build-3122666765834fbfb9c4b68de492ae3d\renderer\lib\store\aiStudioStore.ts:263:33)
+    at Object.updateChannelProfileConfig (D:\DEAN\DEAN\VANHSUB\temp\codex-rc-build-3122666765834fbfb9c4b68de492ae3d\renderer\lib\store\aiStudioStore.ts:370:18)
+    at main (D:\DEAN\DEAN\VANHSUB\temp\codex-rc-build-3122666765834fbfb9c4b68de492ae3d\tests\test_ai_studio_channel_settings.ts:51:32)

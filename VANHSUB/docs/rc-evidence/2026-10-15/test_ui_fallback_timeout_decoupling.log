@@ -1,0 +1,48 @@
+
+[1m[36m======================================================================[0m
+[1m[36m  TEST SUITE: UI Fallback Timeout Decoupling & AbortSignal (M2)[0m
+[1m[36m======================================================================[0m
+
+[1mSuite 1: Staged Timeout Calculations & Boundary Clamping[0m
+  [32m✔[0m 1.1 Should calculate default image timeouts correctly (6s submission, 40s processing)
+  [32m✔[0m 1.2 Should clamp custom image timeout exceeding 50s hard cap down to 50s
+  [32m✔[0m 1.3 Should preserve custom image timeout within safe bounds (<50s)
+  [32m✔[0m 1.4 Should calculate default video timeouts correctly (6s submission, 120s processing)
+  [32m✔[0m 1.5 Should clamp custom video timeout exceeding 135s hard cap down to 135s
+  [32m✔[0m 1.6 Should accept custom submission timeout override
+
+[1mSuite 2: Response Normalization & Error Code Mapping[0m
+  [32m✔[0m 2.1 Should normalize successful DOM fallback image extraction to COMPLETED
+  [32m✔[0m 2.2 Should normalize TIMEOUT_SUBMITTING to state TIMED_OUT and errorCode TIMEOUT_SUBMITTING
+  [32m✔[0m 2.3 Should normalize legacy TIMEOUT_WAITING_RPC to state TIMED_OUT and errorCode TIMEOUT_PROCESSING
+  [32m✔[0m 2.4 Should normalize PUBLIC_ERROR_UNUSUAL_ACTIVITY to state BLOCKED_REQUIRES_USER
+  [32m✔[0m 2.5 Should normalize RATE_LIMITED error to state FAILED and errorCode RATE_LIMITED
+  [32m✔[0m 2.6 Should handle null/undefined payload gracefully without throwing
+
+[1mSuite 3: Bi-Directional AbortSignal & Cancellation[0m
+  [32m✔[0m 3.1 Pre-aborted signal returns immediately without network roundtrip
+[FlowBridgeServer] 🔌 Chrome Extension đã ngắt kết nối.
+  [32m✔[0m 3.2 Mid-flight abort emits cancel_ui_gen over WebSocket and resolves cleanly
+[FlowBridgeServer] 🔌 Chrome Extension đã ngắt kết nối.
+  [32m✔[0m 3.3 Standalone cancelUiGen method emits cancellation WebSocket frame
+
+[1mSuite 4: End-to-End WebSocket Bridge Communication & Timing[0m
+[FlowBridgeServer] 📥 triggerUiGen hoàn tất: ok=true, state=COMPLETED, error=none
+[FlowBridgeServer] 🔌 Chrome Extension đã ngắt kết nối.
+  [32m✔[0m 4.1 Staged timeout parameters are passed correctly to Extension in params
+[FlowBridgeServer] 📥 triggerUiGen hoàn tất: ok=true, state=COMPLETED, error=none
+[FlowBridgeServer] 🔌 Chrome Extension đã ngắt kết nối.
+  [32m✔[0m 4.2 Legacy positional arguments (prompt, timeoutMs, projectId, mode, signal) are normalized
+
+[1mSuite 5: Injected Network Sniffer Multi-Channel & Early Warning Signals[0m
+  [32m✔[0m 5.1 Injected.js sniffer data structures and sensitive header sanitization
+
+[1m======================================================================[0m
+  [1mRESULTS: Passed: 18 | Failed: 0[0m
+[1m======================================================================[0m
+
+[FlowBridgeServer] ⚠️ triggerUiGen fallback được kích hoạt (mode=image, submitTimeout=6s, procTimeout=40s, guardTimeout=49s).
+[FlowBridgeServer] ⚠️ triggerUiGen fallback được kích hoạt (mode=image, submitTimeout=6s, procTimeout=40s, guardTimeout=49s).
+[FlowBridgeServer] 🛑 triggerUiGen nhận tín hiệu huỷ (id=51d927d2-c61c-4b59-82d1-f0480cff864e, reason="User pressed stop button"). Gửi cancel_ui_gen sang Extension...
+[FlowBridgeServer] ⚠️ triggerUiGen fallback được kích hoạt (mode=image, submitTimeout=5s, procTimeout=45s, guardTimeout=53s).
+[FlowBridgeServer] ⚠️ triggerUiGen fallback được kích hoạt (mode=video, submitTimeout=6s, procTimeout=120s, guardTimeout=129s).

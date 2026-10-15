@@ -1,0 +1,10 @@
+[
+  {
+    "phase": "clean-install",
+    "exitCode": 0
+  },
+  {
+    "phase": "production-build",
+    "exitCode": 0
+  }
+]

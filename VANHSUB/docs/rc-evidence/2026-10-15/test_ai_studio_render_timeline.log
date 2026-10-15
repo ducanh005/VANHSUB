@@ -1,0 +1,5 @@
+[AiStudioVideoAssembler] 🎬 Bắt đầu dựng phim đa phân cảnh: 3 segments, tổng thời lượng visual ~4s, audio: 4.04898s
+[AiStudioVideoAssembler] 🎬 Bắt đầu dựng phim đa phân cảnh: 1 segments, tổng thời lượng visual ~4s, audio: 4.04898s
+[AiStudioVideoAssembler] 🎬 Bắt đầu dựng phim đa phân cảnh: 2 segments, tổng thời lượng visual ~4s, audio: 4.04898s
+[AiStudioVideoAssembler] 🎬 Bắt đầu dựng phim đa phân cảnh: 1 segments, tổng thời lượng visual ~0.5s, audio: 0.15s
+PASS: real FFmpeg multi-scene timing, explicit frozen short clips, mismatch rejection, audible narration tail, 30/60fps, portrait and actual 4K export

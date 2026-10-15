@@ -1,0 +1,8 @@
+{
+ "status":"BLOCKED",
+ "cleanWindowsInstallationPass":false,
+ "installerExecutedOnDevHost":false,
+ "availableVmEndpoint":null,
+ "observations":["Physical GIGABYTE G5 GE host, hypervisor present; this is not evidence of a clean guest","No accessible Get-VM/VBoxManage/vmrun/qemu/WindowsSandbox executable or running Windows VM found","vmcompute service running; this alone does not provide an independently controlled Windows guest","Optional-feature enumeration requires Windows administrator elevation; no feature was enabled and no OS/software installed"],
+ "notTested":["NSIS install/uninstall on clean guest","Clean-host native/Python/fonts/model dependencies","Installer ACLs and upgrade/uninstall preservation"]
+}

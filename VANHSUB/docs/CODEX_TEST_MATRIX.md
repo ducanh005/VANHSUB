@@ -1,5 +1,17 @@
 # VANHSUB — Integration test matrix, 2026-10-15
 
+## RC update —2026-10-16
+
+Tiếp tục cùng nhánh tích hợp; origin/main vẫn899088f và main chưa đổi. Đợt RC bổ sung extension 1.0.8 có pairing/revoke, HMAC xác thực hai chiều protocol 2 (nonce/cổng/Origin, khóa DPAPI) và response binding, IPC payload bounds/schemas, media grants, migration secret hiện hành bằng DPAPI, extension resources cho bộ cài, editor100dòng/trang và sửa TTS cancel/retry/giữ artifact tốt. Đường SRT junction/physical dùng chung owner/lease/invalidation.
+
+Kết quả mới:45 suite offline/loopback, full clean-dependency production/NSIS build, main/renderer typechecks và20 packaged UI/runtime checks theo phạm vi ghi trong báo cáo RC. Actual packaged ASR, TTS/dịch qua HTTP local có kiểm soát, checkpoint resume, concurrency, Unicode export và hard-crash đúng main PID có evidence riêng. Không tính synthetic peer/provider là Live Provider PASS.
+
+Production scan hiện0; full toolchain8 High/8 Moderate/0 Critical. Electron 43.5.0 và Next 16.3.8 được vá riêng; nodejs-whisper giữ version cũ nhưng chuyển build-only và không ship JS wrapper/chain. Không tuyên bố zero security risk. Clean Windows installation BLOCKED; Flow live NOT TESTED/0 generation; multi-hour/all-job acceptance còn mở. **Verdict: NOT READY, không đề xuất merge main.**
+
+Nguồn hiện hành: [RC acceptance](CODEX_RELEASE_CANDIDATE_ACCEPTANCE.md), [RC evidence](rc-evidence/2026-10-15/README.md). Phần integration bên dưới là hồ sơ2026-10-15; các con số/version/trạng thái cũ được thay bằng kết quả RC ở trên.
+
+## Integration record —2026-10-15 (historical)
+
 Source branch `codex/integration-stabilization-20261015`, based on `origin/main=899088f`. [Final offline results](integration-evidence/2026-10-15/regression-final.json), [evidence notes](integration-evidence/2026-10-15/README.md). PASS chỉ áp dụng phạm vi mô tả; không đếm suite/assertion thay thế coverage.
 
 ## Phân loại acceptance

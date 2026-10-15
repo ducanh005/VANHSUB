@@ -1,0 +1,230 @@
+{
+  "classification": "REAL_PACKAGED_LOCAL_ASR_AND_SYNTHETIC_HTTP_PROVIDER_FAULTS",
+  "generationCount": 0,
+  "liveProviderPass": false,
+  "profile": "C:\\Users\\MTLS\\AppData\\Local\\Temp\\vanhsub-rc-jobs-lvtsIi\\Dự án và hồ sơ có dấu",
+  "passes": [
+    "Actual packaged Whisper starts without JS wrapper; close/restart keeps prior SRT and leaves no observed native child",
+    "Actual packaged TaskRunner completes public JFK speech inference and saves recognized SRT in Unicode project path",
+    "Close during actual pending HTTP TTS request disconnects socket and restart preserves completed audio",
+    "Two distinct TTS tasks complete concurrently, duplicate same-task start is rejected, five synthetic-audio jobs complete",
+    "Close during controlled translation HTTP request; restart reuses completed checkpoint batch and sends only missing batch",
+    "Actual local socket reset and controlled500ms timeout preserve completed translation; no live-provider success inferred",
+    "Actual packaged import/task/subtitle export succeeds through Unicode and space paths, FFprobe confirms2s output"
+  ],
+  "samples": [
+    {
+      "label": "before repeated TTS",
+      "pid": 19760,
+      "processes": [
+        {
+          "pid": 19760,
+          "type": "Browser",
+          "workingSetKiB": 189044,
+          "cpu": 0
+        },
+        {
+          "pid": 25096,
+          "type": "GPU",
+          "workingSetKiB": 142844,
+          "cpu": 0
+        },
+        {
+          "pid": 18584,
+          "type": "Utility",
+          "workingSetKiB": 55636,
+          "cpu": 0
+        },
+        {
+          "pid": 6828,
+          "type": "Tab",
+          "workingSetKiB": 125212,
+          "cpu": 0
+        }
+      ],
+      "appQuitListeners": 0,
+      "ipcEvents": 3,
+      "resources": [
+        "PipeWrap",
+        "PipeWrap",
+        "PipeWrap",
+        "PipeWrap",
+        "PipeWrap",
+        "ProcessWrap",
+        "PipeWrap",
+        "PipeWrap",
+        "PipeWrap",
+        "ProcessWrap",
+        "PipeWrap",
+        "PipeWrap",
+        "PipeWrap",
+        "ProcessWrap",
+        "Timeout"
+      ],
+      "kernel": {
+        "Id": 19760,
+        "HandleCount": 985,
+        "Threads": 52
+      }
+    },
+    {
+      "label": "after5 TTS jobs",
+      "pid": 19760,
+      "processes": [
+        {
+          "pid": 19760,
+          "type": "Browser",
+          "workingSetKiB": 192724,
+          "cpu": 0.891563493006447
+        },
+        {
+          "pid": 25096,
+          "type": "GPU",
+          "workingSetKiB": 145644,
+          "cpu": 0.7453860357425341
+        },
+        {
+          "pid": 18584,
+          "type": "Utility",
+          "workingSetKiB": 55656,
+          "cpu": 0.00007527272407421315
+        },
+        {
+          "pid": 6828,
+          "type": "Tab",
+          "workingSetKiB": 168420,
+          "cpu": 1.3885756755462058
+        }
+      ],
+      "appQuitListeners": 0,
+      "ipcEvents": 3,
+      "resources": [
+        "PipeWrap",
+        "PipeWrap",
+        "PipeWrap",
+        "PipeWrap",
+        "PipeWrap",
+        "ProcessWrap",
+        "PipeWrap",
+        "PipeWrap",
+        "PipeWrap",
+        "ProcessWrap",
+        "PipeWrap",
+        "PipeWrap",
+        "PipeWrap",
+        "ProcessWrap",
+        "PipeWrap",
+        "PipeWrap",
+        "PipeWrap",
+        "ProcessWrap",
+        "PipeWrap",
+        "PipeWrap",
+        "PipeWrap",
+        "ProcessWrap",
+        "PipeWrap",
+        "PipeWrap",
+        "PipeWrap",
+        "ProcessWrap",
+        "PipeWrap",
+        "PipeWrap",
+        "PipeWrap",
+        "ProcessWrap",
+        "PipeWrap",
+        "PipeWrap",
+        "PipeWrap",
+        "ProcessWrap"
+      ],
+      "kernel": {
+        "Id": 19760,
+        "HandleCount": 975,
+        "Threads": 52
+      }
+    },
+    {
+      "label": "after network faults",
+      "pid": 13984,
+      "processes": [
+        {
+          "pid": 13984,
+          "type": "Browser",
+          "workingSetKiB": 195472,
+          "cpu": 0
+        },
+        {
+          "pid": 11664,
+          "type": "GPU",
+          "workingSetKiB": 146876,
+          "cpu": 0
+        },
+        {
+          "pid": 8144,
+          "type": "Utility",
+          "workingSetKiB": 56076,
+          "cpu": 0
+        },
+        {
+          "pid": 25140,
+          "type": "Tab",
+          "workingSetKiB": 154296,
+          "cpu": 0
+        }
+      ],
+      "appQuitListeners": 0,
+      "ipcEvents": 3,
+      "resources": [
+        "PipeWrap",
+        "PipeWrap"
+      ],
+      "kernel": {
+        "Id": 13984,
+        "HandleCount": 981,
+        "Threads": 54
+      }
+    },
+    {
+      "label": "after successful export",
+      "pid": 13984,
+      "processes": [
+        {
+          "pid": 13984,
+          "type": "Browser",
+          "workingSetKiB": 197268,
+          "cpu": 0.389653044756507
+        },
+        {
+          "pid": 11664,
+          "type": "GPU",
+          "workingSetKiB": 146304,
+          "cpu": 0.16567908395656228
+        },
+        {
+          "pid": 8144,
+          "type": "Utility",
+          "workingSetKiB": 56080,
+          "cpu": 0.00012891401824869112
+        },
+        {
+          "pid": 25140,
+          "type": "Tab",
+          "workingSetKiB": 157780,
+          "cpu": 0.42909977527208076
+        }
+      ],
+      "appQuitListeners": 0,
+      "ipcEvents": 3,
+      "resources": [
+        "PipeWrap",
+        "PipeWrap"
+      ],
+      "kernel": {
+        "Id": 13984,
+        "HandleCount": 981,
+        "Threads": 54
+      }
+    }
+  ],
+  "unicodeExportDuration": 2,
+  "status": "PASS",
+  "speechRequests": 6,
+  "translationRequests": 9
+}

@@ -1,0 +1,15 @@
+{
+  "exitCode": 0,
+  "updated": [
+    "extension\\background.js",
+    "scripts\\audit_runtime_electron.cjs",
+    "scripts\\integration_build.cjs",
+    "scripts\\rc_finalize_evidence.cjs",
+    "scripts\\rc_job_acceptance.cjs",
+    "scripts\\rc_rebuild.cjs",
+    "scripts\\rc_shutdown_acceptance.cjs",
+    "scripts\\rc_soak.cjs",
+    "tests\\test_rc_extension_pairing.ts"
+  ],
+  "removed": []
+}
