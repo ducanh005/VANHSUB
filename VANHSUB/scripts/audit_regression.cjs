@@ -18,12 +18,13 @@ suites.push('tests/test_srt_ocr_normalizer_and_translation.ts', 'tests/test_full
   'tests/test_shared_dubbing_preferences.ts', 'tests/test_tts_group_regeneration.ts', 'tests/test_dubbed_subtitle_export.ts',
   'tests/test_export_resolution_and_silent_softsub.ts', 'tests/test_video_stretch_timeline_sync.ts', 'tests/test_chatgpt_script_collector.ts');
 const results = [];
+suites.push('tests/test_integration_security_storage.ts', 'tests/test_integration_http_dependency.ts');
 for (const suite of suites) {
   const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'vanhsub-regression-'));
   const started = Date.now();
   const result = spawnSync(process.execPath, [path.join(root, 'node_modules/tsx/dist/cli.mjs'), path.join(root, suite), '--offline'], {
     cwd: root, encoding: 'utf8', timeout: 120000, windowsHide: true, maxBuffer: 8 * 1024 * 1024,
-    env: { ...process.env, VANHSUB_AI_STUDIO_DIR: path.join(temporary, 'studio'), VANHSUB_TASKS_DIR: path.join(temporary, 'tasks'), VANHSUB_SETTINGS_DIR: path.join(temporary, 'settings') },
+    env: { ...process.env, VANHSUB_ALLOW_INSECURE_TEST_SECRETS: '1', VANHSUB_AI_STUDIO_DIR: path.join(temporary, 'studio'), VANHSUB_TASKS_DIR: path.join(temporary, 'tasks'), VANHSUB_SETTINGS_DIR: path.join(temporary, 'settings') },
   });
   const name = path.basename(suite, '.ts');
   fs.writeFileSync(path.join(evidence, `${name}.log`), (result.stdout || '') + (result.stderr || ''));
