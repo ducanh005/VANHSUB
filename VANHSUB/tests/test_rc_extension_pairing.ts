@@ -44,9 +44,11 @@ async function main() {
   assert.equal(socket.sent.at(-1).proof, hmac(sha(code), 'client|' + value));
   assert.ok(!JSON.stringify(socket.sent).includes(code));
   const token = 'a'.repeat(43);
-  await socket.onmessage({ data: JSON.stringify({ type: 'AUTH_OK', protocol: 2, token, serverProof: hmac(sha(code), 'server|' + value + '|' + sha(token)) }) });
+  const authenticating = socket.onmessage({ data: JSON.stringify({ type: 'AUTH_OK', protocol: 2, token, serverProof: hmac(sha(code), 'server|' + value + '|' + sha(token)) }) });
+  const immediateCommand = socket.onmessage({ data: JSON.stringify({ type: 'EXECUTE_RPC' }) });
+  await Promise.all([authenticating, immediateCommand]);
   assert.equal(stored.bridgePairingToken, token);
-  await socket.onmessage({ data: JSON.stringify({ type: 'EXECUTE_RPC' }) }); assert.equal(handled.length, 1);
+  assert.equal(handled.length, 1, 'Command arriving during async proof verification must not be dropped');
   socket.close();
   vm.runInContext('connectWebSocket()', context);
   const reconnected = sockets[1]; reconnected.readyState = Socket.OPEN; await reconnected.onopen();
@@ -56,6 +58,12 @@ async function main() {
   assert.equal(reconnected.sent.at(-1).proof, hmac(sha(token), 'client|' + nextValue));
   assert.ok(!JSON.stringify(reconnected.sent).includes(token));
   await reconnected.onmessage({ data: JSON.stringify({ type: 'AUTH_OK', protocol: 2, serverProof: hmac(sha(token), 'server|' + nextValue) }) });
+  vm.runInContext("handleMessage = async message => { handled.push(message.type); if (message.type === 'LONG_JOB') await new Promise(resolve => globalThis.releaseLong = resolve); };", context);
+  const longJob = reconnected.onmessage({ data: JSON.stringify({ type: 'LONG_JOB' }) });
+  await new Promise(resolve => setImmediate(resolve));
+  await reconnected.onmessage({ data: JSON.stringify({ type: 'CANCEL_JOB' }) });
+  assert.deepEqual(handled.slice(-2), ['LONG_JOB', 'CANCEL_JOB'], 'Cancellation is not queued behind a long-running handler');
+  context.releaseLong(); await longJob;
   socket.onclose();
   listener({ type: 'BRIDGE_PAIRING_STATUS' }, { id: 'a'.repeat(32), url: extension + 'pairing.html' }, (value: any) => { response = value; });
   assert.equal(response.connected, true, 'Stale socket callback does not reset new connection');
@@ -65,7 +73,7 @@ async function main() {
   const fake = sockets.at(-1); fake.readyState = Socket.OPEN; await fake.onopen();
   await fake.onmessage({ data: JSON.stringify({ type: 'AUTH_OK', protocol: 2, token: 'z'.repeat(43) }) });
   await fake.onmessage({ data: JSON.stringify({ type: 'EXECUTE_RPC' }) });
-  assert.equal(handled.length, 1); assert.equal(stored.bridgePairingToken, token);
+  assert.equal(handled.length, 3); assert.equal(stored.bridgePairingToken, token);
   vm.runInContext('connectWebSocket()', context);
   const crossPort = sockets.at(-1); crossPort.readyState = Socket.OPEN; await crossPort.onopen();
   await crossPort.onmessage({ data: JSON.stringify({ type: 'AUTH_CHALLENGE', protocol: 2, port: 8765, nonce }) });
@@ -75,7 +83,7 @@ async function main() {
   await wrongProof.onmessage({ data: JSON.stringify({ type: 'AUTH_CHALLENGE', protocol: 2, port: 9222, nonce }) });
   await wrongProof.onmessage({ data: JSON.stringify({ type: 'AUTH_OK', protocol: 2, serverProof: '0'.repeat(64) }) });
   await wrongProof.onmessage({ data: JSON.stringify({ type: 'EXECUTE_RPC' }) });
-  assert.equal(wrongProof.readyState, 3); assert.equal(handled.length, 1);
+  assert.equal(wrongProof.readyState, 3); assert.equal(handled.length, 3);
   console.log('PASS: extension mutual proofs reject fake server and cross-port challenges; popup/storage isolation and token-free reconnect');
 }
 main().catch(error => { console.error(error.stack); process.exitCode = 1; });

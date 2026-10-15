@@ -91,6 +91,7 @@ function connectWebSocket() {
 
   try {
     const socket = new WebSocket(wsUrl);
+    let authenticationReady = Promise.resolve();
     ws = socket;
     bridgeAuthenticated = false;
     authContext = null;
@@ -117,21 +118,26 @@ function connectWebSocket() {
         }
         if (msg.type === 'AUTH_REQUIRED') { bridgeAuthenticated = false; return; }
         if (msg.type === 'AUTH_OK') {
-          const context = authContext;
-          if (msg.protocol !== 2 || !context?.key || typeof msg.serverProof !== 'string') { socket.close(); return; }
-          if (context.pair ? !/^[A-Za-z0-9_-]{43}$/.test(msg.token || '') : msg.token !== undefined) { socket.close(); return; }
-          const suffix = context.pair ? '|' + await sha(msg.token) : '';
-          const expected = await authProof(context.key, 'server|' + context.value + suffix);
-          if (ws !== socket || authContext !== context) return;
-          if (msg.serverProof !== expected) { socket.close(); return; }
-          if (context.pair) { await trustedStorageReady; await chrome.storage.local.set({ bridgePairingToken: msg.token }); }
-          if (ws !== socket || authContext !== context) return;
-          context.key = null;
-          bridgeAuthenticated = true;
-          send({ type: 'HANDSHAKE', version: getExtensionVersion() });
+          authenticationReady = (async () => {
+            const context = authContext;
+            if (msg.protocol !== 2 || !context?.key || typeof msg.serverProof !== 'string') { socket.close(); return; }
+            if (context.pair ? !/^[A-Za-z0-9_-]{43}$/.test(msg.token || '') : msg.token !== undefined) { socket.close(); return; }
+            const suffix = context.pair ? '|' + await sha(msg.token) : '';
+            const expected = await authProof(context.key, 'server|' + context.value + suffix);
+            if (ws !== socket || authContext !== context || socket.readyState !== WebSocket.OPEN) return;
+            if (msg.serverProof !== expected) { socket.close(); return; }
+            if (context.pair) { await trustedStorageReady; await chrome.storage.local.set({ bridgePairingToken: msg.token }); }
+            if (ws !== socket || authContext !== context || socket.readyState !== WebSocket.OPEN) return;
+            context.key = null;
+            bridgeAuthenticated = true;
+            send({ type: 'HANDSHAKE', version: getExtensionVersion() });
+          })();
+          await authenticationReady;
           return;
         }
-        if (!bridgeAuthenticated) return;
+        // Only wait for authentication, never serialize long generation/cancel handlers.
+        await authenticationReady;
+        if (ws !== socket || socket.readyState !== WebSocket.OPEN || !bridgeAuthenticated) return;
         await handleMessage(msg);
       } catch (err) {
         error('Lỗi phân tích cú pháp message từ WebSocket:', err);
