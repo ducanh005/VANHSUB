@@ -1,5 +1,6 @@
 import { handleRendererIpc } from './security/ipc'
 import { productionContentPolicy } from './security/contentPolicy'
+import { resolveGrantedMedia, IMAGE_EXTENSIONS } from './security/mediaCapabilities'
 import { trustRenderer, isTrustedRendererEvent, validateFlowBrowserUrl, validateModelName, resolveBundledPath } from './security/rendererTrust'
 import fs from 'fs'
 import path from 'path'
@@ -29,7 +30,7 @@ import { DubbingRunner } from './render/dubbingRunner'
 import { OcrRunner } from './ocr/ocrRunner'
 import { checkVietTtsConnection, getAvailableVoices, previewTts, getEdgeVoices } from './render/ttsEngine'
 import { VoiceSampleStore } from './store/voiceSampleStore'
-import { getAiStudioStore } from './store/aiStudioStore'
+import { getAiStudioStore, migrateAiStudioLegacySecrets } from './store/aiStudioStore'
 import { extractAudioFromUrl } from './helpers/voiceFromUrl'
 import { inspectMediaUrl, downloadVideoFromUrl, resolveBaseFolder, cancelDownload } from './helpers/videoDownloader'
 import { isCancelledError } from './lib/cancel'
@@ -39,6 +40,7 @@ import { TikTokTTSError } from './tts-providers/tiktok/types'
 import { registerWorkflowIpc } from './workflow/ipc'
 import { registerAiStudioIpc, setAiStudioPipelineEngine } from './ai-studio/ipc'
 import { AiStudioPipelineEngine } from './ai-studio/pipelineEngine'
+import { resolveAiStudioSessionsRoot } from './ai-studio/AiStudioPipelineEngine'
 import { GoogleVeoSessionManager } from './veo/GoogleVeoSessionManager'
 import { GoogleVeoAntiSpamGuard } from './veo/GoogleVeoAntiSpamGuard'
 import { checkFasterWhisperAvailable, probePythonEnv } from './lib/pythonEnv'
@@ -146,10 +148,48 @@ const MIME_BY_EXT: Record<string, string> = {
   '.gif': 'image/gif',
 }
 
+const selectedMediaFiles = new Set<string>()
+const selectedMediaDirectories = new Set<string>()
+function rememberSelection(files: string[]): string[] {
+  for (const file of files) {
+    if (fs.statSync(file).isDirectory()) selectedMediaDirectories.add(file)
+    else selectedMediaFiles.add(file)
+  }
+  return files
+}
+function getMediaGrants() {
+  const files = new Set(selectedMediaFiles), directories = new Set(selectedMediaDirectories)
+  for (const task of TaskStore.getAll()) {
+    for (const file of [task.filePath, task.audioPath, task.srtPath, task.translatedSrtPath, task.outputPath, task.dubbedVideoPath, task.ttsMergedAudioPath]) if (file) files.add(file)
+    for (const dir of [task.projectDir, task.ttsAudioDir]) if (dir) directories.add(dir)
+  }
+  const config = getAiStudioStore().store
+  for (const project of config.savedProjects || []) {
+    if (project.outputDir) directories.add(project.outputDir)
+    if (/^[a-zA-Z0-9_-]{1,128}$/.test(project.id)) directories.add(path.join(process.cwd(), 'flow_outputs', 'projects', project.id))
+  }
+  const catalog = resolveAiStudioSessionsRoot()
+  if (fs.existsSync(catalog)) for (const name of fs.readdirSync(catalog)) {
+    if (!/^[a-zA-Z0-9_-]+\.json$/.test(name)) continue
+    try {
+      const state = JSON.parse(fs.readFileSync(path.join(catalog, name), 'utf8'))
+      if (state.sessionId !== name.slice(0, -5) || !config.savedProjects?.some(project => project.id === state.ownerProjectId)) continue
+      const workspace = state.workspaceDir || state.outputDir
+      const checkpoint = JSON.parse(fs.readFileSync(path.join(workspace, 'session.json'), 'utf8'))
+      if (checkpoint.sessionId !== state.sessionId || checkpoint.ownerProjectId !== state.ownerProjectId) continue
+      for (const dir of [workspace, state.mediaDir, state.artifacts?.mediaDir]) if (typeof dir === 'string') directories.add(dir)
+    } catch { /* A corrupt/unowned checkpoint cannot grant file access. */ }
+  }
+  for (const sample of VoiceSampleStore.list()) { const file = VoiceSampleStore.getPath(sample.name); if (file) files.add(file) }
+  directories.add(path.join(app.getPath('temp'), 'vanhsub_workflow'))
+  return { files, directories }
+}
+
 app.whenReady().then(() => {
   protocol.handle('vanhmedia', async (request) => {
     try {
       const requestUrl = new URL(request.url)
+      if (requestUrl.hostname !== 'local') return new Response('Forbidden', { status: 403 })
       let rawPath = decodeURIComponent(requestUrl.pathname.replace(/^\/+/, ''))
 
       // Bóc tách tiền tố file:/// hoặc file:// nếu truyền nhầm
@@ -164,41 +204,7 @@ app.whenReady().then(() => {
         rawPath = rawPath.slice(1)
       }
 
-      let resolvedFilePath = rawPath
-
-      // Nếu đường dẫn chưa tồn tại trực tiếp (ví dụ đường dẫn tương đối '05_media/...'):
-      // Tìm kiếm theo các thư mục dự án / workspace hiện hành
-      if (!fs.existsSync(resolvedFilePath) || !fs.statSync(resolvedFilePath).isFile()) {
-        const candidates: string[] = []
-        try {
-          const aiStudioConfig = getAiStudioStore().store
-          const activeProj = aiStudioConfig?.savedProjects?.find((p: any) => p.id === aiStudioConfig?.activeProjectId)
-          if (activeProj?.outputDir) {
-            candidates.push(path.resolve(activeProj.outputDir, rawPath))
-            candidates.push(path.resolve(activeProj.outputDir, '05_media', path.basename(rawPath)))
-          }
-          if (activeProj?.id) {
-            candidates.push(path.resolve(process.cwd(), 'flow_outputs', 'projects', activeProj.id, rawPath))
-            candidates.push(path.resolve(process.cwd(), 'flow_outputs', 'projects', activeProj.id, '05_media', path.basename(rawPath)))
-          }
-        } catch {}
-
-        // Kiểm tra thêm theo thư mục làm việc cwd và flow_outputs
-        candidates.push(path.resolve(process.cwd(), rawPath))
-        candidates.push(path.resolve(process.cwd(), 'flow_outputs', rawPath))
-
-        for (const cand of candidates) {
-          if (fs.existsSync(cand) && fs.statSync(cand).isFile()) {
-            resolvedFilePath = cand
-            break
-          }
-        }
-      }
-
-      if (!resolvedFilePath || !fs.existsSync(resolvedFilePath) || !fs.statSync(resolvedFilePath).isFile()) {
-        console.warn(`[vanhmedia] 404 Not Found: "${rawPath}" (resolved: "${resolvedFilePath}")`)
-        return new Response(`Không tìm thấy file media: ${rawPath}`, { status: 404 })
-      }
+      const resolvedFilePath = resolveGrantedMedia(rawPath, getMediaGrants())
 
       const stat = fs.statSync(resolvedFilePath)
       const mime = MIME_BY_EXT[path.extname(resolvedFilePath).toLowerCase()] || 'application/octet-stream'
@@ -257,6 +263,7 @@ app.whenReady().then(() => {
         },
       })
     } catch (err: any) {
+      if (err?.message === 'MEDIA_FORBIDDEN' || err?.message === 'MEDIA_AMBIGUOUS') return new Response('Forbidden or ambiguous media', { status: 403 })
       console.error('[vanhmedia] Error serving media:', err)
       return new Response(`Lỗi stream media: ${err?.message || err}`, { status: 500 })
     }
@@ -273,6 +280,13 @@ function broadcastTasksUpdate() {
 
 ;(async () => {
   await app.whenReady()
+
+
+  // Run only after Windows safeStorage is ready. Failures leave the old store untouched.
+  for (const migrate of [() => SettingsStore.migrateLegacySecrets(), migrateAiStudioLegacySecrets]) {
+    try { migrate(); }
+    catch { console.warn('[Secrets] Chưa thể nâng cấp mã hóa cấu hình cũ; dữ liệu cũ được giữ nguyên.'); }
+  }
 
   // Khởi động đồng bộ session Google Flow / Veo từ phân vùng Electron
   try {
@@ -654,6 +668,7 @@ handleRendererIpc('tasks:cancelHybrid', async (_event, id: string) => {
 })
 
 handleRendererIpc('tasks:readSrt', async (_event, srtPath: string) => {
+  srtPath = resolveGrantedMedia(srtPath, getMediaGrants(), new Set(['.srt']))
   if (!fs.existsSync(srtPath)) {
     throw new Error(`File SRT không tồn tại: ${srtPath}`)
   }
@@ -661,6 +676,7 @@ handleRendererIpc('tasks:readSrt', async (_event, srtPath: string) => {
 })
 
 handleRendererIpc('tasks:writeSrt', async (_event, srtPath: string, content: string) => {
+  srtPath = resolveGrantedMedia(srtPath, getMediaGrants(), new Set(['.srt']))
   saveTaskSubtitle(srtPath, content)
   broadcastTasksUpdate()
   return true
@@ -1226,7 +1242,7 @@ handleRendererIpc('dialog:openMediaFile', async () => {
   if (result.canceled || result.filePaths.length === 0) {
     return null
   }
-  return result.filePaths
+  return rememberSelection(result.filePaths)
 })
 
 handleRendererIpc('dialog:showInFolder', async (_event, filePath: string) => {
@@ -1265,7 +1281,9 @@ handleRendererIpc('dialog:openFolder', async (_event, folderPath: string) => {
 handleRendererIpc('files:readImageAsDataUrl', async (_event, filePath: string) => {
   if (!filePath || typeof filePath !== 'string') return null
   try {
+    filePath = resolveGrantedMedia(filePath, getMediaGrants(), IMAGE_EXTENSIONS)
     if (!fs.existsSync(filePath)) return null
+    if (fs.statSync(filePath).size > 64 * 1024 * 1024) return null
     const ext = path.extname(filePath).toLowerCase()
     const mime = ext === '.png' ? 'image/png' : ext === '.webp' ? 'image/webp' : ext === '.gif' ? 'image/gif' : 'image/jpeg'
     const buf = fs.readFileSync(filePath)
@@ -1288,7 +1306,7 @@ handleRendererIpc('dialog:openSrtFile', async () => {
     ],
   })
   if (result.canceled || result.filePaths.length === 0) return null
-  return result.filePaths[0]
+  return rememberSelection(result.filePaths)[0]
 })
 
 // Chọn file ảnh (logo, watermark, workflow reference image)
@@ -1303,7 +1321,7 @@ handleRendererIpc('dialog:openImageFile', async () => {
     ],
   })
   if (result.canceled || result.filePaths.length === 0) return null
-  return result.filePaths[0]
+  return rememberSelection(result.filePaths)[0]
 })
 
 // Chọn nhạc nền cho AI Studio
@@ -1329,7 +1347,7 @@ handleRendererIpc('dialog:openVideoFile', async () => {
     ],
   })
   if (result.canceled || result.filePaths.length === 0) return null
-  return result.filePaths[0]
+  return rememberSelection(result.filePaths)[0]
 })
 
 // Chọn thư mục (dùng cho cài đặt thư mục xuất mặc định ở trang Settings)
@@ -1340,7 +1358,7 @@ handleRendererIpc('dialog:chooseDirectory', async () => {
     properties: ['openDirectory', 'createDirectory'],
   })
   if (result.canceled || result.filePaths.length === 0) return null
-  return result.filePaths[0]
+  return rememberSelection(result.filePaths)[0]
 })
 
 // ── [DEBUG] Giai đoạn 1 RPC Test ────────────────────────────────────────────
@@ -1877,7 +1895,7 @@ handleRendererIpc('bridge:open-chrome', async (_event, url = 'https://flow.googl
 handleRendererIpc('bridge:open-extension-folder', async () => {
   const { shell } = require('electron');
   try {
-    const extDir = path.resolve(process.cwd(), 'extension');
+    const extDir = app.isPackaged ? path.join(process.resourcesPath, 'extension') : path.resolve(process.cwd(), 'extension');
     if (fs.existsSync(extDir)) {
       await shell.openPath(extDir);
       return { ok: true, path: extDir };

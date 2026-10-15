@@ -21,6 +21,14 @@ asarUnpack:
     - node_modules/nodejs-whisper/**
 # Sidecar Python PaddleOCR (rapidocr) — spawn bằng đường dẫn thật trên đĩa
 extraResources:
+    - from: extension
+      to: extension
+      filter:
+          - "*.js"
+          - "*.json"
+          - "*.html"
+          - "*.css"
+          - README.md
     - from: node_modules/nodejs-whisper/cpp/whisper.cpp/build/bin/Release
       to: whisper
       filter:
