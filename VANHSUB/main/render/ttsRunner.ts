@@ -1,3 +1,5 @@
+import crypto from 'crypto';
+import { nextAvailablePath } from '../lib/paths';
 import fs from 'fs';
 import path from 'path';
 import { TaskStore, type Task } from '../store/taskStore';
@@ -121,7 +123,7 @@ export class TTSRunner {
     }
 
     const artifactPaths = getProjectArtifactPaths(task);
-    const outputPath = targetPath || artifactPaths.ttsMergedAudioPath;
+    const outputPath = nextAvailablePath(targetPath || artifactPaths.ttsMergedAudioPath);
 
     try {
       const { audioPath, overruns } = await mergeAudioFiles(
@@ -190,7 +192,7 @@ export class TTSRunner {
 
       // Lưu audio files từng dòng vào thư mục dự án của video
       const projectDir = getOrCreateProjectDir(task);
-      const ttsAudioDir = path.join(projectDir, 'tts_audio');
+      const ttsAudioDir = path.join(projectDir, 'tts_audio', crypto.randomUUID());
 
       const { audioFiles, totalDuration } = await generateTtsFromSrt(
         srtPath,
@@ -215,7 +217,7 @@ export class TTSRunner {
       // Tự động ghép các câu thành 1 file MP3 tổng hợp chuẩn xác theo timeline dự án
       if (this.cancelledTasks.has(taskId)) throw new CancelledError();
       const artifactPaths = getProjectArtifactPaths(task);
-      const mergedMp3Path = artifactPaths.ttsMergedAudioPath;
+      const mergedMp3Path = nextAvailablePath(artifactPaths.ttsMergedAudioPath);
       let finalMergedPath: string | undefined = undefined;
 
       try {
@@ -245,6 +247,7 @@ export class TTSRunner {
       const updated = TaskStore.update(taskId, {
         status: 'done',
         progress: 100,
+        outputPath: undefined, errorMessage: undefined,
         projectDir,
         ttsAudioDir, // Lưu thư mục audio để dùng cho bước dubbing tiếp theo
         ttsNeedsRegeneration: false,

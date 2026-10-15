@@ -1,3 +1,4 @@
+import { WorkflowStorageManager } from './WorkflowStorageManager';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
@@ -52,7 +53,14 @@ export class WorkflowExecutionEngine {
   /**
    * Thực thi toàn bộ đồ thị Node DAG
    */
-  public async execute(
+  public async execute(graph: WorkflowGraphData, onEvent: (event: WorkflowNodeEvent) => void): Promise<{ success: boolean; outputs: Record<string, any>; error?: string }> {
+    const id = graph.id || `wf_${Date.now()}`;
+    const release = WorkflowStorageManager.getInstance().reserveWorkflow(id);
+    try { return await this.executeGraph({ ...graph, id }, onEvent); }
+    finally { this.activeRuns.delete(id); release(); }
+  }
+
+  private async executeGraph(
     graph: WorkflowGraphData,
     onEvent: (event: WorkflowNodeEvent) => void
   ): Promise<{ success: boolean; outputs: Record<string, any>; error?: string }> {
@@ -62,11 +70,7 @@ export class WorkflowExecutionEngine {
     const isCancelled = () => !this.activeRuns.has(workflowId);
 
     // Thư mục làm việc tạm thời cho workflow
-    const tempDir = path.join(
-      app?.getPath?.('temp') || os.tmpdir(),
-      'vanhsub_workflow',
-      workflowId
-    );
+    const tempDir = WorkflowStorageManager.getInstance().getWorkflowTempDir(workflowId);
     fs.mkdirSync(tempDir, { recursive: true });
 
     // Thư mục export mặc định
@@ -255,7 +259,7 @@ export class WorkflowExecutionEngine {
           });
 
           const taskPromise = Promise.race([
-            this.executeSingleNode(node, resolvedInputs, ctx),
+            this.executeLeasedNode(node, resolvedInputs, ctx),
             watchdogPromise,
           ])
             .finally(() => {
@@ -370,7 +374,15 @@ export class WorkflowExecutionEngine {
   /**
    * Thực thi một Node đơn lẻ độc lập (Run Individual Node)
    */
-  public async executeNode(
+  public async executeNode(graph: WorkflowGraphData, nodeId: string, onEvent: (event: WorkflowNodeEvent) => void): Promise<{ success: boolean; output?: NodeExecutionOutput; error?: string }> {
+    const id = graph.id || `wf_node_${Date.now()}`;
+    const release = WorkflowStorageManager.getInstance().reserveWorkflow(id);
+    this.activeRuns.add(id);
+    try { return await this.executeIndividualNode({ ...graph, id }, nodeId, onEvent); }
+    finally { this.activeRuns.delete(id); release(); }
+  }
+
+  private async executeIndividualNode(
     graph: WorkflowGraphData,
     nodeId: string,
     onEvent: (event: WorkflowNodeEvent) => void
@@ -384,18 +396,14 @@ export class WorkflowExecutionEngine {
       return { success: false, error: `Không tìm thấy node #${nodeId}` };
     }
 
-    const tempDir = path.join(
-      app?.getPath?.('temp') || os.tmpdir(),
-      'vanhsub_workflow',
-      workflowId
-    );
+    const tempDir = WorkflowStorageManager.getInstance().getWorkflowTempDir(workflowId);
     fs.mkdirSync(tempDir, { recursive: true });
     const exportDir = SettingsStore.get('exportDir') || path.join(os.homedir(), 'Downloads');
 
     const nodeMap = new Map<string, (typeof nodes)[0]>();
     for (const n of nodes) nodeMap.set(n.id, n);
 
-    const isCancelled = () => false;
+    const isCancelled = () => !this.activeRuns.has(workflowId);
 
     // Thu thập resolvedInputs từ các node cha
     const resolvedInputs: ResolvedInputs = {};
@@ -421,7 +429,7 @@ export class WorkflowExecutionEngine {
               isCancelled,
             };
             try {
-              parentOut = await this.executeSingleNode(parentNode, {}, parentCtx);
+              parentOut = await this.executeLeasedNode(parentNode, {}, parentCtx);
             } catch {}
           }
 
@@ -469,7 +477,8 @@ export class WorkflowExecutionEngine {
     };
 
     try {
-      const output = await this.executeSingleNode(targetNode, resolvedInputs, ctx);
+      const output = await this.executeLeasedNode(targetNode, resolvedInputs, ctx);
+      if (isCancelled()) throw new Error('Workflow đã bị hủy.');
       const durationMs = Date.now() - startTime;
       onEvent({
         workflowId,
@@ -504,6 +513,12 @@ export class WorkflowExecutionEngine {
   /**
    * Xử lý thực thi cho từng loại node cụ thể
    */
+  private async executeLeasedNode(node: WorkflowGraphData['nodes'][number], inputs: ResolvedInputs, context: ExecutionContext): Promise<NodeExecutionOutput> {
+    const release = WorkflowStorageManager.getInstance().retainWorkflow(context.workflowId);
+    try { return await this.executeSingleNode(node, inputs, context); }
+    finally { release(); }
+  }
+
   private async executeSingleNode(
     node: { data: { nodeType: string; config: Record<string, any> } },
     inputs: ResolvedInputs,

@@ -1,3 +1,5 @@
+import { handleRendererIpc } from './security/ipc'
+import { trustRenderer, isTrustedRendererEvent, validateFlowBrowserUrl, validateModelName, resolveBundledPath } from './security/rendererTrust'
 import fs from 'fs'
 import path from 'path'
 import url from 'url'
@@ -41,6 +43,13 @@ import { GoogleVeoAntiSpamGuard } from './veo/GoogleVeoAntiSpamGuard'
 import { checkFasterWhisperAvailable, probePythonEnv } from './lib/pythonEnv'
 
 const isProd = process.env.NODE_ENV === 'production'
+const auditUserDataDir = process.env.VANHSUB_AUDIT_USER_DATA_DIR
+if (auditUserDataDir) {
+  const isolated = path.resolve(auditUserDataDir)
+  fs.mkdirSync(path.join(isolated, 'temp'), { recursive: true })
+  app.setPath('userData', isolated)
+  app.setPath('temp', path.join(isolated, 'temp'))
+}
 
 // Forward log của main process tới terminal trong app (renderer)
 installRendererLogger()
@@ -76,11 +85,13 @@ if (isProd) {
   app.whenReady().then(() => {
     protocol.handle('app', async (request) => {
       const requestUrl = new URL(request.url)
-      let pathname = decodeURIComponent(requestUrl.pathname)
+      let pathname: string
+      try { pathname = decodeURIComponent(requestUrl.pathname) } catch { return new Response('Invalid URL', { status: 400 }) }
       if (pathname.startsWith('/')) pathname = pathname.slice(1)
 
       const appDir = path.resolve(app.getAppPath(), 'app')
-      let filePath = path.join(appDir, pathname)
+      let filePath: string
+      try { filePath = resolveBundledPath(appDir, pathname) } catch { return new Response('Forbidden', { status: 403 }) }
 
       if (fs.existsSync(filePath) && fs.statSync(filePath).isDirectory()) {
         filePath = path.join(filePath, 'index.html')
@@ -95,7 +106,7 @@ if (isProd) {
       return net.fetch(url.pathToFileURL(filePath).toString())
     })
   })
-} else {
+} else if (!auditUserDataDir) {
   app.setPath('userData', `${app.getPath('userData')} (development)`)
 }
 
@@ -265,7 +276,7 @@ function broadcastTasksUpdate() {
   // Khởi động WebSocket Bridge Server để kết nối với Chrome Extension (VanhSub Flow Bridge)
   try {
     const { getFlowBridgeServer } = await import('./workflow/flow-engine/rpc/FlowBridgeServer');
-    getFlowBridgeServer().start();
+    if (process.env.VANHSUB_DISABLE_FLOW_BRIDGE !== '1') getFlowBridgeServer().start();
   } catch (bridgeErr) {
     console.warn('[FlowBridgeServer] Không thể khởi động WebSocket Server:', bridgeErr);
   }
@@ -284,14 +295,17 @@ function broadcastTasksUpdate() {
     minHeight: 600,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true, nodeIntegration: false, webSecurity: true,
     },
   })
 
 
   if (isProd) {
+    trustRenderer(mainWindow.webContents, 'app://./home')
     await mainWindow.loadURL('app://./home')
   } else {
     const port = process.argv[2] || '8888'
+    trustRenderer(mainWindow.webContents, `http://localhost:${port}/home`)
     await mainWindow.loadURL(`http://localhost:${port}/home`)
     mainWindow.webContents.openDevTools()
   }
@@ -316,16 +330,16 @@ setAiStudioPipelineEngine(new AiStudioPipelineEngine())
 // TASK MANAGEMENT IPC HANDLERS
 // =========================================================================
 
-ipcMain.handle('tasks:getAll', async () => {
+handleRendererIpc('tasks:getAll', async () => {
   return TaskStore.getAll()
 })
 
-ipcMain.handle('tasks:get', async (_event, id: string) => {
+handleRendererIpc('tasks:get', async (_event, id: string) => {
   return TaskStore.getById(id)
 })
 
 // Phân tích liên kết video (Douyin, YouTube, Bilibili, TikTok...)
-ipcMain.handle('downloader:inspect', async (_event, rawUrl: string) => {
+handleRendererIpc('downloader:inspect', async (_event, rawUrl: string) => {
   try {
     return await inspectMediaUrl(rawUrl);
   } catch (err: any) {
@@ -334,7 +348,7 @@ ipcMain.handle('downloader:inspect', async (_event, rawUrl: string) => {
 });
 
 // Lấy thư mục lưu trữ mặc định hiện tại
-ipcMain.handle('downloader:getDefaultDir', async () => {
+handleRendererIpc('downloader:getDefaultDir', async () => {
   try {
     return resolveBaseFolder();
   } catch (err: any) {
@@ -344,7 +358,7 @@ ipcMain.handle('downloader:getDefaultDir', async () => {
 });
 
 // Tải video MP4 từ liên kết và tự động tạo Task trong thư mục dự án
-ipcMain.handle('downloader:download', async (_event, options: { url: string; quality?: any; noWatermarkUrl?: string; outputDir?: string; customFileName?: string; downloadId?: string }) => {
+handleRendererIpc('downloader:download', async (_event, options: { url: string; quality?: any; noWatermarkUrl?: string; outputDir?: string; customFileName?: string; downloadId?: string }) => {
   try {
     const result = await downloadVideoFromUrl({
       url: options.url,
@@ -380,7 +394,7 @@ ipcMain.handle('downloader:download', async (_event, options: { url: string; qua
 });
 
 // Huỷ tiến trình tải video
-ipcMain.handle('downloader:cancel', async (_event, downloadId?: string) => {
+handleRendererIpc('downloader:cancel', async (_event, downloadId?: string) => {
   try {
     return cancelDownload(downloadId);
   } catch (err: any) {
@@ -448,7 +462,7 @@ function drainPipelines(): void {
   while (pipelineActive.size < MAX_PARALLEL_PIPELINES && pipelineQueued.length > 0) {
     const id = pipelineQueued.shift()!;
     pipelineActive.add(id);
-    void executePipeline(id).finally(() => {
+    void executePipeline(id).catch(error => console.error('[Pipeline] Failed:', error)).finally(() => {
       pipelineActive.delete(id);
       finishTaskOperation(id, pipelineReleases.get(id) || (() => {}));
       pipelineReleases.delete(id);
@@ -458,6 +472,11 @@ function drainPipelines(): void {
 }
 
 async function executePipeline(id: string): Promise<void> {
+  // enqueuePipeline already owns the lease, including its queued lifetime.
+  await executePipelineStages(id);
+}
+
+async function executePipelineStages(id: string): Promise<void> {
   const onUpdate = () => broadcastTasksUpdate()
   const stop = (t: Task | undefined, label: string): boolean => {
     if (cancelledOperations.has(id)) return true
@@ -504,7 +523,7 @@ async function executePipeline(id: string): Promise<void> {
   }
 }
 
-ipcMain.handle('tasks:runPipeline', async (_event, id: string, opts?: { replaceAudio?: boolean }) => {
+handleRendererIpc('tasks:runPipeline', async (_event, id: string, opts?: { replaceAudio?: boolean }) => {
   const enqueued = enqueuePipeline(id)
   if (enqueued && opts?.replaceAudio !== undefined) {
     const task = TaskStore.getById(id)!
@@ -517,7 +536,7 @@ ipcMain.handle('tasks:runPipeline', async (_event, id: string, opts?: { replaceA
 
 // Batch: enqueue nhiều task cùng lúc — hàng đợi sẽ chạy tối đa
 // MAX_PARALLEL_PIPELINES task song song, task sau tự vào khi task trước xong
-ipcMain.handle('tasks:runPipelineBatch', async (_event, ids: string[]) => {
+handleRendererIpc('tasks:runPipelineBatch', async (_event, ids: string[]) => {
   let enqueued = 0
   for (const id of ids || []) {
     try {
@@ -532,13 +551,13 @@ ipcMain.handle('tasks:runPipelineBatch', async (_event, ids: string[]) => {
   return enqueued
 })
 
-ipcMain.handle('tasks:create', async (_event, input: CreateTaskInput) => {
+handleRendererIpc('tasks:create', async (_event, input: CreateTaskInput) => {
   const task = TaskStore.create(input)
   broadcastTasksUpdate()
   return task
 })
 
-ipcMain.handle('tasks:update', async (_event, id: string, updates: Partial<Task>) => {
+handleRendererIpc('tasks:update', async (_event, id: string, updates: Partial<Task>) => {
   assertTaskAvailable(id)
   const task = TaskStore.update(id, updates)
   broadcastTasksUpdate()
@@ -577,46 +596,47 @@ function cancelTaskExecution(id: string): boolean {
   return qIdx !== -1 || activeOperation || asrCancelled || ocrCancelled || hybridCancelled || translateCancelled || ttsCancelled || exportCancelled || dubbingCancelled
 }
 
-ipcMain.handle('tasks:delete', async (_event, id: string) => {
+handleRendererIpc('tasks:delete', async (_event, id: string) => {
+  if (isTaskOperationActive(id)) throw new Error('Hãy hủy và đợi tác vụ dừng hẳn trước khi xóa.');
   cancelTaskExecution(id)
   const result = TaskStore.delete(id)
   broadcastTasksUpdate()
   return result
 })
 
-ipcMain.handle('tasks:start', async (_event, id: string) => {
+handleRendererIpc('tasks:start', async (_event, id: string) => {
   return launchTaskOperation(id, () => TaskRunner.runTask(id, () => {
     broadcastTasksUpdate()
   }))
 })
 
 // Huỷ tác vụ đang chạy hoặc đang chờ trong hàng đợi
-ipcMain.handle('tasks:cancel', async (_event, id: string) => {
+handleRendererIpc('tasks:cancel', async (_event, id: string) => {
   const cancelled = cancelTaskExecution(id)
   broadcastTasksUpdate()
   return cancelled
 })
 
 // Chạy kết hợp kép Whisper ASR + Quét OCR (R2 - Độ chính xác tuyệt đối)
-ipcMain.handle('tasks:startHybrid', async (_event, id: string, options?: HybridRunOptions) => {
+handleRendererIpc('tasks:startHybrid', async (_event, id: string, options?: HybridRunOptions) => {
   return launchTaskOperation(id, () => HybridRunner.runHybrid(id, options, () => {
     broadcastTasksUpdate()
   }))
 })
 
 // Huỷ tác vụ kết hợp Whisper + OCR
-ipcMain.handle('tasks:cancelHybrid', async (_event, id: string) => {
+handleRendererIpc('tasks:cancelHybrid', async (_event, id: string) => {
   return HybridRunner.cancel(id)
 })
 
-ipcMain.handle('tasks:readSrt', async (_event, srtPath: string) => {
+handleRendererIpc('tasks:readSrt', async (_event, srtPath: string) => {
   if (!fs.existsSync(srtPath)) {
     throw new Error(`File SRT không tồn tại: ${srtPath}`)
   }
   return fs.readFileSync(srtPath, 'utf-8')
 })
 
-ipcMain.handle('tasks:writeSrt', async (_event, srtPath: string, content: string) => {
+handleRendererIpc('tasks:writeSrt', async (_event, srtPath: string, content: string) => {
   saveTaskSubtitle(srtPath, content)
   broadcastTasksUpdate()
   return true
@@ -624,7 +644,7 @@ ipcMain.handle('tasks:writeSrt', async (_event, srtPath: string, content: string
 
 // Nhập file SRT có sẵn cho task (video đã có phụ đề, bỏ qua bước phiên âm):
 // copy vào thư mục video để hiệu đính không đụng vào file gốc của người dùng
-ipcMain.handle('tasks:importSrt', async (_event, id: string, sourceSrtPath: string) => {
+handleRendererIpc('tasks:importSrt', async (_event, id: string, sourceSrtPath: string) => {
   const updated = importTaskSubtitle(id, sourceSrtPath)
   broadcastTasksUpdate()
   return updated
@@ -672,14 +692,14 @@ const SETTING_KEYS: Array<keyof AppSettings> = [
   'veoFlowCreditsCheckedAt',
 ]
 
-ipcMain.handle('settings:get', async (_event, key: keyof AppSettings) => {
+handleRendererIpc('settings:get', async (_event, key: keyof AppSettings) => {
   if (!SETTING_KEYS.includes(key)) {
     throw new Error(`Setting key không hợp lệ: ${key}`)
   }
   return SettingsStore.get(key)
 })
 
-ipcMain.handle('settings:set', async (_event, key: keyof AppSettings, value: any) => {
+handleRendererIpc('settings:set', async (_event, key: keyof AppSettings, value: any) => {
   if (!SETTING_KEYS.includes(key)) {
     throw new Error(`Setting key không hợp lệ: ${key}`)
   }
@@ -689,12 +709,12 @@ ipcMain.handle('settings:set', async (_event, key: keyof AppSettings, value: any
 })
 
 // "Sửa câu bằng AI": hiệu đính 1 câu phụ đề bằng Gemini, kèm ngữ cảnh câu trước/sau
-ipcMain.handle('ai:polishLine', async (_event, payload: { text: string; prev?: string; next?: string }) => {
+handleRendererIpc('ai:polishLine', async (_event, payload: { text: string; prev?: string; next?: string }) => {
   return polishSubtitleLine(payload)
 })
 
 // Dịch nhanh 1 câu phụ đề bằng Gemini
-ipcMain.handle(
+handleRendererIpc(
   'ai:translateLine',
   async (_event, payload: { text: string; targetLanguage?: string; prev?: string; next?: string }) => {
     return translateSubtitleLine(payload)
@@ -702,12 +722,12 @@ ipcMain.handle(
 )
 
 // Dọn dẹp & lọc trùng lặp phụ đề OCR bằng Gemini AI
-ipcMain.handle('ai:cleanSubtitles', async (_event, items: any[]) => {
+handleRendererIpc('ai:cleanSubtitles', async (_event, items: any[]) => {
   return cleanAndDeduplicateSubtitles(items)
 })
 
 // Chuẩn hóa file phụ đề SRT lỗi OCR (SRT OCR Normalizer)
-ipcMain.handle('subtitles:normalize', async (_event, input: string | any[], options?: any) => {
+handleRendererIpc('subtitles:normalize', async (_event, input: string | any[], options?: any) => {
   if (Array.isArray(input)) {
     return normalizeSrtLines(input, options)
   } else if (typeof input === 'string') {
@@ -718,31 +738,31 @@ ipcMain.handle('subtitles:normalize', async (_event, input: string | any[], opti
 
 // Quét phụ đề cứng (hardsub) trong video bằng OCR — kết quả là file .srt
 // như phiên âm, nên sau đó dịch / tạo lồng tiếng / ghép video chạy bình thường
-ipcMain.handle('ocr:start', async (_event, id: string, options?: any) => {
+handleRendererIpc('ocr:start', async (_event, id: string, options?: any) => {
   return launchTaskOperation(id, () => OcrRunner.runOcr(id, options, () => {
     broadcastTasksUpdate()
   }))
 })
 
 // Huỷ quét OCR đang chạy (hiệu lực trước khung hình kế tiếp)
-ipcMain.handle('ocr:cancel', async (_event, id: string) => {
+handleRendererIpc('ocr:cancel', async (_event, id: string) => {
   return OcrRunner.cancel(id)
 })
 
 // Dịch thuật AI qua TranslateRunner
-ipcMain.handle('translate:start', async (_event, id: string, targetLanguage?: string) => {
+handleRendererIpc('translate:start', async (_event, id: string, targetLanguage?: string) => {
   return launchTaskOperation(id, () => TranslateRunner.runTranslate(id, targetLanguage, () => {
     broadcastTasksUpdate()
   }))
 })
 
 // Huỷ dịch đang chạy (hiệu lực sau khi batch hiện tại xong)
-ipcMain.handle('translate:cancel', async (_event, id: string) => {
+handleRendererIpc('translate:cancel', async (_event, id: string) => {
   return TranslateRunner.cancel(id)
 })
 
 // Xuất video qua ExportRunner (mask: tùy chọn che vùng phụ đề cũ khi hardsub)
-ipcMain.handle(
+handleRendererIpc(
   'export:start',
   async (
     _event,
@@ -766,14 +786,14 @@ ipcMain.handle(
 )
 
 // Tách nhạc nền / giọng khỏi video bằng AI Demucs — xuất 2 file mp3 cạnh video gốc
-ipcMain.handle('export:separateStems', async (_event, id: string) => {
+handleRendererIpc('export:separateStems', async (_event, id: string) => {
   return launchTaskOperation(id, () => StemExportRunner.runStemExport(id, () => {
     broadcastTasksUpdate()
   }))
 })
 
 // Tạo lồng tiếng bằng VietTTS hoặc TikTok TTS (voiceOverrides: gán giọng riêng theo dòng)
-ipcMain.handle(
+handleRendererIpc(
   'tts:start',
   async (
     _event,
@@ -790,17 +810,17 @@ ipcMain.handle(
 )
 
 // Lấy danh sách giọng nói có sẵn
-ipcMain.handle('tts:voices', async () => {
+handleRendererIpc('tts:voices', async () => {
   return getAvailableVoices()
 })
 
 // Huỷ tạo lồng tiếng đang chạy (hiệu lực sau khi câu hiện tại xong)
-ipcMain.handle('tts:cancel', async (_event, id: string) => {
+handleRendererIpc('tts:cancel', async (_event, id: string) => {
   return TTSRunner.cancel(id)
 })
 
 // Tạo lại audio cho 1 dòng phụ đề (sau khi sửa text / đổi giọng)
-ipcMain.handle('tts:regenerateLine', async (_event, id: string, lineIndex: number, options?: {
+handleRendererIpc('tts:regenerateLine', async (_event, id: string, lineIndex: number, options?: {
   voice?: string; speed?: number; engine?: 'edge' | 'tiktok' | 'viettts'; voiceOverrides?: Record<string, string>
 }) => {
   const result = await awaitTaskOperation(id, () => TTSRunner.regenerateLine(id, lineIndex, options?.voice, options?.speed,
@@ -810,7 +830,7 @@ ipcMain.handle('tts:regenerateLine', async (_event, id: string, lineIndex: numbe
 })
 
 // Ghép lại hoặc xuất file MP3 tổng hợp chính xác theo timeline cho dự án
-ipcMain.handle(
+handleRendererIpc(
   'tts:export-merged-audio',
   async (_event, id: string, targetPath?: string, mode?: 'strict' | 'flexible') => {
     const res = await awaitTaskOperation(id, () => TTSRunner.exportMergedAudio(id, targetPath, mode))
@@ -820,12 +840,12 @@ ipcMain.handle(
 )
 
 // Kiểm tra kết nối VietTTS
-ipcMain.handle('tts:check-connection', async () => {
+handleRendererIpc('tts:check-connection', async () => {
   return checkVietTtsConnection()
 })
 
 // Lấy danh sách giọng đọc Edge TTS tiếng Việt miễn phí
-ipcMain.handle('tts:getEdgeVoices', async () => {
+handleRendererIpc('tts:getEdgeVoices', async () => {
   return getEdgeVoices()
 })
 
@@ -845,12 +865,12 @@ function tiktokErrorPayload(err: unknown): { ok: false; error: string } {
 }
 
 // Trạng thái session — chỉ boolean, không trả giá trị sessionid
-ipcMain.handle('tiktok-tts:status', async () => {
+handleRendererIpc('tiktok-tts:status', async () => {
   return { hasSession: tikTokProvider.hasSession() }
 })
 
 // Lưu sessionid mới — validate format qua manager, chỉ trả { ok }, không echo giá trị
-ipcMain.handle('tiktok-tts:save-session', async (_event, sessionId: string) => {
+handleRendererIpc('tiktok-tts:save-session', async (_event, sessionId: string) => {
   try {
     tikTokProvider.saveSession(String(sessionId || ''))
     return { ok: true }
@@ -859,7 +879,7 @@ ipcMain.handle('tiktok-tts:save-session', async (_event, sessionId: string) => {
   }
 })
 
-ipcMain.handle('tiktok-tts:remove-session', async () => {
+handleRendererIpc('tiktok-tts:remove-session', async () => {
   try {
     tikTokProvider.clearSession()
     return { ok: true }
@@ -869,7 +889,7 @@ ipcMain.handle('tiktok-tts:remove-session', async () => {
 })
 
 // Kiểm tra session còn hạn không — trả { valid, detail }, detail là mô tả, không chứa session
-ipcMain.handle('tiktok-tts:validate', async () => {
+handleRendererIpc('tiktok-tts:validate', async () => {
   try {
     return await tikTokProvider.validateSession()
   } catch (err) {
@@ -878,7 +898,7 @@ ipcMain.handle('tiktok-tts:validate', async () => {
 })
 
 // Danh sách voice TikTok (catalog tĩnh — xem TikTokVoiceService)
-ipcMain.handle('tiktok-tts:voices', async () => {
+handleRendererIpc('tiktok-tts:voices', async () => {
   try {
     return { ok: true, voices: await tikTokProvider.getVoices() }
   } catch (err) {
@@ -887,7 +907,7 @@ ipcMain.handle('tiktok-tts:voices', async () => {
 })
 
 // Tổng hợp audio và lưu ra userData/tiktok-tts — trả đường dẫn file, không trả audio base64
-ipcMain.handle('tiktok-tts:synthesize', async (_event, text: string, voice: string) => {
+handleRendererIpc('tiktok-tts:synthesize', async (_event, text: string, voice: string) => {
   try {
     const stamp = Date.now().toString(36)
     const outPath = path.join(
@@ -906,7 +926,7 @@ ipcMain.handle('tiktok-tts:synthesize', async (_event, text: string, voice: stri
 // GOOGLE VEO SESSION & ANTI-SPAM GUARD IPC HANDLERS
 // =========================================================================
 
-ipcMain.handle('veo:open-lobby', async () => {
+handleRendererIpc('veo:open-lobby', async () => {
   try {
     await GoogleVeoSessionManager.getInstance().openLobbyWindow(mainWindow)
     return { ok: true }
@@ -915,15 +935,15 @@ ipcMain.handle('veo:open-lobby', async () => {
   }
 })
 
-ipcMain.handle('veo:status', async () => {
+handleRendererIpc('veo:status', async () => {
   return GoogleVeoSessionManager.getInstance().getStatus()
 })
 
-ipcMain.handle('veo:validate', async () => {
+handleRendererIpc('veo:validate', async () => {
   return await GoogleVeoSessionManager.getInstance().validateSession()
 })
 
-ipcMain.handle('veo:save-session', async (_event, rawInput: string) => {
+handleRendererIpc('veo:save-session', async (_event, rawInput: string) => {
   try {
     const result = await GoogleVeoSessionManager.getInstance().saveManualSession(rawInput)
     return { ok: true, result }
@@ -932,7 +952,7 @@ ipcMain.handle('veo:save-session', async (_event, rawInput: string) => {
   }
 })
 
-ipcMain.handle('veo:clear-session', async () => {
+handleRendererIpc('veo:clear-session', async () => {
   try {
     await GoogleVeoSessionManager.getInstance().clearSession()
     return { ok: true }
@@ -941,7 +961,7 @@ ipcMain.handle('veo:clear-session', async () => {
   }
 })
 
-ipcMain.handle('veo:get-anti-spam-status', async () => {
+handleRendererIpc('veo:get-anti-spam-status', async () => {
   const guard = GoogleVeoAntiSpamGuard.getInstance()
   return {
     status: guard.getStatus(),
@@ -949,24 +969,24 @@ ipcMain.handle('veo:get-anti-spam-status', async () => {
   }
 })
 
-ipcMain.handle('veo:set-mode', async (_event, mode: any) => {
+handleRendererIpc('veo:set-mode', async (_event, mode: any) => {
   GoogleVeoSessionManager.getInstance().setMode(mode)
   return { ok: true }
 })
 
-ipcMain.handle('veo:get-credits', async (_event, maxAgeMs?: number) => {
+handleRendererIpc('veo:get-credits', async (_event, maxAgeMs?: number) => {
   return GoogleVeoSessionManager.getInstance().getCachedOrFreshCredits(maxAgeMs);
 })
 
-ipcMain.handle('veo:show-lobby-debug', async () => {
+handleRendererIpc('veo:show-lobby-debug', async () => {
   return GoogleVeoSessionManager.getInstance().showLobbyForDebug();
 })
 
-ipcMain.handle('veo:hide-lobby-offscreen', async () => {
+handleRendererIpc('veo:hide-lobby-offscreen', async () => {
   return GoogleVeoSessionManager.getInstance().hideLobbyOffscreen();
 })
 
-ipcMain.handle('veo:is-lobby-debug', async () => {
+handleRendererIpc('veo:is-lobby-debug', async () => {
   return GoogleVeoSessionManager.getInstance().isLobbyDebug();
 })
 
@@ -974,17 +994,17 @@ ipcMain.handle('veo:is-lobby-debug', async () => {
 // GOOGLE FLOW DIAGNOSTIC & DEBUG BUNDLES (PHASE 8 - STEP 4)
 // =========================================================================
 
-ipcMain.handle('flow:export-debug-bundle', async (_event, options?: any) => {
+handleRendererIpc('flow:export-debug-bundle', async (_event, options?: any) => {
   const { FlowDebugBundleExporter } = await import('./workflow/flow-engine/FlowDebugBundleExporter');
   return FlowDebugBundleExporter.getInstance().exportBundle(options);
 });
 
-ipcMain.handle('flow:list-debug-bundles', async () => {
+handleRendererIpc('flow:list-debug-bundles', async () => {
   const { FlowDebugBundleExporter } = await import('./workflow/flow-engine/FlowDebugBundleExporter');
   return FlowDebugBundleExporter.getInstance().listBundles();
 });
 
-ipcMain.handle('flow:delete-debug-bundle', async (_event, bundleId: string) => {
+handleRendererIpc('flow:delete-debug-bundle', async (_event, bundleId: string) => {
   const { FlowDebugBundleExporter } = await import('./workflow/flow-engine/FlowDebugBundleExporter');
   return FlowDebugBundleExporter.getInstance().deleteBundle(bundleId);
 });
@@ -993,12 +1013,12 @@ ipcMain.handle('flow:delete-debug-bundle', async (_event, bundleId: string) => {
 // GIỌNG ĐỌC CLONE TỪ FILE MẪU (voice sample)
 // =========================================================================
 
-ipcMain.handle('tts:voice-samples', async () => {
+handleRendererIpc('tts:voice-samples', async () => {
   return VoiceSampleStore.list()
 })
 
 // Mở dialog chọn file audio giọng mẫu rồi lưu với tên do người dùng đặt
-ipcMain.handle('tts:add-voice-sample', async (_event, name: string) => {
+handleRendererIpc('tts:add-voice-sample', async (_event, name: string) => {
   if (!mainWindow) return { error: 'Ứng dụng chưa sẵn sàng.' }
   try {
     const result = await dialog.showOpenDialog(mainWindow, {
@@ -1018,14 +1038,14 @@ ipcMain.handle('tts:add-voice-sample', async (_event, name: string) => {
   }
 })
 
-ipcMain.handle('tts:remove-voice-sample', async (_event, name: string) => {
+handleRendererIpc('tts:remove-voice-sample', async (_event, name: string) => {
   VoiceSampleStore.remove(name)
   return VoiceSampleStore.list()
 })
 
 // Thêm giọng mẫu từ link video công khai (TikTok, YouTube, …) — yt-dlp tải audio
 // ra file tạm rồi lưu như giọng mẫu thường. yt-dlp tự tải về lần đầu tiên.
-ipcMain.handle('tts:add-voice-sample-from-url', async (_event, name: string, url: string) => {
+handleRendererIpc('tts:add-voice-sample-from-url', async (_event, name: string, url: string) => {
   try {
     if (!/^https?:\/\//i.test(url || '')) {
       throw new Error('Link không hợp lệ — phải bắt đầu bằng http(s)://')
@@ -1041,7 +1061,7 @@ ipcMain.handle('tts:add-voice-sample-from-url', async (_event, name: string, url
 })
 
 // Nghe thử giọng đọc TTS (1 câu ngắn) — trả base64 mp3 cho renderer phát trực tiếp
-ipcMain.handle('tts:preview', async (_event, text: string, voice?: string, speed?: number, engine?: 'viettts' | 'tiktok') => {
+handleRendererIpc('tts:preview', async (_event, text: string, voice?: string, speed?: number, engine?: 'viettts' | 'tiktok') => {
   const sampleText = (text || '').trim().slice(0, 300) || 'Xin chào! Đây là giọng đọc thử nghiệm của VANHSUB.'
   return previewTts(sampleText, voice, speed, engine)
 })
@@ -1051,7 +1071,7 @@ ipcMain.handle('tts:preview', async (_event, text: string, voice?: string, speed
 //          'flexible' (cho audio tràn vào khoảng lặng, tối đa 3s) |
 //          'video-stretch' (kéo giãn video để khớp audio, hệ số ≤ 1.25)
 //          mixOriginalAudio = giữ nhạc nền/th âm gốc, mix nhỏ dưới lời thoại
-ipcMain.handle(
+handleRendererIpc(
   'dubbing:start',
   async (
     _event,
@@ -1080,7 +1100,7 @@ function getModelsDirectory() {
 }
 
 // Lấy thông tin hệ thống (RAM, CPU cores, etc.)
-ipcMain.handle('system:info', async () => {
+handleRendererIpc('system:info', async () => {
   try {
     const memory = await si.mem();
     const cpu = await si.cpu();
@@ -1105,7 +1125,7 @@ ipcMain.handle('system:info', async () => {
   }
 });
 
-ipcMain.handle('models:list', async () => {
+handleRendererIpc('models:list', async () => {
   const dir = getModelsDirectory();
   if (!fs.existsSync(dir)) {
     return [];
@@ -1129,14 +1149,14 @@ ipcMain.handle('models:list', async () => {
 })
 
 // Đường dẫn thư mục lưu model Whisper trên đĩa (hiển thị ở Cài đặt)
-ipcMain.handle('models:directory', async () => {
+handleRendererIpc('models:directory', async () => {
   const dir = getModelsDirectory();
   return { path: dir, exists: fs.existsSync(dir) };
 })
 
-ipcMain.handle('models:delete', async (_event, modelName: string) => {
+handleRendererIpc('models:delete', async (_event, modelName: string) => {
   const dir = getModelsDirectory();
-  const file = `ggml-${modelName}.bin`;
+  const file = `ggml-${validateModelName(modelName)}.bin`;
   const filePath = path.join(dir, file);
   if (fs.existsSync(filePath)) {
     try {
@@ -1150,11 +1170,11 @@ ipcMain.handle('models:delete', async (_event, modelName: string) => {
   return false;
 })
 
-ipcMain.handle('asr:checkFasterWhisper', async () => {
+handleRendererIpc('asr:checkFasterWhisper', async () => {
   return checkFasterWhisperAvailable();
 })
 
-ipcMain.handle('system:probePythonEnv', async () => {
+handleRendererIpc('system:probePythonEnv', async () => {
   return probePythonEnv();
 })
 
@@ -1163,7 +1183,7 @@ ipcMain.handle('system:probePythonEnv', async () => {
 // NATIVE DIALOG & SHELL IPC HANDLERS
 // =========================================================================
 
-ipcMain.handle('dialog:openMediaFile', async () => {
+handleRendererIpc('dialog:openMediaFile', async () => {
   if (!mainWindow) return null
   const result = await dialog.showOpenDialog(mainWindow, {
     title: 'Chọn file Video hoặc Audio',
@@ -1185,7 +1205,7 @@ ipcMain.handle('dialog:openMediaFile', async () => {
   return result.filePaths
 })
 
-ipcMain.handle('dialog:showInFolder', async (_event, filePath: string) => {
+handleRendererIpc('dialog:showInFolder', async (_event, filePath: string) => {
   if (!filePath) return
   if (fs.existsSync(filePath)) {
     try {
@@ -1206,7 +1226,7 @@ ipcMain.handle('dialog:showInFolder', async (_event, filePath: string) => {
   }
 })
 
-ipcMain.handle('dialog:openFolder', async (_event, folderPath: string) => {
+handleRendererIpc('dialog:openFolder', async (_event, folderPath: string) => {
   if (!folderPath) return
   if (fs.existsSync(folderPath)) {
     await shell.openPath(folderPath)
@@ -1218,7 +1238,7 @@ ipcMain.handle('dialog:openFolder', async (_event, folderPath: string) => {
   }
 })
 
-ipcMain.handle('files:readImageAsDataUrl', async (_event, filePath: string) => {
+handleRendererIpc('files:readImageAsDataUrl', async (_event, filePath: string) => {
   if (!filePath || typeof filePath !== 'string') return null
   try {
     if (!fs.existsSync(filePath)) return null
@@ -1233,7 +1253,7 @@ ipcMain.handle('files:readImageAsDataUrl', async (_event, filePath: string) => {
 })
 
 // Chọn file .srt có sẵn (dùng cho "Nhập phụ đề" trên task)
-ipcMain.handle('dialog:openSrtFile', async () => {
+handleRendererIpc('dialog:openSrtFile', async () => {
   if (!mainWindow) return null
   const result = await dialog.showOpenDialog(mainWindow, {
     title: 'Chọn file phụ đề .srt',
@@ -1248,7 +1268,7 @@ ipcMain.handle('dialog:openSrtFile', async () => {
 })
 
 // Chọn file ảnh (logo, watermark, workflow reference image)
-ipcMain.handle('dialog:openImageFile', async () => {
+handleRendererIpc('dialog:openImageFile', async () => {
   if (!mainWindow) return null
   const result = await dialog.showOpenDialog(mainWindow, {
     title: 'Chọn ảnh tham chiếu / Watermark / Logo',
@@ -1263,7 +1283,7 @@ ipcMain.handle('dialog:openImageFile', async () => {
 })
 
 // Chọn nhạc nền cho AI Studio
-ipcMain.handle('dialog:openAudioFile', async () => {
+handleRendererIpc('dialog:openAudioFile', async () => {
   if (!mainWindow) return null
   const result = await dialog.showOpenDialog(mainWindow, {
     title: 'Chọn nhạc nền',
@@ -1274,7 +1294,7 @@ ipcMain.handle('dialog:openAudioFile', async () => {
 })
 
 // Chọn 1 file video (dùng cho node Tải Video / Workflow)
-ipcMain.handle('dialog:openVideoFile', async () => {
+handleRendererIpc('dialog:openVideoFile', async () => {
   if (!mainWindow) return null
   const result = await dialog.showOpenDialog(mainWindow, {
     title: 'Chọn file Video nguồn',
@@ -1289,7 +1309,7 @@ ipcMain.handle('dialog:openVideoFile', async () => {
 })
 
 // Chọn thư mục (dùng cho cài đặt thư mục xuất mặc định ở trang Settings)
-ipcMain.handle('dialog:chooseDirectory', async () => {
+handleRendererIpc('dialog:chooseDirectory', async () => {
   if (!mainWindow) return null
   const result = await dialog.showOpenDialog(mainWindow, {
     title: 'Chọn thư mục lưu file xuất',
@@ -1303,7 +1323,7 @@ ipcMain.handle('dialog:chooseDirectory', async () => {
 // Xóa handler này sau khi P1+P4 đã xác nhận thành công.
 // Gọi từ DevTools Console của renderer:
 //   await window.electronAPI.ipcRenderer.invoke('debug:test-rpc-phase1', 'YOUR_PROJECT_UUID')
-ipcMain.handle('debug:test-rpc-phase1', async (_event, projectId: string) => {
+handleRendererIpc('debug:test-rpc-phase1', async (_event, projectId: string) => {
   try {
     const { testRpcPhase1 } = await import('./workflow/flow-engine/rpc/test_rpc_phase1')
     const win = GoogleVeoSessionManager.getInstance().getLobbyWindow()
@@ -1317,7 +1337,7 @@ ipcMain.handle('debug:test-rpc-phase1', async (_event, projectId: string) => {
   }
 })
 
-ipcMain.handle('debug:test-upload-image', async (_event, filePath?: string, projectId?: string) => {
+handleRendererIpc('debug:test-upload-image', async (_event, filePath?: string, projectId?: string) => {
   try {
     const { getFlowRpcClient, getFlowBridgeServer } = await import('./workflow/flow-engine/rpc')
     const bridge = getFlowBridgeServer()
@@ -1358,7 +1378,7 @@ ipcMain.handle('debug:test-upload-image', async (_event, filePath?: string, proj
   }
 })
 
-ipcMain.handle('debug:test-gen-image', async (_event, prompt: string, projectId?: string, refMediaIds?: string[]) => {
+handleRendererIpc('debug:test-gen-image', async (_event, prompt: string, projectId?: string, refMediaIds?: string[]) => {
   try {
     const { getFlowRpcClient } = await import('./workflow/flow-engine/rpc')
     const { getFlowBridgeServer } = await import('./workflow/flow-engine/rpc/FlowBridgeServer')
@@ -1399,7 +1419,7 @@ ipcMain.handle('debug:test-gen-image', async (_event, prompt: string, projectId?
   }
 })
 
-ipcMain.handle('debug:test-fsm-image', async (_event, prompt: string, projectId: string) => {
+handleRendererIpc('debug:test-fsm-image', async (_event, prompt: string, projectId: string) => {
   try {
     const sessionMgr = GoogleVeoSessionManager.getInstance();
     const resolvedProjectId =
@@ -1423,7 +1443,7 @@ ipcMain.handle('debug:test-fsm-image', async (_event, prompt: string, projectId:
   }
 });
 
-ipcMain.handle('debug:test-fsm-video', async (_event, prompt: string, projectId?: string, sourceImagePath?: string) => {
+handleRendererIpc('debug:test-fsm-video', async (_event, prompt: string, projectId?: string, sourceImagePath?: string) => {
   try {
     const sessionMgr = GoogleVeoSessionManager.getInstance();
     const resolvedProjectId =
@@ -1447,7 +1467,7 @@ ipcMain.handle('debug:test-fsm-video', async (_event, prompt: string, projectId?
   }
 });
 
-ipcMain.handle('debug:test-gen-video', async (_event, prompt: string, projectId?: string, sourceImagePath?: string) => {
+handleRendererIpc('debug:test-gen-video', async (_event, prompt: string, projectId?: string, sourceImagePath?: string) => {
   try {
     const { getFlowRpcClient } = await import('./workflow/flow-engine/rpc');
     const { getFlowBridgeServer } = await import('./workflow/flow-engine/rpc/FlowBridgeServer');
@@ -1577,7 +1597,7 @@ ipcMain.handle('debug:test-gen-video', async (_event, prompt: string, projectId?
  * debug:diagnose-lobby — Kiểm tra toàn bộ trạng thái của lobbyWindow.
  * Chạy trong DevTools: await window.electron.ipcRenderer.invoke('debug:diagnose-lobby')
  */
-ipcMain.handle('debug:diagnose-lobby', async () => {
+handleRendererIpc('debug:diagnose-lobby', async () => {
   try {
     const win = GoogleVeoSessionManager.getInstance().getLobbyWindow();
     if (!win || win.isDestroyed()) {
@@ -1672,7 +1692,7 @@ ipcMain.handle('debug:diagnose-lobby', async () => {
  * Chạy trong DevTools:
  *   await window.debug.prewarmLobby('5d3caf29-6c9d-49d8-a452-91036ea16a7d')
  */
-ipcMain.handle('debug:prewarm-lobby', async (_event, projectId: string) => {
+handleRendererIpc('debug:prewarm-lobby', async (_event, projectId: string) => {
   try {
     const win = GoogleVeoSessionManager.getInstance().getLobbyWindow();
     if (!win || win.isDestroyed()) {
@@ -1732,7 +1752,7 @@ ipcMain.handle('debug:prewarm-lobby', async (_event, projectId: string) => {
   }
 });
 
-ipcMain.handle('bridge:status', async (_event, options?: { dumpSniffer?: boolean }) => {
+handleRendererIpc('bridge:status', async (_event, options?: { dumpSniffer?: boolean }) => {
   try {
     const { getFlowBridgeServer } = await import('./workflow/flow-engine/rpc/FlowBridgeServer');
     const bridge = getFlowBridgeServer();
@@ -1758,7 +1778,7 @@ ipcMain.handle('bridge:status', async (_event, options?: { dumpSniffer?: boolean
   }
 });
 
-ipcMain.handle('bridge:reload', async () => {
+handleRendererIpc('bridge:reload', async () => {
   try {
     const { getFlowBridgeServer } = await import('./workflow/flow-engine/rpc/FlowBridgeServer');
     return await getFlowBridgeServer().reloadExtension();
@@ -1767,7 +1787,7 @@ ipcMain.handle('bridge:reload', async () => {
   }
 });
 
-ipcMain.handle('bridge:reload-tab', async () => {
+handleRendererIpc('bridge:reload-tab', async () => {
   try {
     const { getFlowBridgeServer } = await import('./workflow/flow-engine/rpc/FlowBridgeServer');
     return await getFlowBridgeServer().reloadTab();
@@ -1776,7 +1796,7 @@ ipcMain.handle('bridge:reload-tab', async () => {
   }
 });
 
-ipcMain.handle('bridge:eval', async (_event, code: string) => {
+handleRendererIpc('bridge:eval', async (_event, code: string) => {
   try {
     const { getFlowBridgeServer } = await import('./workflow/flow-engine/rpc/FlowBridgeServer');
     return await getFlowBridgeServer().tabEval(code);
@@ -1785,7 +1805,7 @@ ipcMain.handle('bridge:eval', async (_event, code: string) => {
   }
 });
 
-ipcMain.handle('bridge:inspect-dom', async () => {
+handleRendererIpc('bridge:inspect-dom', async () => {
   try {
     const { getFlowBridgeServer } = await import('./workflow/flow-engine/rpc/FlowBridgeServer');
     return await getFlowBridgeServer().inspectDom();
@@ -1795,7 +1815,7 @@ ipcMain.handle('bridge:inspect-dom', async () => {
 });
 
 /** @deprecated DOM Native UI Trigger đã bị loại bỏ hoàn toàn, ưu tiên Pure RPC qua sendBatchRpc */
-ipcMain.handle('bridge:trigger-ui-gen', async (_event, prompt: string) => {
+handleRendererIpc('bridge:trigger-ui-gen', async (_event, prompt: string) => {
   try {
     const { getFlowBridgeServer } = await import('./workflow/flow-engine/rpc/FlowBridgeServer');
     return await getFlowBridgeServer().triggerUiGen(prompt);
@@ -1804,10 +1824,11 @@ ipcMain.handle('bridge:trigger-ui-gen', async (_event, prompt: string) => {
   }
 });
 
-ipcMain.handle('bridge:open-chrome', async (_event, url = 'https://flow.google.com/') => {
+handleRendererIpc('bridge:open-chrome', async (_event, url = 'https://flow.google.com/') => {
   const { shell } = require('electron');
-  const { exec } = require('child_process');
+  const { spawn } = require('child_process');
   try {
+    const safeUrl = validateFlowBrowserUrl(url);
     const chromePaths = [
       'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
       'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
@@ -1815,17 +1836,21 @@ ipcMain.handle('bridge:open-chrome', async (_event, url = 'https://flow.google.c
     ];
     const foundPath = chromePaths.find((p) => p && fs.existsSync(p));
     if (foundPath) {
-      exec(`"${foundPath}" "${url}"`);
+      await new Promise<void>((resolve, reject) => {
+        const child = spawn(foundPath, [safeUrl], { windowsHide: true, detached: true, stdio: 'ignore', shell: false });
+        child.once('error', reject);
+        child.once('spawn', () => { child.unref(); resolve(); });
+      });
       return { ok: true, launchedPath: foundPath };
     }
-    await shell.openExternal(url);
+    await shell.openExternal(safeUrl);
     return { ok: true, fallback: true };
   } catch (err: any) {
     return { ok: false, error: err?.message || String(err) };
   }
 });
 
-ipcMain.handle('bridge:open-extension-folder', async () => {
+handleRendererIpc('bridge:open-extension-folder', async () => {
   const { shell } = require('electron');
   try {
     const extDir = path.resolve(process.cwd(), 'extension');
@@ -1839,7 +1864,7 @@ ipcMain.handle('bridge:open-extension-folder', async () => {
   }
 });
 
-ipcMain.handle('bridge:open-chrome-extensions-page', async () => {
+handleRendererIpc('bridge:open-chrome-extensions-page', async () => {
   const { exec } = require('child_process');
   try {
     exec('start chrome chrome://extensions/');
@@ -1852,5 +1877,6 @@ ipcMain.handle('bridge:open-chrome-extensions-page', async () => {
 // ── [END DEBUG] ──────────────────────────────────────────────────────────────
 
 ipcMain.on('message', async (event, arg) => {
+  if (!isTrustedRendererEvent(event)) return;
   event.reply('message', `${arg} World!`)
 })

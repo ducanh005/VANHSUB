@@ -29,6 +29,8 @@ export interface CleanupResult {
 export class WorkflowStorageManager {
   private static instance: WorkflowStorageManager | null = null;
   private cleanupIntervalTimer: NodeJS.Timeout | null = null;
+  private startupCleanupTimer: NodeJS.Timeout | null = null;
+  private activeLeases = new Map<string, number>();
   private readonly tempBaseDir: string;
 
   private constructor() {
@@ -47,6 +49,29 @@ export class WorkflowStorageManager {
 
   public getBaseTempDir(): string {
     return this.tempBaseDir;
+  }
+
+  public getWorkflowTempDir(id: string): string {
+    if (typeof id !== 'string' || !/^[a-zA-Z0-9_-]{1,128}$/.test(id)) throw new Error('ID workflow không hợp lệ.');
+    return path.join(this.tempBaseDir, id);
+  }
+
+  public reserveWorkflow(id: string): () => void {
+    this.getWorkflowTempDir(id);
+    if (this.activeLeases.has(id)) throw new Error('Workflow đang chạy hoặc chưa dừng hẳn.');
+    return this.retainWorkflow(id);
+  }
+
+  public retainWorkflow(id: string): () => void {
+    this.getWorkflowTempDir(id);
+    this.activeLeases.set(id, (this.activeLeases.get(id) || 0) + 1);
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      const count = (this.activeLeases.get(id) || 1) - 1;
+      if (count) this.activeLeases.set(id, count); else this.activeLeases.delete(id);
+    };
   }
 
   /**
@@ -119,7 +144,8 @@ export class WorkflowStorageManager {
 
     const now = Date.now();
     const maxAgeMs = maxAgeHours * 60 * 60 * 1000;
-    const activeSet = new Set(activeWorkflowIds);
+    if (!Number.isFinite(maxAgeHours) || maxAgeHours < 0) throw new Error('Thời hạn cleanup không hợp lệ.');
+    const activeSet = new Set([...activeWorkflowIds, ...this.activeLeases.keys()]);
 
     try {
       const items = fs.readdirSync(this.tempBaseDir, { withFileTypes: true });
@@ -179,11 +205,13 @@ export class WorkflowStorageManager {
 
     const intervalMs = intervalHours * 60 * 60 * 1000;
     // Chạy một lần dọn dẹp khởi động (delay 1 phút sau khi app boot để tránh giật lag)
-    setTimeout(() => {
+    this.startupCleanupTimer = setTimeout(() => {
+      this.startupCleanupTimer = null;
       this.cleanupOldTempFiles(24).catch((err) =>
         console.warn('[WorkflowStorageManager] Lỗi dọn dẹp khởi động:', err)
       );
     }, 60_000);
+    this.startupCleanupTimer.unref?.();
 
     this.cleanupIntervalTimer = setInterval(() => {
       this.cleanupOldTempFiles(24).catch((err) =>
@@ -197,6 +225,8 @@ export class WorkflowStorageManager {
   }
 
   public stopPeriodicCleanup(): void {
+    if (this.startupCleanupTimer) clearTimeout(this.startupCleanupTimer);
+    this.startupCleanupTimer = null;
     if (this.cleanupIntervalTimer) {
       clearInterval(this.cleanupIntervalTimer);
       this.cleanupIntervalTimer = null;

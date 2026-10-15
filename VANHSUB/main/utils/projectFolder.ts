@@ -12,7 +12,7 @@ export function sanitizeFolderName(rawName: string): string {
   return rawName
     .replace(/[\\/:*?"<>|]/g, '_')
     .replace(/\s+/g, ' ')
-    .trim();
+    .trim().replace(/[. ]+$/g, '').slice(0, 140);
 }
 
 /**
@@ -25,6 +25,7 @@ export function getOrCreateProjectDir(task: Task | { id: string; filePath: strin
   // Runners may keep a snapshot taken before another stage saved projectDir.
   const savedDir = TaskStore.getById(task.id)?.projectDir || task.projectDir;
   if (savedDir && fs.existsSync(savedDir)) {
+    if (!fs.statSync(savedDir).isDirectory()) throw new Error('Project path is not a directory.');
     return savedDir;
   }
 

@@ -1,6 +1,8 @@
 import { app, BrowserWindow } from 'electron';
 import fs from 'fs';
 import path from 'path';
+import { formatSafeLogArg } from '../security/logRedaction';
+import { isTrustedRendererContents } from '../security/rendererTrust';
 
 /**
  * Chuyển tiếp log của main process tới renderer (terminal trong app) VÀ ghi ra
@@ -22,13 +24,7 @@ const originalConsole = { ...console };
 const LOG_RETENTION_DAYS = 14;
 
 function formatArg(arg: unknown): string {
-  if (typeof arg === 'string') return arg;
-  if (arg instanceof Error) return arg.stack || arg.message;
-  try {
-    return JSON.stringify(arg);
-  } catch {
-    return String(arg);
-  }
+  return formatSafeLogArg(arg);
 }
 
 // ---------- File sink (lazy init, không bao giờ làm hỏng app) ----------
@@ -88,7 +84,7 @@ function emit(level: LogEntry['level'], args: unknown[]) {
   };
   appendFileLog(level, entry.text, entry.ts);
   for (const win of BrowserWindow.getAllWindows()) {
-    if (!win.isDestroyed()) {
+    if (!win.isDestroyed() && isTrustedRendererContents(win.webContents)) {
       win.webContents.send('app:log', entry);
     }
   }
@@ -98,7 +94,7 @@ export function installRendererLogger() {
   (['log', 'info', 'warn', 'error'] as const).forEach((method) => {
     const level: LogEntry['level'] = method === 'log' || method === 'info' ? 'info' : method;
     console[method] = (...args: unknown[]) => {
-      originalConsole[method](...args);
+      originalConsole[method](...args.map(formatArg));
       try {
         emit(level, args);
       } catch {

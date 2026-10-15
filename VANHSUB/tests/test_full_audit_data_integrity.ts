@@ -1,0 +1,84 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
+
+async function main() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'vanhsub-data-integrity-'));
+  const tmpdir = os.tmpdir;
+  os.tmpdir = () => root;
+  process.env.VANHSUB_TASKS_DIR = path.join(root, 'tasks');
+  process.env.VANHSUB_SETTINGS_DIR = path.join(root, 'settings');
+  process.env.VANHSUB_AI_STUDIO_DIR = path.join(root, 'studio');
+  const pause = () => new Promise(resolve => setTimeout(resolve, 20));
+  try {
+    const { TaskStore } = await import('../main/store/taskStore');
+    const { SettingsStore } = await import('../main/store/settingsStore');
+    const { getOrCreateProjectDir } = await import('../main/utils/projectFolder');
+    const { WorkflowStorageManager } = await import('../main/workflow/WorkflowStorageManager');
+    const { WorkflowExecutionEngine } = await import('../main/workflow/executionEngine');
+    const { launchTaskOperation, reserveTaskOperation, isTaskOperationActive } = await import('../main/lib/taskLease');
+    const exportDir = path.join(root, 'export'); fs.mkdirSync(exportDir);
+    SettingsStore.set('exportDir', exportDir);
+    const a = TaskStore.create({ fileName: 'clip.mp4', filePath: path.join(root, 'a', 'clip.mp4') });
+    const b = TaskStore.create({ fileName: 'clip.mp4', filePath: path.join(root, 'b', 'clip.mp4') });
+    assert.notEqual(getOrCreateProjectDir(a), getOrCreateProjectDir(b));
+    const pinned = getOrCreateProjectDir(TaskStore.getById(a.id)!);
+    TaskStore.update(b.id, { projectDir: pinned });
+    assert.throws(() => getOrCreateProjectDir(TaskStore.getById(a.id)!), /dùng chung/);
+    TaskStore.update(b.id, { projectDir: undefined });
+    const storage = WorkflowStorageManager.getInstance();
+    assert.throws(() => storage.getWorkflowTempDir('../escape'), /ID workflow/);
+    let entered!: () => void, release!: () => void;
+    const started = new Promise<void>(resolve => { entered = resolve; });
+    const waiting = new Promise<void>(resolve => { release = resolve; });
+    const engine = new WorkflowExecutionEngine();
+    let context: any;
+    (engine as any).executeSingleNode = async (_node: any, _inputs: any, ctx: any) => { context = ctx; fs.writeFileSync(path.join(ctx.tempDir, 'active.txt'), 'in flight'); entered(); await waiting; return { out: 'done' }; };
+    const graph = { id: 'protected-job', name: 'Test', nodes: [{ id: 'node', data: { nodeType: 'text-prompt', category: 'input', label: 'Test', config: {} } }], edges: [] };
+    const running = engine.executeNode(graph, 'node', () => {});
+    await started;
+    engine.cancel(graph.id);
+    assert.equal(context.isCancelled(), true, 'Single-node execution must observe Cancel');
+    await assert.rejects(() => engine.execute(graph, () => {}), /chưa dừng hẳn/);
+    await pause(); await storage.cleanupOldTempFiles(0);
+    assert.ok(fs.existsSync(path.join(context.tempDir, 'active.txt')));
+    release(); assert.equal((await running).success, false);
+    await pause(); await storage.cleanupOldTempFiles(0);
+    assert.equal(fs.existsSync(context.tempDir), false);
+    let resolveTask!: () => void;
+    const taskWait = new Promise<void>(resolve => { resolveTask = resolve; });
+    let errors = 0;
+    const work = launchTaskOperation('leased', () => taskWait, () => { errors++; });
+    assert.throws(() => reserveTaskOperation('leased'), /đang xử lý/);
+    assert.equal(isTaskOperationActive('leased'), true);
+    resolveTask(); await work;
+    assert.equal(isTaskOperationActive('leased'), false);
+    await launchTaskOperation('rejected', async () => { throw new Error('expected runner error'); }, () => { errors++; });
+    assert.equal(errors, 1);
+    assert.equal(isTaskOperationActive('rejected'), false);
+    for (let index = 0; index < 1000; index++) { const unlock = reserveTaskOperation('repeat'); unlock(); unlock(); }
+    assert.equal(isTaskOperationActive('repeat'), false);
+    const project = path.join(root, 'retained'); fs.mkdirSync(project);
+    const oldSrt = path.join(project, 'original.srt'), translated = path.join(project, 'translated.srt'), merged = path.join(project, 'old.mp3'), audioDir = path.join(project, 'tts_audio');
+    fs.mkdirSync(audioDir); fs.writeFileSync(path.join(audioDir, '1.mp3'), 'old line audio'); fs.writeFileSync(merged, 'old merged audio');
+    fs.writeFileSync(oldSrt, 'invalid subtitle fixture'); fs.writeFileSync(translated, 'old translation');
+    const task = TaskStore.create({ fileName: 'missing.mp4', filePath: path.join(root, 'missing.mp4'), projectDir: project, srtPath: oldSrt, translatedSrtPath: translated, ttsAudioDir: audioDir, ttsMergedAudioPath: merged, targetLanguage: 'vi' });
+    TaskStore.update(task.id, { ttsMergedAudioPath: merged });
+    const { TranslateRunner } = await import('../main/translate/translateRunner');
+    await TranslateRunner.runTranslate(task.id, 'en');
+    assert.equal(TaskStore.getById(task.id)!.translatedSrtPath, translated);
+    assert.equal(TaskStore.getById(task.id)!.targetLanguage, 'vi');
+    assert.equal(fs.readFileSync(path.join(audioDir, '1.mp3'), 'utf8'), 'old line audio');
+    const { TaskRunner } = await import('../main/asr/taskRunner');
+    await TaskRunner.runTask(task.id);
+    assert.equal(TaskStore.getById(task.id)!.srtPath, oldSrt);
+    assert.equal(TaskStore.getById(task.id)!.ttsMergedAudioPath, merged);
+    assert.equal(fs.readFileSync(merged, 'utf8'), 'old merged audio');
+    console.log('PASS: distinct projects, legacy collision guard, active cleanup leases after Cancel, task exclusion/error observation and failure-preserved artifacts');
+  } finally {
+    os.tmpdir = tmpdir;
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+main().catch(error => { console.error(error); process.exitCode = 1; });

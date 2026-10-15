@@ -1,6 +1,6 @@
+import { handleRendererIpc } from '../security/ipc';
 import path from 'path';
 import os from 'os';
-import { ipcMain } from 'electron';
 import { WorkflowExecutionEngine, type WorkflowGraphData } from './executionEngine';
 import type { WorkflowNodeEvent } from './types';
 import { BibleStore, type CharacterProfile, type SceneProfile } from '../store/bibleStore';
@@ -12,7 +12,7 @@ const engine = new WorkflowExecutionEngine();
 
 export function registerWorkflowIpc(): void {
   // Workflow Engine Execution
-  ipcMain.handle('workflow:run', async (event, graph: WorkflowGraphData) => {
+  handleRendererIpc('workflow:run', async (event, graph: WorkflowGraphData) => {
     const webContents = event.sender;
 
     return engine.execute(graph, (nodeEvent: WorkflowNodeEvent) => {
@@ -26,7 +26,7 @@ export function registerWorkflowIpc(): void {
     });
   });
 
-  ipcMain.handle('workflow:runNode', async (event, graph: WorkflowGraphData, nodeId: string) => {
+  handleRendererIpc('workflow:runNode', async (event, graph: WorkflowGraphData, nodeId: string) => {
     const webContents = event.sender;
 
     return engine.executeNode(graph, nodeId, (nodeEvent: WorkflowNodeEvent) => {
@@ -40,13 +40,13 @@ export function registerWorkflowIpc(): void {
     });
   });
 
-  ipcMain.handle('workflow:cancel', async (_event, workflowId: string) => {
+  handleRendererIpc('workflow:cancel', async (_event, workflowId: string) => {
     engine.cancel(workflowId);
     return true;
   });
 
   // QC Frame Comparison
-  ipcMain.handle(
+  handleRendererIpc(
     'workflow:compareFrames',
     async (_event, frameAPath: string, frameBPath: string, config?: QcConfig) => {
       return QcEngine.evaluate(frameAPath, frameBPath, config);
@@ -54,7 +54,7 @@ export function registerWorkflowIpc(): void {
   );
 
   // Timeline Video Processing
-  ipcMain.handle(
+  handleRendererIpc(
     'workflow:concatClips',
     async (_event, clipPaths: string[], outPath?: string, options?: { effect?: string; duration?: number }) => {
       const dest = outPath || path.join(os.tmpdir(), `master_timeline_${Date.now()}.mp4`);
@@ -62,48 +62,48 @@ export function registerWorkflowIpc(): void {
     }
   );
 
-  ipcMain.handle('workflow:getVideoDuration', async (_event, videoPath: string) => {
+  handleRendererIpc('workflow:getVideoDuration', async (_event, videoPath: string) => {
     return VideoProcessor.getVideoDuration(videoPath);
   });
 
   // Character Bible
-  ipcMain.handle('bible:getCharacters', async () => {
+  handleRendererIpc('bible:getCharacters', async () => {
     return BibleStore.getCharacters();
   });
 
-  ipcMain.handle(
+  handleRendererIpc(
     'bible:saveCharacter',
     async (_event, profile: Partial<CharacterProfile> & { name: string }) => {
       return BibleStore.saveCharacter(profile);
     }
   );
 
-  ipcMain.handle('bible:deleteCharacter', async (_event, id: string) => {
+  handleRendererIpc('bible:deleteCharacter', async (_event, id: string) => {
     return BibleStore.deleteCharacter(id);
   });
 
   // Scene Bible
-  ipcMain.handle('bible:getScenes', async () => {
+  handleRendererIpc('bible:getScenes', async () => {
     return BibleStore.getScenes();
   });
 
-  ipcMain.handle(
+  handleRendererIpc(
     'bible:saveScene',
     async (_event, profile: Partial<SceneProfile> & { name: string }) => {
       return BibleStore.saveScene(profile);
     }
   );
 
-  ipcMain.handle('bible:deleteScene', async (_event, id: string) => {
+  handleRendererIpc('bible:deleteScene', async (_event, id: string) => {
     return BibleStore.deleteScene(id);
   });
 
   // Storage Garbage Collector
-  ipcMain.handle('workflow:getTempStorageStats', async () => {
+  handleRendererIpc('workflow:getTempStorageStats', async () => {
     return WorkflowStorageManager.getInstance().getStorageStats();
   });
 
-  ipcMain.handle('workflow:cleanTempCache', async (_event, maxAgeHours?: number) => {
+  handleRendererIpc('workflow:cleanTempCache', async (_event, maxAgeHours?: number) => {
     return WorkflowStorageManager.getInstance().cleanupOldTempFiles(maxAgeHours ?? 0);
   });
 
