@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { SettingsStore } from '../store/settingsStore';
@@ -10,7 +11,7 @@ export function sanitizeFolderName(rawName: string): string {
   return rawName
     .replace(/[\\/:*?"<>|]/g, '_')
     .replace(/\s+/g, ' ')
-    .trim();
+    .trim().replace(/[. ]+$/g, '').slice(0, 140);
 }
 
 /**
@@ -19,6 +20,10 @@ export function sanitizeFolderName(rawName: string): string {
  */
 export function getOrCreateProjectDir(task: Task | { id: string; filePath: string; fileName: string; projectDir?: string }): string {
   if (task.projectDir && fs.existsSync(task.projectDir)) {
+    const target = fs.realpathSync(task.projectDir).toLowerCase();
+    if (!fs.statSync(task.projectDir).isDirectory()) throw new Error('Đường dẫn dự án không phải thư mục.');
+    const conflict = TaskStore.getAll().some(other => other.id !== task.id && other.projectDir && fs.existsSync(other.projectDir) && fs.realpathSync(other.projectDir).toLowerCase() === target);
+    if (conflict) throw new Error('Hai tác vụ đang dùng chung thư mục dự án cũ. Hãy tạo dự án mới để giữ nguyên dữ liệu.');
     return task.projectDir;
   }
 
@@ -34,7 +39,8 @@ export function getOrCreateProjectDir(task: Task | { id: string; filePath: strin
     parentDir = exportDirSetting;
   }
 
-  const projectDir = path.join(parentDir, `${cleanBase}_vanhsub`);
+  const identity = crypto.createHash('sha256').update(task.id || path.resolve(task.filePath)).digest('hex').slice(0, 12);
+  const projectDir = path.join(parentDir, `${cleanBase || 'video'}_${identity}_vanhsub`);
   if (!fs.existsSync(projectDir)) {
     fs.mkdirSync(projectDir, { recursive: true });
   }

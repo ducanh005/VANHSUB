@@ -1,3 +1,4 @@
+import { nextAvailablePath } from '../lib/paths';
 import fs from 'fs';
 import { TaskStore, type Task } from '../store/taskStore';
 import { SettingsStore } from '../store/settingsStore';
@@ -42,33 +43,11 @@ export class TranslateRunner {
     const targetLang = targetLanguage || task.targetLanguage || SettingsStore.get('targetLanguage') || 'vi';
 
     try {
-      // F-STATE-02: Dọn dẹp tệp âm thanh TTS cũ và file tổng hợp trên đĩa khi dịch lại
-      if (task.ttsAudioDir && fs.existsSync(task.ttsAudioDir)) {
-        try {
-          fs.rmSync(task.ttsAudioDir, { recursive: true, force: true });
-        } catch (err: any) {
-          console.warn(`[TranslateRunner] Không thể xoá thư mục TTS cũ (${task.ttsAudioDir}):`, err?.message || err);
-        }
-      }
-
-      if (task.ttsMergedAudioPath && fs.existsSync(task.ttsMergedAudioPath)) {
-        try {
-          fs.unlinkSync(task.ttsMergedAudioPath);
-        } catch (err: any) {
-          console.warn(`[TranslateRunner] Không thể xoá file MP3 tổng hợp cũ (${task.ttsMergedAudioPath}):`, err?.message || err);
-        }
-      }
-
       TaskStore.update(taskId, {
         status: 'translating',
         progress: 0,
         targetLanguage: targetLang,
         stageDescription: 'Đang khởi tạo dịch thuật AI...',
-        translatedSrtPath: undefined,
-        ttsAudioDir: undefined,
-        ttsMergedAudioPath: undefined,
-        ttsOverruns: undefined,
-        outputPath: undefined,
       });
       onUpdate?.();
 
@@ -85,7 +64,9 @@ export class TranslateRunner {
         () => this.cancelledTasks.has(taskId)
       );
 
-      const { translatedSrtPath: expectedPath, projectDir } = getProjectArtifactPaths(task);
+      if (this.cancelledTasks.has(taskId)) throw new CancelledError();
+      const { translatedSrtPath: preferredPath, projectDir } = getProjectArtifactPaths(task);
+      const expectedPath = nextAvailablePath(preferredPath);
       let finalTranslated = rawTranslatedPath;
       if (fs.existsSync(rawTranslatedPath) && rawTranslatedPath !== expectedPath) {
         try {
@@ -107,6 +88,8 @@ export class TranslateRunner {
       const updated = TaskStore.update(taskId, {
         status: 'done',
         progress: 100,
+        ttsAudioDir: undefined, ttsMergedAudioPath: undefined, ttsOverruns: undefined, outputPath: undefined,
+        errorMessage: undefined,
         projectDir,
         translatedSrtPath: finalTranslated,
         stageDescription: 'Đã hoàn tất dịch phụ đề vào thư mục dự án',
@@ -119,6 +102,7 @@ export class TranslateRunner {
         console.log(`Người dùng đã huỷ dịch task ${taskId}`);
         const updated = TaskStore.update(taskId, {
           status: 'cancelled',
+          targetLanguage: task.targetLanguage,
           stageDescription: 'Đã huỷ dịch thuật',
         });
         onUpdate?.();
@@ -127,6 +111,7 @@ export class TranslateRunner {
       console.error(`Lỗi khi dịch thuật task ${taskId}:`, err);
       const updated = TaskStore.update(taskId, {
         status: 'error',
+        targetLanguage: task.targetLanguage,
         errorMessage: err.message || 'Lỗi không xác định khi dịch thuật',
         stageDescription: 'Thất bại khi dịch thuật',
       });

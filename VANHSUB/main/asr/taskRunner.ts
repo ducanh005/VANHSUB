@@ -1,3 +1,4 @@
+import { nextAvailablePath } from '../lib/paths';
 import fs from 'fs';
 import { TaskStore, type Task } from '../store/taskStore';
 import { SettingsStore } from '../store/settingsStore';
@@ -102,29 +103,16 @@ export class TaskRunner {
     try {
       const { projectDir, audioWavPath, rawSrtPath } = getProjectArtifactPaths(task);
 
-      // Phase 2 State Invalidation: Xóa các artifact downstream cũ khi bắt đầu nhận diện lại
-      if (task.ttsAudioDir && fs.existsSync(task.ttsAudioDir)) {
-        try {
-          fs.rmSync(task.ttsAudioDir, { recursive: true, force: true });
-        } catch {}
-      }
-
       // Giai đoạn 1: Chuẩn bị & trích xuất audio 16kHz vào thư mục dự án
       TaskStore.update(taskId, {
         status: 'transcribing',
         progress: 10,
         projectDir,
         stageDescription: 'Đang trích xuất audio vào thư mục dự án...',
-        srtPath: undefined,
-        translatedSrtPath: undefined,
-        ttsAudioDir: undefined,
-        ttsMergedAudioPath: undefined,
-        outputPath: undefined,
-        ttsOverruns: undefined,
       });
       onUpdate?.();
 
-      const { wavPath } = await extract16kHzWav(task.filePath, audioWavPath, (percent) => {
+      const { wavPath } = await extract16kHzWav(task.filePath, nextAvailablePath(audioWavPath), (percent) => {
         TaskStore.update(taskId, {
           progress: 10 + Math.round(percent * 0.2), // 10% -> 30%
         });
@@ -176,12 +164,14 @@ export class TaskRunner {
       });
 
       // Chuẩn hoá file phụ đề về [cleanBase].srt trong projectDir
+      if (this.cancelledTasks.has(taskId)) throw new CancelledError();
+      const committedSrtPath = nextAvailablePath(rawSrtPath);
       let finalSrt = result.srtPath;
-      if (fs.existsSync(result.srtPath) && result.srtPath !== rawSrtPath) {
+      if (fs.existsSync(result.srtPath) && result.srtPath !== committedSrtPath) {
         try {
-          fs.copyFileSync(result.srtPath, rawSrtPath);
+          fs.copyFileSync(result.srtPath, committedSrtPath);
           fs.unlinkSync(result.srtPath);
-          finalSrt = rawSrtPath;
+          finalSrt = committedSrtPath;
         } catch {
           // nếu lỗi thì dùng result.srtPath
         }
@@ -207,6 +197,8 @@ export class TaskRunner {
       TaskStore.update(taskId, {
         status: 'done',
         progress: 100,
+        translatedSrtPath: undefined, ttsAudioDir: undefined, ttsMergedAudioPath: undefined, ttsOverruns: undefined, outputPath: undefined,
+        errorMessage: undefined,
         srtPath: finalSrt,
         asrEngine: result.engineUsed,
         speakers: result.speakers,

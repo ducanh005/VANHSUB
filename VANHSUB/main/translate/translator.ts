@@ -1,3 +1,4 @@
+import { nextAvailablePath } from '../lib/paths';
 import fs from 'fs';
 import path from 'path';
 import { jsonrepair } from 'jsonrepair';
@@ -1084,7 +1085,7 @@ export async function translateSrtFile(
 
   const srtDir = path.dirname(srtPath);
   const srtBasename = path.basename(srtPath, '.srt');
-  const translatedSrtPath = path.join(srtDir, `${srtBasename}.translated.srt`);
+  const translatedSrtPath = nextAvailablePath(path.join(srtDir, `${srtBasename}.translated.srt`));
 
   fs.writeFileSync(translatedSrtPath, serializeSrt(finalLines), 'utf-8');
 

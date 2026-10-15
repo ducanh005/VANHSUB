@@ -1,3 +1,4 @@
+import { createBridgeSocketServer } from '../../../security/bridgeTransport';
 /**
  * FlowBridgeServer.ts
  *
@@ -328,7 +329,7 @@ export class FlowBridgeServer {
     this.port = port;
 
     try {
-      this.wss = new WebSocketServer({ port: this.port, host: '127.0.0.1' });
+      this.wss = createBridgeSocketServer(this.port);
       this.attachServerHandlers(this.wss, this.port, true);
     } catch (err: any) {
       console.error('[FlowBridgeServer] ❌ Không thể khởi động WebSocket Server chính:', err.message);
@@ -337,7 +338,7 @@ export class FlowBridgeServer {
     const backupPort = this.port === 8765 ? 9222 : 8765;
     if (!this.secondaryWss) {
       try {
-        this.secondaryWss = new WebSocketServer({ port: backupPort, host: '127.0.0.1' });
+        this.secondaryWss = createBridgeSocketServer(backupPort);
         this.attachServerHandlers(this.secondaryWss, backupPort, false);
       } catch (err: any) {
         console.warn(`[FlowBridgeServer] Không thể mở cổng phụ ${backupPort}:`, err.message);
