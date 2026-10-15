@@ -1,0 +1,6 @@
+{
+  "source": "final integrated application source, SHA256 verified against isolated build",
+  "main": { "command": "node node_modules/typescript/bin/tsc --noEmit --incremental false", "exitCode": 0 },
+  "renderer": { "command": "node node_modules/typescript/bin/tsc --noEmit --incremental false -p renderer/tsconfig.json", "exitCode": 0 },
+  "dependencies": "own clean npm ci in integration build workspace"
+}

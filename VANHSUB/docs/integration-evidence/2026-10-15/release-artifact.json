@@ -1,0 +1,8 @@
+{
+  "installer": "VANHSUB Setup 1.0.0.exe",
+  "bytes": 172510930,
+  "sha256": "6E623490BFBDCA34E0A5EE9C9A04264334F3CA735F63712CFDD56E55D58FE0FD",
+  "authenticodeStatus": "NotSigned",
+  "cleanWindowsInstallation": "NOT TESTED",
+  "host": "development host, isolated dependencies and profile"
+}

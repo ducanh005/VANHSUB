@@ -1,30 +1,31 @@
-# VANHSUB — Risk register, 2026-10-15
+# VANHSUB — Risk register after integration, 2026-10-15
 
-Baseline `df9d768`, branch `codex/full-audit-20261015`. Mức P0/P1 của lỗi đã sửa không có nghĩa audit đã chứng minh không còn lỗi cùng lớp. FIXED = bản vá và kiểm thử ghi rõ trong report; OPEN = chưa xử lý/kiểm chứng đủ; BLOCKED = cần điều kiện ngoài hiện tại.
+Source: `codex/integration-stabilization-20261015`, descendant `origin/main=899088f`. FIXED = source fix + scoped regression evidence; PARTIAL = còn acceptance/risk; NOT TESTED không có nghĩa chức năng đã lỗi. [F01–F16 source verification](CODEX_FULL_AUDIT_REPORT.md), [evidence](integration-evidence/2026-10-15/README.md).
 
-| ID | Mức | Trạng thái | Rủi ro / nguồn | Hành động và điều kiện đóng |
-|---|---|---|---|---|
-| F01–F04 | P0 | FIXED | Collision project/episode, cleanup đang chạy, destructive atomic fallback | Test FS/identity/deferred node/EPERM PASS; legacy conflict chủ động chặn, không migrate tự động |
-| F05–F08 | P1 | FIXED có giới hạn | IPC trust, shell URL, path validation, website WebSocket, job overlap | Security handshake/guard tests và task leases PASS; còn R05/R07 |
-| F09–F12 | P1 | FIXED có giới hạn | Rerun mất output; session approve/cancel; fabricated script scores; stale script media | Offline regression PASS; chưa chứng nhận full provider paths và mọi edit path |
-| F13 | P2 | FIXED | Orphan running checkpoint sau restart | Load báo failed, không tự chạy lại provider; true OS crash vẫn R04 |
-| F14–F15 | P1 | FIXED có giới hạn | Duration giả5s; logger raw secrets/broadcast | Invalid probe reject; redaction synthetic keys/Bearer/query + trusted app log sink; arbitrary unlabelled secret vẫn có thể lọt |
-| F16 | P1 | FIXED IN SOURCE | CreateNew chọn tab nền thủ công do chỉ bảo vệ active | Manifest1.0.7 + VM regression PASS; extension đang chạy1.0.6 chưa có patch |
-| R01 | P1 | BLOCKED / DEFERRED BY USER | Flow production path chưa live | Origin handshake với MV3 v1.0.6 PASS; CDP9224 chưa có. Người dùng chọn tạm ghi live chưa hoàn tất. Cần nạp1.0.7/dedicated CDP rồi test bounded I2V/T2V/provenance/cancel |
-| R02 | P1 | PARTIAL | Native/download/package/installer portability | Clean-dependency unpacked package + actual EXE UI/restart và3binary smoke PASS cùng host; junction package FAIL. Installer/Windows sạch, inference/Python/fonts và signing vẫn chưa đạt |
-| R03 | P1 | OPEN | Engine resume và script IPC đọc global config thay snapshot; owner profile chưa dùng nhất quán | `AiStudioPipelineEngine.runPipelineLoop`, `ipc.ts` script handlers; pin nonsecret config per session, credential routing độc lập; test đổi active project/provider khi pause |
-| R04 | P1 | OPEN / NOT TESTED | Không có shutdown coordinator rõ trong `main.ts`; FFmpeg/Python/browser/WS/timer có vòng đời riêng | Quit giữa từng job; chứng minh chỉ terminate process app sở hữu, settle/cancel, không zombie; soak nhiều giờ |
-| R05 | P1 | OPEN | Secret encryption fail-open/plaintext/base64 | `settingsStore.encryptSecret`, `aiStudioStore.encryptSecret`; fail closed khi production không có DPAPI, migration/backup/error UX; không làm mất key cũ |
-| R06 | P1 | OPEN | npm production audit9high | JSON evidence; triage reachability từng advisory, cập nhật nhỏ với lock/native/provider regression; không audit-fix blanket |
-| R07 | P2 | OPEN | WebSocket chỉ lọc dạng Origin extension, chưa pairing; native attacker giả được Origin | Pairing/extension identity + replay/request binding; real MV3 v1.0.6 reconnect/handshake PASS; loopback/maxPayload đã có |
-| R08 | P2 | OPEN | `vanhmedia` resolve path rộng, relative fallback theo activeProject, CSP chưa rõ | Capability/owner-based media lookup; test same-name cross-project media, deny nonmedia/outside grant; CSP static Next tương thích |
-| R09 | P2 | OPEN | Một số output AI Studio vẫn dùng tên cố định trong một episode; revision và rollback chưa phủ mọi stage | Version toàn bộ voice/timeline/export writes hoặc staged commit; lỗi/cancel phải giữ bản usable cũ; F03 chỉ cách ly giữa episodes |
-| R10 | P2 | NOT TESTED | TTS grouped regeneration, thuật toán alignment và audio sync nghe thực | Test đổi một dòng trong sentence group, nhiều speakers, silence, speech dài, slot overlap; waveform và nghe đối chiếu, không chỉ tồn tại file |
-| R11 | P2 | NOT TESTED | UI loading/cancel/error có thể chưa phản ánh jobActive mới | Smoke navigation PASS không thay full user flows; stress click, modal, settings conflict, empty/error states ở nhiều kích thước |
-| R12 | P2 | NOT TESTED | Model/provider lifecycle và cost tracking | 0live generations; diagnostics hiện readiness không chứng minh quota/LLM output; kiểm thử rate limit/retry/cost thật có budget |
-| R13 | P2 | OPEN | Legacy live runner chọn page/gallery `.first()` có thể nhầm tab/media | Không dùng mù. New owned page/project, snapshot tab IDs before/after, exact request/media IDs, không thao tác tab cá nhân |
-| R14 | P2 | OPEN | Checkpoint workspace và catalog là hai atomic file, không phải transaction chung | Crash ở giữa2writes: reconcile theo ID/version/updatedAt; test hỏng một bản, write failure và disk full; không mất bản tốt |
-| R15 | P3 | OPEN | Cycles, engine/IPC lớn, duplicate abstraction, model options/UI badges | Xác minh runtime/type cycles và callgraph; không xóa file chỉ thiếu inboundimport. Refactor nhỏ sau acceptance |
-| R16 | P1 | OPEN | Local main và GitHub main phân kỳ27/5 | Review/hợp nhất cả hai lịch sử trong thay đổi riêng; không push đè main, không coi branch audit là descendant remote main |
+| ID | Mức | Trạng thái hiện tại | Bằng chứng và việc còn lại |
+|---|---|---|---|
+| F01–F04 | P0 | FIXED, verified after integration | Unique project allocation/legacy collision/active node cleanup/pinned episodes/atomic rename regression PASS. Không tự migrate legacy conflict; R14 còn mở |
+| F05–F08 | P1 | FIXED trong phạm vi đã kiểm tra | IPC trust/shell-free Chrome/path/WS Origin/shared leases PASS; real foreign-window IPC deny PASS. Chưa có full payload schemas/pairing/media grants |
+| F09–F12 | P1 | FIXED trong phạm vi đã kiểm tra | Giữ outputs khi fail, UUID TTS/cache/groups, abort-aware session leases, strict script provider contracts, productionRevision invalidation PASS; live provider chưa nghiệm thu |
+| F13 | P2 | FIXED, fixture verified | Orphan running checkpoint thành recoverable. Restart packaged task/project/settings PASS; crash giữa job chưa chạy |
+| F14–F15 | P1 | FIXED trong phạm vi đã kiểm tra | Reject fake duration; giữ word alignment; synthetic secret redaction và trusted log sink PASS; không bảo đảm phát hiện mọi secret không nhãn |
+| F16 | P1 | FIXED IN SOURCE / LIVE NOT VERIFIED | Extension1.0.7 fresh owned tab, background user tab protection; VM tests PASS. Chưa xác nhận extension đang chạy đã nạp patch |
+| R01 | P1 | BLOCKED / DEFERRED BY USER | Chưa có Flow live an toàn trên dedicated CDP9224/extension đã vá. Audit trước chỉ handshake1.0.6, user chọn tạm ghi nhận.0 generation. Cần bounded I2V/T2V/provenance/download/cancel/export |
+| R02 | P1 | PARTIAL | Clean-dependency full production/NSIS build PASS, unpacked EXE/UI/restart PASS,3 native binaries smoke và Whisper inference PASS cùng host. Installer Windows sạch/VM, Python/OCR/stems/fonts, signing chưa nghiệm thu; final installer NotSigned |
+| R03 | P1 | FIXED IN SOURCE / PARTIAL ACCEPTANCE | Giữ remote config snapshot/owner/revision và script IPC getSessionConfig; thêm stale project start guard. Session config/isolation/project-switch tests PASS. Chưa nghiệm thu mọi provider credential/profile route live và legacy owner migration |
+| R04 | P1 | PARTIAL / ESSENTIAL OPEN GATE | Real Whisper/FFmpeg cancel cho child thoát, partial dọn, bản tốt giữ; ordinary close4 PID thoát;180s idle không chứng minh leak. Chưa có shutdown coordinator phủ mọi job; quit/kill giữa OCR/TTS/browser/workflow và multi-hour soak NOT TESTED |
+| R05 | P1 | NEW SECRET WRITES FIXED / LEGACY OPEN | Default fail closed khi DPAPI unavailable/encrypt lỗi; packaged Windows ciphertext/restart decrypt PASS bằng synthetic key. Legacy plaintext/base64 vẫn đọc được; migration/rotation/backup/error UX cần acceptance, không xóa key cũ |
+| R06 | P1 | PARTIAL,5HIGH REMAIN | Bốn bounded version updates, clean npm ci/full native build/axios regression PASS; audit9→5 High/0 Critical. Còn braces→micromatch→fast-glob→shelljs→nodejs-whisper; chưa có upstream braces patch theo advisory ngày kiểm tra. Main ASR spawn CLI trực tiếp, không tìm thấy import JS wrapper; chưa đóng toàn bộ reachability/supply-chain risk. Không downgrade Whisper mù |
+| R07 | P2 | OPEN | WS loopback/Origin/maxPayload có; native local client giả Origin được, chưa pairing/extension identity/replay binding. Cần pairing token lifecycle và reconnect compatibility với extension thật |
+| R08 | P2 | PARTIAL | CSP production hash scripts, no unsafe-eval/inline script, Chromium enforcement PASS. vanhmedia path grant còn rộng/relative fallback theo activeProject; HTTPS/style/loopback còn cho phép. Cần capability/owner manifest và per-channel IPC payload validation |
+| R09 | P2 | PARTIAL | Giữ remote productionRevision/revision directories và invalidation; script/media/group-regeneration/export failure preservation PASS. Chưa chứng nhận mọi provider write/retry/crash path có rollback đúng |
+| R10 | P2 | PARTIAL / LIVE NOT TESTED | Group TTS regen, cache, timing adaptation, word-boundary mocks, FFmpeg audio/subtitle fixtures PASS. Cần nhiều speaker/language và nghe đối chiếu provider thật; policy PASS không chứng minh semantic/audio quality |
+| R11 | P2 | PARTIAL | Packaged6 route navigation, settings persistence, editor1.000 dòng/task/project restart PASS; screenshot kiểm tra. Error/loading/cancel/modal/multi-window/multiple screen sizes chưa đủ |
+| R12 | P2 | NOT TESTED | Model/provider lifecycle, rate-limit/retry/cost và quota thật chưa chạy. Diagnostics/mock contracts không chứng minh live readiness |
+| R13 | P2 | OPEN | Legacy live harness có `.first()`/gallery/page fallback. Không dùng để nghiệm thu Flow. Cần owned test tab + request/media/project correlation, không điều khiển tab cá nhân |
+| R14 | P2 | OPEN | Workspace checkpoint và catalog là2 atomic files, chưa chung transaction. Cần interrupted-write reconciliation/version tie-break/disk-full/crash tests; không đánh đồng rename safety F04 với cross-file transaction |
+| R15 | P3 | OPEN | Engine/IPC lớn, cycles, abstraction trùng và UI badges. Refactor nhỏ theo callgraph sau acceptance; không xóa module/feature theo tên hay thiếu inbound import |
+| R16 | P1 | RECONCILED ON INTEGRATION BRANCH | Tất cả27 remote commits giữ bằng ancestry;5 local+5 audit được selective replay, tránh duplicate registry/snapshot regressions. Test/build tích hợp PASS; chưa merge main, chờ review theo yêu cầu. Exact mapping trong integration report |
+| R17 | P2 | CONFIRMED PERFORMANCE CONCERN | Final editor1.000 lines load3.412 ms;4 process total working set sample max1.483,13 MiB,30s sau còn838,47 MiB. Không gọi là leak; cần profile render/store/DOM, giới hạn bộ nhớ/virtualization thích hợp và đo input latency/large media nhiều giờ |
 
-Không ghi secrets trong register. Các mục chưa tái hiện bằng runtime được ghi là risk/NOT TESTED, không gọi là confirmed exploit hoặc memory leak.
+Các P0 xác nhận của audit có bản vá và regression trong source tích hợp; không tuyên bố không còn P0 chưa phát hiện. Release vẫn NOT READY do essential gates. Không lưu secret thật trong report/evidence.

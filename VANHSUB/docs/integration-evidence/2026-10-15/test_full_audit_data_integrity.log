@@ -1,0 +1,14 @@
+[WorkflowStorageManager] 🧹 Đã dọn dẹp: 0 thư mục, 0 files, giải phóng 0 MB.
+[WorkflowStorageManager] 🧹 Đã dọn dẹp: 1 thư mục, 0 files, giải phóng 0 MB.
+PASS: distinct projects, legacy collision guard, active cleanup leases after Cancel, task exclusion/error observation and failure-preserved artifacts
+Lỗi khi dịch thuật task 6a09c52f-5ab0-4deb-bcc9-ff2bdf136b27: Error: File SRT rỗng hoặc không có dòng phụ đề hợp lệ.
+    at translateSrtFile (D:\DEAN\DEAN\VANHSUB\temp\codex-integration-build-d4cc3874fab54b2d8ac41e9bd368f92b\main\translate\translator.ts:1076:11)
+    at TranslateRunner.runTranslate (D:\DEAN\DEAN\VANHSUB\temp\codex-integration-build-d4cc3874fab54b2d8ac41e9bd368f92b\main\translate\translateRunner.ts:56:62)
+    at main (D:\DEAN\DEAN\VANHSUB\temp\codex-integration-build-d4cc3874fab54b2d8ac41e9bd368f92b\tests\test_full_audit_data_integrity.ts:69:27)
+Lỗi khi xử lý task 6a09c52f-5ab0-4deb-bcc9-ff2bdf136b27: Error: Không tìm thấy file đầu vào: C:\Users\MTLS\AppData\Local\Temp\vanhsub-data-integrity-FLvD8x\missing.mp4
+    at <anonymous> (D:\DEAN\DEAN\VANHSUB\temp\codex-integration-build-d4cc3874fab54b2d8ac41e9bd368f92b\main\asr\audioExtractor.ts:98:21)
+    at new Promise (<anonymous>)
+    at extract16kHzWav (D:\DEAN\DEAN\VANHSUB\temp\codex-integration-build-d4cc3874fab54b2d8ac41e9bd368f92b\main\asr\audioExtractor.ts:96:10)
+    at TaskRunner.executeTask (D:\DEAN\DEAN\VANHSUB\temp\codex-integration-build-d4cc3874fab54b2d8ac41e9bd368f92b\main\asr\taskRunner.ts:115:33)
+    at TaskRunner.runTask (D:\DEAN\DEAN\VANHSUB\temp\codex-integration-build-d4cc3874fab54b2d8ac41e9bd368f92b\main\asr\taskRunner.ts:77:17)
+    at main (D:\DEAN\DEAN\VANHSUB\temp\codex-integration-build-d4cc3874fab54b2d8ac41e9bd368f92b\tests\test_full_audit_data_integrity.ts:74:22)

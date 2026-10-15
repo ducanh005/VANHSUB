@@ -1,0 +1,13 @@
+{
+  "classification": "REAL_RUNTIME_LOCAL_ASR",
+  "generationCount": 0,
+  "networkModelDownloads": 0,
+  "passes": [
+    "Actual TaskRunner extraction and packaged Whisper tiny inference produced ordered speech subtitles",
+    "Cancelled a real native Whisper job; all observed native child PIDs exited"
+  ],
+  "subtitleCount": 1,
+  "nativeChildren": 2,
+  "status": "PASS",
+  "elapsedMs": 5037
+}

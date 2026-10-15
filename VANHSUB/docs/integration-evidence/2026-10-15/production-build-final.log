@@ -1,0 +1,180 @@
+
+> vanhsub@1.0.0 build
+> npm run build:whisper-cpp && nextron build
+
+
+> vanhsub@1.0.0 build:whisper-cpp
+> cmake -S node_modules/nodejs-whisper/cpp/whisper.cpp -B node_modules/nodejs-whisper/cpp/whisper.cpp/build -DWHISPER_BUILD_EXAMPLES=ON -DWHISPER_BUILD_TESTS=OFF && cmake --build node_modules/nodejs-whisper/cpp/whisper.cpp/build --config Release --target whisper-cli --parallel 4
+
+-- Selecting Windows SDK version 10.0.26100.0 to target Windows 10.0.26200.
+-- Warning: ccache not found - consider installing it for faster compilation or disable this warning with GGML_CCACHE=OFF
+-- CMAKE_SYSTEM_PROCESSOR: AMD64
+-- CMAKE_GENERATOR_PLATFORM:
+-- GGML_SYSTEM_ARCH: x86
+-- Including CPU backend
+-- x86 detected
+-- Adding CPU backend variant ggml-cpu: /arch:AVX2 GGML_AVX2;GGML_FMA;GGML_F16C
+-- ggml version: 0.15.1
+-- ggml commit:  df9d768
+-- Configuring done (0.5s)
+-- Generating done (1.4s)
+-- Build files have been written to: D:/DEAN/DEAN/VANHSUB/temp/codex-integration-build-d4cc3874fab54b2d8ac41e9bd368f92b/node_modules/nodejs-whisper/cpp/whisper.cpp/build
+MSBuild version 18.9.1+a81b43525 for .NET Framework
+
+  1>Checking Build System
+  ggml-base.vcxproj -> D:\DEAN\DEAN\VANHSUB\temp\codex-integration-build-d4cc3874fab54b2d8ac41e9bd368f92b\node_modules\nodejs-whisper\cpp\whisper.cpp\build\bin\Release\ggml-base.dll
+  ggml-cpu.vcxproj -> D:\DEAN\DEAN\VANHSUB\temp\codex-integration-build-d4cc3874fab54b2d8ac41e9bd368f92b\node_modules\nodejs-whisper\cpp\whisper.cpp\build\bin\Release\ggml-cpu.dll
+  ggml.vcxproj -> D:\DEAN\DEAN\VANHSUB\temp\codex-integration-build-d4cc3874fab54b2d8ac41e9bd368f92b\node_modules\nodejs-whisper\cpp\whisper.cpp\build\bin\Release\ggml.dll
+  Auto build dll exports
+  whisper.vcxproj -> D:\DEAN\DEAN\VANHSUB\temp\codex-integration-build-d4cc3874fab54b2d8ac41e9bd368f92b\node_modules\nodejs-whisper\cpp\whisper.cpp\build\bin\Release\whisper.dll
+  common.vcxproj -> D:\DEAN\DEAN\VANHSUB\temp\codex-integration-build-d4cc3874fab54b2d8ac41e9bd368f92b\node_modules\nodejs-whisper\cpp\whisper.cpp\build\examples\Release\common.lib
+  whisper-cli.vcxproj -> D:\DEAN\DEAN\VANHSUB\temp\codex-integration-build-d4cc3874fab54b2d8ac41e9bd368f92b\node_modules\nodejs-whisper\cpp\whisper.cpp\build\bin\Release\whisper-cli.exe
+[nextron] Checking next config
+[nextron] Clearing previous builds
+[nextron] Building renderer process
+▲ Next.js 16.3.2 (Turbopack)
+✓ Running next.config.js took 15ms
+- Experiments (use with caution):
+  ✓ externalDir
+
+  Running TypeScript ...
+  Finished TypeScript in 5.9s ...
+  Creating an optimized production build ...
+✓ Compiled successfully in 3.4s
+  Collecting page data using 5 workers ...
+  Generating static pages using 5 workers (0/3) ...
+✓ Generating static pages using 5 workers (3/3) in 505ms
+  Finalizing page optimization ...
+  Exporting using 15 workers (0/3) ...
+✓ Exporting using 15 workers (3/3) in 494ms
+
+Route (pages)
+┌   /_app
+├ ○ /404
+└ ○ /home
+
+○  (Static)  prerendered as static content
+
+[nextron] Building main process
+asset preload.js 10.3 KiB [emitted] [minimized] (name: preload) 1 related asset
+orphan modules 42 bytes [orphan] 1 module
+./main/preload.ts + 1 modules 15.9 KiB [not cacheable] [built] [code generated]
+webpack 5.109.2 compiled successfully in 975 ms
+asset main.js 2 MiB [emitted] [minimized] (name: main) 2 related assets
+asset 962.js 8.39 KiB [emitted] [minimized] 1 related asset
+asset 757.js 6.73 KiB [emitted] [minimized] 1 related asset
+orphan modules 2.78 MiB [orphan] 348 modules
+runtime modules 3.97 KiB 8 modules
+built modules 4.87 MiB [built]
+  modules by path ./node_modules/ 1.39 MiB
+    javascript modules 1.25 MiB 113 modules
+    json modules 144 KiB
+      ./node_modules/systeminformation/package.json 1.45 KiB [built] [code generated]
+      ./node_modules/mime-db/db.json 143 KiB [built] [code generated]
+  modules by path ./main/ 3.48 MiB 29 modules
+  + 24 modules
+
+WARNING in ./node_modules/ws/lib/buffer-util.js 117:23-44
+Module not found: Error: Can't resolve 'bufferutil' in 'D:\DEAN\DEAN\VANHSUB\temp\codex-integration-build-d4cc3874fab54b2d8ac41e9bd368f92b\node_modules\ws\lib'
+ @ ./node_modules/ws/lib/sender.js 14:38-62
+ @ ./node_modules/ws/wrapper.mjs 5:0-37 10:0-19:2
+ @ ./main/workflow/flow-engine/rpc/FlowBridgeServer.ts 13:0-31 268:34-48 444:44-58 542:52-66 884:34-48
+ @ ./main/main.ts
+
+WARNING in ./node_modules/ws/lib/validation.js 144:24-49
+Module not found: Error: Can't resolve 'utf-8-validate' in 'D:\DEAN\DEAN\VANHSUB\temp\codex-integration-build-d4cc3874fab54b2d8ac41e9bd368f92b\node_modules\ws\lib'
+ @ ./node_modules/ws/lib/sender.js 13:38-61
+ @ ./node_modules/ws/wrapper.mjs 5:0-37 10:0-19:2
+ @ ./main/workflow/flow-engine/rpc/FlowBridgeServer.ts 13:0-31 268:34-48 444:44-58 542:52-66 884:34-48
+ @ ./main/main.ts
+
+WARNING in ./node_modules/systeminformation/lib/cpu.js 1565:26-59
+Module not found: Error: Can't resolve 'osx-temperature-sensor' in 'D:\DEAN\DEAN\VANHSUB\temp\codex-integration-build-d4cc3874fab54b2d8ac41e9bd368f92b\node_modules\systeminformation\lib'
+ @ ./node_modules/systeminformation/lib/index.js 28:12-28
+ @ ./main/main.ts 9:0-35 999:29-35 1000:26-32 1001:29-38
+
+WARNING in ./node_modules/systeminformation/lib/cpu.js 1583:28-63
+Module not found: Error: Can't resolve 'macos-temperature-sensor' in 'D:\DEAN\DEAN\VANHSUB\temp\codex-integration-build-d4cc3874fab54b2d8ac41e9bd368f92b\node_modules\systeminformation\lib'
+ @ ./node_modules/systeminformation/lib/index.js 28:12-28
+ @ ./main/main.ts 9:0-35 999:29-35 1000:26-32 1001:29-38
+
+WARNING in ./node_modules/systeminformation/lib/graphics.js 822:32-67
+Module not found: Error: Can't resolve 'macos-temperature-sensor' in 'D:\DEAN\DEAN\VANHSUB\temp\codex-integration-build-d4cc3874fab54b2d8ac41e9bd368f92b\node_modules\systeminformation\lib'
+ @ ./node_modules/systeminformation/lib/index.js 31:17-38
+ @ ./main/main.ts 9:0-35 999:29-35 1000:26-32 1001:29-38
+
+5 warnings have detailed information that is not shown.
+Use 'stats.errorDetails: true' resp. '--stats-error-details' to show it.
+
+webpack 5.109.2 compiled with 5 warnings in 10383 ms
+[nextron] Packaging - please wait a moment
+  • electron-builder  version=26.15.3 os=10.0.26200
+  • loaded configuration  file=D:\DEAN\DEAN\VANHSUB\temp\codex-integration-build-d4cc3874fab54b2d8ac41e9bd368f92b\electron-builder.yml
+  • executing @electron/rebuild  electronVersion=43.4.1 arch=x64 buildFromSource=false workspaceRoot=D:\DEAN\DEAN\VANHSUB\temp\codex-integration-build-d4cc3874fab54b2d8ac41e9bd368f92b projectDir=./ appDir=./
+  • installing native dependencies  arch=x64
+  • completed installing native dependencies
+  • packaging       platform=win32 arch=x64 electron=43.4.1 appOutDir=dist\win-unpacked
+  • downloaded      label=electron progress=100%
+  • downloaded electron zip extracted successfully  output=D:\DEAN\DEAN\VANHSUB\temp\codex-integration-build-d4cc3874fab54b2d8ac41e9bd368f92b\dist\win-unpacked
+  • searching for node modules  pm=npm searchDir=D:\DEAN\DEAN\VANHSUB\temp\codex-integration-build-d4cc3874fab54b2d8ac41e9bd368f92b
+  • duplicate dependency references  dependencies=["@types/react@19.2.18","@types/react@19.2.18","@radix-ui/react-primitive@2.1.10","@types/react@19.2.18","@types/react@19.2.18","@types/react@19.2.18","react-dom@19.2.8","@types/react@19.2.18","@radix-ui/react-primitive@2.1.10","@types/react@19.2.18","react-dom@19.2.8","@types/react@19.2.18","@radix-ui/react-primitive@2.1.10","@types/react@19.2.18","react-dom@19.2.8","@types/react@19.2.18","react-dom@19.2.8","@radix-ui/react-slot@1.3.3","@types/react@19.2.18","react-dom@19.2.8","@types/react@19.2.18","@radix-ui/react-use-effect-event@0.0.5","@types/react@19.2.18","@types/react@19.2.18","@types/react@19.2.18","@types/react@19.2.18","@types/react@19.2.18","react-style-singleton@2.2.3","@types/react@19.2.18","@types/react@19.2.18","@types/react@19.2.18","@jridgewell/trace-mapping@0.3.31","@types/react@19.2.18","@types/d3-interpolate@3.0.4","d3-drag@3.0.0","d3-interpolate@3.0.1","d3-interpolate@3.0.1","react-dom@19.2.8","@types/react@19.2.18","call-bind-apply-helpers@1.0.2","es-object-atoms@1.1.2","hasown@2.0.4","hasown@2.0.4","debug@4.4.3","ajv@8.20.0","type-fest@5.8.0","debug@4.4.3","jsonfile@6.2.1","axios@1.20.0","@types/react@19.2.18","react-dom@19.2.8","@types/react@19.2.18"]
+  • updating asar integrity executable resource  executablePath=dist\win-unpacked\VANHSUB.exe
+  • signing with signtool.exe  path=dist\win-unpacked\resources\whisper\whisper-cli.exe
+  • signing with signtool.exe  path=dist\win-unpacked\VANHSUB.exe
+  • signing with signtool.exe  path=dist\win-unpacked\resources\app.asar.unpacked\node_modules\nodejs-whisper\cpp\whisper.cpp\build\bin\Release\whisper-cli.exe
+  • signing with signtool.exe  path=dist\win-unpacked\resources\app.asar.unpacked\node_modules\nodejs-whisper\cpp\whisper.cpp\build\CMakeFiles\4.4.2\CompilerIdCXX\CompilerIdCXX.exe
+  • signing with signtool.exe  path=dist\win-unpacked\resources\app.asar.unpacked\node_modules\nodejs-whisper\cpp\whisper.cpp\build\CMakeFiles\4.4.2\CompilerIdC\CompilerIdC.exe
+  • signing with signtool.exe  path=dist\win-unpacked\resources\app.asar.unpacked\node_modules\@ffprobe-installer\win32-x64\ffprobe.exe
+  • signing with signtool.exe  path=dist\win-unpacked\resources\app.asar.unpacked\node_modules\@ffmpeg-installer\win32-x64\ffmpeg.exe
+  • building        target=nsis file=dist\VANHSUB Setup 1.0.0.exe archs=x64 oneClick=true perMachine=false
+  • signing with signtool.exe  path=dist\win-unpacked\resources\elevate.exe
+  • signing with signtool.exe  path=dist\VANHSUB Setup 1.0.0.__uninstaller.exe
+  • signing with signtool.exe  path=dist\VANHSUB Setup 1.0.0.exe
+  • building block map  blockMapFile=dist\VANHSUB Setup 1.0.0.exe.blockmap
+[nextron] See `dist` directory
+npm verbose cli C:\Program Files\nodejs\node.exe C:\Program Files\nodejs\node_modules\npm\bin\npm-cli.js
+npm info using npm@11.17.0
+npm info using node@v24.19.0
+npm verbose title npm run build
+npm verbose argv "run" "build"
+npm verbose logfile logs-max:10 dir:C:\Users\MTLS\AppData\Local\npm-cache\_logs\2026-10-15T11_26_43_420Z-
+npm verbose logfile C:\Users\MTLS\AppData\Local\npm-cache\_logs\2026-10-15T11_26_43_420Z-debug-0.log
+npm warn Unknown env config "msvs-version". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+npm verbose cli C:\Program Files\nodejs\node.exe C:\Program Files\nodejs\node_modules\npm\bin\npm-cli.js
+npm info using npm@11.17.0
+npm info using node@v24.19.0
+npm verbose title npm run build:whisper-cpp
+npm verbose argv "run" "build:whisper-cpp"
+npm verbose logfile logs-max:10 dir:C:\Users\MTLS\AppData\Local\npm-cache\_logs\2026-10-15T11_26_43_723Z-
+npm verbose logfile C:\Users\MTLS\AppData\Local\npm-cache\_logs\2026-10-15T11_26_43_723Z-debug-0.log
+npm warn Unknown env config "msvs-version". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+CMake Warning (deprecated) at CMakeLists.txt:1 (cmake_minimum_required):
+  Compatibility with CMake < 3.10 will be removed from a future version of
+  CMake.
+
+  Update the VERSION argument <min> value.  Or, use the <min>...<max> syntax
+  to tell CMake that the project requires at least <min> but has been updated
+  to work with policies introduced by <max> or earlier.
+This warning is for project developers.  Use -Wno-author or -Wno-deprecated
+to suppress it.
+
+npm verbose cwd D:\DEAN\DEAN\VANHSUB\temp\codex-integration-build-d4cc3874fab54b2d8ac41e9bd368f92b
+npm verbose os Windows_NT 10.0.26200
+npm verbose node v24.19.0
+npm verbose npm  v11.17.0
+npm verbose exit 0
+npm info ok
+(node:20732) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///D:/DEAN/DEAN/VANHSUB/temp/codex-integration-build-d4cc3874fab54b2d8ac41e9bd368f92b/renderer/next.config.js is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\D:\DEAN\DEAN\VANHSUB\temp\codex-integration-build-d4cc3874fab54b2d8ac41e9bd368f92b\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:20732) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///D:/DEAN/DEAN/VANHSUB/temp/codex-integration-build-d4cc3874fab54b2d8ac41e9bd368f92b/renderer/next.config.js is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\D:\DEAN\DEAN\VANHSUB\temp\codex-integration-build-d4cc3874fab54b2d8ac41e9bd368f92b\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+npm verbose cwd D:\DEAN\DEAN\VANHSUB\temp\codex-integration-build-d4cc3874fab54b2d8ac41e9bd368f92b
+npm verbose os Windows_NT 10.0.26200
+npm verbose node v24.19.0
+npm verbose npm  v11.17.0
+npm verbose exit 0
+npm info ok

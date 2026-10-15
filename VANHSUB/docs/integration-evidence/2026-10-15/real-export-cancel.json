@@ -1,0 +1,9 @@
+{
+  "classification": "REAL_RUNTIME_LOCAL_FFMPEG_CANCEL",
+  "generationCount": 0,
+  "status": "PASS",
+  "nativeWorkerObserved": true,
+  "nativeWorkerExited": true,
+  "previousArtifactPreserved": true,
+  "elapsedMs": 672
+}

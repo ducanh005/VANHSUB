@@ -1,54 +1,106 @@
-# VANHSUB — Test matrix, 2026-10-15
+# VANHSUB — Integration test matrix, 2026-10-15
 
-Source baseline `df9d768` + audit patches. Bằng chứng máy đọc: [regression.json](audit-evidence/2026-10-15/regression.json). Mỗi PASS chỉ có ý nghĩa trong phạm vi dưới đây.
+Source branch `codex/integration-stabilization-20261015`, based on `origin/main=899088f`. [Final offline results](integration-evidence/2026-10-15/regression-final.json), [evidence notes](integration-evidence/2026-10-15/README.md). PASS chỉ áp dụng phạm vi mô tả; không đếm suite/assertion thay thế coverage.
 
-| Test / command | Phân loại | Trạng thái | Xác minh / giới hạn |
-|---|---|---|---|
-| `node node_modules/typescript/bin/tsc --noEmit` | Static | PASS | Main types; không chứng minh runtime |
-| `.../tsc --noEmit -p renderer/tsconfig.json` | Static | PASS | Renderer types |
-| `test_srt_ocr_normalizer_and_translation` / `npm test` | Unit / mock integration | PASS38/38 | SRT/OCR cleanup/order/timestamp, translation response/error mocked; không live Gemini |
-| `test_video_processor_concat` | FFmpeg integration/regression | PASS | Tự tạo3clip4s, khác timebase→12.00s; reject invalid inputs |
-| `test_media_validator_ffmpeg_decoding` | FFmpeg integration | PASS10case | Ảnh/video tự tạo, decode thật và timeout/negative; không silent skip fixtures |
-| `test_timeline_export_duration_guard` | Render regression | PASS | Timeline mismatch reject; static/matching cases; freeze last frame→19.000s |
-| `test_project_media_isolation_regression` | FS integration / provider mocked | PASS | Owner routing/storage; dummy media không chứng minh decode hoặc Flow |
-| `test_tts_timing_adaptation` | Unit | PASS | Shorten/rate/conflict policy qua mock durations; không audio synthesis thật |
-| `test_full_audit_security` | Security unit + socket integration | PASS | Foreign/missing/subframe IPC rejects; URL/path/model validation; WebSocket Origin handshake thật; synthetic secret redaction |
-| `test_full_audit_data_integrity` | FS/store integration / regression | PASS | Task same-name, shared old dir reject; deferred node cleanup/cancel; background errors;1000leasecycles; failed ASR/translate giữ data |
-| `test_full_audit_episode_storage` | FS/store integration / regression | PASS | Hai episode một project không đè voice; load/restart đúngID; legacy conflict; invalid path; IO failure; locked atomic destination giữ bản tốt; orphan running báo failed |
-| `test_full_audit_session_jobs` | State-machine integration / provider stub | PASS | Invalidapprove không mutate; stage0reject; duplicateapprove; Cancel chưa cho job mới đến provider settle |
-| `test_ai_studio_script_evaluation` | Provider contract unit/mock | PASS | D1–D10 schema/routing/credential mismatch; không fixed ratings; provider lỗi không fabricated fallback |
-| `test_ai_studio_script_refinement` | Provider contract unit/mock | PASS | Custom instructions/schema/IDs/order/errors; không gọi API trả phí |
-| `test_full_audit_script_artifacts` | Unit / mock probe regression | PASS | Script edit clear stale pointers, history giữ bản cũ, invalid input không mutate; invalid TTS duration rejects |
-| `test_flow_project_isolation` | VM/provider mock regression | PASS | Project create/resume/mismatch + unusual activity dừng sau một attempt, không live browser |
-| `test_full_audit_flow_tabs` | VM security/regression | PASS | Tạo project và đổi project không điều hướng active hoặc background unowned tab |
-| `scripts/audit_runtime_electron.cjs` | Actual Electron UI smoke | PASS WITH LIMITS | Preload/tasks/settings IPC,6sidebar routes, screenshot, restart; profile riêng, bridge tắt, zero generation |
-| UI60s idle metrics | Performance smoke | PASS WITH LIMITS |4process,609.12→502.76MiB, CPU0–0.19%, startup1035ms; không chứng minh multi-hour stability |
-| `npm run build` tại C worktree | Native/build | FAIL môi trường | whisper-cli build PASS; Next Turbopack không hỗ trợ junctionoutside root. Log giữ lại |
-| Next `build renderer --webpack` tại worktree | Build | FAIL môi trường | Resolve C/D client-entry qua junction |
-| Next static build trong snapshotD cùng ổ | Build | PASS | Logs + SHA256 manifest;3staticpages |
-| Nextron main/preload webpack snapshotD | Build | PASS có5warnings | bufferutil/utf-8-validate và Mac temperature optional modules; compiler transpileOnly nên vẫn cần riêng tsc |
-| electron-builder qua junction | Packaging/runtime | FAIL | Builder exit0 nhưng archive thiếu conf/platform binaries; EXE launch timeout60s; giữ failure JSON |
-| electron-builder với own `npm ci --omit=dev --ignore-scripts`, exact Electron43.4.1 | Packaging | PASS WITH LIMITS | Lockfile unchanged, package exit0; copy nativewhisper build riêng. Chưa installer/Windows sạch; EXE chưa ký |
-| `audit_package_inventory.cjs` | Packaged binary smoke | PASS | Archive đủ7module kiểm tra; FFmpeg/FFprobe version và whisper help exit0; chưa speech recognition/encoding mọi codec |
-| Actual clean-dependency `VANHSUB.exe` | Windows unpacked UI E2E smoke | PASS WITH LIMITS |6routes, preloadIPC, restart giữsettings, không console/page errors; startup1302ms cùng host |
-| `npm audit --omit=dev --json` | Security scanner | FAIL gate |9high,0critical; exit1 đúng vì advisories, không phải test harness crash |
-| `audit_flow_connection.ts` | Live transport readiness | PASS TRANSPORT ONLY | MV3v1.0.6 handshake thật qua Origin guard, CDP9224 không có; không gửi lệnh tab/auth/generation |
-| Real Flow image/T2V/I2V/project/cancel | Live E2E | DEFERRED BY USER | Người dùng chọn ghi nhận live chưa hoàn tất; ownership patch1.0.7 chưa nạp;0generation/0credits từ audit |
-| Real Gemini/OpenAI/DeepSeek/VietTTS/TikTok/Edge TTS | Provider live | NOT TESTED | Không gọi provider ngoài phạm vi Google Flow cho phép |
-| Whisper/Paddle/Demucs trên media sản xuất | Local E2E | NOT TESTED | Build native không thay suy luận thật/quality check |
-| Hardsub/softsub/mix/stems/CapCut full UI | UI/local E2E | NOT TESTED | FFmpeg fixture coverage chỉ là một phần |
-| Shutdown giữa job / disconnect Internet/browser | Failure E2E | NOT TESTED | Có deferred/mock cancel và recovery checkpoint; chưa fault-injection toàn app |
-| Multi-hour soak / large project / peak CPU-RAM/disk | Performance | NOT TESTED | Chỉ idle60s + lease loop; chưa optimization theo suy đoán |
-| Clean Windows installer/signing/update/uninstall | Release E2E | NOT TESTED | Không có VM sạch; unpacked build không đủ |
+## Phân loại acceptance
 
-## Test quality corrections
+- **Automated Test PASS**: offline unit/integration/FS/native-fixture tests; provider stub vẫn là offline.
+- **Real Runtime PASS**: process/app/native chạy thật, có thể dùng input tổng hợp; không suy provider live từ đó.
+- **UI E2E PASS (scoped)**: các tương tác hiển thị/điều hướng/restart được nêu; setup một số task/project qua preload IPC, chưa toàn bộ form bằng click.
+- **Live Provider PASS**: chỉ khi request đến provider thật có output được xác minh. Đợt này **không có**.
+- **NOT TESTED**: chưa chạy. **BLOCKED/DEFERRED**: cần điều kiện ngoài hiện tại hoặc user đã hoãn live test.
 
-1. Media decoding suite trước phụ thuộc ignored file cũ, thiếu file thì âm thầm bỏ positive tests. Nay tự tạo JPEG/MP4 và chạy10case. Timeline export tương tự, nay tự tạo clip4s/image, không đọc output sản xuất.
-2. `test_live_aistudio_visual_pipeline` inject `mockRpcClient`, không tính live. “Real browser” closed-port test stub `adapter.connect`, không chứng minh Chrome thật.
-3. Runner cũ không timeout và tự đếm1 khi parse thất bại. `scripts/audit_regression.cjs` dùng allowlist15suite offline, timeout120s, exitcode+log từngsuite, không cộng assertion suy đoán.
-4. `--offline` là guard ý định thêm cho runner; sự an toàn chính là allowlist/source inspection, không giả định mọi script thực sự đọc cờ này.
-5. Một test recovery ban đầu fail vì auto-write vào legacy conflict directory; sửa load thành recovery read-only và chạy lại suite PASS. Kết quả cuối nằm trong JSON, không giấu failure bằng skip.
+## Build, runtime và UI
 
-## Reproduction
+| Hạng mục | Phân loại / kết quả | Bằng chứng và giới hạn |
+|---|---|---|
+| Main `tsc --noEmit --incremental false` | Static PASS | Clean build workspace, final source; full build cũng compile main |
+| Renderer `tsc --noEmit --incremental false -p renderer/tsconfig.json` | Static PASS | Final source; Next production typecheck PASS |
+| `npm ci --ignore-scripts` riêng + `npm run build` | Automated Build PASS | build-results.json, production-build.log; full Turbopack/CMake/main/NSIS, không workaround Webpack riêng |
+| Final full rebuild sau stale-project guard | Automated Build PASS | build-final-result.json, production-build-final.log;248 application source/config hashes khớp source-integrity.json |
+| Package archive/native inventory | Automated + Real Runtime PASS | package-module-presence-clean.json:7 modules,3 binaries exit0. FFmpeg2018/FFprobe2023; chưa thay binary hoặc chứng nhận mọi codec |
+| Actual unpacked Electron EXE | Real Runtime PASS / scoped UI E2E PASS | runtime-packaged.json:14 reported checks, errors/pageErrors rỗng;6 routes, visible editor1.000 lines, task/SRT/project/settings restart |
+| IPC trust boundary | Real Runtime PASS | BrowserWindow khác dùng cùng preload bị deny; app renderer đúng được get/create/save qua IPC |
+| CSP enforcement | Real Runtime PASS | Injected inline script bị Chromium chặn; expected CSP violation được lưu riêng, không bỏ qua console errors chung |
+| Windows DPAPI | Real Runtime PASS | Synthetic key không lưu plaintext/headless, decrypt đúng sau restart; không đọc key thật |
+| Ordinary close | Real Runtime PASS | process-after-close.json:4sampled PIDs không còn tồn tại; không phải active-job quit test |
+| Local ASR | Real Runtime PASS | real-asr.json: TaskRunner/extraction + packaged Whisper tiny/public JFK WAV có country keyword/ordered subtitles;1 block,5.037 ms toàn test. Không accuracy benchmark/live cloud |
+| Native Whisper cancel | Real Runtime PASS | Real child đã spawn;2 observed native PIDs đều thoát sau inference/cancel; model đã có,0 network downloads |
+| FFmpeg export cancel | Real Runtime PASS | real-export-cancel.json: actual FFmpeg worker observed/exited, partial dọn, output cũ giữ;672 ms toàn test |
+| UI screenshot | UI E2E PASS (scoped) | runtime-large-editor.png đã xem:1.000 line editor/preview, không thấy overlap trong mẫu cửa sổ; settings screenshot riêng. Không full UX QA |
+| Performance | MEASURED, not a readiness PASS | performance-summary.json: final startup1.020 ms; editor3.412 ms; RAM sample max1.483,13 MiB→838,47 MiB/30s.180s idle trước final guard740,64→595,26 MiB. CPU tổng các process/5s samples; không disk/multi-hour/active-job peak |
+| Installer trên clean Windows/VM | NOT TESTED | NSIS tạo được172.510.930 bytes/NotSigned; không cài lên máy user để thay clean-host acceptance |
+| Active-job app quit / OS crash recovery | NOT TESTED | Ordinary restart, offline lease/recovery và explicit native cancel không thay OS interruption |
 
-Tại repository đã có dependencies: `node scripts/audit_regression.cjs`. Script dùng store tạm, không gọi provider hay điều khiển Chrome. `scripts/audit_build_snapshot.cjs` chỉ phục vụ môi trường audit này, kiểm tra đích thư mục tạm bằng allowlist; không phải build script portable cho CI. `scripts/audit_runtime_electron.cjs` dùng manifest snapshot và profile riêng. Không chạy live runner cũ trước khi xử lý R13.
+## Offline regression:38 suite PASS
+
+Allowlist `scripts/audit_regression.cjs` giới hạn mỗi child120s và không chạy các file có tên live một cách mù. Chạy trong snapshot có dependencies sạch; sau khi bổ sung extension fixture còn thiếu đã chạy lại2 suite bị ảnh hưởng và shared-registry assertion. Sau application edit cuối đã chạy lại project media/session isolation/session config. Kết quả cuối là tập evidence có ghi rõ các lần chạy lại, không nói một lần chạy đầu đã PASS hết.
+
+Các suite sau dùng fixtures/provider stub trừ FFmpeg/FS/socket được nêu trong log. Tên suite không nâng classification thành live.
+
+| Suite | Result |
+|---|---|
+| tests/test_media_validator_ffmpeg_decoding.ts | PASS |
+| tests/test_video_processor_concat.ts | PASS |
+| tests/test_timeline_export_duration_guard.ts | PASS |
+| tests/test_project_media_isolation_regression.ts | PASS |
+| tests/test_tts_timing_adaptation.ts | PASS |
+| tests/test_flow_project_isolation.ts | PASS |
+| tests/test_full_audit_flow_tabs.ts | PASS |
+| tests/test_srt_ocr_normalizer_and_translation.ts | PASS |
+| tests/test_full_audit_security.ts | PASS |
+| tests/test_full_audit_data_integrity.ts | PASS |
+| tests/test_ai_studio_script_evaluation.ts | PASS |
+| tests/test_ai_studio_script_refinement.ts | PASS |
+| tests/test_full_audit_script_artifacts.ts | PASS |
+| tests/test_ai_studio_session_isolation.ts | PASS |
+| tests/test_ai_studio_session_config.ts | PASS |
+| tests/test_ai_studio_session_operations.ts | PASS |
+| tests/test_ai_studio_script_invalidation.ts | PASS |
+| tests/test_ai_studio_channel_settings.ts | PASS |
+| tests/test_ai_studio_render_timeline.ts | PASS |
+| tests/test_ai_studio_bgm_audio.ts | PASS |
+| tests/test_ai_studio_tts_alignment.ts | PASS |
+| tests/test_ai_studio_visual_directions.ts | PASS |
+| tests/test_ai_studio_storyboard_modes.ts | PASS |
+| tests/test_ai_studio_media_import.ts | PASS |
+| tests/test_ai_studio_visual_jobs.ts | PASS |
+| tests/test_standard_project_directory_isolation.ts | PASS |
+| tests/test_legacy_project_collision_guard.ts | PASS |
+| tests/test_subtitle_artifact_invalidation.ts | PASS |
+| tests/test_task_configuration_defaults.ts | PASS |
+| tests/test_task_operation_exclusion.ts | PASS |
+| tests/test_shared_dubbing_preferences.ts | PASS |
+| tests/test_tts_group_regeneration.ts | PASS |
+| tests/test_dubbed_subtitle_export.ts | PASS |
+| tests/test_export_resolution_and_silent_softsub.ts | PASS |
+| tests/test_video_stretch_timeline_sync.ts | PASS |
+| tests/test_chatgpt_script_collector.ts | PASS |
+| tests/test_integration_security_storage.ts | PASS |
+| tests/test_integration_http_dependency.ts | PASS |
+
+Trong nhóm trên: media validator decode thật, concat3 clip→12,00s, timeline freeze19,000s; render30/60 FPS/4K/colors/narration/BGM; silent-softsub/dubbed-subtitles/video stretch chạy FFmpeg thật. TTS timing/alignment/rate/shortening/provider response vẫn dùng fixtures/stub; không tự nhận là synthesis live. Data integrity có real FS/atomic fault injection/deferred node/cancel/lease; Flow tab tests chạy VM, không điều khiển Chrome thật.
+
+## Toàn bộ workflow acceptance còn lại
+
+| Luồng | Automated Test | Real Runtime | Live Provider | UI E2E |
+|---|---|---|---|---|
+| Import video / SRT | PASS | PASS video/SRT fixture qua IPC | Không áp dụng local; live download NOT TESTED | PASS scoped preview/editor, full dialog NOT TESTED |
+| ASR / OCR | PASS parser/failure preservation | PASS local Whisper; OCR/Python NOT TESTED | NOT TESTED cloud | Full ASR/OCR click flow NOT TESTED |
+| Translation | PASS mocked contracts/order/failure safety | Network provider NOT TESTED | NOT TESTED | Full translation flow NOT TESTED |
+| TTS / dubbing | PASS groups/cache/timing/export fixtures | PASS audio render fixture; provider synthesis NOT TESTED | NOT TESTED | Full voice selection/synthesis/cancel NOT TESTED |
+| Timing / export | PASS actual FFmpeg render tests | PASS local render/cancel | Flow media NOT TESTED | Route smoke PASS, full options/export UI NOT TESTED |
+| AI Studio project/storyboard | PASS owner/snapshot/stage/shot modes | PASS project save/reopen IPC | NOT TESTED full8 stage | Route smoke PASS, full wizard NOT TESTED |
+| Flow image/video | PASS source/VM routing/ownership | Previous handshake only; current generation BLOCKED | BLOCKED/DEFERRED,0 generation | NOT TESTED |
+| Workflow AI | PASS local node lease/cleanup | PASS local FS/execution fixtures | NOT TESTED provider DAG | Route smoke PASS, full authoring NOT TESTED |
+| Save/resume/cancel/recovery | PASS fixtures | PASS task/SRT/project/settings restart and Whisper/FFmpeg cancel | Reconnect/cancel paid provider NOT TESTED | PASS scoped navigation/restart; all error dialogs NOT TESTED |
+| Concurrent/large/long sessions | PASS exclusion/deferred fixtures | MEASURED1.000 lines,30/180s idle | NOT TESTED concurrency live |1.000 line editor PASS; multi-hour use NOT TESTED |
+
+Flow đang có extension1.0.6 trước đó nhưng chưa dedicated CDP9224, source patch1.0.7 chưa được xác nhận đang nạp. User đã chọn tạm ghi live chưa hoàn tất. Không gửi generation, không tiêu credit từ audit. Runner cũ có page/gallery `.first()` không được dùng làm acceptance.
+
+## Failures được giữ để review
+
+- `regression-before-fixture-sync.json`/`regression.json`: initial2fail do snapshot chưa có extension/background.js; bổ sung fixtures + rerun, không xóa test.
+- `runtime-harness-first-failure.json`: Electron43 app.evaluate không có require; harness dùng process.getBuiltinModule sau đó.
+- `runtime-large-selector-harness-failure.json`: selector tính cả hidden route selects; sửa kiểm tra visible selector và chờ dòng cuối, không `.first()` để che ambiguity.
+- Bằng chứng build junction và audit15 suite trước integration vẫn ở audit-evidence; không dùng làm final-source PASS.

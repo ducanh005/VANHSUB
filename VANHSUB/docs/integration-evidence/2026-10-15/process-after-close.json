@@ -1,0 +1,11 @@
+{
+  "observedPids": [
+    4884,
+    22992,
+    22828,
+    8096
+  ],
+  "stillPresent": [],
+  "count": 0,
+  "scope": "Observed final runtime sample processes after ordinary close; no active job shutdown claim"
+}

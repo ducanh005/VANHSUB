@@ -1,126 +1,96 @@
-# VANHSUB — Full application audit, 2026-10-15
+# VANHSUB — Post-audit application review, 2026-10-15
 
-## Kết luận
+## Kết luận hiện tại: NOT READY
 
-**NOT READY để nghiệm thu production toàn bộ ứng dụng.** Đã sửa các lỗi được tái hiện về cách ly dữ liệu, cleanup tác vụ đang chạy, kiểm soát IPC, lưu checkpoint và trạng thái AI Studio. Bộ hồi quy offline và UI smoke có bằng chứng thực; chưa đủ bằng chứng cho Google Flow live, provider trả phí, chạy nhiều giờ, đóng app giữa job và Windows sạch. Không dùng kết quả mock để nghiệm thu provider.
+Đã hợp nhất có chọn lọc trên `codex/integration-stabilization-20261015`, xuất phát từ `origin/main` (`899088f`). Toàn bộ 27 commit remote được giữ trong ancestry; các bản vá local/audit được đối chiếu theo hành vi, không chọn ours/theirs hàng loạt. Không merge hoặc ghi đè main. Chi tiết từng commit: [integration report](CODEX_INTEGRATION_REPORT.md).
 
-Đọc cùng [risk register](CODEX_RISK_REGISTER.md), [test matrix](CODEX_TEST_MATRIX.md), [production readiness](CODEX_PRODUCTION_READINESS.md). Bằng chứng nằm tại [audit-evidence/2026-10-15](audit-evidence/2026-10-15/).
+**38 suite offline PASS**, full production build/NSIS PASS với dependencies cài riêng, executable thật chạy được trên máy dev. Whisper nhận dạng mẫu âm thanh thật và hủy native worker PASS; FFmpeg export/cancel và giữ bản xuất cũ PASS. UI/IPC/settings/project/restart/CSP/DPAPI và editor 1.000 dòng đã kiểm tra trên executable đóng gói. Những kết quả này không xác nhận provider live hay cài đặt Windows sạch.
 
-## 1. Phạm vi và baseline
+Còn thiếu: Google Flow live, dịch/TTS/provider pipeline thật, OCR/Python/stems đầy đủ, installer trên Windows sạch, shutdown giữa mọi loại job, soak nhiều giờ, pairing bridge và giới hạn truy cập media. Scan còn 5 High/0 Critical. Editor 1.000 dòng có working set tổng đỉnh lấy mẫu **1.483,13 MiB**; cần tối ưu và đo lại.
 
-- Yêu cầu: toàn ứng dụng, gồm AI Studio và Workflow AI, audit rồi sửa lỗi xác nhận, không rewrite, không xóa dữ liệu người dùng.
-- Source được kiểm tra: local `main` của `D:\DEAN\DEAN\VANHSUB`, commit `df9d768`; thực hiện trong worktree riêng, branch `codex/full-audit-20261015`.
-- GitHub `origin/main` tại thời điểm fetch là `899088f`. Hai lịch sử phân kỳ **27 commit phía remote / 5 phía local**, không phải local đã chứa toàn bộ bản sửa trước. Không force push, reset hay tự thay thế source chính. Việc hợp nhất hai lịch sử cần review riêng; báo cáo này không chứng nhận các thay đổi trên nhánh khác.
-- Đã đọc `VANHSUB_CODEX_HANDOFF.md` tại root. Tài liệu cũ chỉ dùng tìm hướng, không dùng làm bằng chứng PASS.
-- Giữ nguyên các script/temp/HAR chưa commit trong checkout D. Không đọc giá trị cookie, token hay API key của người dùng.
-- Môi trường: Windows 10.0.26200, Node 24.19.0, Electron 43.4.1, Next 16.3.2, React 19.2.8, TypeScript 5.9.3. `node_modules` là junction sang checkout D, gây giới hạn build qua hai ổ đĩa.
+Bản này thay thế các kết luận hiện hành trong báo cáo audit trước. Bằng chứng cũ giữ nguyên ở [audit-evidence](audit-evidence/2026-10-15/) và branch `codex/full-audit-20261015` (`f164e0f`). Bằng chứng integration mới ở [integration-evidence](integration-evidence/2026-10-15/README.md). Đọc cùng [risks](CODEX_RISK_REGISTER.md), [tests](CODEX_TEST_MATRIX.md), [readiness](CODEX_PRODUCTION_READINESS.md).
 
-## 2. Kiến trúc và dependency map
+## Baseline và kiến trúc được giữ
 
-```mermaid
-flowchart LR
-  UI[Next / React / Zustand] --> Preload[Electron preload]
-  Preload --> IPC[Main IPC guards]
-  IPC --> Tasks[Task runners / pipeline queue]
-  IPC --> Studio[AI Studio eight-stage engine]
-  IPC --> Workflow[WorkflowExecutionEngine]
-  Tasks --> Local[FFmpeg / whisper.cpp / Python / OCR]
-  Tasks --> Providers[ASR / translate / TTS providers]
-  Studio --> Providers
-  Studio --> Visual[VisualProviderRouter]
-  Workflow --> Visual
-  Visual --> RPC[Flow RPC / extension bridge]
-  Visual --> Browser[Playwright CDP / browser manager]
-  RPC --> Chrome[Dedicated authenticated Chrome]
-  Browser --> Chrome
-  Tasks --> Store[electron-store / project filesystem]
-  Studio --> Store
-  Workflow --> Store
-```
+Local main `df9d768` và remote `899088f` có common ancestor `f03de1c`, phân kỳ 5/27 commit; audit thêm 5 commit lên local. Re-fetch cuối vẫn `899088f`. Không suy tác giả agent từ Git author. Không reset/force push, không đổi checkout D, không đụng các script/temp/HAR chưa commit của người dùng.
 
-Runtime entry points là `main/main.ts`, `main/preload.ts`, `main/workflow/ipc.ts`, `main/ai-studio/ipc.ts`. Workflow IPC dùng `WorkflowExecutionEngine`, không được mặc định `WorkflowGraphEngine` là engine chính. `main/ai-studio/pipelineEngine.ts` là entry/re-export; engine thực ở `AiStudioPipelineEngine.ts`. Các file không có inbound import trực tiếp có thể là barrel, Python sidecar, extension hoặc test tool; chưa có bằng chứng để xóa.
+Windows 10.0.26200, Node 24.19.0, Electron 43.4.1, Next 16.3.2, TypeScript 5.9.3. Dependencies của worktree C là junction sang D. Để xác minh build, tạo folder test riêng cùng ổ D, copy source/config có SHA256 manifest và chạy `npm ci` riêng, không sửa node_modules dùng chung. Đây vẫn là máy dev.
 
-Điểm tốt: phân tách main/renderer; FFmpeg có kiểm tra stream/duration; routing visual có idempotency và phân loại unusual activity; TTS phụ đề có giới hạn tempo; lưu media có version/provenance; dự án có schema trạng thái.
+Renderer Next/React gọi preload → IPC main → task runners/AI Studio/WorkflowExecutionEngine → FFmpeg/Whisper/providers/browser/bridge → task store và project filesystem. `AiStudioPipelineEngine.ts` là engine thật; `pipelineEngine.ts` là entry/re-export. Giữ kiến trúc đang hoạt động, không xóa barrel/sidecar/test tool vì thiếu inbound import.
 
-Nợ kỹ thuật: engine và IPC lớn, state mutable chia sẻ, cấu hình global đọc lại khi resume, hai họ workflow engine; renderer nhập một số pure helper từ main; nhiều đường browser/bridge/CDP cạnh tranh. Dependency scan phát hiện các nhóm cycle quanh kinetic/ASS, Flow selector/fallback, Veo/Flow state, ChatGPT collector/session và engine/IPC/CapCut; cần phân biệt type-only với runtime trước khi refactor. Không xóa dependency chỉ vì không thấy JS import: `nodejs-whisper` còn được dùng để build/chạy binary.
+Origin có implementation mạnh hơn bản local ở task leases, episode workspace, config snapshot, production revision, sentence-group TTS, subtitle invalidation và shared preferences. Các implementation này được giữ; `taskLease.ts` dùng chung registry của `taskOperations.ts`. Không tạo hai hệ khóa độc lập.
 
-## 3. Những lỗi đã sửa và bằng chứng
+## F01–F16: xác minh source cuối sau integration
 
-| ID | Mức | Root cause và thay đổi | Bằng chứng |
-|---|---|---|---|
-| F01 | P0 | Thư mục project chỉ theo basename nên hai video trùng tên dùng chung output. Thêm identity theo task; chặn projectDir cũ bị nhiều task nhận; giữ file cũ. `main/utils/projectFolder.ts` | `test_full_audit_data_integrity`, baseline probe |
-| F02 | P0 | Workflow cleanup được gọi với active IDs rỗng; watchdog/cancel có thể kết thúc wrapper khi provider vẫn chạy. Storage giữ reference-count lease cho actual node promise; cleanup không xóa workspace đang sử dụng. `WorkflowStorageManager.ts`, `executionEngine.ts` | Deferred node, duplicate run, cancel, cleanup thật trên FS |
-| F03 | P0 | Hai episode cùng project dùng chung workspace/checkpoint/voice. Tạo workspace/media riêng cho session mới, pin đường dẫn, kiểm tra owner và ID khi load; checkpoint lỗi phải báo lỗi. `sessionPersistence.ts`, engine | Hai episode, restart, wrong-ID, path traversal, lỗi ghi thật |
-| F04 | P0 | Atomic write fallback unlink bản tốt rồi copy; khi cả rename/copy lỗi có thể mất dữ liệu. Bỏ unlink/copy fallback; rename lỗi giữ nguyên đích. `storage/AiStudioDiskStorageManager.ts:183` | Inject EPERM và copy failure; bản cũ nguyên vẹn |
-| F05 | P1 | Main/workflow/AI IPC tin mọi sender; điều hướng app chưa bị chặn. Guard đúng WebContents + mainFrame + origin; context isolation/node integration/web security khai báo rõ. `main/security/*`, các IPC entry | Security negative cases và preload IPC thật trong UI |
-| F06 | P1 | Mở Chrome qua chuỗi shell chứa URL; xóa model và app protocol thiếu containment. URL Flow allowlist, spawn argv shell:false, model-name validation, containment bundled path. `main/main.ts:1127,1786`, `rendererTrust.ts` | URL/userinfo/scheme/host và traversal negative cases |
-| F07 | P1 | WebSocket loopback không kiểm tra Origin hay payload bound. Chỉ nhận Chrome-extension Origin, maxPayload 32 MiB. `bridgeTransport.ts` | Handshake thật: website/no-Origin bị từ chối; extension-shaped Origin được nhận |
-| F08 | P1 | Các runner riêng và pipeline có thể chạy cùng task; promise nền bị bỏ qua. Shared task lease, observe rejection, chặn edit/delete khi đang chạy, giữ lease đến settle. `taskLease.ts`, `main/main.ts:414` | Deferred promise, error reporter, 1000 lease cycles; chưa phải stress FFmpeg thực |
-| F09 | P1 | ASR/dịch xóa TTS và mất pointers trước khi provider thành công; TTS rerun ghi lại folder cũ. Hoãn invalidation đến thành công, giữ artifact cũ, đường dẫn ASR/dịch/merged audio mới, TTS run folder UUID | Ca ASR/translation failure giữ audio/file/pointers; provider success thật chưa chạy |
-| F10 | P1 | Approve tin currentStage từ caller; cancel giải phóng controller/lease quá sớm; resume stage 0. Validate gate/stage, session lease dùng chung cho pipeline và sửa media/script, release theo actual promise | `test_full_audit_session_jobs` |
-| F11 | P1 | Chấm script bằng điểm cố định; refine có template khảo cổ tiếng Tây Ban Nha không theo chủ đề. Gọi provider và validate D1–D10/full JSON; refine giữ IDs/order và không nhận file pointers từ model | Mock provider contract tests; chưa nghiệm thu chất lượng LLM live |
-| F12 | P1 | Sửa lời thoại vẫn giữ audio/scenes/video cũ. Validate lines, lưu history, clear pointers downstream, đưa về gate script, không xóa file | `test_full_audit_script_artifacts` |
-| F13 | P2 | Phiên serialize running vẫn hiện chạy sau restart dù không có job. Load chuyển sang failed/recoverable trong memory; không tự ghi vào legacy directory xung đột | Restart fixture trong episode suite |
-| F14 | P1 | TTS Studio thay duration rỗng/0 bằng 5 giây. Reject duration không finite/dương | Mock ffprobe: 0, âm, missing, NaN và positive |
-| F15 | P1 | Logger có thể lưu/phát thông tin nhạy cảm thô tới mọi window. Redact structured secret keys, Bearer/query tokens và text phổ biến; console/file/IPC dùng cùng formatter; chỉ gửi log cho app renderer tin cậy | Synthetic credential fixtures; không cam kết phát hiện mọi chuỗi bí mật không có nhãn |
-| F16 | P1 | Extension tạo project mới có thể điều hướng tab nền thủ công vì chỉ bảo vệ tab active. `ensure_project(createNew)` bỏ chọn tab cũ; luôn tạo tab riêng, khác project cũng bảo vệ unowned background tab; manifest1.0.7 | VM regression active/background PASS; bản sửa chưa nạp vào extension đang chạy1.0.6 |
+PASS dưới đây là phạm vi test được nêu, không phải chứng nhận mọi provider/UI path. Các suite có trong [regression-final.json](integration-evidence/2026-10-15/regression-final.json).
 
-Không có file media sản xuất bị di chuyển/xóa trong audit. Bản vá cách ly session mới không tự migrate legacy folder đang xung đột; thao tác ghi bị chặn để người dùng giữ dữ liệu.
-
-## 4. Review chức năng thực có trong app
-
-| Chức năng / entry | Luồng input → output / storage | Cancel, recovery, kết quả |
+| ID / mức | Source cuối và quyết định | Bằng chứng / giới hạn |
 |---|---|---|
-| Import/download (`downloader:*`, tasks) | Local path/URL → inspect/download → TaskStore/project | Có cancel download; source review. Live download/SSRF/timeout mọi host **NOT TESTED** |
-| ASR (`TaskRunner`, unified ASR) | Video → WAV16k → whisper.cpp/faster-whisper/provider → SRT | Có cancel; failure giữ đầu ra trước. Nhận dạng nhiều ngôn ngữ/Python/model tải mới **NOT TESTED** |
-| OCR/hybrid (`OcrRunner`, `HybridRunner`) | Video/ROI → OCR sidecar/frames → SRT kết hợp ASR | Parser/normalizer offline PASS; full video OCR/Paddle/cancel worker **NOT TESTED** |
-| Dịch (`TranslateRunner`, translator) | SRT strict → segmented Gemini translation → SRT/timeline | Mock response/error/thứ tự/timestamp PASS; network overload thật và semantic fidelity **NOT TESTED** |
-| Editor/subtitle | Task SRT → parse/edit/write → project | IPC writes bị chặn khi active. Editor thao tác dài/undo/overlap trên file thật **NOT TESTED** |
-| TTS phụ đề (`ttsEngine`, `ttsTiming`, runner) | SRT → sentence groups/voice map → đo audio → timing adaptation → merge | Có tự thích nghi slot, thử rate/shorten, giới hạn tempo mặc định1.35 và báo conflict. Unit policy PASS; không chứng nhận nghe tự nhiên hoặc không mất nghĩa; full Edge/TikTok/VietTTS **NOT TESTED** |
-| Dubbing/stems/export | Video + SRT/audio/options → FFmpeg → rendered output | Có cancel/error checks; FFmpeg concat/guard test PASS. Hardsub fonts, speed/mix/softsub và stem separation UI E2E **NOT TESTED** |
-| AI Studio 8 bước | Topic/project → idea/script/voice/alignment/storyboard/media/video/metadata → per-session storage | Storage/gates/races/contracts PASS offline. Full provider pipeline và new short20–30s mode live **BLOCKED/NOT TESTED** |
-| Visual/image/T2V/I2V/keyframe | Prompt + Flow project/keyframe/mediaId → router/RPC/extension/CDP → asset index | Code has provenance/delta/state machine. Full real generation, duplicate suppression across restart và downloaded-output provenance **BLOCKED** |
-| Workflow AI | Graph nodes/edges → executionEngine → FS outputs/events | Cleanup/cancel/lease real local integration PASS; full DAG/provider/UI authoring **NOT TESTED** |
-| Project/settings | electron-store + session/catalog + project index | Restart settings UI PASS; episode identity PASS; global/project/session config snapshot còn nợ R03 |
-| ChatGPT/Gemini web, CapCut | Browser session/provider replies → script; project assets → draft | Source review only; không gọi provider có phí. Conversation isolation, import CapCut thật **NOT TESTED** |
+| F01 P0 | `main/utils/projectFolder.ts` giữ remote `createUniqueDirectory`, chặn legacy projectDir bị nhiều task nhận; không thay bằng allocator hash thứ hai | `test_standard_project_directory_isolation`, `test_legacy_project_collision_guard`, data integrity PASS; không tự migrate dữ liệu cũ |
+| F02 P0 | `main/workflow/WorkflowStorageManager.ts`, `executionEngine.ts` giữ workflow/node leases đến actual promise settle; cleanup bỏ qua workspace đang dùng | Deferred node/cancel/duplicate/cleanup thật trên FS trong data integrity PASS; full provider DAG chưa chạy |
+| F03 P0 | `main/ai-studio/storage/sessionWorkspace.ts` + engine pin workspace/media/owner; kiểm tra catalog, wrong ID/path và ambiguous legacy; checkpoint lỗi được báo | `test_ai_studio_session_isolation`, project media isolation, data integrity PASS; hai episode/restart/project switch |
+| F04 P0 | `AiStudioDiskStorageManager.writeAtomic` chỉ temp+rename; lỗi rename không unlink/copy đè bản tốt. Checkpoint writer remote giữ nguyên | Inject EPERM/disk error PASS, bản đích nguyên vẹn, temp được dọn; hai file checkpoint chưa phải transaction chung (R14) |
+| F05 P1 | `main/security/ipc.ts`, `rendererTrust.ts` và các IPC entry kiểm tra trusted WebContents/mainFrame/origin; giữ guards cả handlers mới từ remote | Negative cases PASS; executable thật từ chối BrowserWindow không được trust dù dùng cùng preload. Payload schema chưa phủ mọi channel |
+| F06 P1 | `main/main.ts` mở Chrome bằng argv, shell:false; allowlist Flow URL, validate model name, containment app protocol | URL/scheme/userinfo/traversal tests PASS; không chứng nhận mọi đường local media (R08) |
+| F07 P1 | `main/security/bridgeTransport.ts` kiểm tra extension Origin, loopback/maxPayload | Security suite PASS; handshake extension thật chỉ là bằng chứng audit cũ. Origin có thể giả, pairing chưa có (R07) |
+| F08 P1 | `main/lib/taskOperations.ts` là registry duy nhất; queue reserve từ enqueue; release trong finally kể cả persistence lỗi; `taskLease.ts` re-export cùng registry | Task exclusion, data integrity và cross-module lock regression PASS; không chỉ hai test riêng với hai Map khác nhau |
+| F09 P1 | ASR/translation chỉ invalidation sau success; output mới riêng; TTS UUID run directory + copy cache tương thích, giữ sentence-group regeneration từ remote | Failure preservation, subtitle invalidation, group regen/export PASS; real ASR và export cancel PASS. Network translation/TTS live chưa chạy |
+| F10 P1 | `sessionOperations.ts` giữ AbortController/process-aware lease đến settle; engine kiểm tra stage/gate; fill-mode IPC dùng cùng lease và invalidate render | `test_ai_studio_session_operations`, session config, visual jobs PASS; provider bỏ qua abort vẫn giữ lock; OS crash giữa job chưa nghiệm thu |
+| F11 P1 | Giữ remote provider evaluation/refinement + strict parsers, không replay implementation yếu hơn; đúng configured review provider | Script evaluation/refinement/channel settings PASS bằng provider stub; chất lượng LLM live NOT TESTED |
+| F12 P1 | Giữ remote `sessionArtifacts.ts`, `scriptStorage.ts`, `sceneArtifacts.ts`: history, clear downstream pointers, tăng productionRevision, không xóa file cũ | Script invalidation/artifacts/media import/visual jobs PASS; regression guard giữ audio/video đúng revision |
+| F13 P2 | Engine load báo running không có lease thành failed/recoverable; không tự chạy paid job; legacy workspace mơ hồ bị chặn | Restart fixture PASS; packaged restart giữ task/sub/project/settings PASS; app kill giữa job NOT TESTED |
+| F14 P1 | `AiStudioTtsService.ts` reject missing/0/negative/nonfinite duration; giữ remote word-boundary/alignment, không dùng 5s giả | TTS alignment/data integrity PASS với probes/fixtures; forced alignment/nghe thực chưa nghiệm thu |
+| F15 P1 | `main/security/logRedaction.ts`, logger dùng formatter chung trước console/file/IPC, chỉ app renderer nhận logs | Synthetic secret/Bearer/query/structured-key cases PASS; chuỗi bí mật không nhãn chưa có bảo đảm tuyệt đối |
+| F16 P1 | `extension/background.js` createNew tạo tab owned mới, không chọn tab người dùng nền; manifest1.0.7 | VM tab-ownership tests PASS; extension đang chạy1.0.6 chưa được xác nhận nạp patch; Flow live chưa chạy |
 
-UI smoke đã click AI Studio, Workflow AI, Phụ đề, Lồng tiếng, Xuất video, Cài đặt; có ảnh settings, không thấy overlap tại cửa sổ mặc định được chụp. Chưa đủ để kết luận mọi nút hữu ích hoặc mọi dialog/resolution đạt QA. HOT/MỚI và hai entry Chrome/Sảnh Electron có thể gây nhầm lựa chọn; chúng đang trỏ các cơ chế khác nhau, chưa đủ bằng chứng coi là nút thừa để xóa. Các stub message trong IPC fallback không chứng minh feature vô dụng nếu delegate thật đã nối.
+## Bản vá bổ sung trong integration
 
-## 5. Export duration và đồng bộ
+- Chặn start khi projectId từ UI không còn là active project; giữ config snapshot/resume từ origin, không đọc global config thay snapshot. Test project switch và snapshot PASS.
+- Fill mode xác thực enum/scene IDs, dùng session lease và invalidates output. Timeline guard tôn trọng 30/60 FPS; freeze theo yêu cầu rõ ràng, giữ hành vi loop mặc định cho narration tail khi không freeze.
+- Secret mới mặc định fail closed nếu DPAPI không sẵn sàng hoặc encryption lỗi. Insecure base64 chỉ opt-in headless fixtures, không bật trong Electron. Packaged runtime đã xác minh ciphertext trên disk và decrypt sau restart bằng key tổng hợp. Legacy plaintext/base64 vẫn đọc được; chưa migrate/rotate hàng loạt.
+- CSP cho HTML production hash inline Next bootstrap, không cho script unsafe-inline/unsafe-eval. Chromium thật chặn injected inline script; hydration/navigation/IPC không lỗi trong sample. Style inline và HTTPS/media/loopback WS còn được phép; chưa giải quyết media capability.
+- Cập nhật có giới hạn axios 1.20.0, fast-uri 3.1.8, js-yaml 4.3.2, source-map-js 1.2.2. Không nâng framework/Whisper hàng loạt. Clean lockfile install, local HTTP redirect/binary/cancel và full native/package build PASS.
 
-`test_video_processor_concat.ts` tạo ba video khoảng4s với timebase khác nhau, chạy concat/normalize thật, đo output **12.00s** và reject missing/empty/corrupt/audio-only. Không tái hiện 58.67s trên fixture này. `test_timeline_export_duration_guard.ts` tạo media mới thay vì cần file cũ: mismatch timeline bị chặn; freeze-last-frame render **19.000s** theo lịch7+6+6. Đây là bằng chứng cho hai đường kiểm tra cụ thể, chưa phải nghiệm thu tất cả codec/FPS/VFR/media do Flow sinh.
+## Workflow và bằng chứng nghiệm thu
 
-AI Studio TTS chủ yếu dựng timeline theo audio sinh ra; không phải cùng bài toán ép từng sub slot của TTS phụ đề. Alignment syllabic/ước lượng không đồng nghĩa forced alignment đạt chất lượng nghe thực. Chưa nghe kiểm tra một pipeline live nên không khẳng định không trùng/mất câu.
+| Luồng | Kết quả thực tế | Chưa nghiệm thu |
+|---|---|---|
+| Import video / subtitle / project | Packaged renderer IPC tạo task với video fixture, import SRT, lưu AI Studio project, restart mở lại; UI editor hiển thị1.000 dòng | Download nhiều host, mọi codec và toàn bộ form/error dialogs |
+| ASR/OCR | TaskRunner + packaged Whisper tiny chạy public JFK WAV thật, có subtitle/timing; real native cancellation PASS. OCR/SRT parser offline PASS | ASR nhiều ngôn ngữ, model download, OCR/Paddle/hybrid full video, Python clean-host |
+| Translation | Strict parser/order/timestamp/error preservation regression PASS | Provider live, ngữ nghĩa, rate limit/retry thực |
+| TTS/dubbing/timing | Sentence groups/cache/regeneration, subtitle invalidation, timing adaptation và audio/export fixtures PASS. TTS phụ đề tự thích nghi slot, tempo mặc định có giới hạn1.35, shortening opt-in | Provider live, nhiều giọng/ngôn ngữ, nghe kiểm tra mất câu/độ tự nhiên; Studio timeline theo audio không đồng nghĩa forced alignment |
+| Export video | FFmpeg thật: concat12.00s, freeze timeline19.000s, dimensions/FPS/BGM/narration, silent softsub và dubbed subtitles PASS; actual worker cancel giữ output cũ | Mọi font/codec/VFR, full UI options/stems/CapCut import |
+| AI Studio project/storyboard | Settings/project persistence qua IPC thật; config/owner/gate/shot/visual direction/revision tests PASS | Full8 stage provider pipeline từ UI |
+| Google Flow image/video | Source/VM ownership/provenance/routing regression PASS | Live generation BLOCKED/DEFERRED; chưa có dedicated CDP9224 và patch đang nạp chưa xác minh;0 generation do audit gửi |
+| Workflow AI | Actual local storage/execution leases/cleanup tests PASS; UI route mở được | Full graph authoring/provider DAG/error UI |
+| Save/resume/cancel/recovery | Settings/task/SRT/project restart thật PASS; ASR/FFmpeg cancel thật PASS; deferred lease/snapshot/restart fixtures PASS | Quit/kill app giữa mọi loại job, resume sau OS crash, provider reconnect |
 
-## 6. Bảo mật và dependency
+Không xóa nút hoặc chức năng chỉ từ tên/stub. Các entry Chrome/Sảnh Electron trỏ cơ chế khác nhau. Badge HOT/MỚI, modal/state và đường browser trùng ý nghĩa vẫn cần UX review riêng; smoke route không chứng minh mọi nút hợp lý.
 
-IPC/navigation/command/path/log/bridge đã harden như F05–F07/F15. **Origin extension không phải xác thực extension**: local client có thể giả Origin; còn cần pairing/identity policy. CDP là quyền điều khiển browser và phải gắn với profile test riêng.
+## Build, security và hiệu năng
 
-`npm audit --omit=dev --json`: **9 high / 0 critical**, 216 prod dependencies (metadata total666). Có axios, fast-uri, js-yaml, source-map-js và chain braces/micromatch/fast-glob/shelljs/nodejs-whisper. Đây là severity scanner, chưa chứng minh toàn bộ advisory reachable trong app. Không chạy audit fix hoặc cập nhật hàng loạt; npm có đề xuất downgrade whisper không nên áp dụng mù. Xem JSON để lấy advisory/range/fix chính xác.
+Full `npm run build` chuẩn trong snapshot cài dependencies riêng: Whisper CMake → Next Turbopack static export → main/preload → electron-builder NSIS đều exit0. Main/renderer TypeScript PASS. Manifest so248 application source/config files không có khác biệt với bản build cuối. Giới hạn junction C/D của checkout cũ không được coi đã sửa hoàn toàn chỉ bằng snapshot.
 
-Rủi ro còn lại: settings DPAPI có plaintext fallback; AI config headless dùng base64 có thể đảo ngược; media scheme cho phép path local rộng và chưa có capability manifest; chưa thấy CSP rõ ràng; IPC payload validation chưa đầy đủ theo từng channel. Không đọc secret thật để chứng minh các nhánh này.
+Installer172.510.930 bytes, Authenticode **NotSigned**. Unpacked executable chạy thật trên cùng host; installer chưa cài trên Windows sạch/VM. FFmpeg/FFprobe/Whisper phiên bản/help đều exit0, archive có đủ7 module được kiểm tra; không chứng minh mọi optional Python/native module.
 
-## 7. Build/runtime/resource
+| Phép đo | Kết quả | Giới hạn |
+|---|---|---|
+| Final packaged startup |1.020 ms | Một mẫu warm trên máy dev |
+| Editor1.000 dòng / video1.000s128×72 |3.412 ms đến dòng cuối trong DOM, screenshot đã kiểm tra | Không phải project4K/thousands of media; chưa đo input latency |
+| Sau editor,30s/6 mẫu |4 process; total working set1.483,13→838,47 MiB; CPU tổng sample max0,834% | Peak chỉ trong sample, không phải max toàn phiên; RAM cao cần tối ưu |
+| Idle180s/36 mẫu |740,64→595,26 MiB; CPU tổng max0,95% | Trước bản guard start-project cuối; không phải soak nhiều giờ |
+| Ordinary close |4 PID quan sát không còn tồn tại sau đóng | Không chứng nhận shutdown khi active job |
+| Real local ASR |5.037 ms cả inference/cancel;1 subtitle block;2 native children đã thoát | Tiny/public English sample, không accuracy benchmark |
+| Real FFmpeg cancel |672 ms cả test; worker đã chạy và thoát, partial dọn, output trước giữ | Không phải đo throughput xuất phim dài |
 
-- Typecheck main và renderer PASS. 15 suite offline PASS, có negative cases và fixture FS/FFmpeg thực, chi tiết trong test matrix.
-- `npm run build` thật: whisper native compile PASS, renderer Turbopack FAIL trong worktree do junction ngoài filesystem root. Webpack tại worktree cũng vướng resolve liên ổ C/D. Đây là giới hạn môi trường, vẫn là build chuẩn chưa PASS end-to-end.
-- Copy source/config vào thư mục tạm riêng cùng ổ D, junction dependencies hiện có; SHA256 manifest lưu bằng chứng. Next static Webpack build PASS; main/preload Nextron Webpack PASS với5 optional-dependency warnings. Không sửa checkout nguồn chính để vượt build.
-- Electron UI dùng profile riêng, bridge tắt, không generation. Run60s cuối: startup1035ms (một mẫu warm), 4processes; tổng working set609.12→502.76MiB, CPU sample tổng0–0.19%. Không đo disk throughput hay peak export RAM. Đây là idle smoke, không phải multi-hour soak hay proof không leak.
-- Đóng/mở lại giữ settings; chưa kill app giữa paid/network/FFmpeg job. Checkpoint recovery test dùng engine/store thật và provider stub, không thay thế crash test OS thực.
-- Packaging qua junction ban đầu exit0 nhưng executable launch timeout60s; archive thiếu `conf`, platform FFmpeg/FFprobe. Lần kế tiếp `npm ci --ignore-scripts --omit=dev` theo lockfile vào folder riêng, chỉ định electronVersion43.4.1 cho builder và copy whisper binary đã compile vào đúng workspace: package exit0, archive đủ các module/binary kiểm tra; FFmpeg/FFprobe `-version`, whisper `--help` đều exit0. Executable thật qua6routes+restart PASS, startup1302ms; đây là cùng host, chưa Windows sạch hay installer. Authenticode status **NotSigned**. Xem `runtime-packaged.json`, `package-module-presence-clean.json`; giữ lần fail ở `runtime-packaged-junction-failure.json`.
+`npm audit --omit=dev`:9→**5 High/0 Critical**, là5 package bị đánh dấu trong cùng chain braces→micromatch→fast-glob→shelljs→nodejs-whisper, không phải5exploit riêng đã tái hiện. [Advisory braces](https://github.com/advisories/GHSA-vfj7-8cjw-p6xm) tại ngày kiểm tra chưa có patched version. Source ASR spawn trực tiếp whisper-cli thay JS shelljs wrapper; chưa tìm thấy import wrapper trong main, nhưng package vẫn có trong dependency/build, chưa đóng supply-chain/reachability risk. Không audit-fix downgrade mù.
 
-## 8. Chất lượng test và giới hạn
+## Các gate còn mở
 
-Tên `test_live_aistudio_visual_pipeline.ts` thực tế inject mock RPC; `test_real_browser_hardening_and_safeguards.ts` có case closed-port được stub. Không tính chúng là live pass. Runner cũ suy count=1 khi không parse được output và không có child timeout; audit runner dùng allowlist offline, timeout120s/suite, lưu exit code, không suy diễn số assertion.
+1. Dedicated Flow test profile + extension1.0.7/CDP, bounded generation/provenance/download/cancel; không thao tác tab cá nhân hay bypass challenge.
+2. Windows sạch/VM: installer, ký/phân phối, model/native/Python/fonts và restart/error UX.
+3. Shutdown giữa ASR/OCR/TTS/export/Flow/workflow, browser ownership/disconnect, concurrent jobs và soak nhiều giờ; đo RAM/CPU/disk/child processes.
+4. Pairing bridge, media capability/owner grants, per-channel payload schemas, legacy secret migration và checkpoint reconciliation hai file.
+5. Dịch/TTS/provider pipeline live có budget; nghe đối chiếu và kiểm tra semantic/timing. Tối ưu editor RAM trước nghiệm thu project lớn.
 
-Hai suite media trước đây âm thầm skip positive/timeout nếu thiếu fixture cũ. Đã đổi sang tự tạo ảnh/video trong temp, media validator chạy10case; timeline guard render thật. Không đổi tên test để che mức coverage. Một lần broad runner bị auto-review chặn vì có tên live/production; đã thu hẹp allowlist và chạy offline an toàn.
-
-Google Flow: probe cuối tự mở bridge loopback riêng khi hai cổng đang rảnh, extension1.0.6 kết nối/handshake thật thành công qua Origin guard; CDP9224 vẫn không có. Probe chỉ chờ kết nối, không gửi lệnh tab/auth/generation. Phát hiện F16 trong ownership nên không dùng extension cũ tạo media. Người dùng sau đó chọn **“Tạm ghi nhận live test chưa hoàn tất”**. **Generation thực do audit này gửi:0; credits:không phát sinh từ audit.** Không cố lấy cookie, tự tạo phiên đăng nhập, bypass CAPTCHA hay can thiệp tab thủ công. Runner live cũ còn `.first()`/gallery fallback và chọn page có sẵn; cần kiểm tra ownership/correlation trước khi dùng.
-
-## 9. Việc ưu tiên tiếp theo
-
-1. Nghiệm thu executable/installer trên Windows sạch và sửa mọi dependency/path issue tìm thấy.
-2. Nối phiên test Flow riêng; test giới hạn một ảnh→I2V, một T2V, tải/validate/provenance, hủy/disconnect và export nhiều cảnh; dừng nếu challenge.
-3. Pin config theo owner/session, thiết kế revision output đầy đủ; test đổi project/config lúc paused, tránh gọi nhầm provider hoặc dùng artifact cũ.
-4. Kiểm thử app quit giữa job, child cleanup và soak nhiều giờ; chạy project lớn để đo thực.
-5. Vá dependency theo từng advisory reachable, test native/provider compatibility; harden secret storage/pairing/CSP bằng migration có kiểm thử.
+Không gọi provider trả phí, không thu cookie/key thật;0Flow generation do audit gửi. Không tuyên bố Production Ready hoặc không còn regression. Giữ artifacts test riêng để có thể review.

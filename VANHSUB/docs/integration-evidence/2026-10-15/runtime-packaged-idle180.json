@@ -1,0 +1,998 @@
+{
+  "classification": "WINDOWS_UNPACKED_UI_E2E_LOCAL_OFFLINE",
+  "generationCount": 0,
+  "profile": "C:\\Users\\MTLS\\AppData\\Local\\Temp\\vanhsub-ui-audit-8xLTUt",
+  "build": "D:\\DEAN\\DEAN\\VANHSUB\\temp\\codex-integration-build-d4cc3874fab54b2d8ac41e9bd368f92b",
+  "passes": [
+    "Production renderer loaded and preload IPC returned isolated empty task store",
+    "Actual Chromium CSP blocked an injected inline script",
+    "Actual Electron IPC rejected an untrusted BrowserWindow using the same preload",
+    "Renderer IPC created a task, imported strict SRT and saved an AI Studio project",
+    "Actual Windows safeStorage persisted a synthetic secret without plaintext/headless fallback",
+    "UI navigation: AI Studio",
+    "UI navigation: Workflow AI",
+    "UI navigation: Phụ đề",
+    "UI navigation: Lồng tiếng",
+    "UI navigation: Xuất video",
+    "UI navigation: Cài đặt",
+    "Restart reopened saved task/subtitle/project and decrypted the synthetic setting",
+    "Close/reopen retained isolated settings"
+  ],
+  "errors": [],
+  "pageErrors": [],
+  "metrics": [
+    [
+      {
+        "type": "Browser",
+        "pid": 10352,
+        "cpu": 0,
+        "workingSetKiB": 199536
+      },
+      {
+        "type": "GPU",
+        "pid": 11940,
+        "cpu": 0,
+        "workingSetKiB": 301976
+      },
+      {
+        "type": "Utility",
+        "pid": 15896,
+        "cpu": 0,
+        "workingSetKiB": 55004
+      },
+      {
+        "type": "Tab",
+        "pid": 18156,
+        "cpu": 0,
+        "workingSetKiB": 201900
+      }
+    ],
+    [
+      {
+        "type": "Browser",
+        "pid": 10352,
+        "cpu": 0.2298138892102254,
+        "workingSetKiB": 198060
+      },
+      {
+        "type": "GPU",
+        "pid": 11940,
+        "cpu": 0.3278642916594908,
+        "workingSetKiB": 252256
+      },
+      {
+        "type": "Utility",
+        "pid": 15896,
+        "cpu": 0.016767226739655965,
+        "workingSetKiB": 55044
+      },
+      {
+        "type": "Tab",
+        "pid": 18156,
+        "cpu": 0.375357140502535,
+        "workingSetKiB": 206304
+      }
+    ],
+    [
+      {
+        "type": "Browser",
+        "pid": 10352,
+        "cpu": 0.003906700400841449,
+        "workingSetKiB": 198072
+      },
+      {
+        "type": "GPU",
+        "pid": 11940,
+        "cpu": 0.0023005877514609857,
+        "workingSetKiB": 247804
+      },
+      {
+        "type": "Utility",
+        "pid": 15896,
+        "cpu": 0,
+        "workingSetKiB": 55044
+      },
+      {
+        "type": "Tab",
+        "pid": 18156,
+        "cpu": 0.002787685106287739,
+        "workingSetKiB": 205476
+      }
+    ],
+    [
+      {
+        "type": "Browser",
+        "pid": 10352,
+        "cpu": 0.0029461102161169625,
+        "workingSetKiB": 198072
+      },
+      {
+        "type": "GPU",
+        "pid": 11940,
+        "cpu": 0.00010606481084027289,
+        "workingSetKiB": 235812
+      },
+      {
+        "type": "Utility",
+        "pid": 15896,
+        "cpu": 0,
+        "workingSetKiB": 55044
+      },
+      {
+        "type": "Tab",
+        "pid": 18156,
+        "cpu": 0.00042176343234175833,
+        "workingSetKiB": 205476
+      }
+    ],
+    [
+      {
+        "type": "Browser",
+        "pid": 10352,
+        "cpu": 0.0033850318809819295,
+        "workingSetKiB": 198068
+      },
+      {
+        "type": "GPU",
+        "pid": 11940,
+        "cpu": 0.000018729356503262105,
+        "workingSetKiB": 235812
+      },
+      {
+        "type": "Utility",
+        "pid": 15896,
+        "cpu": 0,
+        "workingSetKiB": 55044
+      },
+      {
+        "type": "Tab",
+        "pid": 18156,
+        "cpu": 0.0009551992807911297,
+        "workingSetKiB": 205476
+      }
+    ],
+    [
+      {
+        "type": "Browser",
+        "pid": 10352,
+        "cpu": 0.14792954706262676,
+        "workingSetKiB": 182188
+      },
+      {
+        "type": "GPU",
+        "pid": 11940,
+        "cpu": 0.00012086584001409919,
+        "workingSetKiB": 235792
+      },
+      {
+        "type": "Utility",
+        "pid": 15896,
+        "cpu": 0.0004186687172130061,
+        "workingSetKiB": 54984
+      },
+      {
+        "type": "Tab",
+        "pid": 18156,
+        "cpu": 0.12387472926116608,
+        "workingSetKiB": 171636
+      }
+    ],
+    [
+      {
+        "type": "Browser",
+        "pid": 10352,
+        "cpu": 0.002883031301482702,
+        "workingSetKiB": 182212
+      },
+      {
+        "type": "GPU",
+        "pid": 11940,
+        "cpu": 0,
+        "workingSetKiB": 235792
+      },
+      {
+        "type": "Utility",
+        "pid": 15896,
+        "cpu": 0,
+        "workingSetKiB": 54984
+      },
+      {
+        "type": "Tab",
+        "pid": 18156,
+        "cpu": 0.0004480622244854149,
+        "workingSetKiB": 171636
+      }
+    ],
+    [
+      {
+        "type": "Browser",
+        "pid": 10352,
+        "cpu": 0.003545585037511291,
+        "workingSetKiB": 182292
+      },
+      {
+        "type": "GPU",
+        "pid": 11940,
+        "cpu": 0.00009862716972282719,
+        "workingSetKiB": 235796
+      },
+      {
+        "type": "Utility",
+        "pid": 15896,
+        "cpu": 0,
+        "workingSetKiB": 54984
+      },
+      {
+        "type": "Tab",
+        "pid": 18156,
+        "cpu": 0.001003744315860858,
+        "workingSetKiB": 171636
+      }
+    ],
+    [
+      {
+        "type": "Browser",
+        "pid": 10352,
+        "cpu": 0.0031255311156108997,
+        "workingSetKiB": 182292
+      },
+      {
+        "type": "GPU",
+        "pid": 11940,
+        "cpu": 0,
+        "workingSetKiB": 235796
+      },
+      {
+        "type": "Utility",
+        "pid": 15896,
+        "cpu": 0,
+        "workingSetKiB": 54984
+      },
+      {
+        "type": "Tab",
+        "pid": 18156,
+        "cpu": 0.000771398288963702,
+        "workingSetKiB": 171636
+      }
+    ],
+    [
+      {
+        "type": "Browser",
+        "pid": 10352,
+        "cpu": 0.002992669233323569,
+        "workingSetKiB": 182356
+      },
+      {
+        "type": "GPU",
+        "pid": 11940,
+        "cpu": 0,
+        "workingSetKiB": 235796
+      },
+      {
+        "type": "Utility",
+        "pid": 15896,
+        "cpu": 0,
+        "workingSetKiB": 54984
+      },
+      {
+        "type": "Tab",
+        "pid": 18156,
+        "cpu": 0.0003244749994508885,
+        "workingSetKiB": 171640
+      }
+    ],
+    [
+      {
+        "type": "Browser",
+        "pid": 10352,
+        "cpu": 0.007666062859769939,
+        "workingSetKiB": 173828
+      },
+      {
+        "type": "GPU",
+        "pid": 11940,
+        "cpu": 0.00007482765694053456,
+        "workingSetKiB": 235808
+      },
+      {
+        "type": "Utility",
+        "pid": 15896,
+        "cpu": 0,
+        "workingSetKiB": 54984
+      },
+      {
+        "type": "Tab",
+        "pid": 18156,
+        "cpu": 0.0008206083336692257,
+        "workingSetKiB": 171640
+      }
+    ],
+    [
+      {
+        "type": "Browser",
+        "pid": 10352,
+        "cpu": 0.007776473513971876,
+        "workingSetKiB": 173768
+      },
+      {
+        "type": "GPU",
+        "pid": 11940,
+        "cpu": 0.0013573565584477484,
+        "workingSetKiB": 235188
+      },
+      {
+        "type": "Utility",
+        "pid": 15896,
+        "cpu": 0.0011242737839495783,
+        "workingSetKiB": 54800
+      },
+      {
+        "type": "Tab",
+        "pid": 18156,
+        "cpu": 0.0017798913558304953,
+        "workingSetKiB": 171640
+      }
+    ],
+    [
+      {
+        "type": "Browser",
+        "pid": 10352,
+        "cpu": 0.004394386205310514,
+        "workingSetKiB": 173888
+      },
+      {
+        "type": "GPU",
+        "pid": 11940,
+        "cpu": 0.0006400692003392142,
+        "workingSetKiB": 235188
+      },
+      {
+        "type": "Utility",
+        "pid": 15896,
+        "cpu": 0.00029820184536784484,
+        "workingSetKiB": 54800
+      },
+      {
+        "type": "Tab",
+        "pid": 18156,
+        "cpu": 0.0008783869302413049,
+        "workingSetKiB": 171640
+      }
+    ],
+    [
+      {
+        "type": "Browser",
+        "pid": 10352,
+        "cpu": 0.0035553821972217053,
+        "workingSetKiB": 173892
+      },
+      {
+        "type": "GPU",
+        "pid": 11940,
+        "cpu": 0.00013602582943309427,
+        "workingSetKiB": 235188
+      },
+      {
+        "type": "Utility",
+        "pid": 15896,
+        "cpu": 0.0002558269134505355,
+        "workingSetKiB": 54800
+      },
+      {
+        "type": "Tab",
+        "pid": 18156,
+        "cpu": 0.0012479344189497545,
+        "workingSetKiB": 171640
+      }
+    ],
+    [
+      {
+        "type": "Browser",
+        "pid": 10352,
+        "cpu": 0.003980969641867027,
+        "workingSetKiB": 173956
+      },
+      {
+        "type": "GPU",
+        "pid": 11940,
+        "cpu": 0.0001660288495723696,
+        "workingSetKiB": 235188
+      },
+      {
+        "type": "Utility",
+        "pid": 15896,
+        "cpu": 0.0001897471050583782,
+        "workingSetKiB": 54800
+      },
+      {
+        "type": "Tab",
+        "pid": 18156,
+        "cpu": 0.0012645640831643254,
+        "workingSetKiB": 171704
+      }
+    ],
+    [
+      {
+        "type": "Browser",
+        "pid": 10352,
+        "cpu": 0.0030638171795224784,
+        "workingSetKiB": 173956
+      },
+      {
+        "type": "GPU",
+        "pid": 11940,
+        "cpu": 0.0002518890682538571,
+        "workingSetKiB": 235188
+      },
+      {
+        "type": "Utility",
+        "pid": 15896,
+        "cpu": 0.0001633543231584456,
+        "workingSetKiB": 54800
+      },
+      {
+        "type": "Tab",
+        "pid": 18156,
+        "cpu": 0.0010087976130027903,
+        "workingSetKiB": 171704
+      }
+    ],
+    [
+      {
+        "type": "Browser",
+        "pid": 10352,
+        "cpu": 0.030939865542220987,
+        "workingSetKiB": 174024
+      },
+      {
+        "type": "GPU",
+        "pid": 11940,
+        "cpu": 0.00010101796174187891,
+        "workingSetKiB": 235188
+      },
+      {
+        "type": "Utility",
+        "pid": 15896,
+        "cpu": 0.0001371850779350922,
+        "workingSetKiB": 54800
+      },
+      {
+        "type": "Tab",
+        "pid": 18156,
+        "cpu": 0.00162378445640685,
+        "workingSetKiB": 171704
+      }
+    ],
+    [
+      {
+        "type": "Browser",
+        "pid": 10352,
+        "cpu": 0.10258970947451178,
+        "workingSetKiB": 176336
+      },
+      {
+        "type": "GPU",
+        "pid": 11940,
+        "cpu": 0.06231621105851644,
+        "workingSetKiB": 244756
+      },
+      {
+        "type": "Utility",
+        "pid": 15896,
+        "cpu": 0.00017352743371351905,
+        "workingSetKiB": 54800
+      },
+      {
+        "type": "Tab",
+        "pid": 18156,
+        "cpu": 0.061300518278572885,
+        "workingSetKiB": 158672
+      }
+    ],
+    [
+      {
+        "type": "Browser",
+        "pid": 10352,
+        "cpu": 0.028211611444051165,
+        "workingSetKiB": 176256
+      },
+      {
+        "type": "GPU",
+        "pid": 11940,
+        "cpu": 0.006594865942410212,
+        "workingSetKiB": 244592
+      },
+      {
+        "type": "Utility",
+        "pid": 15896,
+        "cpu": 0.00011230580080924066,
+        "workingSetKiB": 54800
+      },
+      {
+        "type": "Tab",
+        "pid": 18156,
+        "cpu": 0.0029623502503248354,
+        "workingSetKiB": 158740
+      }
+    ],
+    [
+      {
+        "type": "Browser",
+        "pid": 10352,
+        "cpu": 0.024412742623760884,
+        "workingSetKiB": 176260
+      },
+      {
+        "type": "GPU",
+        "pid": 11940,
+        "cpu": 0.0059573373848879835,
+        "workingSetKiB": 228844
+      },
+      {
+        "type": "Utility",
+        "pid": 15896,
+        "cpu": 0.00021071318708458333,
+        "workingSetKiB": 54800
+      },
+      {
+        "type": "Tab",
+        "pid": 18156,
+        "cpu": 0.0022804508135810635,
+        "workingSetKiB": 158744
+      }
+    ],
+    [
+      {
+        "type": "Browser",
+        "pid": 10352,
+        "cpu": 0.027785562875543634,
+        "workingSetKiB": 176332
+      },
+      {
+        "type": "GPU",
+        "pid": 11940,
+        "cpu": 0.006002260473002579,
+        "workingSetKiB": 228908
+      },
+      {
+        "type": "Utility",
+        "pid": 15896,
+        "cpu": 0.00007236145675489707,
+        "workingSetKiB": 54800
+      },
+      {
+        "type": "Tab",
+        "pid": 18156,
+        "cpu": 0.0023243031432263793,
+        "workingSetKiB": 158744
+      }
+    ],
+    [
+      {
+        "type": "Browser",
+        "pid": 10352,
+        "cpu": 0.018202301367370742,
+        "workingSetKiB": 176332
+      },
+      {
+        "type": "GPU",
+        "pid": 11940,
+        "cpu": 0.0001259290320830268,
+        "workingSetKiB": 228908
+      },
+      {
+        "type": "Utility",
+        "pid": 15896,
+        "cpu": 0.00016832091632011675,
+        "workingSetKiB": 54800
+      },
+      {
+        "type": "Tab",
+        "pid": 18156,
+        "cpu": 0.0006508425643256882,
+        "workingSetKiB": 158748
+      }
+    ],
+    [
+      {
+        "type": "Browser",
+        "pid": 10352,
+        "cpu": 0.029458984641917808,
+        "workingSetKiB": 176640
+      },
+      {
+        "type": "GPU",
+        "pid": 11940,
+        "cpu": 0.0008666214192052098,
+        "workingSetKiB": 229096
+      },
+      {
+        "type": "Utility",
+        "pid": 15896,
+        "cpu": 0.0001748202148910061,
+        "workingSetKiB": 54800
+      },
+      {
+        "type": "Tab",
+        "pid": 18156,
+        "cpu": 0.0009465154346448824,
+        "workingSetKiB": 158812
+      }
+    ],
+    [
+      {
+        "type": "Browser",
+        "pid": 10352,
+        "cpu": 0.007050657418535618,
+        "workingSetKiB": 176380
+      },
+      {
+        "type": "GPU",
+        "pid": 11940,
+        "cpu": 0.0007656437632682442,
+        "workingSetKiB": 229048
+      },
+      {
+        "type": "Utility",
+        "pid": 15896,
+        "cpu": 0.0006694794128086001,
+        "workingSetKiB": 54764
+      },
+      {
+        "type": "Tab",
+        "pid": 18156,
+        "cpu": 0.0009829940775543608,
+        "workingSetKiB": 158816
+      }
+    ],
+    [
+      {
+        "type": "Browser",
+        "pid": 10352,
+        "cpu": 0.005037207205624463,
+        "workingSetKiB": 176384
+      },
+      {
+        "type": "GPU",
+        "pid": 11940,
+        "cpu": 0.000269516326001358,
+        "workingSetKiB": 229048
+      },
+      {
+        "type": "Utility",
+        "pid": 15896,
+        "cpu": 0.00008360045550519231,
+        "workingSetKiB": 54768
+      },
+      {
+        "type": "Tab",
+        "pid": 18156,
+        "cpu": 0.000537788756376852,
+        "workingSetKiB": 158816
+      }
+    ],
+    [
+      {
+        "type": "Browser",
+        "pid": 10352,
+        "cpu": 0.004672232525051257,
+        "workingSetKiB": 176416
+      },
+      {
+        "type": "GPU",
+        "pid": 11940,
+        "cpu": 0.0008552847256586217,
+        "workingSetKiB": 229020
+      },
+      {
+        "type": "Utility",
+        "pid": 15896,
+        "cpu": 0.0007116943619822361,
+        "workingSetKiB": 54692
+      },
+      {
+        "type": "Tab",
+        "pid": 18156,
+        "cpu": 0.0008278137426570548,
+        "workingSetKiB": 158816
+      }
+    ],
+    [
+      {
+        "type": "Browser",
+        "pid": 10352,
+        "cpu": 0.004795106399523082,
+        "workingSetKiB": 176412
+      },
+      {
+        "type": "GPU",
+        "pid": 11940,
+        "cpu": 0.00015825835459561328,
+        "workingSetKiB": 229020
+      },
+      {
+        "type": "Utility",
+        "pid": 15896,
+        "cpu": 0.00009969018284973958,
+        "workingSetKiB": 54692
+      },
+      {
+        "type": "Tab",
+        "pid": 18156,
+        "cpu": 0.0008997028239204314,
+        "workingSetKiB": 158820
+      }
+    ],
+    [
+      {
+        "type": "Browser",
+        "pid": 10352,
+        "cpu": 0.003290965276570924,
+        "workingSetKiB": 176476
+      },
+      {
+        "type": "GPU",
+        "pid": 11940,
+        "cpu": 0.0002908942944567383,
+        "workingSetKiB": 229020
+      },
+      {
+        "type": "Utility",
+        "pid": 15896,
+        "cpu": 0.00021723453939286193,
+        "workingSetKiB": 54692
+      },
+      {
+        "type": "Tab",
+        "pid": 18156,
+        "cpu": 0.00035331782164056924,
+        "workingSetKiB": 158820
+      }
+    ],
+    [
+      {
+        "type": "Browser",
+        "pid": 10352,
+        "cpu": 0.003721128974081003,
+        "workingSetKiB": 176464
+      },
+      {
+        "type": "GPU",
+        "pid": 11940,
+        "cpu": 0.0009408758125677679,
+        "workingSetKiB": 229036
+      },
+      {
+        "type": "Utility",
+        "pid": 15896,
+        "cpu": 0.00014705093585209487,
+        "workingSetKiB": 54692
+      },
+      {
+        "type": "Tab",
+        "pid": 18156,
+        "cpu": 0.000788842295545536,
+        "workingSetKiB": 158820
+      }
+    ],
+    [
+      {
+        "type": "Browser",
+        "pid": 10352,
+        "cpu": 0.003958361877811923,
+        "workingSetKiB": 176532
+      },
+      {
+        "type": "GPU",
+        "pid": 11940,
+        "cpu": 0.0001086016284552045,
+        "workingSetKiB": 229036
+      },
+      {
+        "type": "Utility",
+        "pid": 15896,
+        "cpu": 0.00008862863195140575,
+        "workingSetKiB": 54692
+      },
+      {
+        "type": "Tab",
+        "pid": 18156,
+        "cpu": 0.0011933643747879157,
+        "workingSetKiB": 158824
+      }
+    ],
+    [
+      {
+        "type": "Browser",
+        "pid": 10352,
+        "cpu": 0.003614550615095382,
+        "workingSetKiB": 176528
+      },
+      {
+        "type": "GPU",
+        "pid": 11940,
+        "cpu": 0.00019976850825263685,
+        "workingSetKiB": 229036
+      },
+      {
+        "type": "Utility",
+        "pid": 15896,
+        "cpu": 0.00010487878110479907,
+        "workingSetKiB": 54692
+      },
+      {
+        "type": "Tab",
+        "pid": 18156,
+        "cpu": 0.000561851062023363,
+        "workingSetKiB": 158824
+      }
+    ],
+    [
+      {
+        "type": "Browser",
+        "pid": 10352,
+        "cpu": 0.0035453137266960202,
+        "workingSetKiB": 176528
+      },
+      {
+        "type": "GPU",
+        "pid": 11940,
+        "cpu": 0.0007524873262665248,
+        "workingSetKiB": 229052
+      },
+      {
+        "type": "Utility",
+        "pid": 15896,
+        "cpu": 0.00019467271622947502,
+        "workingSetKiB": 54692
+      },
+      {
+        "type": "Tab",
+        "pid": 18156,
+        "cpu": 0.0010657053521869171,
+        "workingSetKiB": 158828
+      }
+    ],
+    [
+      {
+        "type": "Browser",
+        "pid": 10352,
+        "cpu": 0.004156546452034877,
+        "workingSetKiB": 176600
+      },
+      {
+        "type": "GPU",
+        "pid": 11940,
+        "cpu": 0.00008240722594503109,
+        "workingSetKiB": 229052
+      },
+      {
+        "type": "Utility",
+        "pid": 15896,
+        "cpu": 0.00006242976651267325,
+        "workingSetKiB": 54692
+      },
+      {
+        "type": "Tab",
+        "pid": 18156,
+        "cpu": 0.0010201048303174855,
+        "workingSetKiB": 158832
+      }
+    ],
+    [
+      {
+        "type": "Browser",
+        "pid": 10352,
+        "cpu": 0.0036905503564067057,
+        "workingSetKiB": 176600
+      },
+      {
+        "type": "GPU",
+        "pid": 11940,
+        "cpu": 0.0001283768854202147,
+        "workingSetKiB": 221664
+      },
+      {
+        "type": "Utility",
+        "pid": 15896,
+        "cpu": 0.00010469569150307716,
+        "workingSetKiB": 54692
+      },
+      {
+        "type": "Tab",
+        "pid": 18156,
+        "cpu": 0.000554636119818552,
+        "workingSetKiB": 157292
+      }
+    ],
+    [
+      {
+        "type": "Browser",
+        "pid": 10352,
+        "cpu": 0.009404050997339083,
+        "workingSetKiB": 176764
+      },
+      {
+        "type": "GPU",
+        "pid": 11940,
+        "cpu": 0.0002710781364614834,
+        "workingSetKiB": 221664
+      },
+      {
+        "type": "Utility",
+        "pid": 15896,
+        "cpu": 0.00010493351412545012,
+        "workingSetKiB": 54692
+      },
+      {
+        "type": "Tab",
+        "pid": 18156,
+        "cpu": 0.0012017429019717577,
+        "workingSetKiB": 157304
+      }
+    ],
+    [
+      {
+        "type": "Browser",
+        "pid": 10352,
+        "cpu": 0.004338817185510648,
+        "workingSetKiB": 175880
+      },
+      {
+        "type": "GPU",
+        "pid": 11940,
+        "cpu": 0.00030331874141345836,
+        "workingSetKiB": 221664
+      },
+      {
+        "type": "Utility",
+        "pid": 15896,
+        "cpu": 0.00033078042410993356,
+        "workingSetKiB": 54692
+      },
+      {
+        "type": "Tab",
+        "pid": 18156,
+        "cpu": 0.0009224406876878958,
+        "workingSetKiB": 157312
+      }
+    ]
+  ],
+  "startupMs": 1082,
+  "testingCsp": false,
+  "expectedCspBlocks": [
+    "Executing inline script violates the following Content Security Policy directive 'script-src 'self' 'sha256-GIV+ryA/Q2HN/jXuMebFuFa478aUH51UN+wWo6y+Mcc=''. Either the 'unsafe-inline' keyword, a hash ('sha256-bbsCqdFH9KXWxa8HNv6YqMHgje4aVQiA58U5MK2hXHQ='), or a nonce ('nonce-...') is required to enab"
+  ],
+  "createdTaskId": "2cc30d62-4ac6-487b-90a5-93431fb6f312",
+  "buttons": [
+    "",
+    "Trang chủ",
+    "AI StudioHOT",
+    "Workflow AIMỚI",
+    "Phụ đề & ASR",
+    "Hiệu đính phụ đề",
+    "Lồng tiếng TTS",
+    "Xuất video",
+    "Cài đặt",
+    "Kết Nối Chrome (Khuyên Dùng)",
+    "Sảnh Electron",
+    "",
+    "Thêm tác vụ mới",
+    "Duyệt file từ máy tính",
+    "Tải video từ link",
+    "Chạy batch (1)",
+    "Làm mới",
+    "Bắt đầu phiên âm",
+    "Chạy cả quy trình",
+    "",
+    "",
+    "Tìm kiếm nhanhCtrl + K",
+    "Tạo phụ đề mớiCtrl + N",
+    "Mở trang hiệu đínhCtrl + E",
+    "Cài đặtCtrl + ,",
+    "Terminal Log"
+  ],
+  "soakSeconds": 180,
+  "status": "PASS_WITH_LIMITS",
+  "elapsedMs": 186941
+}

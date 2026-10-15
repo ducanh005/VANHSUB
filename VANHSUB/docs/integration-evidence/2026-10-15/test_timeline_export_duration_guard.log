@@ -1,0 +1,32 @@
+════════════════════════════════════════════════════════════════════════════════
+  TEST SUITE: Timeline Export Duration Mismatch Guard & Pre-Validation
+════════════════════════════════════════════════════════════════════════════════
+
+[Fixture] Empirical duration of real video fixture: 4.00s
+▶ [Case A] Testing 3 clips (4s) on timeline 7s / 6s / 6s (must be BLOCKED)...
+  Mismatches collected:
+    - Cảnh scene_01 (scene_01_shot_1): cần 7s, có 4s, thiếu 3s
+    - Cảnh scene_02 (scene_02_shot_1): cần 6s, có 4s, thiếu 2s
+    - Cảnh scene_03 (scene_03_shot_1): cần 6s, có 4s, thiếu 2s
+  ✔ [PASS] Case A successfully blocked with structured error before rendering.
+
+▶ [Case B] Testing video clips matching timeline duration (must PASS)...
+  ✔ [PASS] Case B passes validation cleanly without false mismatch.
+
+▶ [Case C] Testing mixed static images (1 image 7s, 1 video 4s -> must NOT block static image)...
+  ✔ [PASS] Case C correctly extends static images and does not block them.
+
+▶ [Case D] Testing frame boundary tolerance (tolerance ~0.08s at 25fps)...
+  ✔ [PASS] Subcase D1: 0.04s difference accepted within 0.08s frame tolerance.
+  ✔ [PASS] Subcase D2: 0.15s difference correctly detected and flagged.
+
+▶ [Case E] Testing "freeze_last_frame" fillMode on 3 scenes (7s/6s/6s, total 19s)...
+  ✔ [PASS] Validation E accepted scenes with freeze_last_frame (media duration: 4s).
+  Rendering 19s video with assembleVideo (FFmpeg tpad filter)...
+[AiStudioVideoAssembler] 🎬 Bắt đầu dựng phim đa phân cảnh: 3 segments, tổng thời lượng visual ~19s, audio: 19.043265s
+  Rendered video duration: 19.000s
+  ✔ [PASS] Case E assembled complete 19.0s video with last frames cloned to fill duration.
+
+════════════════════════════════════════════════════════════════════════════════
+✅ ALL TIMELINE DURATION MISMATCH GUARD TESTS PASSED SUCCESSFULLY!
+════════════════════════════════════════════════════════════════════════════════

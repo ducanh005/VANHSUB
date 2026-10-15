@@ -1,0 +1,5 @@
+PASS: decoded image isolation, inactive project routing, unknown session rejection, ambiguous workspace safety and restart binding
+[AiStudioPipelineEngine] Lỗi importSceneMedia: Error: Không tìm thấy phiên AI Studio để nhập media.
+    at AiStudioPipelineEngine.importSceneMediaInternal (D:\DEAN\DEAN\VANHSUB\temp\codex-integration-build-d4cc3874fab54b2d8ac41e9bd368f92b\main\ai-studio\AiStudioPipelineEngine.ts:2225:32)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async withSessionOperation (D:\DEAN\DEAN\VANHSUB\temp\codex-integration-build-d4cc3874fab54b2d8ac41e9bd368f92b\main\ai-studio\sessionOperations.ts:41:20)

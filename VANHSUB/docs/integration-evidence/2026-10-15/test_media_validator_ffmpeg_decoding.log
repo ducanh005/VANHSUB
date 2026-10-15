@@ -1,0 +1,23 @@
+════════════════════════════════════════════════════════════════════════════════
+  TEST SUITE: FFmpeg Full Decode Negative Tests & I2V Non-Conflation Guard
+════════════════════════════════════════════════════════════════════════════════
+
+▶ [SECTION 1] Negative Tests: FFmpeg Failures Must Strictly REJECT
+  ✔ [PASS] 1.1 Non-existent file rejects with clear error
+  ✔ [PASS] 1.2 Sub-64 byte file rejects with clear error
+  ✔ [PASS] 1.3 Non-existent FFmpeg executable rejects (NO false-positive fullyDecoded: true)
+  ✔ [PASS] 1.4 Corrupted media file fails decoding and rejects with error
+  ✔ [PASS] 1.5 Timeout aborts hung FFmpeg process and rejects
+
+▶ [SECTION 2] Positive Tests: Real Media Files Decode 100% Cleanly
+  ✔ [PASS] 2.1 Real JPEG image resolves with fullyDecoded: true
+  ✔ [PASS] 2.2 Real MP4 video resolves with fullyDecoded: true
+  ✔ [PASS] 2.3 normalizeAndValidateMediaFile with fullDecode: true passes valid video
+
+▶ [SECTION 3] I2V vs T2V Strict Non-Conflation Guard
+  ✔ [PASS] 3.1 Standalone T2V video and T2I image CANNOT be inferred as I2V without inputImageAsset
+  ✔ [PASS] 3.2 I2V contract is satisfied ONLY when video request explicitly binds inputImageAsset
+
+════════════════════════════════════════════════════════════════════════════════
+  RESULTS: Passed: 10 | Failed: 0
+════════════════════════════════════════════════════════════════════════════════

@@ -1,0 +1,26 @@
+{
+  "classification": "WINDOWS_UNPACKED_UI_E2E_LOCAL_OFFLINE",
+  "generationCount": 0,
+  "profile": "C:\\Users\\MTLS\\AppData\\Local\\Temp\\vanhsub-ui-audit-qd5MVx",
+  "build": "D:\\DEAN\\DEAN\\VANHSUB\\temp\\codex-integration-build-d4cc3874fab54b2d8ac41e9bd368f92b",
+  "passes": [
+    "Production renderer loaded and preload IPC returned isolated empty task store",
+    "Actual Chromium CSP blocked an injected inline script",
+    "Actual Electron IPC rejected an untrusted BrowserWindow using the same preload",
+    "Renderer IPC created a task, imported strict SRT and saved an AI Studio project",
+    "Actual Windows safeStorage persisted a synthetic secret without plaintext/headless fallback"
+  ],
+  "errors": [
+    "Error: Cannot uniquely identify subtitle task selector\n    at main (C:\\Users\\MTLS\\.codex\\worktrees\\e9b1\\DEAN\\VANHSUB\\scripts\\audit_runtime_electron.cjs:103:50)"
+  ],
+  "pageErrors": [],
+  "metrics": [],
+  "startupMs": 1335,
+  "testingCsp": false,
+  "expectedCspBlocks": [
+    "Executing inline script violates the following Content Security Policy directive 'script-src 'self' 'sha256-lb6q8LStOrK3FvlhT6dgAv48OgL8oR2144ikage5RB0=''. Either the 'unsafe-inline' keyword, a hash ('sha256-bbsCqdFH9KXWxa8HNv6YqMHgje4aVQiA58U5MK2hXHQ='), or a nonce ('nonce-...') is required to enab"
+  ],
+  "createdTaskId": "f8cd5125-0f3e-4eb4-9bbc-8512e09a0dc8",
+  "status": "FAIL",
+  "elapsedMs": 8905
+}

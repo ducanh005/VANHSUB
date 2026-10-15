@@ -1,34 +1,35 @@
-# VANHSUB — Production readiness, 2026-10-15
+# VANHSUB — Production readiness after integration, 2026-10-15
 
 ## Verdict: NOT READY
 
-Ứng dụng đã được harden và có15suite offline PASS cùng UI smoke thật, gồm executable Windows đóng gói bằng dependencies sạch. Chưa thể nghiệm thu toàn app Windows production vì Flow live, full provider flows, shutdown/resource lifecycle, config snapshot và release portability chưa đạt đủ gate; dependency scanner còn9high. Đây không phải kết luận mọi tính năng đều lỗi, cũng không phải READY có điều kiện chỉ dựa vào compiler.
+Mã đã được hợp nhất an toàn trên **`codex/integration-stabilization-20261015`** từ `origin/main=899088f`; main chưa thay đổi.38 suite offline PASS, full production build/NSIS PASS với dependencies cài riêng, executable thật và local Whisper/FFmpeg chạy được trên máy dev. Không dùng kết quả đó để chứng nhận provider live, installer Windows sạch hoặc chạy nhiều giờ.
 
-| Gate | Bằng chứng | Kết luận |
+| Gate | Kết quả | Phạm vi / việc còn lại |
 |---|---|---|
-| Giữ dữ liệu/cách ly workspace | Collision/active cleanup/EPERM/episode/restart fixtures PASS | Improved; legacy conflict bị chặn, revision/transaction còn mở |
-| IPC/security boundary | Sender/frame/origin guards, shell-free Chrome, containment, local WS Origin test, redacted logger | Improved; pairing/DPAPI fallback/CSP/media grants chưa đóng |
-| Compile/build | Main+renderer tsc PASS; native whisper build PASS; static renderer+main bundles PASS trong same-drive snapshot | Build được theo đường workaround, build chuẩn Cworktree FAIL |
-| Runtime/UI | Actual Electron,6routes, settings restart, không console/page errors ở sample | Smoke PASS; chưa toàn bộ interactive flows |
-| Video duration | Real3×4s→12.00s; timeline freeze→19.000s | Fixture PASS; chưa mọi codec/VFR/Flow output |
-| TTS sync | Adaptation policy/invalidduration/retainedoutput tests PASS | Provider/audio listening/word alignment chưa nghiệm thu |
-| Google Flow | Extension1.0.6 handshake thật PASS; CDP9224 chưa có; patch tab1.0.7 chưa nạp | Live generation DEFERRED BY USER;0generation |
-| Long run / resource |4process, idle60s, RAM609.12→502.76MiB | Không phải soak nhiều giờ; active-job shutdown NOT TESTED |
-| Dependency | npm production audit9high/0critical | FAIL gate cho đến triage/patch có kiểm thử |
-| Windows distribution | Junction package thiếumodule/launch FAIL; clean dependency package và EXE UI+restart PASS;3binaries smoke PASS | Cùng host, chưa installer/cleanmachine; Authenticode NotSigned |
-| Source integration | Local maindf9d768 vs remote899088f phân kỳ27/5 | Không thể coi auditbranch là updatefast-forward của remote main |
+| Git reconciliation | PASS ON INTEGRATION BRANCH | Giữ27 remote commits bằng ancestry; selectively replay local/audit, giữ snapshots/revisions/leases; không force/reset/main merge. Review mapping trước khi xét merge |
+| F01–F16 | SOURCE + SCOPED REGRESSION VERIFIED | Bảng từng F trong full report; offline/FS/negative cases PASS; F16 mới verified source/VM, chưa extension live |
+| Main/renderer TypeScript | PASS | Typecheck riêng và full build; không đồng nghĩa runtime mọi đường |
+| Full production build | PASS IN ISOLATED BUILD WORKSPACE | npm ci riêng → CMake Whisper → Next Turbopack → main/preload → NSIS exit0;248source/config hashes khớp. C/D junction checkout cũ còn giới hạn |
+| Windows distribution | PARTIAL | Final installer172.510.930 bytes, SHA256 trong evidence; unpacked EXE thật PASS cùng host; **NotSigned**. Clean Windows/VM installation **NOT TESTED** |
+| Native runtime | PARTIAL PASS | FFmpeg/FFprobe/Whisper help/version exit0; Whisper tiny public speech inference + cancel thật PASS, FFmpeg render/cancel thật PASS. Python/OCR/stems/model-download/font portability chưa đủ |
+| Storage/config/recovery | PARTIAL PASS | Owner/episode/pinned snapshot/revision/shared lock/atomic last-good safety PASS; packaged task/SRT/project/settings restart PASS. Hai checkpoint file chưa transaction, OS crash giữa job chưa nghiệm thu |
+| Security | PARTIAL PASS | Foreign-window IPC deny, Chromium CSP enforcement và DPAPI persist/restart PASS. New secret writes fail closed; legacy secret migration, pairing, media grants, full payload schemas còn mở |
+| Dependency | OPEN | Scan9→5 High/0 Critical; còn chain nodejs-whisper/braces chưa giải quyết. Không downgrade hàng loạt |
+| UI/core flows | PARTIAL PASS |6 routes, task/video fixture/SRT/project persistence,1.000 line editor PASS. Provider/OCR/full authoring/error/cancel UI/multi-resolution còn thiếu |
+| Google Flow | BLOCKED / DEFERRED |0 generation; chưa dedicated safe test connection và patch extension đang nạp chưa xác minh. Handshake cũ không phải live generation PASS |
+| Translation/TTS/providers | NOT TESTED LIVE | Offline contracts/timing/group regen và actual audio render fixtures PASS. Chưa đánh giá ngữ nghĩa, nghe thực, full8 stage hay live workflow DAG |
+| Performance/lifecycle | PARTIAL, concern found | Final editor load3.412 ms, sampled RAM max1.483,13 MiB;180s idle trước final guard có số đo. Ordinary close và native cancel PASS; shutdown mọi active job/multi-hour soak chưa chạy |
 
 ## Điều kiện để đánh giá lại
 
-1. Khép R01: bounded Flow live E2E trong project/tab test riêng; không `.first()` fallback; mỗi asset có request/media/project ownership, decode thật, duration đúng và export khớp timeline. Ghi sốgeneration/credit thực nếu nguồn có cung cấp.
-2. Khép R02/R04: Windows unpacked/installer chạy trên máy sạch; FFmpeg/whisper/Python/Tesseract sidecar path hoạt động; quit giữa job không zombie hoặc corruptcheckpoint; restart không báojob chạy giả.
-3. Khép R03/R09/R14: config/revision pin đúng owner/session, thay project/settings không đổi jobpaused âm thầm; failures/cancel giữ bản tốt; reconcile hai bảncheckpoint.
-4. Khép R05/R06: secret encryption production không failopen, migration được kiểm thử; dependencyhigh được triage và vá các đường reachable với native/provider regression.
-5. Chạy soakhours + project lớn, đo peak RAM/CPU/disk/processsau job; full userflows/subtitle/TTS/export/CapCut, error/loading/cancel UI ở các kích thước cần hỗ trợ.
-6. Hợp nhất lịch sử local/remote qua review giữ cả bản sửa trước và thay đổi Flow mới; không reset/forcepushmain.
+1. Nghiệm thu installer trên Windows sạch/VM, native/model/Python/fonts và signature/distribution; không thay bằng lần chạy trên máy dev.
+2. Nghiệm thu Flow trong dedicated project/tab/profile với extension đã vá; request/media ownership, bounded image/I2V/T2V, download/decode, duration, cancel/disconnect và export. Dừng khi challenge, không bypass CAPTCHA.
+3. Chạy provider dịch/TTS/ASR và8 stage Studio/workflow có budget; nghe và đối chiếu timing/ý nghĩa, error/retry/cost thật.
+4. Quit/kill giữa từng loại job và restart recovery; chứng minh app chỉ dừng process/browser do nó sở hữu; soak nhiều giờ/concurrent tasks, đo RAM/CPU/disk/process cleanup.
+5. Xử lý remaining dependency chain theo reachability/compatibility; bridge pairing, media grants/IPC schemas, legacy secret migration và checkpoint reconciliation có test.
+6. Profile và giảm bộ nhớ editor dự án lớn, đo lại latency/resource; hoàn thiện UI loading/error/cancel/settings conflict ở các kích thước hỗ trợ.
+7. Review và merge integration branch theo kết quả acceptance; không tự merge main trong đợt này.
 
-## Giới hạn và an toàn dữ liệu
+Không release/publish installer trong đợt này. Không thao tác dữ liệu/credentials/tab cá nhân; không tự migrate legacy projects hoặc secret cũ. Build/profile/test temp riêng được giữ để review.
 
-Không release, không gọi provider trả phí ngoài Flow, không dùng cookie/key/token thật trong report hoặc commit. Source chính và untracked files người dùng được giữ. Temp snapshot/profile test giữ riêng để review. Các log mock chứa dữ liệu tổng hợp. Không tuyên bố zero bugs/zero regressions hoặc100% ready.
-
-Tham chiếu: [full audit](CODEX_FULL_AUDIT_REPORT.md), [risks](CODEX_RISK_REGISTER.md), [tests](CODEX_TEST_MATRIX.md), [raw evidence](audit-evidence/2026-10-15/).
+Tham chiếu: [integration](CODEX_INTEGRATION_REPORT.md), [full report](CODEX_FULL_AUDIT_REPORT.md), [risks](CODEX_RISK_REGISTER.md), [test matrix](CODEX_TEST_MATRIX.md), [raw integration evidence](integration-evidence/2026-10-15/README.md).

@@ -1,0 +1,27 @@
+de1fce8 fix(export): apply output resolution and support silent softsub videos
+c090454 fix(storage): isolate same-name projects and preserve existing downloads
+7907511 fix(export): preserve dubbed audio through subtitle exports
+9dc5c36 fix(dubbing): align stretched video audio and subtitle timelines
+44df0f3 fix(tts): regenerate sentence groups and refresh merged audio
+466d434 fix(settings): honor ASR defaults and pair TTS voice with provider
+de2cd90 fix(subtitles): invalidate stale translation and dubbing artifacts
+aed8c03 fix(tasks): prevent conflicting queued and running operations
+90aa0ef fix(ui): refresh shared settings and remove misleading export options
+0166297 fix(dubbing): share per-task preferences across export and TTS
+59ef0f7 fix(storage): guard ambiguous legacy project artifacts
+13c994c fix(tts): make spoken-text shortening explicitly optional
+0f80aae chore(ui): clean unused presets and record audit remediation
+e27fd6a fix(ai-studio): isolate episode workspaces and checkpoint ownership
+7d2d583 fix(ai-studio): preserve narration and honor render dimensions and fps
+1c9c422 fix(ai-studio): persist channel profiles and report save failures
+f642fb2 fix(ai-studio): freeze production configuration per episode
+5d6e81e fix(ai-studio): serialize session jobs and validate stage transitions
+61690dd fix(ai-studio): invalidate production artifacts after script edits
+330f51a fix(ai-studio): refine scripts through the selected provider
+b0d36ca fix(ai-studio): evaluate scripts with the configured review provider
+e3c2791 fix(ai-studio): preserve per-line TTS alignment and collect word boundaries
+9ef7aa7 fix(ai-studio): honor explicit shot modes and narration duration
+84cb13e fix(ai-studio): preserve script visual and camera directions
+1d8e5d0 fix(ai-studio): validate imported media and invalidate stale renders
+f1ad24f fix(ai-studio): scope RPC regeneration and preserve existing media
+899088f fix(ai-studio): honor BGM volume and preserve narration while mixing

@@ -1,0 +1,22 @@
+{
+  "classification": "WINDOWS_UNPACKED_UI_E2E_LOCAL_OFFLINE",
+  "generationCount": 0,
+  "profile": "C:\\Users\\MTLS\\AppData\\Local\\Temp\\vanhsub-ui-audit-tRq7hG",
+  "build": "D:\\DEAN\\DEAN\\VANHSUB\\temp\\codex-integration-build-d4cc3874fab54b2d8ac41e9bd368f92b",
+  "passes": [
+    "Production renderer loaded and preload IPC returned isolated empty task store",
+    "Actual Chromium CSP blocked an injected inline script"
+  ],
+  "errors": [
+    "electronApplication.evaluate: ReferenceError: require is not defined\n    at eval (eval at evaluate (:311:30), <anonymous>:2:22)\n    at UtilityScript.evaluate (<anonymous>:313:16)\n    at UtilityScript.<anonymous> (<anonymous>:1:44)\n    at main (C:\\Users\\MTLS\\.codex\\worktrees\\e9b1\\DEAN\\VANHSUB\\scripts\\audit_runtime_electron.cjs:54:39)"
+  ],
+  "pageErrors": [],
+  "metrics": [],
+  "startupMs": 1519,
+  "testingCsp": false,
+  "expectedCspBlocks": [
+    "Executing inline script violates the following Content Security Policy directive 'script-src 'self' 'sha256-GIV+ryA/Q2HN/jXuMebFuFa478aUH51UN+wWo6y+Mcc=''. Either the 'unsafe-inline' keyword, a hash ('sha256-bbsCqdFH9KXWxa8HNv6YqMHgje4aVQiA58U5MK2hXHQ='), or a nonce ('nonce-...') is required to enab"
+  ],
+  "status": "FAIL",
+  "elapsedMs": 2744
+}
