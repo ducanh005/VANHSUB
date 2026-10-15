@@ -284,7 +284,12 @@ function broadcastTasksUpdate() {
   // Khởi động WebSocket Bridge Server để kết nối với Chrome Extension (VanhSub Flow Bridge)
   try {
     const { getFlowBridgeServer } = await import('./workflow/flow-engine/rpc/FlowBridgeServer');
-    if (process.env.VANHSUB_DISABLE_FLOW_BRIDGE !== '1') getFlowBridgeServer().start();
+    if (process.env.VANHSUB_DISABLE_FLOW_BRIDGE !== '1') {
+      const bridge = getFlowBridgeServer();
+      bridge.configurePairing(path.join(app.getPath('userData'), 'flow-bridge-pairing.json'));
+      // Isolated runtime acceptance must not occupy the user's bridge ports.
+      bridge.start(auditUserDataDir && process.env.VANHSUB_AUDIT_BRIDGE_EPHEMERAL === '1' ? 0 : undefined);
+    }
   } catch (bridgeErr) {
     console.warn('[FlowBridgeServer] Không thể khởi động WebSocket Server:', bridgeErr);
   }
@@ -333,6 +338,16 @@ registerWorkflowIpc()
 // =========================================================================
 registerAiStudioIpc()
 setAiStudioPipelineEngine(new AiStudioPipelineEngine())
+
+handleRendererIpc('bridge:create-pairing-code', async () => {
+  const { getFlowBridgeServer } = await import('./workflow/flow-engine/rpc/FlowBridgeServer');
+  return getFlowBridgeServer().createPairingCode();
+})
+handleRendererIpc('bridge:revoke-pairing', async () => {
+  const { getFlowBridgeServer } = await import('./workflow/flow-engine/rpc/FlowBridgeServer');
+  getFlowBridgeServer().revokePairing();
+  return true;
+})
 
 // =========================================================================
 // TASK MANAGEMENT IPC HANDLERS

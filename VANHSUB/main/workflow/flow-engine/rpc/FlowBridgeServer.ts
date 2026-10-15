@@ -1,4 +1,5 @@
 import { createBridgeSocketServer } from '../../../security/bridgeTransport';
+import { BridgePairingAuthority } from '../../../security/bridgePairing';
 /**
  * FlowBridgeServer.ts
  *
@@ -236,6 +237,7 @@ export class FlowBridgeServer {
   private wss: WebSocketServer | null = null;
   private secondaryWss: WebSocketServer | null = null;
   private clients = new Set<WebSocket>();
+  private pairing?: BridgePairingAuthority;
   private pendingRequests = new Map<string, PendingRequest>();
   private port = BRIDGE_WS_PORT;
   private lastAutoReloadAt = 0;
@@ -243,6 +245,21 @@ export class FlowBridgeServer {
   private inflightTabInfoPromise: Promise<any> | null = null;
 
   private constructor() {}
+
+  public configurePairing(filePath: string): void {
+    if (this.wss || this.secondaryWss) throw new Error('Bridge đã chạy.');
+    this.pairing = new BridgePairingAuthority(filePath);
+  }
+
+  public createPairingCode(): { code: string; expiresAt: number } {
+    if (!this.pairing) throw new Error('Bridge chưa sẵn sàng ghép đôi.');
+    return this.pairing.createCode();
+  }
+
+  public revokePairing(): void {
+    this.pairing?.revoke();
+    for (const client of this.clients) client.close(1008, 'PAIRING_REVOKED');
+  }
 
   public static getInstance(): FlowBridgeServer {
     const g = globalThis as any;
@@ -259,14 +276,19 @@ export class FlowBridgeServer {
   private attachServerHandlers(server: WebSocketServer, listenPort: number, isPrimary: boolean): void {
     server.on('listening', () => {
       if (isPrimary) {
-        this.port = listenPort;
+        const address = server.address();
+        this.port = typeof address === 'object' && address ? address.port : listenPort;
       }
       console.log(`[FlowBridgeServer] 🌐 WebSocket Server đang lắng nghe tại ws://127.0.0.1:${listenPort}`);
     });
 
-    server.on('connection', (ws: WebSocket) => {
-      console.log(`[FlowBridgeServer] 🔌 Đã có Chrome Extension kết nối vào VanhSub (port ${listenPort})!`);
-      this.registerClient(ws);
+    server.on('connection', (ws: WebSocket, request) => {
+      this.pairing!.authenticateSocket(ws, String(request.headers.origin || ''), () => {
+        // One approved extension connection owns requests; reconnect invalidates stale peers.
+        for (const client of this.clients) client.close(1008, 'CONNECTION_REPLACED');
+        this.registerClient(ws);
+        console.log('[FlowBridgeServer] Chrome Extension đã xác thực ghép đôi.');
+      });
     });
 
     server.on('error', (err: any) => {
@@ -303,7 +325,8 @@ export class FlowBridgeServer {
     ws.on('message', (data: any) => {
       try {
         const msg = JSON.parse(data.toString());
-        this.handleIncomingMessage(msg);
+        if (!msg || typeof msg !== 'object' || Array.isArray(msg)) return;
+        this.handleIncomingMessage(msg, ws);
       } catch (e: any) {
         console.error('[FlowBridgeServer] Lỗi phân tích cú pháp message từ Extension:', e.message);
       }
@@ -326,6 +349,7 @@ export class FlowBridgeServer {
    */
   public start(port = BRIDGE_WS_PORT): void {
     if (this.wss) return;
+    if (!this.pairing) throw new Error('PAIRING_NOT_CONFIGURED');
     this.port = port;
 
     try {
@@ -335,7 +359,7 @@ export class FlowBridgeServer {
       console.error('[FlowBridgeServer] ❌ Không thể khởi động WebSocket Server chính:', err.message);
     }
 
-    const backupPort = this.port === 8765 ? 9222 : 8765;
+    const backupPort = port === 0 ? 0 : this.port === 8765 ? 9222 : 8765;
     if (!this.secondaryWss) {
       try {
         this.secondaryWss = createBridgeSocketServer(backupPort);
@@ -362,10 +386,12 @@ export class FlowBridgeServer {
     this.clients.clear();
     this.cachedTabInfo = null;
     if (this.wss) {
+      for (const socket of this.wss.clients) socket.terminate();
       try { this.wss.close(); } catch {}
       this.wss = null;
     }
     if (this.secondaryWss) {
+      for (const socket of this.secondaryWss.clients) socket.terminate();
       try { this.secondaryWss.close(); } catch {}
       this.secondaryWss = null;
     }
@@ -1080,7 +1106,7 @@ export class FlowBridgeServer {
     return null;
   }
 
-  private handleIncomingMessage(msg: any): void {
+  private handleIncomingMessage(msg: any, client?: WebSocket): void {
     const { id, result, error, type } = msg;
 
     if (type === 'HANDSHAKE') {
@@ -1105,6 +1131,7 @@ export class FlowBridgeServer {
     if (!id || !this.pendingRequests.has(id)) return;
 
     const req = this.pendingRequests.get(id)!;
+    if (client && req.client !== client) return;
     clearTimeout(req.timer);
     this.pendingRequests.delete(id);
 

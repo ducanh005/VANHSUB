@@ -1,0 +1,7 @@
+body { width: 310px; margin: 16px; font: 14px/1.5 system-ui, sans-serif; color: #172034; }
+h1 { font-size: 18px; }
+label, input, button { display: block; width: 100%; box-sizing: border-box; }
+input, button { margin-top: 8px; padding: 9px; }
+input { font-family: monospace; }
+button { cursor: pointer; }
+#status { min-height: 42px; }

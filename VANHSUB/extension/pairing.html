@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="vi">
+<head><meta charset="utf-8"><title>Ghép đôi VANHSUB</title><link rel="stylesheet" href="pairing.css"></head>
+<body>
+  <h1>Ghép đôi VANHSUB</h1>
+  <p>Mở VANHSUB → Kết nối Chrome → Tạo mã ghép đôi. Dán mã còn hạn vào đây.</p>
+  <form id="pair-form">
+    <label for="code">Mã ghép đôi</label>
+    <input id="code" autocomplete="off" spellcheck="false" maxlength="32" required pattern="[a-f0-9]{32}">
+    <button type="submit">Ghép đôi</button>
+  </form>
+  <p id="status" role="status">Đang kiểm tra kết nối…</p>
+  <script src="pairing.js"></script>
+</body></html>

@@ -331,6 +331,8 @@ export interface VanhsubAPI {
     openExtensionFolder: () => Promise<{ ok: boolean; path?: string; error?: string }>;
     openChromeExtensionsPage: () => Promise<{ ok: boolean; error?: string }>;
     bridgeStatus: () => Promise<{ running: boolean; connected: boolean; clientCount: number; port: number }>;
+    createPairingCode: () => Promise<{ code: string; expiresAt: number }>;
+    revokePairing: () => Promise<boolean>;
   };
   export: {
     start: (

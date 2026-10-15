@@ -16,6 +16,8 @@ const CAPTCHA_SLOT = '__CAPTCHA__';
 
 let ws = null;
 let reconnectTimer = null;
+let bridgeAuthenticated = false;
+const trustedStorageReady = chrome.storage.local.setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' });
 
 // Quản lý các tác vụ UI generation đang chạy để hỗ trợ hủy tức thì (cancel_ui_gen)
 const activeUiGenTasks = new Map();
@@ -68,26 +70,41 @@ function connectWebSocket() {
   log('Đang kết nối tới VanhSub Desktop tại', wsUrl);
 
   try {
-    ws = new WebSocket(wsUrl);
+    const socket = new WebSocket(wsUrl);
+    ws = socket;
+    bridgeAuthenticated = false;
 
-    ws.onopen = () => {
+    ws.onopen = async () => {
       const ver = getExtensionVersion();
-      log(`✅ Đã kết nối thành công tới VanhSub Desktop (${wsUrl}, v${ver})!`);
+      log(`Đã mở kết nối tới VanhSub Desktop (${wsUrl}, v${ver}); đang xác thực ghép đôi.`);
       if (reconnectTimer) {
         clearInterval(reconnectTimer);
         reconnectTimer = null;
       }
       // Gửi thông báo handshake chuẩn version từ manifest.json
-      send({
-        type: 'HANDSHAKE',
-        version: ver,
-        timestamp: Date.now(),
-      });
+      try {
+        await trustedStorageReady;
+        const { bridgePairingToken } = await chrome.storage.local.get('bridgePairingToken');
+        if (ws === socket && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: 'HANDSHAKE', version: ver, token: bridgePairingToken }));
+      } catch { socket.close(); }
     };
 
     ws.onmessage = async (event) => {
       try {
+        if (ws !== socket) return;
         const msg = JSON.parse(event.data);
+        if (msg.type === 'AUTH_REQUIRED') { bridgeAuthenticated = false; return; }
+        if (msg.type === 'AUTH_OK') {
+          if (msg.token) {
+            if (!/^[A-Za-z0-9_-]{43}$/.test(msg.token)) { socket.close(); return; }
+            await trustedStorageReady;
+            await chrome.storage.local.set({ bridgePairingToken: msg.token });
+          }
+          bridgeAuthenticated = true;
+          send({ type: 'HANDSHAKE', version: getExtensionVersion() });
+          return;
+        }
+        if (!bridgeAuthenticated) return;
         await handleMessage(msg);
       } catch (err) {
         error('Lỗi phân tích cú pháp message từ WebSocket:', err);
@@ -95,11 +112,14 @@ function connectWebSocket() {
     };
 
     ws.onclose = () => {
+      if (ws !== socket) return;
+      bridgeAuthenticated = false;
       warn('🔌 Mất kết nối tới VanhSub Desktop. Sẽ tự kết nối lại sau 3s...');
       scheduleReconnect();
     };
 
     ws.onerror = (err) => {
+      if (ws !== socket) return;
       warn(`WebSocket gặp lỗi tại cổng ${port}:`, err?.message || 'Connection refused');
       currentPortIndex = (currentPortIndex + 1) % WS_PORTS.length;
       try {
@@ -122,7 +142,7 @@ function scheduleReconnect() {
 }
 
 function send(data) {
-  if (ws && ws.readyState === WebSocket.OPEN) {
+  if (bridgeAuthenticated && ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify(data));
   }
 }
@@ -2012,6 +2032,17 @@ async function runBatchRpc(cmd) {
 }
 
 // Khởi chạy khi service worker bật
+chrome.runtime.onMessage.addListener((message, sender, respond) => {
+  if (sender.id !== chrome.runtime.id || sender.tab || sender.url !== chrome.runtime.getURL('pairing.html')) return;
+  if (message?.type === 'BRIDGE_PAIRING_STATUS') {
+    respond({ connected: bridgeAuthenticated && ws?.readyState === WebSocket.OPEN });
+  } else if (message?.type === 'BRIDGE_PAIR') {
+    if (typeof message.code !== 'string' || !/^[a-f0-9]{32}$/.test(message.code)) { respond({ ok: false, error: 'Mã ghép đôi không hợp lệ.' }); return; }
+    if (!ws || ws.readyState !== WebSocket.OPEN) { connectWebSocket(); respond({ ok: false, error: 'Mở VANHSUB rồi thử lại sau vài giây.' }); return; }
+    ws.send(JSON.stringify({ type: 'PAIR', code: message.code }));
+    respond({ ok: true });
+  }
+});
 connectWebSocket();
 
 chrome.runtime.onStartup.addListener(() => {

@@ -20,6 +20,18 @@ export default function ChromeBridgeModal({
   const [isOpeningChrome, setIsOpeningChrome] = useState(false);
   const [isOpeningExtPage, setIsOpeningExtPage] = useState(false);
   const [chromeTabInfo, setChromeTabInfo] = useState<{ url?: string; projectId?: string | null } | null>(null);
+  const [pairingCode, setPairingCode] = useState<{ code: string; expiresAt: number } | null>(null);
+  const [pairingError, setPairingError] = useState('');
+  const [pairingBusy, setPairingBusy] = useState(false);
+
+  useEffect(() => {
+    if (!isOpen || isConnected) { setPairingCode(null); setPairingError(''); }
+  }, [isOpen, isConnected]);
+  useEffect(() => {
+    if (!pairingCode) return;
+    const timer = setTimeout(() => setPairingCode(null), Math.max(0, pairingCode.expiresAt - Date.now()));
+    return () => clearTimeout(timer);
+  }, [pairingCode]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -80,7 +92,7 @@ export default function ChromeBridgeModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 animate-in fade-in duration-150">
-      <div className="relative w-full max-w-lg rounded-lg border border-border bg-surface p-5 space-y-4 text-text">
+      <div className="relative max-h-[90vh] overflow-y-auto w-full max-w-lg rounded-lg border border-border bg-surface p-5 space-y-4 text-text">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-border pb-3">
           <div className="flex items-center gap-2.5">
@@ -99,7 +111,7 @@ export default function ChromeBridgeModal({
                 )}
               </h2>
               <p className="text-xs text-text-muted">
-                Sử dụng tab Google Chrome thật để loại bỏ 100% mã lỗi chặn bot <span className="font-mono text-danger">PUBLIC_ERROR_UNUSUAL_ACTIVITY</span>
+                Kết nối extension đã ghép đôi trong Chrome. Khi Google yêu cầu xác minh, hãy hoàn tất trực tiếp trên phiên test của bạn.
               </p>
             </div>
           </div>
@@ -118,10 +130,10 @@ export default function ChromeBridgeModal({
             <CheckCircle2 className="h-4 w-4 text-success shrink-0 mt-0.5" />
             <div className="text-xs space-y-1">
               <p className="font-medium text-success">
-                Cầu nối Chrome Extension đang hoạt động hoàn hảo!
+                Chrome Extension đã kết nối và xác thực ghép đôi.
               </p>
               <p className="text-text-muted">
-                Mọi lệnh tạo ảnh (Imagen/Nano) và tạo video (Veo) trong AI Studio sẽ tự động chuyển qua tab Chrome của bạn với điểm uy tín tài khoản cao nhất.
+                Kết nối bridge đã sẵn sàng. Việc tạo media vẫn phụ thuộc phiên đăng nhập, quyền truy cập và hạn mức Google Flow.
               </p>
               {chromeTabInfo?.projectId ? (
                 <p className="text-[11px] font-mono text-accent pt-1 flex items-center gap-1">
@@ -144,7 +156,7 @@ export default function ChromeBridgeModal({
                 Tại sao nên dùng Google Chrome thay vì Electron?
               </p>
               <p className="text-text-muted">
-                Google Flow có bộ lọc chống bot rất nghiêm ngặt đối với cửa sổ chạy ngầm của Electron. Khi chạy trên <strong className="text-text">Google Chrome thông thường</strong>, reCAPTCHA Enterprise cấp điểm 1.0 (người dùng thật), tạo ảnh và video mượt mà không bao giờ bị chặn.
+                Dùng một Chrome profile test riêng đã đăng nhập Google Flow. Ghép đôi extension để ứng dụng nhận đúng kết nối được bạn cho phép; không dùng kết nối này để vượt CAPTCHA hoặc cảnh báo của Google.
               </p>
             </div>
           </div>
@@ -153,7 +165,7 @@ export default function ChromeBridgeModal({
         {/* 3 Steps Guide */}
         <div className="space-y-2.5">
           <h3 className="text-xs font-medium uppercase tracking-wider text-text-muted">
-            Hướng Dẫn Cài Đặt 30 Giây (Chỉ làm 1 lần duy nhất)
+            Cài đặt và ghép đôi extension
           </h3>
 
           {/* Bước 1 */}
@@ -208,7 +220,7 @@ export default function ChromeBridgeModal({
             <div className="flex-1 space-y-1 text-xs">
               <p className="font-medium text-text">Mở trang Google Flow trên Chrome</p>
               <p className="text-text-muted">
-                Bấm nút dưới để mở Chrome vào <strong className="text-text">flow.google.com</strong> (đăng nhập tài khoản Google của bạn). Extension sẽ tự động bắt tay với VanhSub!
+                Mở <strong className="text-text">flow.google.com</strong> trên profile test riêng và đăng nhập tài khoản của bạn. Sau đó ghép đôi extension ở bước dưới.
               </p>
               <button
                 type="button"
@@ -221,6 +233,28 @@ export default function ChromeBridgeModal({
               </button>
             </div>
           </div>
+        </div>
+
+        <div className="space-y-2 rounded-md border border-border bg-surface-2 p-3 text-xs">
+          <p className="font-medium">4. Ghép đôi Chrome Extension v1.0.8 trở lên</p>
+          <p className="text-text-muted">Tạo mã rồi mở biểu tượng VANHSUB trên thanh extension của Chrome để dán mã. Mã dùng một lần, hết hạn sau 2 phút. Ghép đôi mới thay thế kết nối cũ.</p>
+          <button type="button" disabled={pairingBusy} className="rounded border border-border px-3 py-1.5 disabled:opacity-50"
+            onClick={async () => {
+              setPairingBusy(true); setPairingError('');
+              try { setPairingCode(await window.vanhsub.veo.createPairingCode()); }
+              catch { setPairingError('Chưa tạo được mã. Hãy mở lại ứng dụng và kiểm tra bridge.'); }
+              finally { setPairingBusy(false); }
+            }}>Tạo mã ghép đôi</button>
+          {pairingCode && <input aria-label="Mã ghép đôi Chrome" readOnly value={pairingCode.code} onFocus={event => event.target.select()}
+            className="w-full rounded border border-border bg-surface p-2 font-mono select-all" />}
+          {isConnected && <button type="button" disabled={pairingBusy} className="ml-2 rounded border border-border px-3 py-1.5 disabled:opacity-50"
+            onClick={async () => {
+              setPairingBusy(true); setPairingError('');
+              try { await window.vanhsub.veo.revokePairing(); setPairingCode(null); onRefresh?.(); }
+              catch { setPairingError('Không thu hồi được kết nối. Hãy thử lại.'); }
+              finally { setPairingBusy(false); }
+            }}>Thu hồi ghép đôi</button>}
+          {pairingError && <p role="alert" className="text-danger">{pairingError}</p>}
         </div>
 
         {/* Footer */}
