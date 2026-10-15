@@ -329,7 +329,8 @@ async function handleMessage(msg) {
 
   if (method === 'ensure_project') {
     try {
-      const tab = await getFlowTab(true, params?.projectId);
+      // Creating a new project must never select or revive a user's existing tab.
+      const tab = params?.createNew === true ? null : await getFlowTab(true, params?.projectId);
       const ensured = await ensureTabInProject(tab, params?.projectId, params?.createNew === true);
       send({ id, result: { projectId: ensured.projectId, url: ensured.tab.url } });
     } catch (err) { send({ id, error: err.message }); }
@@ -1586,7 +1587,7 @@ async function ensureTabInProject(tab, preferredProjectId, createNew = false) {
     : false;
 
   if (createNew) {
-    if (chrome?.tabs?.create && !isAutoOwned && currentTab?.active) {
+    if (chrome?.tabs?.create) {
       log('🌐 Mở tab riêng ở chế độ nền để tạo project mới (bảo vệ tab người dùng)...');
       const created = await chrome.tabs.create({ url: 'https://labs.google/fx/vi/tools/flow', active: false });
       await waitForTabReady(created.id, 15000);
@@ -1600,11 +1601,7 @@ async function ensureTabInProject(tab, preferredProjectId, createNew = false) {
           purpose: 'automation',
         });
       }
-    } else {
-      await chrome.tabs.update(currentTab.id, { url: 'https://labs.google/fx/vi/tools/flow' });
-      await waitForTabReady(currentTab.id, 15000);
-      currentTab = await chrome.tabs.get(currentTab.id);
-    }
+    } else throw new Error('FLOW_PROJECT_CREATE_FAILED: Không thể mở tab test riêng.');
     tabProjectId = extractProjectIdFromUrl(currentTab.url);
     if (tabProjectId) throw new Error('FLOW_PROJECT_CREATE_FAILED: Không mở được trang tạo project mới.');
   }
@@ -1617,7 +1614,7 @@ async function ensureTabInProject(tab, preferredProjectId, createNew = false) {
       : 'https://flow.google.com/project/';
     const targetUrl = `${baseOrigin}${validPreferredId}`;
 
-    if (chrome?.tabs?.create && !isAutoOwned && currentTab?.active) {
+    if (chrome?.tabs?.create && !isAutoOwned) {
       // Tab hiện tại là của người dùng thủ công hoặc tab active: Mở tab riêng ở chế độ nền
       log(`🌐 Tab hiện tại thuộc người dùng thủ công, mở tab riêng cho project "${validPreferredId}" ở chế độ nền: ${targetUrl}`);
       const created = await chrome.tabs.create({ url: targetUrl, active: false });
