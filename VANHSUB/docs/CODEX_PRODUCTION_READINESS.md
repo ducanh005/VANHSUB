@@ -1,6 +1,8 @@
 # VANHSUB — Production readiness after RC stabilization, 2026-10-16
 
-## Verdict: NOT READY
+## Public release verdict: NOT READY
+
+Internal Beta on the current Windows machine is assessed separately as **CONDITIONALLY READY for controlled/local use**, with Google Flow/live-provider/full-pipeline acceptance pending user setup. A clean Windows VM remains a Public Release gate, not a mandatory Internal Beta condition. No old tests were rerun or new application fixes claimed during setup. [Beta status](VANHSUB_INTERNAL_BETA_STATUS.md) · [Practical Vietnamese guide](VANHSUB_USER_ACCEPTANCE_GUIDE.md).
 
 Review branch:`codex/integration-stabilization-20261015`, descendant of `origin/main=899088f`. Main remains unchanged. The branch contains scoped fixes and acceptance evidence; no merge/release is recommended until essential gates below close.
 

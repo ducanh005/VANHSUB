@@ -1,0 +1,55 @@
+{
+  "checkedAtUtc": "2026-10-16T09:33:56.5154712Z",
+  "applicationCommit": "884591d",
+  "windows": [
+    {
+      "Id": 2120,
+      "MainWindowTitle": "",
+      "HasWindow": false
+    },
+    {
+      "Id": 9044,
+      "MainWindowTitle": "VANHSUB — Studio Phụ Đề & Lồng Tiếng AI",
+      "HasWindow": true
+    },
+    {
+      "Id": 13832,
+      "MainWindowTitle": "",
+      "HasWindow": false
+    },
+    {
+      "Id": 25372,
+      "MainWindowTitle": "",
+      "HasWindow": false
+    }
+  ],
+  "listeners": [
+    {
+      "LocalAddress": "127.0.0.1",
+      "LocalPort": 9222,
+      "OwningProcess": 9044
+    },
+    {
+      "LocalAddress": "127.0.0.1",
+      "LocalPort": 8765,
+      "OwningProcess": 9044
+    }
+  ],
+  "firstLaunch": {
+    "cause": "Not established; no application defect inferred",
+    "runningAtFirstCheck": false,
+    "pid": 6572
+  },
+  "workingLaunch": {
+    "method": "detached direct Electron spawn with NODE_OPTIONS and ELECTRON_RUN_AS_NODE absent",
+    "pid": 9044
+  },
+  "extensionInstallation": "WAITING FOR USER: real Chrome load not verified",
+  "pairingProtocol2": "NOT TESTED WITH REAL EXTENSION",
+  "flowCdp9224": "NOT AVAILABLE",
+  "flowLive": "NOT TESTED",
+  "generationCount": 0,
+  "creditsConsumed": 0,
+  "oldProfileOrCredentialsCopied": false,
+  "newRegressionTestsAdded": 0
+}

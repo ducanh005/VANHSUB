@@ -1,0 +1,51 @@
+{
+  "createdAt": "2026-10-16T09:24:21.733Z",
+  "branch": "codex/integration-stabilization-20261015",
+  "repositoryHead": "ab790d4",
+  "applicationCommit": "884591d",
+  "betaRoot": "C:\\Users\\MTLS\\AppData\\Local\\VANHSUB-InternalBeta-20261016",
+  "exe": "D:\\DEAN\\DEAN\\VANHSUB\\temp\\codex-rc-build-3122666765834fbfb9c4b68de492ae3d\\dist\\win-unpacked\\VANHSUB.exe",
+  "chrome": "C:/Program Files/Google/Chrome/Application/chrome.exe",
+  "launchApp": "C:\\Users\\MTLS\\AppData\\Local\\VANHSUB-InternalBeta-20261016\\1 - Mo VANHSUB Beta.cmd",
+  "launchChrome": "C:\\Users\\MTLS\\AppData\\Local\\VANHSUB-InternalBeta-20261016\\2 - Mo Chrome Flow Test.cmd",
+  "extensionDir": "C:\\Users\\MTLS\\AppData\\Local\\VANHSUB-InternalBeta-20261016\\Flow Bridge 1.0.8",
+  "extensionVersion": "1.0.8",
+  "extensionHashes": {
+    "background.js": "257e7c021cfb14ae1c9cfde44f14142cee877069383402f92723379f5f548f92",
+    "content.js": "da774c34c955d566b0ae78eafacf148578cc4d3b04fe0bea6563140793b7213b",
+    "injected.js": "703435304cc8b0696981c13ffb24f8cb52ab720649ec665c22784ce4f1688e4c",
+    "manifest.json": "1be5b76ff3e10e9118fb4e8a7c95c055d48024155ad4b2a84b8db456f11bd547",
+    "pairing.css": "b8cefd5426161caa4ecefdff40201b3ccda209d2ec62790f920f32394321a295",
+    "pairing.html": "0e2b1496eeee3350691ab6c3587dcb7963e03194bbc2d726709366ed3d58ff57",
+    "pairing.js": "7b8f0de4a4804d8a9fc88b4ccb20b40a00662920da1531293a7acedc7502396a",
+    "README.md": "3b7401542303da2d8aefabc9f4e68d9df27243c6146a87c4cbd16c4406c2b432"
+  },
+  "env": {
+    "NODE_ENV": "production",
+    "VANHSUB_AUDIT_USER_DATA_DIR": "C:\\Users\\MTLS\\AppData\\Local\\VANHSUB-InternalBeta-20261016\\User Data",
+    "VANHSUB_SETTINGS_DIR": "C:\\Users\\MTLS\\AppData\\Local\\VANHSUB-InternalBeta-20261016\\Settings",
+    "VANHSUB_TASKS_DIR": "C:\\Users\\MTLS\\AppData\\Local\\VANHSUB-InternalBeta-20261016\\Tasks",
+    "VANHSUB_AI_STUDIO_DIR": "C:\\Users\\MTLS\\AppData\\Local\\VANHSUB-InternalBeta-20261016\\AI Studio",
+    "VANHSUB_BIBLE_DIR": "C:\\Users\\MTLS\\AppData\\Local\\VANHSUB-InternalBeta-20261016\\Bible",
+    "FLOW_PROFILE_DIR": "C:\\Users\\MTLS\\AppData\\Local\\VANHSUB-InternalBeta-20261016\\Chrome Flow Profile",
+    "VANHSUB_DISABLE_FLOW_BRIDGE": "0",
+    "VANHSUB_AUDIT_BRIDGE_EPHEMERAL": "0",
+    "VANHSUB_ALLOW_INSECURE_TEST_SECRETS": "0",
+    "ELECTRON_RUN_AS_NODE": "",
+    "NODE_OPTIONS": ""
+  },
+  "existingDataCopied": false,
+  "providerCredentialsCopied": false,
+  "chromeLaunched": false,
+  "googleFlowLive": "NOT TESTED: user installation/login required",
+  "generationCount": 0,
+  "creditsConsumed": 0,
+  "launchAttempt2": {
+    "pid": 9044,
+    "at": "2026-10-16T09:26:02.964Z",
+    "clearedEnvironmentKeys": [
+      "ELECTRON_RUN_AS_NODE",
+      "NODE_OPTIONS"
+    ]
+  }
+}

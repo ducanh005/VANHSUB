@@ -2,7 +2,13 @@
 
 Updated: 2026-10-16 (Asia/Saigon). Work/evidence began 2026-10-15; raw timestamps may be UTC. Branch: `codex/integration-stabilization-20261015`.
 
-## Decision: NOT READY — do not merge or release
+## Internal Beta / Public Release assessment — 2026-10-16
+
+**Internal Beta: CONDITIONALLY READY** for controlled use on this Windows machine, new/copied projects and previously evidenced local functions. Flow/live providers/full Studio/workflow remain pending user-guided acceptance. Clean Windows VM is not an Internal Beta gate. **Public Release: NOT READY**; no main merge/release recommendation.
+
+Actual integrated EXE is now running in a separate persistent beta profile; a real window and normal loopback bridge listeners were observed. No Chrome session, pairing or generation is simulated. User must load Extension 1.0.8/login/pair before live testing; generation/credits 0. No application code changed and no old PASS suite/build was rerun. [Independent decisions](VANHSUB_INTERNAL_BETA_STATUS.md), [Vietnamese user guide](VANHSUB_USER_ACCEPTANCE_GUIDE.md), [current preparation evidence](internal-beta-evidence/2026-10-16/runtime-preparation.json).
+
+## Public release decision: NOT READY — do not merge or release
 
 RC code has scoped build, regression, packaged runtime and UI evidence. **Clean Windows installation is BLOCKED**, Google Flow live is NOT TESTED, and full cloud-provider/OCR/browser/crash/long-session acceptance is incomplete. No main merge, installer publication or release was performed. A green local test is not clean installation or live-provider certification.
 
