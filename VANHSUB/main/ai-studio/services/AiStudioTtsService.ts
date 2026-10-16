@@ -4,7 +4,8 @@ import os from 'os';
 import ffmpeg from 'fluent-ffmpeg';
 import ffmpegInstaller from '@ffmpeg-installer/ffmpeg';
 import ffprobeInstaller from '@ffprobe-installer/ffprobe';
-import { MsEdgeTTS, OUTPUT_FORMAT, type ProsodyOptions } from 'msedge-tts';
+import type { ProsodyOptions } from 'msedge-tts';
+import { synthesizeEdgeSpeech, isTtsAccessDenied } from '../../tts-providers/edge/edgeSpeech';
 import type { TiktokTTSProvider } from '../../tts-providers/tiktok/types';
 import type {
   AiStudioVoiceConfig,
@@ -288,79 +289,15 @@ export class AiStudioTtsService {
         throw new Error('Quá trình tạo giọng đọc đã bị hủy bởi người dùng.');
       }
 
-      const tts = new MsEdgeTTS();
-
       try {
-        await tts.setMetadata(targetVoice, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3, {
-          wordBoundaryEnabled: true,
-          sentenceBoundaryEnabled: false,
-        });
-
-        const { audioStream, metadataStream } = tts.toStream(text, prosody);
-        const metadata: any[] = [];
-        metadataStream?.on('data', (chunk: Buffer) => {
-          try {
-            const packet = JSON.parse(chunk.toString('utf8'));
-            if (Array.isArray(packet.Metadata)) metadata.push(...packet.Metadata);
-          } catch { /* Missing/malformed boundaries use explicitly estimated alignment. */ }
-        });
-        metadataStream?.on('error', () => {});
-
-        const audioChunks: Buffer[] = [];
-
-        await new Promise<void>((resolve, reject) => {
-          const timeoutTimer = setTimeout(() => {
-            try {
-              tts.close();
-            } catch {}
-            reject(new Error(`Edge TTS timed out sau 45s (lần thử ${attempt}/${maxRetries})`));
-          }, 45_000);
-
-          const abortHandler = () => {
-            clearTimeout(timeoutTimer);
-            try {
-              tts.close();
-            } catch {}
-            reject(new Error('Quá trình lồng tiếng bị hủy bởi người dùng.'));
-          };
-
-          if (signal) {
-            if (signal.aborted) return abortHandler();
-            signal.addEventListener('abort', abortHandler, { once: true });
-          }
-
-          audioStream.on('data', (chunk: Buffer) => audioChunks.push(chunk));
-          audioStream.on('error', (err) => {
-            signal?.removeEventListener('abort', abortHandler);
-            clearTimeout(timeoutTimer);
-            try {
-              tts.close();
-            } catch {}
-            reject(err);
-          });
-          audioStream.on('end', () => {
-            signal?.removeEventListener('abort', abortHandler);
-            clearTimeout(timeoutTimer);
-            try {
-              tts.close();
-            } catch {}
-            resolve();
-          });
-        });
-
-        const audioBuffer = Buffer.concat(audioChunks);
-        if (audioBuffer.length === 0) {
-          throw new Error('Edge TTS trả về buffer âm thanh rỗng (0 byte).');
-        }
-
+        const { audio: audioBuffer, metadata } = await synthesizeEdgeSpeech(text, targetVoice, prosody, { signal, wordBoundaries: true, timeoutMs: 45_000 });
+        signal?.throwIfAborted();
         fs.writeFileSync(outputPath, audioBuffer);
         onMetadata?.(metadata);
         return audioBuffer;
       } catch (err: any) {
+        if (isTtsAccessDenied(err)) throw err;
         lastError = err;
-        try {
-          tts.close();
-        } catch {}
         if (signal?.aborted) {
           throw new Error('Quá trình tạo giọng đọc đã bị hủy bởi người dùng.');
         }

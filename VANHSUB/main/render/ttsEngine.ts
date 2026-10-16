@@ -7,6 +7,7 @@ import { SettingsStore } from '../store/settingsStore';
 import { VoiceSampleStore } from '../store/voiceSampleStore';
 import { getSharedTikTokProvider } from '../tts-providers/tiktok/sessionStores';
 import { EdgeTTSClient } from '../tts-providers/edge/EdgeTTSClient';
+import { isTtsAccessDenied } from '../tts-providers/edge/edgeSpeech';
 import { CancelledError } from '../lib/cancel';
 import { parseSrtStrict, formatMs } from '../lib/srt';
 import { getFfmpegBinPath, getMediaDurationSec } from '../asr/audioExtractor';
@@ -213,15 +214,16 @@ async function generateAudio(
   text: string,
   voice: string = 'BV074_streaming',
   speed: number = 1.0,
-  engine: TTSEngine = 'tiktok'
+  engine: TTSEngine = 'tiktok',
+  shouldStop?: () => boolean
 ): Promise<Buffer> {
   if (engine === 'edge') {
     try {
-      const result = await EdgeTTSClient.getInstance().synthesize(text, voice, speed);
+      const result = await EdgeTTSClient.getInstance().synthesize(text, voice, speed, shouldStop);
       return result.audio;
     } catch (err: any) {
       console.error('[TTS] Edge TTS error:', err?.message || err);
-      throw new Error(`Edge TTS: ${err?.message || 'Lỗi không xác định'}`);
+      throw err;
     }
   }
 
@@ -230,11 +232,12 @@ async function generateAudio(
       const result = await getSharedTikTokProvider().synthesize(text, voice);
       return result.audio;
     } catch (err: any) {
+      if (shouldStop?.() || err instanceof CancelledError || isTtsAccessDenied(err)) throw err;
       console.warn(
         `[TTS] TikTok TTS gặp lỗi ("${err?.message || err}"). Tự động chuyển sang Edge TTS tiếng Việt dự phòng...`
       );
       try {
-        const fallback = await EdgeTTSClient.getInstance().synthesize(text, 'vi-VN-HoaiMyNeural', speed);
+        const fallback = await EdgeTTSClient.getInstance().synthesize(text, 'vi-VN-HoaiMyNeural', speed, shouldStop);
         return fallback.audio;
       } catch (fallbackErr: any) {
         throw new Error(
@@ -304,6 +307,7 @@ async function withRetry<T>(
       return result;
     } catch (err) {
       if (shouldStop?.() || err instanceof CancelledError) throw new CancelledError();
+      if (isTtsAccessDenied(err)) throw err;
       lastError = err;
       if (attempt < attempts) {
         const delay = baseDelayMs * attempt;
@@ -509,7 +513,7 @@ export async function generateTtsFromSrt(
               }
               first = false;
               const candidatePath = path.join(outputDir, `.subtitle_${group.startIndex}_${candidates.length}.mp3`);
-              const audioBuffer = await withRetry(() => generateAudio(text, group.voice, rate, group.engine), 3, 1200, options?.shouldStop);
+              const audioBuffer = await withRetry(() => generateAudio(text, group.voice, rate, group.engine, options?.shouldStop), 3, 1200, options?.shouldStop);
               fs.writeFileSync(candidatePath, audioBuffer);
               candidates.push(candidatePath);
               generated.set(key, candidatePath);

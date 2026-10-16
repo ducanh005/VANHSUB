@@ -58,7 +58,9 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
     if (onSelectTaskId) onSelectTaskId(id);
     else setInternalTaskId(id);
   };
-  const [ttsEngine, setTtsEngine] = useState<'edge' | 'tiktok'>('edge');
+  const [ttsEngine, setTtsEngine] = useState<'edge' | 'tiktok' | 'viettts'>('edge');
+  const [localVoices, setLocalVoices] = useState<string[]>([]);
+  const [localConnected, setLocalConnected] = useState(false);
   const [edgeVoices, setEdgeVoices] = useState<Array<{ id: string; name: string; gender?: string; locale?: string }>>([
     { id: 'vi-VN-HoaiMyNeural', name: 'Hoài My (Nữ - Truyền cảm, Tự nhiên)', gender: 'Female', locale: 'vi-VN' },
     { id: 'vi-VN-NamMinhNeural', name: 'Nam Minh (Nam - Trầm ấm, Phóng sự)', gender: 'Male', locale: 'vi-VN' },
@@ -180,8 +182,8 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
         if (cancelled) return;
         const chosenVoice = selectedTask?.ttsVoice || defaultVoice || 'vi-VN-HoaiMyNeural';
         const chosenEngine = resolveTtsEngine(chosenVoice, selectedTask?.ttsEngine);
-        setTtsEngine(chosenEngine === 'tiktok' ? 'tiktok' : 'edge');
-        setVoice(chosenEngine === 'viettts' ? 'vi-VN-HoaiMyNeural' : chosenVoice);
+        setTtsEngine(chosenEngine);
+        setVoice(chosenVoice);
         setSpeed(selectedTask?.ttsSpeed ?? (Number(defaultSpeed) || 1));
       }).catch(() => {});
     window.vanhsub.tiktokTts?.status().then((status) => {
@@ -189,6 +191,18 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
     }).catch(() => {});
     return () => { cancelled = true; };
   }, [selectedTaskId, isActive]);
+
+  useEffect(() => {
+    if (ttsEngine !== 'viettts' || !isActive) return;
+    let disposed = false;
+    setLocalConnected(false);
+    Promise.all([window.vanhsub.tts.voices(), window.vanhsub.tts.checkConnection()]).then(([voices, connected]) => {
+      if (disposed) return;
+      setLocalVoices(voices); setLocalConnected(connected);
+      if (voices.length) setVoice(current => voices.includes(current) ? current : voices[0]);
+    }).catch(() => { if (!disposed) { setLocalVoices([]); setLocalConnected(false); } });
+    return () => { disposed = true; };
+  }, [ttsEngine, isActive]);
 
   // Nạp trạng thái session + catalog giọng Edge TTS & TikTok (1 lần)
   useEffect(() => {
@@ -439,7 +453,7 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
       }
 
       await window.vanhsub.tts.start(selectedTaskId, voice, speed, voiceOverrides, ttsEngine);
-      setMessage(`Đã gửi yêu cầu tạo lồng tiếng (${ttsEngine === 'edge' ? 'Edge TTS Miễn phí' : 'TikTok TTS'}) — theo dõi tiến trình bên dưới.`);
+      setMessage(`Đã gửi yêu cầu tạo lồng tiếng (${ttsEngine === 'viettts' ? 'VietTTS local' : ttsEngine === 'edge' ? 'Edge TTS' : 'TikTok TTS'}) — theo dõi tiến trình bên dưới.`);
     } catch (err: any) {
       setIsError(true);
       setMessage(err?.message || String(err));
@@ -542,7 +556,7 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
   const activeVoiceList: Array<{ id: string; label: string }> =
     ttsEngine === 'edge'
       ? edgeVoices.map((v) => ({ id: v.id, label: v.name }))
-      : tiktokVoices;
+      : ttsEngine === 'viettts' ? localVoices.map(id => ({ id, label: id })) : tiktokVoices;
 
   const voiceChoices: Array<{ value: string; label: string }> = activeVoiceList
     .filter((v) => {
@@ -623,6 +637,12 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
 
           {/* Bộ chọn Engine TTS */}
           <div className="flex items-center overflow-hidden rounded-md border border-border bg-bg p-0.5">
+            <button type="button" disabled={isTtsRunning || isDubbingRunning}
+              onClick={() => { if (ttsEngine !== 'viettts') setVoiceOverrides({}); setTtsEngine('viettts'); setVoice(localVoices[0] || ''); }}
+              title="Dùng server VietTTS do bạn cấu hình trong Cài đặt; không tự chuyển provider khi lỗi."
+              className={`px-2.5 py-1 text-xs font-semibold rounded-lg cursor-pointer disabled:opacity-50 ${ttsEngine === 'viettts' ? 'bg-accent text-white' : 'text-text-muted'}`}>
+              VietTTS local
+            </button>
             <button
               type="button"
               onClick={() => {
@@ -638,7 +658,7 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
               }`}
               title="Edge TTS miễn phí. Đổi provider sẽ đặt lại gán giọng từng dòng để bạn chọn giọng tương ứng."
             >
-              Edge TTS (Free)
+              Edge TTS
             </button>
             <button
               type="button"
@@ -660,7 +680,7 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
           </div>
 
           <label className="text-xs font-semibold text-text">
-            {ttsEngine === 'edge' ? 'Giọng Edge:' : 'Giọng TikTok:'}
+            {ttsEngine === 'viettts' ? 'Giọng VietTTS:' : ttsEngine === 'edge' ? 'Giọng Edge:' : 'Giọng TikTok:'}
           </label>
           {ttsEngine === 'tiktok' && (
             <input
@@ -686,13 +706,14 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
           <span className="text-[11px] text-text-muted">
             {voiceChoices.length}/{activeVoiceList.length} giọng
           </span>
+          {ttsEngine === 'viettts' && !localConnected && <span className="text-xs text-amber-400">Chưa kết nối VietTTS — kiểm tra endpoint trong Cài đặt.</span>}
 
           <label className="text-xs font-semibold text-text">Tốc độ:</label>
           <select
             value={speed}
             onChange={(e) => setSpeed(Number(e.target.value))}
             disabled={isTtsRunning || isDubbingRunning || ttsEngine === 'tiktok'}
-            title={ttsEngine === 'edge' ? 'Tốc độ đọc Edge TTS (0.5x - 2.0x)' : 'TikTok TTS chưa hỗ trợ chỉnh tốc độ'}
+            title={ttsEngine === 'tiktok' ? 'TikTok TTS chưa hỗ trợ chỉnh tốc độ' : 'Tốc độ đọc (0.5x - 2.0x)'}
             className="rounded-md border border-border bg-surface-2 px-3 py-1.5 text-xs text-text focus:outline-none disabled:opacity-50"
           >
             {SPEED_OPTIONS.map((s) => (
