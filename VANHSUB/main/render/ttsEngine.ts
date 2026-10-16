@@ -273,14 +273,20 @@ async function generateAudio(
       maxRetries: 0,
     });
 
-    const response = await client.audio.speech.create({
-      model: 'tts-1',
-      voice: (voice as 'alloy' | 'echo' | 'fable' | 'onyx' | 'nova' | 'shimmer') || 'alloy',
-      input: text,
-      speed: Math.max(0.25, Math.min(4.0, speed)), // OpenAI range
-    });
-
-    return Buffer.from(await response.arrayBuffer());
+    const controller = new AbortController();
+    const cancelPoll = shouldStop ? setInterval(() => { if (shouldStop()) controller.abort(); }, 100) : undefined;
+    try {
+      if (shouldStop?.()) throw new CancelledError();
+      const response = await client.audio.speech.create({
+        model: 'tts-1',
+        voice: (voice as 'alloy' | 'echo' | 'fable' | 'onyx' | 'nova' | 'shimmer') || 'alloy',
+        input: text,
+        speed: Math.max(0.25, Math.min(4.0, speed)), // OpenAI range
+        response_format: 'mp3',
+      }, { signal: controller.signal });
+  
+      return Buffer.from(await response.arrayBuffer());
+    } finally { if (cancelPoll) clearInterval(cancelPoll); }
   } catch (err) {
     console.error('VietTTS generation error:', err);
     throw new Error(`Không thể tạo audio qua VietTTS: ${err}`);

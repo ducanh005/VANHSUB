@@ -453,7 +453,7 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
       }
 
       await window.vanhsub.tts.start(selectedTaskId, voice, speed, voiceOverrides, ttsEngine);
-      setMessage(`Đã gửi yêu cầu tạo lồng tiếng (${ttsEngine === 'viettts' ? 'VietTTS local' : ttsEngine === 'edge' ? 'Edge TTS' : 'TikTok TTS'}) — theo dõi tiến trình bên dưới.`);
+      setMessage(`Đã gửi yêu cầu tạo lồng tiếng (${ttsEngine === 'viettts' ? 'Local TTS' : ttsEngine === 'edge' ? 'Edge TTS' : 'TikTok TTS'}) — theo dõi tiến trình bên dưới.`);
     } catch (err: any) {
       setIsError(true);
       setMessage(err?.message || String(err));
@@ -639,9 +639,9 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
           <div className="flex items-center overflow-hidden rounded-md border border-border bg-bg p-0.5">
             <button type="button" disabled={isTtsRunning || isDubbingRunning}
               onClick={() => { if (ttsEngine !== 'viettts') setVoiceOverrides({}); setTtsEngine('viettts'); setVoice(localVoices[0] || ''); }}
-              title="Dùng server VietTTS do bạn cấu hình trong Cài đặt; không tự chuyển provider khi lỗi."
+              title="Dùng server TTS local có endpoint OpenAI-compatible (VietTTS/Piper)."
               className={`px-2.5 py-1 text-xs font-semibold rounded-lg cursor-pointer disabled:opacity-50 ${ttsEngine === 'viettts' ? 'bg-accent text-white' : 'text-text-muted'}`}>
-              VietTTS local
+              Local TTS
             </button>
             <button
               type="button"
@@ -680,7 +680,7 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
           </div>
 
           <label className="text-xs font-semibold text-text">
-            {ttsEngine === 'viettts' ? 'Giọng VietTTS:' : ttsEngine === 'edge' ? 'Giọng Edge:' : 'Giọng TikTok:'}
+            {ttsEngine === 'viettts' ? 'Giọng local:' : ttsEngine === 'edge' ? 'Giọng Edge:' : 'Giọng TikTok:'}
           </label>
           {ttsEngine === 'tiktok' && (
             <input
@@ -706,7 +706,7 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
           <span className="text-[11px] text-text-muted">
             {voiceChoices.length}/{activeVoiceList.length} giọng
           </span>
-          {ttsEngine === 'viettts' && !localConnected && <span className="text-xs text-amber-400">Chưa kết nối VietTTS — kiểm tra endpoint trong Cài đặt.</span>}
+          {ttsEngine === 'viettts' && !localConnected && <span className="text-xs text-amber-400">Chưa kết nối TTS local — kiểm tra endpoint trong Cài đặt.</span>}
 
           <label className="text-xs font-semibold text-text">Tốc độ:</label>
           <select
