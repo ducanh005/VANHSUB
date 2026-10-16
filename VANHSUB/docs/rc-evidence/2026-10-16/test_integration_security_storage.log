@@ -1,0 +1,1 @@
+PASS: fail-closed secret writes, immutable bootstrap CSP hashes and locked atomic destination preservation

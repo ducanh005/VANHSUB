@@ -1,0 +1,14 @@
+{
+  "applicationCommit": "884591d",
+  "main": {
+    "exitCode": 0,
+    "command": "tsc --noEmit --incremental false"
+  },
+  "renderer": {
+    "exitCode": 0,
+    "command": "tsc --noEmit --incremental false -p renderer/tsconfig.json"
+  },
+  "dependencies": "isolated RC build npm-ci snapshot",
+  "targetedOcrRegressionWithIsolatedDependencies": "PASS",
+  "fullRegression": "46 source-workspace offline/loopback suites; no dependency changes since prior isolated45suite pass"
+}

@@ -1,0 +1,5 @@
+PASS: episode/workspace/media isolation, switch/restart, validated lookup, legacy preservation/conflict guards and failed-write propagation
+[AiStudioPipelineEngine] Cannot persist failed/cancelled session ai-studio-1792139032183-e0e2eddb: Error: disk unavailable
+    at AiStudioPipelineEngine.failingEngine.persistSessionStateAtomic (C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\tests\test_ai_studio_session_isolation.ts:101:31)
+    at AiStudioPipelineEngine.persistFailureCheckpoint (C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\main\ai-studio\AiStudioPipelineEngine.ts:255:16)
+    at <anonymous> (C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\main\ai-studio\AiStudioPipelineEngine.ts:281:16)

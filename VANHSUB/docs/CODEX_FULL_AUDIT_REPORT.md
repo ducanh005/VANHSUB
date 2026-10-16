@@ -1,5 +1,11 @@
 # VANHSUB — Post-audit application review, 2026-10-15
 
+## OCR follow-up — 2026-10-16
+
+Đã tái hiện trên bản đóng gói việc OCR chạy lại thất bại làm mất6 tham chiếu đầu ra, xóa 1 file TTS và để lại thư mục khung nếu video hỏng. 884591d giữ artifact cũ đến khi thành công, dọn khung khi lỗi/hủy và cho phép dừng FFmpeg đang trích khung.5 ca packaged PASS: thiếu Python, video hỏng, hủy 275 ms/worker thoát, chạy lại và PaddleOCR thật từ model có sẵn nhận đúng chữ Latin. Không suy thành clean-host/dual-engine hoặc Live Provider PASS.
+
+46 suite offline/loopback PASS; targeted OCR cũng PASS trên dependency snapshot riêng. Full NSIS rebuild, main/renderer types và 20 UI/runtime checks PASS. Source/config và 8 file Extension đóng gói khớp hash. Môi trường/Flow chưa thay đổi: Clean Installation BLOCKED, live NOT TESTED/0 generation. Có [bộ hướng dẫn VM](CODEX_CLEAN_WINDOWS_ACCEPTANCE.md); chưa chạy installer. [Evidence mới](rc-evidence/2026-10-16/README.md). Các số45suite và metric lần trước bên dưới là hồ sơ lịch sử; **NOT READY, chưa merge main**.
+
 ## RC update —2026-10-16
 
 Tiếp tục cùng nhánh tích hợp; origin/main vẫn899088f và main chưa đổi. Đợt RC bổ sung extension 1.0.8 có pairing/revoke, HMAC xác thực hai chiều protocol 2 (nonce/cổng/Origin, khóa DPAPI) và response binding, IPC payload bounds/schemas, media grants, migration secret hiện hành bằng DPAPI, extension resources cho bộ cài, editor100dòng/trang và sửa TTS cancel/retry/giữ artifact tốt. Đường SRT junction/physical dùng chung owner/lease/invalidation.

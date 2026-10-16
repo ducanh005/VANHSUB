@@ -1,0 +1,54 @@
+{
+  "classification": "REAL_PACKAGED_OCR_NATIVE_EXTRACTION_AND_CONTROLLED_MISSING_PYTHON",
+  "build": "D:\\DEAN\\DEAN\\VANHSUB\\temp\\codex-rc-build-3122666765834fbfb9c4b68de492ae3d",
+  "profile": "C:\\Users\\MTLS\\AppData\\Local\\Temp\\vanhsub-rc-ocr-mQxOFB",
+  "generationCount": 0,
+  "liveProviderPass": false,
+  "cases": [
+    {
+      "label": "missing-python",
+      "status": "PASS",
+      "lostPointers": [],
+      "changedFiles": [],
+      "frameDirectories": [],
+      "errorMessage": "spawn UNKNOWN",
+      "subtitleRevision": 3
+    },
+    {
+      "label": "invalid-video",
+      "status": "PASS",
+      "lostPointers": [],
+      "changedFiles": [],
+      "frameDirectories": [],
+      "errorMessage": "Lỗi trích xuất khung hình bằng ffmpeg: ffmpeg exited with code 1: C:\\Users\\MTLS\\AppData\\Local\\Temp\\vanhsub-rc-ocr-mQxOFB\\Dự án OCR có dấu\\Video hỏng.mp4: Invalid data found when processing input\n",
+      "subtitleRevision": 3
+    },
+    {
+      "label": "cancel-native-extraction",
+      "status": "PASS",
+      "cancelMs": 275,
+      "observedWorkerPid": 11080,
+      "duplicateRejected": true,
+      "priorArtifactsRetained": true,
+      "partialFramesCleaned": true
+    },
+    {
+      "label": "rerun-after-cancel",
+      "status": "PASS",
+      "priorArtifactsRetained": true
+    },
+    {
+      "label": "real-paddle-recognition",
+      "status": "PASS",
+      "elapsedMs": 4821,
+      "subtitleLines": 1,
+      "recognizedText": "1\n00:00:00,000 --> 00:00:02,000\nXIN CHAO THE GIOI\n",
+      "subtitleRevision": 4,
+      "priorFilesRetained": true,
+      "stalePointersInvalidated": true,
+      "offlineNetworkGuard": true
+    }
+  ],
+  "errors": [],
+  "status": "PASS"
+}

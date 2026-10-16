@@ -1,0 +1,1 @@
+PASS: real WS denies unpaired commands; one-use/expired/rate-bounded pairing, cipher-injected key persistence, nonce/port-bound mutual proofs, origin binding, reconnect/revoke and response-owner binding

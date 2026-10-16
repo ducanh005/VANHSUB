@@ -1,0 +1,25 @@
+[OCR] Đã trích xuất hoàn tất 1 khung hình (0.5 fps, chế độ AUTO)
+PASS: actual FFmpeg/Python-launch failures retain all last-good OCR/TTS/video artifacts; cancelled extraction cleans partial frames and permits rerun
+[OCR] Lỗi khi quét task d44c1346-a600-4835-9a58-eada20e9a28c: Error: spawn UNKNOWN
+    at ChildProcess.spawn (node:internal/child_process:458:11)
+    at spawn (node:child_process:813:9)
+    at <anonymous> (C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\main\ocr\paddleEngine.ts:90:19)
+    at new Promise (<anonymous>)
+    at checkRapidOcr (C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\main\ocr\paddleEngine.ts:81:10)
+    at OcrRunner.executeOcr (C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\main\ocr\ocrRunner.ts:206:25)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async main (C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\tests\test_rc_ocr_recovery.ts:35:22) {
+  errno: -4094,
+  code: 'UNKNOWN',
+  syscall: 'spawn'
+}
+[OCR] Lỗi khi quét task 32712754-843a-4064-8ced-6b27bbc1473f: Error: Lỗi trích xuất khung hình bằng ffmpeg: ffmpeg exited with code 1: C:\Users\MTLS\AppData\Local\Temp\vanhsub-ocr-regression-w5QCXI\Video hỏng.mp4: Invalid data found when processing input
+
+    at FfmpegCommand.<anonymous> (C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\main\ocr\frameExtractor.ts:115:93)
+    at FfmpegCommand.emit (node:events:509:28)
+    at emitEnd (D:\DEAN\DEAN\VANHSUB\node_modules\fluent-ffmpeg\lib\processor.js:422:16)
+    at endCB (D:\DEAN\DEAN\VANHSUB\node_modules\fluent-ffmpeg\lib\processor.js:543:13)
+    at handleExit (D:\DEAN\DEAN\VANHSUB\node_modules\fluent-ffmpeg\lib\processor.js:168:11)
+    at ChildProcess.<anonymous> (D:\DEAN\DEAN\VANHSUB\node_modules\fluent-ffmpeg\lib\processor.js:180:11)
+    at ChildProcess.emit (node:events:509:28)
+    at ChildProcess._handle.onexit (node:internal/child_process:295:12)

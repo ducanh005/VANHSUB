@@ -1,0 +1,10 @@
+{
+  "name": "VANHSUB Setup 1.0.0.exe",
+  "bytes": 164805225,
+  "sha256": "75d6911a3fbf364553e9022d4d3029b9debf14cffbb0be4e85700b79d1d5c15b",
+  "authenticodeStatus": "NotSigned",
+  "electron": "43.5.0",
+  "next": "16.3.8",
+  "host": "development machine, isolated build dependencies and test profiles",
+  "cleanInstallation": "BLOCKED: no accessible clean Windows VM or Sandbox"
+}

@@ -1,0 +1,18 @@
+{
+  "kit": "D:\\DEAN\\DEAN\\VANHSUB\\temp\\codex-rc-build-3122666765834fbfb9c4b68de492ae3d\\RC-VM-kit-1f7b74be-ea37-4e5b-b322-3a7d47356e96",
+  "zip": "D:\\DEAN\\DEAN\\VANHSUB\\temp\\codex-rc-build-3122666765834fbfb9c4b68de492ae3d\\RC-VM-kit-1f7b74be-ea37-4e5b-b322-3a7d47356e96.zip",
+  "zipBytes": 164861957,
+  "zipSha256": "7e78133103a80eddbde4f91fa2c13ceefa7b32bc42c46a56b6202838c0ed2aba",
+  "archivedInstallerHash": "75d6911a3fbf364553e9022d4d3029b9debf14cffbb0be4e85700b79d1d5c15b",
+  "files": {
+    "VANHSUB Setup 1.0.0.exe": "75d6911a3fbf364553e9022d4d3029b9debf14cffbb0be4e85700b79d1d5c15b",
+    "README.md": "0ccc5278f11a7ac2694f749eb073ef7e0f1b881cdee9bb80fb52b22a15ce044f",
+    "Capture-CleanWindowsBaseline.ps1": "295870b2021f7d974e10c11cfdfad9444c76a159f7d7f7ba44e5f2e732dc7db6",
+    "test-cases.json": "e8df8fdfa9e23a89463c5e58062eca590867192d7b9de516ef4c98a7d287aac4",
+    "Fixtures/Video mẫu.mp4": "db5d9be664cf66f5ba3568912a81b4bd4da97344e1afd08daec2285e63d0723c",
+    "Fixtures/Phụ đề mẫu.srt": "d4bf0979357d7be9dc6384e17211d6b02bbf47b404f1b4b71ecbbb2ef1fd7322"
+  },
+  "cleanInstallationPass": false,
+  "installerExecuted": false,
+  "status": "HANDOFF_PREPARED_NOT_VM_ACCEPTANCE"
+}

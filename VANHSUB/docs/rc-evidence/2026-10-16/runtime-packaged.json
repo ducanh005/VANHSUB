@@ -1,0 +1,238 @@
+{
+  "classification": "WINDOWS_UNPACKED_UI_E2E_LOCAL_OFFLINE",
+  "generationCount": 0,
+  "profile": "C:\\Users\\MTLS\\AppData\\Local\\Temp\\vanhsub-ui-audit-tianKP\\Hồ sơ nghiệm thu RC",
+  "build": "D:\\DEAN\\DEAN\\VANHSUB\\temp\\codex-rc-build-3122666765834fbfb9c4b68de492ae3d",
+  "passes": [
+    "Production renderer loaded and preload IPC returned isolated empty task store",
+    "Actual Windows startup migrated synthetic plaintext/headless settings, Studio LLM and Flow keys without losing values",
+    "Packaged extension1.0.8 and popup assets resolve from resources with Unicode working directory",
+    "Actual Chromium CSP blocked an injected inline script",
+    "Actual Electron IPC rejected an untrusted BrowserWindow using the same preload",
+    "Renderer IPC created a task, imported strict SRT and saved an AI Studio project",
+    "Actual Windows safeStorage persisted a synthetic secret without plaintext/headless fallback",
+    "Actual editor loaded 1000 subtitle lines through imported SRT",
+    "Paginated editor saved first/last-page edits while preserving off-page subtitles",
+    "Actual packaged bridge rejects unpaired socket and accepts a one-use code created through UI; peer is a synthetic extension client",
+    "Actual IPC schemas reject malformed calls; media protocol serves granted range and denies outside/config files",
+    "UI navigation: AI Studio",
+    "UI navigation: Workflow AI",
+    "UI navigation: Phụ đề",
+    "UI navigation: Lồng tiếng",
+    "UI navigation: Xuất video",
+    "UI navigation: Cài đặt",
+    "Restart reopened saved task/subtitle/project and decrypted the synthetic setting",
+    "Actual bridge token reconnect survives app restart and is rejected after revocation",
+    "Close/reopen retained isolated settings"
+  ],
+  "errors": [],
+  "pageErrors": [],
+  "metrics": [
+    [
+      {
+        "type": "Browser",
+        "pid": 21384,
+        "cpu": 0,
+        "workingSetKiB": 207436
+      },
+      {
+        "type": "GPU",
+        "pid": 12352,
+        "cpu": 0,
+        "workingSetKiB": 270604
+      },
+      {
+        "type": "Utility",
+        "pid": 22968,
+        "cpu": 0,
+        "workingSetKiB": 56136
+      },
+      {
+        "type": "Tab",
+        "pid": 12124,
+        "cpu": 0,
+        "workingSetKiB": 382740
+      }
+    ],
+    [
+      {
+        "type": "Browser",
+        "pid": 21384,
+        "cpu": 0.02697868996459067,
+        "workingSetKiB": 207936
+      },
+      {
+        "type": "GPU",
+        "pid": 12352,
+        "cpu": 0.5851802274150126,
+        "workingSetKiB": 233652
+      },
+      {
+        "type": "Utility",
+        "pid": 22968,
+        "cpu": 0,
+        "workingSetKiB": 56136
+      },
+      {
+        "type": "Tab",
+        "pid": 12124,
+        "cpu": 0.17717724637655136,
+        "workingSetKiB": 382044
+      }
+    ],
+    [
+      {
+        "type": "Browser",
+        "pid": 21384,
+        "cpu": 0.046440804134076676,
+        "workingSetKiB": 208068
+      },
+      {
+        "type": "GPU",
+        "pid": 12352,
+        "cpu": 0.5699692600399693,
+        "workingSetKiB": 221840
+      },
+      {
+        "type": "Utility",
+        "pid": 22968,
+        "cpu": 0,
+        "workingSetKiB": 56136
+      },
+      {
+        "type": "Tab",
+        "pid": 12124,
+        "cpu": 0.17066468752883523,
+        "workingSetKiB": 382044
+      }
+    ],
+    [
+      {
+        "type": "Browser",
+        "pid": 21384,
+        "cpu": 0.1793254527318675,
+        "workingSetKiB": 182304
+      },
+      {
+        "type": "GPU",
+        "pid": 12352,
+        "cpu": 0.532709805393063,
+        "workingSetKiB": 215320
+      },
+      {
+        "type": "Utility",
+        "pid": 22968,
+        "cpu": 0.0010197086084674405,
+        "workingSetKiB": 56100
+      },
+      {
+        "type": "Tab",
+        "pid": 12124,
+        "cpu": 0.36410297169532496,
+        "workingSetKiB": 242804
+      }
+    ],
+    [
+      {
+        "type": "Browser",
+        "pid": 21384,
+        "cpu": 0.015761159040190032,
+        "workingSetKiB": 182344
+      },
+      {
+        "type": "GPU",
+        "pid": 12352,
+        "cpu": 0.5216232826423091,
+        "workingSetKiB": 215320
+      },
+      {
+        "type": "Utility",
+        "pid": 22968,
+        "cpu": 0,
+        "workingSetKiB": 56100
+      },
+      {
+        "type": "Tab",
+        "pid": 12124,
+        "cpu": 0.15383361079888344,
+        "workingSetKiB": 242852
+      }
+    ],
+    [
+      {
+        "type": "Browser",
+        "pid": 21384,
+        "cpu": 0.01132055207828602,
+        "workingSetKiB": 182408
+      },
+      {
+        "type": "GPU",
+        "pid": 12352,
+        "cpu": 0.5949601378406078,
+        "workingSetKiB": 215320
+      },
+      {
+        "type": "Utility",
+        "pid": 22968,
+        "cpu": 0,
+        "workingSetKiB": 56100
+      },
+      {
+        "type": "Tab",
+        "pid": 12124,
+        "cpu": 0.2916694808197318,
+        "workingSetKiB": 238064
+      }
+    ]
+  ],
+  "startupMs": 1047,
+  "electron": "43.5.0",
+  "testingCsp": false,
+  "expectedCspBlocks": [
+    "Executing inline script violates the following Content Security Policy directive 'script-src 'self' 'sha256-0FtmpZVnnSavHsKkFHKsccLz9PF79z6hpVeuukPE3xM=''. Either the 'unsafe-inline' keyword, a hash ('sha256-bbsCqdFH9KXWxa8HNv6YqMHgje4aVQiA58U5MK2hXHQ='), or a nonce ('nonce-...') is required to enab"
+  ],
+  "createdTaskId": "8a5d2d75-e106-4232-b0c2-05f4b0313a59",
+  "largeProject": {
+    "subtitleLines": 1000,
+    "firstPageMs": 822,
+    "editSaveAcrossPagesMs": 2526,
+    "mountedTextareas": 100,
+    "videoDurationSec": 1000
+  },
+  "media": {
+    "known": 206,
+    "outside": 403,
+    "config": 403
+  },
+  "buttons": [
+    "",
+    "Trang chủ",
+    "AI StudioHOT",
+    "Workflow AIMỚI",
+    "Phụ đề & ASR",
+    "Hiệu đính phụ đề",
+    "Lồng tiếng TTS",
+    "Xuất video",
+    "Cài đặt",
+    "Chrome: ĐÃ KẾT NỐI",
+    "Sảnh Electron",
+    "",
+    "Thêm tác vụ mới",
+    "Duyệt file từ máy tính",
+    "Tải video từ link",
+    "Chạy batch (1)",
+    "Làm mới",
+    "Bắt đầu phiên âm",
+    "Chạy cả quy trình",
+    "",
+    "",
+    "Tìm kiếm nhanhCtrl + K",
+    "Tạo phụ đề mớiCtrl + N",
+    "Mở trang hiệu đínhCtrl + E",
+    "Cài đặtCtrl + ,",
+    "Terminal Log"
+  ],
+  "soakSeconds": 30,
+  "status": "PASS_WITH_LIMITS",
+  "elapsedMs": 44071
+}

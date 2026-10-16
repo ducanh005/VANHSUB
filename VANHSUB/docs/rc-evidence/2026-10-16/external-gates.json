@@ -1,0 +1,17 @@
+{
+  "checkedAt": "2026-10-16T08:28:35.257342+00:00",
+  "cleanWindowsInstallation": "BLOCKED",
+  "cleanWindowsInstallationPass": false,
+  "observedVmProcess": false,
+  "accessibleVmToolOrGuest": false,
+  "dedicatedFlowPorts": {
+    "9224": false,
+    "9222": false,
+    "8765": false
+  },
+  "googleFlowLive": "NOT TESTED",
+  "generationCount": 0,
+  "creditsFromThisPhase": 0,
+  "hostInternetDisconnected": false,
+  "changesToHostVirtualizationOrInstalledPackages": false
+}

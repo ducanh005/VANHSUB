@@ -8,15 +8,15 @@ Review branch:`codex/integration-stabilization-20261015`, descendant of `origin/
 |---|---|---|
 | Git reconciliation | PASS on integration branch |27 remote commits retained, selected audit/local patches preserved, no reset/force/main merge; latest fetch unchanged |
 | Main/renderer TypeScript and full NSIS build | PASS, isolated dev-host build |Own npm ci, Whisper CMake, Next 16.3.8/static export, Electron 43.5.0 packaging. Final source hashes checked; not clean installation |
-| Regression |45 offline/loopback suites PASS |Includes pairing, IPC/media, DPAPI plan, TTS cancel/rerun and physical/junction ownership. Provider mocks remain offline |
+| Regression |46 offline/loopback suites PASS |Includes pairing, IPC/media, DPAPI, TTS cancel/rerun, physical ownership and actual native OCR failure/cancel regression. Provider mocks remain offline |
 | Packaged UI/security/persistence |20 scoped checks PASS |Actual CSP/foreign IPC denial, Windows DPAPI current-secret migration, pairing/revoke with synthetic peer,1,000 subtitle lines editor/pages/save, task/project/settings restart |
-| Native/runtime flows | PASS within documented cases |Actual packaged Whisper; local HTTP TTS/translation close/reset/timeout/checkpoint/concurrency; FFmpeg Unicode export and corrected actual-main SIGKILL/restart. No new native guardian ships |
+| Native/runtime flows | PASS within documented cases |New 884591d: five packaged OCR cases PASS (fault preservation, 275 ms native cancel/rerun, cached-model Latin recognition). Actual packaged Whisper; local HTTP TTS/translation close/reset/timeout/checkpoint/concurrency; FFmpeg Unicode export and corrected actual-main SIGKILL/restart. No new native guardian ships |
 | Dependency/security | PARTIAL |Production scan0, runtime wrapper/chain absent, shipped Electron patched separately. Full toolchain8 High/8 Moderate/0 Critical; full schemas/granular grants/legacy snapshot migration still incomplete |
-| Clean Windows NSIS install/uninstall/upgrade | **BLOCKED** |No accessible independent clean guest/VM/Sandbox. Running an unpacked EXE/profile on the dev machine is not Clean Installation PASS |
+| Clean Windows NSIS install/uninstall/upgrade | **BLOCKED** |No accessible independent clean guest/VM/Sandbox; checksum-verified internal VM kit/checklist prepared, not installed. Running an unpacked EXE/profile on the dev machine is not Clean Installation PASS |
 | Signing/distribution | OPEN |Installer is NotSigned; no release/publish performed |
 | Google Flow and cloud providers | **NOT TESTED LIVE** |No dedicated authenticated session/CDP9224;0 generation/credit. Extension 1.0.8 source/VM and synthetic-peer pairing do not prove real Flow generation |
-| Performance/reliability | PARTIAL |Editor100 rows/page retains1,000 lines; sampled RAM922→651MiB/180s and 916.00→680.14 MiB/30s. Native render sample and kernel/listener counts measured. Idle602.577s/121samples,487.72→448.45MiB,4processes; limits in RC acceptance; not a multi-hour leak guarantee |
-| All-job crash/recovery and full workflows | **NOT TESTED fully** |OCR/Python/stems/browser/workflow interruption, OS power loss, every write-failure path and provider-quality acceptance remain open |
+| Performance/reliability | PARTIAL |Editor100 rows/page retains1,000 lines; sampled RAM922→651MiB/180s and current895.43→675.68MiB/30s. Native render sample and kernel/listener counts measured. Idle602.577s/121samples,487.72→448.45MiB,4processes; limits in RC acceptance; not a multi-hour leak guarantee |
+| All-job crash/recovery and full workflows | **NOT TESTED fully** |Remaining OCR dual-engine/Python shutdown/stems/browser/workflow interruption, OS power loss, every write-failure path and provider-quality acceptance remain open |
 
 ## Required next acceptance
 

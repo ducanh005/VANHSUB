@@ -1,0 +1,40 @@
+════════════════════════════════════════════════════════════════════════════════
+  CHATGPT SCRIPT COLLECTOR DEDICATED VERIFICATION TEST SUITE (M3)
+════════════════════════════════════════════════════════════════════════════════
+
+  ✓ [PASS] Error Hierarchy: ChatGptSessionExpiredError has correct name & isAuthError
+  ✓ [PASS] Error Hierarchy: ChatGptCloudflareChallengeError has correct name & isCloudflare
+  ✓ [PASS] Error Hierarchy: ChatGptInputInjectionError contains attempted tiers & prompt length
+  ✓ [PASS] Error Hierarchy: ChatGptStreamingTimeoutError contains timing diagnostics
+  ✓ [PASS] Error Hierarchy: AssistantResponseEchoError flags captured preview
+  ✓ [PASS] Truncation Detection: isCutoffSentence correctly identifies complete vs cutoff sentences
+  ✓ [PASS] Truncation Detection: isMissingExpectedMarker checks required end markers
+  ✓ [PASS] Stitching: stripContinuationFillerIntros removes Vietnamese & English conversational preambles
+  ✓ [PASS] Stitching: stitchScriptTurns handles broken sentence boundary and duplicate CÂU N numbers
+  ✓ [PASS] Stitching: stitchProseTurns reconciles sliding-window suffix-prefix overlap
+  ✓ [PASS] Prompt Builder: buildContinuationPrompt creates targeted prompts for script, idea, master_prompt
+  ✓ [PASS] Resilience: isTransientError classifies error types accurately
+  ✓ [PASS] Resilience: retryWithBackoff succeeds after transient errors
+  ✓ [PASS] Safe Input: sendPrompt successfully injects prompt via Tier 1 and confirms presence
+  ✓ [PASS] Safe Input: sendPrompt rejects empty or whitespace-only prompt
+  ✓ [PASS] Safe Input: composer ProseMirror inside form is selected over assistant Writing Block ProseMirror
+  ✓ [PASS] Safe Input: verifyPromptPresence rejects unrelated pre-existing text even if longer than prompt
+  ✓ [PASS] Safe Input: sendPrompt skips duplicate submission when prompt was already received on virtualized DOM
+  ✓ [PASS] Stability: waitForStreamingComplete requires 3 consecutive identical length cycles
+  ✓ [PASS] Extraction: extractLatestResponseText retrieves clean text and rejects prompt echo
+  ✓ [PASS] Continuation: handleContinuationIfTruncated clicks continueButton when present
+  ✓ [PASS] Orchestrator: collectResponse computes ScriptCollectionResult attributes accurately
+  ✓ [PASS] Auth: assertPageHealth flags unauthenticated redirect and Cloudflare
+  ✓ [PASS] Singleton: ChatGptScriptCollector.getInstance() and resetInstance() operate cleanly
+
+════════════════════════════════════════════════════════════════════════════════
+  VERIFICATION RESULTS: 24 PASSED, 0 FAILED (TOTAL: 24)
+════════════════════════════════════════════════════════════════════════════════
+
+[ChatGptScriptCollector] Transient error on attempt 1/3 (node is detached from document). Retrying in 25ms...
+[ChatGptScriptCollector] Transient error on attempt 2/3 (node is detached from document). Retrying in 44ms...
+[ChatGPT Selector Fallback] Selector chính "#prompt-textarea" không tìm thấy cho [promptTextarea]. Đã kích hoạt selector dự phòng "form div.ProseMirror[data-composer-markdown]". Hãy kiểm tra và cập nhật chatgptSelectors.config.ts nếu giao diện web đã thay đổi.
+[ChatGPT Selector Fallback] Selector chính "button[data-testid="send-button"]" không tìm thấy cho [sendButton]. Đã kích hoạt selector dự phòng "button[aria-label="Gửi"]". Hãy kiểm tra và cập nhật chatgptSelectors.config.ts nếu giao diện web đã thay đổi.
+[ChatGPT Selector Fallback] Selector chính "#prompt-textarea" không tìm thấy cho [promptTextarea]. Đã kích hoạt selector dự phòng "form div.ProseMirror[data-composer-markdown]". Hãy kiểm tra và cập nhật chatgptSelectors.config.ts nếu giao diện web đã thay đổi.
+[ChatGPT Selector Fallback] Selector chính "#prompt-textarea" không tìm thấy cho [promptTextarea]. Đã kích hoạt selector dự phòng "form div.ProseMirror[data-composer-markdown]". Hãy kiểm tra và cập nhật chatgptSelectors.config.ts nếu giao diện web đã thay đổi.
+[ChatGptScriptCollector] Prompt đã được ChatGPT nhận trước đó; bỏ qua gửi lại để tránh gửi trùng.

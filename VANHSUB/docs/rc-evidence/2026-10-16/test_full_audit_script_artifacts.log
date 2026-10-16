@@ -1,0 +1,2 @@
+PASS: script edits reject invalid input, preserve history and invalidate stale media pointers
+PASS: invalid TTS duration is rejected rather than replaced with a fictitious five seconds

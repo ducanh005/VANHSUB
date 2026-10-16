@@ -1,0 +1,54 @@
+[Dubbing] Starting full dubbing pipeline (mode video-stretch)...
+[Dubbing] Video-stretch: giãn video 1.19x để vừa audio
+[Dubbing] Ghép audio 2 dòng (1 nhóm câu, mode strict)...
+[Dubbing] ✓ Audio merge successful: C:\Users\MTLS\AppData\Local\Temp\vanhsub-stretch-sync-ucaCkH\.dubbed_audio_1792139083353.m4a
+[Dubbing] Starting video mux: C:\Users\MTLS\AppData\Local\Temp\vanhsub-stretch-sync-ucaCkH\source.mp4 + C:\Users\MTLS\AppData\Local\Temp\vanhsub-stretch-sync-ucaCkH\.dubbed_audio_1792139083353.m4a -> C:\Users\MTLS\AppData\Local\Temp\vanhsub-stretch-sync-ucaCkH\source_dubbed_mono.mp4 (video giãn 1.19x)
+[Dubbing] ✓ Video mux successful: C:\Users\MTLS\AppData\Local\Temp\vanhsub-stretch-sync-ucaCkH\source_dubbed_mono.mp4
+[Dubbing] ✓ Full dubbing complete: C:\Users\MTLS\AppData\Local\Temp\vanhsub-stretch-sync-ucaCkH\source_dubbed_mono.mp4
+[Dubbing] Starting full dubbing pipeline (mode video-stretch)...
+[Dubbing] Video-stretch: giãn video 1.19x để vừa audio
+[Dubbing] Ghép audio 2 dòng (1 nhóm câu, mode strict)...
+[Dubbing] ✓ Audio merge successful: C:\Users\MTLS\AppData\Local\Temp\vanhsub-stretch-sync-ucaCkH\.dubbed_audio_1792139085094.m4a
+[Dubbing] Starting video mux: C:\Users\MTLS\AppData\Local\Temp\vanhsub-stretch-sync-ucaCkH\source.mp4 + C:\Users\MTLS\AppData\Local\Temp\vanhsub-stretch-sync-ucaCkH\.dubbed_audio_1792139085094.m4a -> C:\Users\MTLS\AppData\Local\Temp\vanhsub-stretch-sync-ucaCkH\source_dubbed_bilingual.mp4 (video giãn 1.19x)
+[Dubbing] ✓ Video mux successful: C:\Users\MTLS\AppData\Local\Temp\vanhsub-stretch-sync-ucaCkH\source_dubbed_bilingual.mp4
+[Dubbing] ✓ Full dubbing complete: C:\Users\MTLS\AppData\Local\Temp\vanhsub-stretch-sync-ucaCkH\source_dubbed_bilingual.mp4
+[Dubbing] Starting full dubbing pipeline (mode video-stretch)...
+[Dubbing] Video-stretch: giãn video 1.19x để vừa audio
+[Dubbing] Ghép audio 2 dòng (1 nhóm câu, mode strict)...
+[Dubbing] ✓ Audio merge successful: C:\Users\MTLS\AppData\Local\Temp\vanhsub-stretch-sync-ucaCkH\.dubbed_audio_1792139087181.m4a
+[Dubbing] Starting video mux: C:\Users\MTLS\AppData\Local\Temp\vanhsub-stretch-sync-ucaCkH\source.mp4 + C:\Users\MTLS\AppData\Local\Temp\vanhsub-stretch-sync-ucaCkH\.dubbed_audio_1792139087181.m4a -> C:\Users\MTLS\AppData\Local\Temp\vanhsub-stretch-sync-ucaCkH\source_dubbed_mono_1.mp4 (video giãn 1.19x) (mix nhạc nền gốc)
+[Dubbing] ✓ Video mux successful: C:\Users\MTLS\AppData\Local\Temp\vanhsub-stretch-sync-ucaCkH\source_dubbed_mono_1.mp4
+[Dubbing] ✓ Full dubbing complete: C:\Users\MTLS\AppData\Local\Temp\vanhsub-stretch-sync-ucaCkH\source_dubbed_mono_1.mp4
+Bắt đầu ffmpeg mux softsub với command: ffmpeg -i C:\Users\MTLS\AppData\Local\Temp\vanhsub-stretch-sync-ucaCkH\source_dubbed_mono_1.mp4 -i C:\Users\MTLS\AppData\Local\Temp\vanhsub_export_scaled_1792139089045.srt -y -c:v copy -c:a copy -c:s mov_text -map 0:v -map 0:a? -map 1:s C:\Users\MTLS\AppData\Local\Temp\vanhsub-stretch-sync-ucaCkH\source.softsub.mp4
+Bắt đầu ffmpeg mux softsub với command: ffmpeg -i C:\Users\MTLS\AppData\Local\Temp\vanhsub-stretch-sync-ucaCkH\source.mp4 -i C:\Users\MTLS\AppData\Local\Temp\vanhsub-stretch-sync-ucaCkH\source.srt -y -c:v copy -c:a copy -c:s mov_text -map 0:v -map 0:a? -map 1:s C:\Users\MTLS\AppData\Local\Temp\vanhsub-stretch-sync-ucaCkH\source.softsub_1.mp4
+Bắt đầu ffmpeg burn hardsub với command: ffmpeg -i C:\Users\MTLS\AppData\Local\Temp\vanhsub-stretch-sync-ucaCkH\source_dubbed_mono_1.mp4 -y -filter_complex [0:v]subtitles=filename='C\:/Users/MTLS/AppData/Local/Temp/vanhsub_temp_1792139089662_render.srt'[vout] -acodec aac -vcodec libx264 -map [vout] -map 0:a? -crf 23 -preset veryfast -pix_fmt yuv420p C:\Users\MTLS\AppData\Local\Temp\vanhsub-stretch-sync-ucaCkH\source.hardsub.mp4
+Bắt đầu ffmpeg burn hardsub với command: ffmpeg -i C:\Users\MTLS\AppData\Local\Temp\vanhsub-stretch-sync-ucaCkH\source_dubbed_mono_1.mp4 -y -filter_complex [0:v]subtitles=filename='C\:/Users/MTLS/AppData/Local/Temp/vanhsub_temp_1792139090642_render.ass'[vout] -acodec aac -vcodec libx264 -map [vout] -map 0:a? -crf 23 -preset veryfast -pix_fmt yuv420p C:\Users\MTLS\AppData\Local\Temp\vanhsub-stretch-sync-ucaCkH\source.hardsub_1.mp4
+[Dubbing] Starting full dubbing pipeline (mode strict)...
+[Dubbing] Ghép audio 2 dòng (1 nhóm câu, mode strict)...
+[Dubbing] Đã tăng tốc 1/2 câu để vừa timeline
+[Dubbing] ✓ Audio merge successful: C:\Users\MTLS\AppData\Local\Temp\vanhsub-stretch-sync-ucaCkH\.dubbed_audio_1792139091359.m4a
+[Dubbing] Starting video mux: C:\Users\MTLS\AppData\Local\Temp\vanhsub-stretch-sync-ucaCkH\source.mp4 + C:\Users\MTLS\AppData\Local\Temp\vanhsub-stretch-sync-ucaCkH\.dubbed_audio_1792139091359.m4a -> C:\Users\MTLS\AppData\Local\Temp\vanhsub-stretch-sync-ucaCkH\source_dubbed_mono_2.mp4 (mix nhạc nền gốc)
+[Dubbing] ✓ Video mux successful: C:\Users\MTLS\AppData\Local\Temp\vanhsub-stretch-sync-ucaCkH\source_dubbed_mono_2.mp4
+[Dubbing] ✓ Full dubbing complete: C:\Users\MTLS\AppData\Local\Temp\vanhsub-stretch-sync-ucaCkH\source_dubbed_mono_2.mp4
+[Dubbing] Starting full dubbing pipeline (mode video-stretch)...
+[Dubbing] Video-stretch: giãn video 1.25x để vừa audio
+[Dubbing] Ghép audio 2 dòng (1 nhóm câu, mode strict)...
+PASS: grouped TTS stretch, audio onsets/duration, mono/bilingual/mix, softsub and SRT/ASS hardsub timing, original-source override
+[Dubbing] ✗ Audio merge failed: Error: Dubbing timing conflict at subtitle 1: TTS 4050 ms exceeds 2500 ms slot (needs 1.62x; shorten translation or regenerate TTS)
+    at mergeAudioFiles (C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\main\render\dubbingEngine.ts:355:15)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async dubVideo (C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\main\render\dubbingEngine.ts:620:37)
+    at async DubbingRunner.runDubbing (C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\main\render\dubbingRunner.ts:118:66)
+    at async main (C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\tests\test_video_stretch_timeline_sync.ts:129:22)
+[Dubbing] ✗ Dubbing pipeline failed: Error: Không thể ghép audio: Error: Dubbing timing conflict at subtitle 1: TTS 4050 ms exceeds 2500 ms slot (needs 1.62x; shorten translation or regenerate TTS)
+    at mergeAudioFiles (C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\main\render\dubbingEngine.ts:409:11)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async dubVideo (C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\main\render\dubbingEngine.ts:620:37)
+    at async DubbingRunner.runDubbing (C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\main\render\dubbingRunner.ts:118:66)
+    at async main (C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\tests\test_video_stretch_timeline_sync.ts:129:22)
+Lỗi khi dubbing task a4d7f246-e47b-4e29-951a-e556b150a17b: Error: Không thể ghép audio: Error: Dubbing timing conflict at subtitle 1: TTS 4050 ms exceeds 2500 ms slot (needs 1.62x; shorten translation or regenerate TTS)
+    at mergeAudioFiles (C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\main\render\dubbingEngine.ts:409:11)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async dubVideo (C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\main\render\dubbingEngine.ts:620:37)
+    at async DubbingRunner.runDubbing (C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\main\render\dubbingRunner.ts:118:66)
+    at async main (C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\tests\test_video_stretch_timeline_sync.ts:129:22)

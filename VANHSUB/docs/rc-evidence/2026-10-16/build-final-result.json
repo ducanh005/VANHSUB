@@ -1,0 +1,13 @@
+{
+  "exitCode": 0,
+  "updated": [
+    "main\\ocr\\frameExtractor.ts",
+    "main\\ocr\\ocrRunner.ts",
+    "scripts\\audit_regression.cjs",
+    "scripts\\rc_finalize_evidence.cjs",
+    "scripts\\rc_ocr_acceptance.cjs",
+    "scripts\\rc_rebuild.cjs",
+    "tests\\test_rc_ocr_recovery.ts"
+  ],
+  "removed": []
+}

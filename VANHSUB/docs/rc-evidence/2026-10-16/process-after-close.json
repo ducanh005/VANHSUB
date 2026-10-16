@@ -1,0 +1,6 @@
+{
+  "checkedAt": "2026-10-16T08:29:30.456Z",
+  "scope": "Executables within owned RC unpacked build and fixed soak artifact only; not global/user browser process certification",
+  "processes": [],
+  "status": "PASS"
+}

@@ -1,0 +1,14 @@
+PASS: actual FFmpeg imports, corrupt/type/unknown-shot rejection, immutable sources, image replacing video, downstream invalidation and normalized version history
+[AiStudioPipelineEngine] Lỗi importSceneMedia: Error: File is not a valid image format (detected: unknown): C:\Users\MTLS\AppData\Local\Temp\studio-import-media-3REr0S\custom-media\scene_01_shot_1_img_v1.png
+    at normalizeAndValidateMediaFile (C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\main\browser-automation\mediaValidator.ts:444:13)
+    at AiStudioVisualService.validateMediaFile (C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\main\ai-studio\services\AiStudioVisualService.ts:1894:24)
+    at AiStudioPipelineEngine.importSceneMediaInternal (C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\main\ai-studio\AiStudioPipelineEngine.ts:2244:48)
+    at async withSessionOperation (C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\main\ai-studio\sessionOperations.ts:41:20)
+[AiStudioPipelineEngine] Lỗi importSceneMedia: Error: File is not a valid video format (detected: png): C:\Users\MTLS\AppData\Local\Temp\studio-import-media-3REr0S\custom-media\scene_01_shot_1_vid_v1.mp4
+    at normalizeAndValidateMediaFile (C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\main\browser-automation\mediaValidator.ts:483:13)
+    at AiStudioVisualService.validateMediaFile (C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\main\ai-studio\services\AiStudioVisualService.ts:1894:24)
+    at AiStudioPipelineEngine.importSceneMediaInternal (C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\main\ai-studio\AiStudioPipelineEngine.ts:2244:48)
+    at async withSessionOperation (C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\main\ai-studio\sessionOperations.ts:41:20)
+[AiStudioPipelineEngine] Lỗi importSceneMedia: Error: Phân cảnh không tồn tại trong phiên này.
+    at AiStudioPipelineEngine.importSceneMediaInternal (C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\main\ai-studio\AiStudioPipelineEngine.ts:2226:114)
+    at async withSessionOperation (C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\main\ai-studio\sessionOperations.ts:41:20)

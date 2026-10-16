@@ -1,0 +1,4 @@
+PASS: subtitle save/import invalidation, unchanged-content preservation, busy/invalid-input guards and audio cache retention
+Lỗi khi dubbing task 7ba61734-dfdc-407c-82ab-13aa95fc8af8: Error: Phụ đề đã thay đổi. Hãy tạo lại audio trước khi ghép lồng tiếng.
+    at DubbingRunner.runDubbing (C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\main\render\dubbingRunner.ts:98:44)
+    at main (C:\Users\MTLS\.codex\worktrees\e9b1\DEAN\VANHSUB\tests\test_subtitle_artifact_invalidation.ts:40:41)

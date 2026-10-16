@@ -1,0 +1,49 @@
+{
+  "classification": "REAL_PACKAGED_OCR_NATIVE_EXTRACTION_AND_CONTROLLED_MISSING_PYTHON",
+  "build": "D:\\DEAN\\DEAN\\VANHSUB\\temp\\codex-rc-build-3122666765834fbfb9c4b68de492ae3d",
+  "profile": "C:\\Users\\MTLS\\AppData\\Local\\Temp\\vanhsub-rc-ocr-EnfpRt",
+  "generationCount": 0,
+  "liveProviderPass": false,
+  "cases": [
+    {
+      "label": "missing-python",
+      "status": "FAIL",
+      "lostPointers": [
+        "srtPath",
+        "translatedSrtPath",
+        "ttsAudioDir",
+        "ttsMergedAudioPath",
+        "outputPath",
+        "dubbedVideoPath"
+      ],
+      "changedFiles": [
+        "0001.mp3"
+      ],
+      "frameDirectories": [],
+      "errorMessage": "spawn UNKNOWN",
+      "subtitleRevision": 3
+    },
+    {
+      "label": "invalid-video",
+      "status": "FAIL",
+      "lostPointers": [
+        "srtPath",
+        "translatedSrtPath",
+        "ttsAudioDir",
+        "ttsMergedAudioPath",
+        "outputPath",
+        "dubbedVideoPath"
+      ],
+      "changedFiles": [
+        "0001.mp3"
+      ],
+      "frameDirectories": [
+        "vanhsub-ocr-1792138606111-scg35f"
+      ],
+      "errorMessage": "Lỗi trích xuất khung hình bằng ffmpeg: ffmpeg exited with code 1: C:\\Users\\MTLS\\AppData\\Local\\Temp\\vanhsub-rc-ocr-EnfpRt\\Dự án OCR có dấu\\Video hỏng.mp4: Invalid data found when processing input\n",
+      "subtitleRevision": 3
+    }
+  ],
+  "errors": [],
+  "status": "FAIL"
+}
