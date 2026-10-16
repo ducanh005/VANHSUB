@@ -1,7 +1,7 @@
 const fs = require('node:fs'), path = require('node:path'), crypto = require('node:crypto');
 const { spawnSync } = require('node:child_process');
 const source = path.resolve(__dirname, '..');
-const evidence = path.join(source, 'docs/rc-evidence/2026-10-15');
+const evidence = path.resolve(process.env.VANHSUB_AUDIT_EVIDENCE_DIR || path.join(source, 'docs/rc-evidence/2026-10-15'));
 const manifestPath = path.join(evidence, 'build-workspace.json');
 const manifest = JSON.parse(fs.readFileSync(manifestPath));
 const build = path.resolve(manifest.path);

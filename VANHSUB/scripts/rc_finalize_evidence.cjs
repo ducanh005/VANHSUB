@@ -1,8 +1,10 @@
 const fs = require('node:fs'), path = require('node:path'), crypto = require('node:crypto');
 const { execFileSync } = require('node:child_process');
 const asar = require('@electron/asar');
-const root = path.resolve(__dirname, '..'), evidence = path.join(root, 'docs/rc-evidence/2026-10-15');
-const read = name => JSON.parse(fs.readFileSync(path.join(evidence, name + '.json')));
+const root = path.resolve(__dirname, '..'), baseline = path.join(root, 'docs/rc-evidence/2026-10-15');
+const evidence = path.resolve(process.env.VANHSUB_AUDIT_EVIDENCE_DIR || baseline);
+const evidenceSources = {};
+const read = name => { const current = path.join(evidence, name + '.json'), file = fs.existsSync(current) ? current : path.join(baseline, name + '.json'); evidenceSources[name] = path.relative(root, file); return JSON.parse(fs.readFileSync(file)); };
 const write = (name, value) => fs.writeFileSync(path.join(evidence, name + '.json'), JSON.stringify(value, null, 2) + '\n');
 const manifest = read('build-workspace'), build = path.resolve(manifest.path);
 if (path.dirname(build) !== 'D:\\DEAN\\DEAN\\VANHSUB\\temp' || !/^codex-rc-build-[a-f0-9]+$/.test(path.basename(build))) throw new Error('Unexpected owned build');
@@ -30,6 +32,7 @@ summary.jobs = read('job-runtime').samples.map(sample => ({ label: sample.label,
 const soak = read('idle-soak600');
 summary.idleSoak = { source: 'fixed artifact copy through0052135, bridge disabled; before protocol2-only auth changes', status: soak.status, samples: soak.samples.length, measuredMs: soak.measuredMs, firstWorkingSetMiB: ram(soak.samples[0].processes), lastWorkingSetMiB: ram(soak.samples.at(-1).processes), minWorkingSetMiB: Math.min(...soak.samples.map(s => ram(s.processes))), maxWorkingSetMiB: Math.max(...soak.samples.map(s => ram(s.processes))), maxSampledSumCPU: rounded(Math.max(...soak.samples.map(s => cpu(s.processes)))), processCounts: [...new Set(soak.samples.map(s => s.processes.length))], ipcEventCounts: [...new Set(soak.samples.map(s => s.ipcEvents))], beforeQuitListenerCounts: [...new Set(soak.samples.map(s => s.beforeQuitListeners))], handlesBefore: soak.handlesBefore, handlesAfter: soak.handlesAfter };
 summary.render = read('hard-crash-render').nativeRenderSample;
+summary.evidenceSources = { ...evidenceSources };
 write('performance-summary', summary);
 const processText = ps(`@(Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -and ($_.ExecutablePath.StartsWith('${build.replaceAll("'", "''")}\\dist\\win-unpacked', [StringComparison]::OrdinalIgnoreCase) -or $_.ExecutablePath.StartsWith('${soak.profile.replaceAll("'", "''")}\\Bản chạy cố định', [StringComparison]::OrdinalIgnoreCase)) } | Select-Object ProcessId,ParentProcessId,Name) | ConvertTo-Json -Compress`);
 const processes = processText ? JSON.parse(processText) : [];
