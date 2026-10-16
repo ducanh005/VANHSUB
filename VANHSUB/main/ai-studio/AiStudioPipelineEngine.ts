@@ -1,5 +1,7 @@
 import { selectVisualJobs } from './visualJobs';
 import { applySceneMedia } from './sceneArtifacts';
+import { parseSrtStrict } from '../lib/srt';
+import type { StartManualMediaPayload } from './types';
 import { fullDecodeMediaWithFfmpeg } from '../browser-automation/mediaValidator';
 import { toStoredScriptScenes } from './scriptStorage';
 import { invalidateSessionArtifacts } from './sessionArtifacts';
@@ -352,6 +354,46 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
   // ==========================================================================
   // Pipeline Start (Auto-Pilot One-Click Mode)
   // ==========================================================================
+  /** Create a real manually authored episode from selected, validated artifacts; no AI calls. */
+  public async startManualMedia(payload: StartManualMediaPayload): Promise<StartPipelineResult> {
+    const config = getDecryptedAiStudioConfig();
+    const project = config.savedProjects?.find(p => p.id === payload.projectId);
+    if (!project || config.activeProjectId !== project.id || !project.outputDir) throw new Error('Mở đúng project có thư mục output trước khi nhập SRT/audio.');
+    if (!fs.statSync(payload.srtPath).isFile() || fs.statSync(payload.srtPath).size > 4 * 1024 * 1024 || path.extname(payload.srtPath).toLowerCase() !== '.srt') throw new Error('SRT không hợp lệ hoặc quá lớn.');
+    if (!['.mp3', '.wav', '.m4a', '.flac', '.aac', '.ogg'].includes(path.extname(payload.audioPath).toLowerCase())) throw new Error('Loại audio không hỗ trợ.');
+    const cues = parseSrtStrict(fs.readFileSync(payload.srtPath, 'utf8'));
+    if (!cues.length || cues.length > 1000 || cues.some((c, i) => c.startMs < 0 || c.endMs <= c.startMs || (i > 0 && c.startMs < cues[i-1].endMs))) throw new Error('SRT cần 1–1000 câu có timing hợp lệ, không chồng lấn.');
+    const decoded = await fullDecodeMediaWithFfmpeg(payload.audioPath);
+    if (!decoded.fullyDecoded) throw new Error('Audio không giải mã đầy đủ được; từ chối nhập.');
+    const duration = await aiStudioVideoAssembler.probeDuration(payload.audioPath);
+    if (Math.abs(duration * 1000 - cues[cues.length-1].endMs) > 750) throw new Error('Audio và điểm kết thúc SRT chênh quá 750ms. Hãy đồng bộ trước khi nhập.');
+    // Recheck project after asynchronous media validation, before allocating output.
+    if (getDecryptedAiStudioConfig().activeProjectId !== project.id) throw new Error('Project đang chọn đã thay đổi.');
+    const sessionId = `manual-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
+    const workspaceDir = newSessionWorkspace(project.outputDir, sessionId);
+    const storage = new AiStudioDiskStorageManager(sessionId, { baseDir: workspaceDir, exactProjectDir: true });
+    const audioPath = path.join(storage.paths.voiceDir, 'narration' + path.extname(payload.audioPath).toLowerCase());
+    fs.copyFileSync(payload.audioPath, audioPath, fs.constants.COPYFILE_EXCL);
+    const srtPath = path.join(storage.paths.timingDir, 'manual.srt');
+    fs.copyFileSync(payload.srtPath, srtPath, fs.constants.COPYFILE_EXCL);
+    const scriptLines = cues.map((cue, index) => ({ id: `line_${index+1}`, index: index+1, text: cue.text, startMs: cue.startMs, endMs: cue.endMs, durationMs: cue.endMs-cue.startMs }));
+    const scenes: StoryboardScene[] = cues.map((cue, index) => ({
+      id: `scene_${index+1}_shot_1`, shotId: `scene_${index+1}_shot_1`, sceneId: `scene_${index+1}`, lineIndex: index,
+      startMs: index ? cues[index-1].endMs : 0, endMs: cue.endMs, durationMs: cue.endMs-(index ? cues[index-1].endMs : 0),
+      lineText: cue.text, visualPrompt: '', motionType: 'ken_burns', status: 'pending', manualMediaOnly: true,
+    }));
+    const state: PipelineSessionState = {
+      sessionId, manualMode: true, ownerProjectId: project.id, topic: 'Storyboard thủ công từ SRT', currentStage: 5,
+      stageName: 'storyboard', status: 'awaiting_approval', progress: 62.5, gatedMode: true,
+      outputDir: project.outputDir, workspaceDir, mediaDir: storage.paths.mediaDir, configSnapshot: captureSessionConfig(config),
+      stages: Object.fromEntries(Array.from({ length:8 }, (_,i) => [i+1,{ status: i===7 ? 'skipped' : i<5 ? 'success' : 'pending', stageName: STAGE_CONFIG[(i+1) as AiStudioStageId].label }])),
+      artifacts: { audioPath, srtPath, scriptLines, scenes, alignmentSource: 'estimated_per_line' }, createdAt: Date.now(), updatedAt: Date.now(),
+    };
+    storage.saveScript({ scenes: toStoredScriptScenes(scriptLines) });
+    this.persistSessionStateAtomic(state);
+    return { sessionId };
+  }
+
   public async start(
     payload: StartPipelinePayload,
     onProgress: (event: PipelineProgressEvent) => void
@@ -458,6 +500,7 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
       if (!session) {
         throw new Error(`Session không tồn tại: ${payload.sessionId}`);
       }
+      if (session.manualMode) throw new Error('Phiên thủ công: nhập media cho scene và dùng Xuất video thủ công; không chạy provider tự động.');
       if (!Number.isInteger(payload.currentStage) || payload.currentStage !== session.currentStage ||
           session.status !== 'awaiting_approval' || session.stages[session.currentStage]?.status !== 'success') {
         throw new Error('Chỉ được duyệt bước hiện tại đã hoàn tất và đang chờ duyệt.');
@@ -514,6 +557,7 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
         throw new Error(`Session không tồn tại: ${payload.sessionId}`);
       }
 
+      if (session.manualMode) throw new Error('Phiên thủ công chỉ nhập media và xuất video; không chạy provider tự động.');
       session.stages = session.stages || ({} as any);
       session.artifacts = session.artifacts || ({} as any);
 
@@ -1877,6 +1921,7 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
     if (payload.sessionId) {
       const ownerSession = await this.getState({ sessionId: payload.sessionId });
       signal?.throwIfAborted();
+      if (ownerSession?.manualMode) throw new Error('Phiên thủ công không gọi provider tạo media; hãy nhập ảnh/video từ máy.');
       if (!ownerSession) throw new Error('Không tìm thấy phiên AI Studio để tạo lại media.');
       if (!ownerSession.artifacts.scenes?.some(scene => scene.id === payload.sceneId || scene.shotId === payload.sceneId)) throw new Error('Phân cảnh không tồn tại trong phiên này.');
       if (!/^[\w-]+$/.test(payload.sceneId)) throw new Error('ID phân cảnh không hợp lệ.');
@@ -2258,7 +2303,7 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
         throw error;
       }
       const relativePath = path.relative(storage.paths.projectDir, destPath).replace(/\\/g, '/');
-      const provenance = { source: 'manual_import' as const, assetPath: destPath, sha256: digest.digest('hex'), importedAt: new Date().toISOString(), sessionId, sceneId: shotId, projectId: ownerSession.projectId, automaticGeneration: false as const };
+      const provenance = { source: 'manual_import' as const, assetPath: destPath, sha256: digest.digest('hex'), importedAt: new Date().toISOString(), sessionId, sceneId: shotId, projectId: ownerSession.ownerProjectId || ownerSession.projectId, automaticGeneration: false as const };
 
       // Cập nhật index.json
       if (isVideo) {
@@ -2319,6 +2364,7 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
     if (!session || !session.artifacts.audioPath || !session.artifacts.scenes) {
       throw new Error(`Session assets không tìm thấy cho việc dựng lại video: ${payload.sessionId}`);
     }
+    if (session.manualMode && session.artifacts.scenes.some(s => s.status !== 'ready' || !s.assetPath)) throw new Error('Cần nhập media hợp lệ cho tất cả scene trước khi xuất.');
 
     const config = this.resolveSessionConfig(session);
     const assetsDir = this.getSessionAssetsDir(session.sessionId);
@@ -2349,6 +2395,12 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
 
     signal.throwIfAborted();
     session.artifacts.videoPath = assemblyResult.videoPath;
+    if (session.manualMode) {
+      session.currentStage = 7; session.stageName = 'render'; session.status = 'completed'; session.progress = 100;
+      session.stages[6] = { status: 'success', stageName: 'Media nhập thủ công đã kiểm định' };
+      session.stages[7] = { status: 'success', stageName: STAGE_CONFIG[7].label };
+      session.stages[8] = { status: 'skipped', stageName: 'Không yêu cầu SEO cho video thủ công' };
+    }
     this.persistSessionStateAtomic(session);
 
     return { videoPath: assemblyResult.videoPath };

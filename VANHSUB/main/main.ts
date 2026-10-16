@@ -350,7 +350,7 @@ registerWorkflowIpc()
 // =========================================================================
 // AI VIDEO STUDIO IPC HANDLERS
 // =========================================================================
-registerAiStudioIpc()
+registerAiStudioIpc((file, extensions) => resolveGrantedMedia(file, getMediaGrants(), extensions))
 setAiStudioPipelineEngine(new AiStudioPipelineEngine())
 
 handleRendererIpc('bridge:create-pairing-code', async () => {

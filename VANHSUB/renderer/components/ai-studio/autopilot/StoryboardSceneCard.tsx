@@ -369,7 +369,7 @@ export const StoryboardSceneCard: React.FC<StoryboardSceneCardProps> = ({
       ) : (
         <div className="rounded-md border border-dashed border-border bg-bg p-3 text-center text-text-muted text-[11px] flex items-center justify-center gap-2">
           <Clock className="h-3.5 w-3.5 text-text-faint" />
-          <span>Media chưa được sinh. Bấm Tiếp tục sang Bước 6 để Flow tự động tạo.</span>
+          <span>{scene.manualMediaOnly ? 'Chọn ảnh hoặc video từ máy để gắn vào cảnh này.' : 'Media chưa được sinh. Bấm Tiếp tục sang Bước 6 để Flow tự động tạo.'}</span>
         </div>
       )}
 
@@ -395,7 +395,7 @@ export const StoryboardSceneCard: React.FC<StoryboardSceneCardProps> = ({
           <button
             type="button"
             onClick={() => onRegenerate('image')}
-            disabled={disableActions}
+            disabled={disableActions || scene.manualMediaOnly}
             className="rounded-lg border border-cyan-800/60 bg-surface-2 hover:bg-cyan-900/70 px-2.5 py-1 text-[11px] font-semibold text-accent hover:text-cyan-100 transition cursor-pointer flex items-center gap-1 disabled:opacity-50"
             title="Sinh lại ảnh AI mới từ visual prompt của phân cảnh này qua Flow"
           >
@@ -406,7 +406,7 @@ export const StoryboardSceneCard: React.FC<StoryboardSceneCardProps> = ({
           <button
             type="button"
             onClick={() => onRegenerate('video')}
-            disabled={disableActions}
+            disabled={disableActions || scene.manualMediaOnly}
             className="rounded-lg border border-emerald-800/60 bg-emerald-950/40 hover:bg-emerald-900/70 px-2.5 py-1 text-[11px] font-semibold text-emerald-300 hover:text-emerald-100 transition cursor-pointer flex items-center gap-1 disabled:opacity-50"
             title="Sinh lại video Veo từ ảnh hiện tại của phân cảnh này qua Flow"
           >

@@ -211,6 +211,7 @@ const vanhsub = {
     reset: () => ipcRenderer.invoke('aiStudio:config:reset'),
 
     // Pipeline Execution (Milestone 2)
+    startManualMedia: (payload: { projectId: string; srtPath: string; audioPath: string }) => ipcRenderer.invoke('aiStudio:pipeline:startManualMedia', payload),
     startPipeline: (payload: { topic: string; options?: any }) =>
       ipcRenderer.invoke('aiStudio:pipeline:start', payload),
     resumePipeline: (payload: {

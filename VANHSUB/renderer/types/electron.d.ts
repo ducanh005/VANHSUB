@@ -449,6 +449,7 @@ export interface VanhsubAPI {
     reset: () => Promise<AiStudioConfig>;
 
     // Pipeline Execution (Milestone 2)
+    startManualMedia: (payload: { projectId: string; srtPath: string; audioPath: string }) => Promise<{ sessionId: string }>;
     startPipeline: (payload: {
       topic: string;
       projectId?: string;

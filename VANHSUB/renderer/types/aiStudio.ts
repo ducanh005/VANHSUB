@@ -605,6 +605,7 @@ export interface WordTimestamp {
 }
 
 export interface StoryboardScene {
+  manualMediaOnly?: boolean;
   mediaProvenance?: { source: 'manual_import'; assetPath: string; sha256: string; importedAt: string; sessionId: string; sceneId: string; projectId?: string; automaticGeneration: false };
   id: string;
   shotId?: string;
@@ -653,6 +654,7 @@ export interface PipelineSessionArtifacts {
 }
 
 export interface PipelineSessionState {
+  manualMode?: boolean;
   productionRevision?: number;
   sessionId: string;
   jobActive?: boolean;

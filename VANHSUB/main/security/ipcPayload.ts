@@ -61,5 +61,9 @@ export function validateIpcPayload(channel: string, args: unknown[]): void {
     }
   }
   if (channel === 'tts:start' && args[2] !== undefined && (typeof args[2] !== 'number' || args[2] < 0.1 || args[2] > 5)) invalid();
+  if (channel === 'aiStudio:pipeline:startManualMedia') {
+    record(args[0]); id(args[0].projectId); filePath(args[0].srtPath); filePath(args[0].audioPath);
+    if (path.extname(args[0].srtPath).toLowerCase() !== '.srt') invalid();
+  }
   if (channel.startsWith('aiStudio:') && args[0] && typeof args[0] === 'object' && 'sessionId' in args[0]) id((args[0] as any).sessionId);
 }

@@ -62,6 +62,36 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
   const [isAdvancedDrawerOpen, setIsAdvancedDrawerOpen] = useState(false);
   const [countdownSeconds, setCountdownSeconds] = useState<number | null>(null);
   const [isGatedMode, setIsGatedMode] = useState(true);
+  const [manualBusy, setManualBusy] = useState(false);
+  const handleStartManual = async () => {
+    const project = getActiveProject();
+    if (!project || manualBusy || isRunning) return;
+    setManualBusy(true);
+    try {
+      const srtPath = await window.vanhsub.dialog.openSrtFile();
+      if (!srtPath) return;
+      const audioPath = await window.vanhsub.dialog.openAudioFile();
+      if (!audioPath) return;
+      const result = await window.vanhsub.aiStudio.startManualMedia({ projectId: project.id, srtPath, audioPath });
+      const state = await window.vanhsub.aiStudio.getPipelineState({ sessionId: result.sessionId });
+      if (getActiveProject()?.id !== project.id) return;
+      setSession(state); setActiveTab('video'); setCenterTab('visual');
+      await saveActiveProjectData({ lastSessionId: result.sessionId, savedSession: state });
+    } catch (error: any) { setErrorMessage(error?.message || 'Không nhập được SRT/audio.'); }
+    finally { setManualBusy(false); }
+  };
+  const handleRenderManual = async () => {
+    if (!session?.manualMode || manualBusy || isRunning) return;
+    const projectId = getActiveProject()?.id, sessionId = session.sessionId;
+    setManualBusy(true); setIsRunning(true);
+    try {
+      await window.vanhsub.aiStudio.renderVideo({ sessionId });
+      if (getActiveProject()?.id !== projectId) return;
+      const state = await window.vanhsub.aiStudio.getPipelineState({ sessionId });
+      setSession(state); await saveActiveProjectData({ lastSessionId: sessionId, savedSession: state });
+    } catch (error: any) { setErrorMessage(error?.message || 'Xuất video thủ công thất bại.'); }
+    finally { setManualBusy(false); setIsRunning(false); }
+  };
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isChannelModalOpen, setIsChannelModalOpen] = useState(false);
   const [isConfirmCancelOpen, setIsConfirmCancelOpen] = useState(false);
@@ -1014,6 +1044,10 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
       {/* ==================================================================== */}
       {/* 3-COLUMN REVO WORKSPACE LAYOUT                                        */}
       {/* ==================================================================== */}
+      <div className="flex items-center gap-3 border-b border-border px-4 py-2 text-xs">
+        <button type="button" disabled={manualBusy || isRunning || !!session?.jobActive} onClick={handleStartManual} className="rounded border border-border px-3 py-1.5 disabled:opacity-50">Nhập SRT + audio thủ công</button>
+        {session?.manualMode && <><span>Storyboard thủ công · media nhập từ máy</span><button type="button" disabled={manualBusy || isRunning || !!session.jobActive || !session.artifacts.scenes?.every(s => s.status === 'ready' && s.assetPath)} onClick={handleRenderManual} className="rounded bg-accent px-3 py-1.5 text-white disabled:opacity-50">{manualBusy ? 'Đang xử lý…' : 'Xuất video thủ công'}</button></>}
+      </div>
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 overflow-hidden">
         {/* ------------------------------------------------------------------ */}
         {/* CỘT 1 (LEFT - 3 COLS): Ý TƯỞNG VIDEO (IdeaListPanel)                */}

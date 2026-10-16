@@ -1,6 +1,7 @@
 import { applyScriptLines, invalidateSessionArtifacts } from './sessionArtifacts';
 import { guardRendererInvoke } from '../security/rendererTrust';
 import { validateIpcPayload } from '../security/ipcPayload';
+import type { StartManualMediaPayload } from './types';
 /**
  * AI Video Studio - IPC Communication Router
  *
@@ -106,6 +107,7 @@ export interface IAiStudioPipelineEngineDelegate {
   importSceneMedia?(
     payload: ImportSceneMediaPayload
   ): Promise<ImportSceneMediaResult>;
+  startManualMedia?(payload: StartManualMediaPayload): Promise<StartPipelineResult>;
 
   renderVideo(payload: RenderVideoPayload): Promise<RenderVideoResult>;
 }
@@ -182,7 +184,14 @@ function safeHandle(
 // IPC Handler Registration Entry Point
 // ============================================================================
 
-export function registerAiStudioIpc(): void {
+export function registerAiStudioIpc(resolveExternalFile?: (file: string, extensions: Set<string>) => string): void {
+  safeHandle('aiStudio:pipeline:startManualMedia', async (_event, payload: StartManualMediaPayload) => {
+    if (!resolveExternalFile || !pipelineEngineDelegate?.startManualMedia) throw new Error('Manual media import chưa sẵn sàng.');
+    return pipelineEngineDelegate.startManualMedia({ ...payload,
+      srtPath: resolveExternalFile(payload.srtPath, new Set(['.srt'])),
+      audioPath: resolveExternalFile(payload.audioPath, new Set(['.mp3', '.wav', '.m4a', '.flac', '.aac', '.ogg'])),
+    });
+  });
   // Automatically wire Milestone 2 Pipeline Engine delegate if not yet registered
   if (!pipelineEngineDelegate) {
     const engine = new AiStudioPipelineEngine();
