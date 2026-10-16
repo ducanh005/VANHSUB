@@ -2236,6 +2236,7 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
       // Tạo đường dẫn phiên bản mới trong thư mục media
       const nextVer = storage.getNextMediaVersion(shotId, targetKind);
       let destPath = nextVer.absolutePath;
+      const digest = crypto.createHash('sha256');
 
       // Copy tệp vào thư mục media của session
       fs.copyFileSync(filePath, destPath);
@@ -2243,6 +2244,7 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
       try {
         destPath = await aiStudioVisualService.validateMediaFile(destPath, isVideo ? 'video' : 'image', { fullDecode: true });
         if (fs.statSync(destPath).size < 512) await fullDecodeMediaWithFfmpeg(destPath);
+        for await (const chunk of fs.createReadStream(destPath)) { signal.throwIfAborted(); digest.update(chunk); }
         signal.throwIfAborted();
       } catch (error) {
         // Only discard the new failed candidate, never the user's source or prior versions.
@@ -2256,6 +2258,7 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
         throw error;
       }
       const relativePath = path.relative(storage.paths.projectDir, destPath).replace(/\\/g, '/');
+      const provenance = { source: 'manual_import' as const, assetPath: destPath, sha256: digest.digest('hex'), importedAt: new Date().toISOString(), sessionId, sceneId: shotId, projectId: ownerSession.projectId, automaticGeneration: false as const };
 
       // Cập nhật index.json
       if (isVideo) {
@@ -2289,7 +2292,7 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
       if (session && session.artifacts.scenes) {
         const targetScene = session.artifacts.scenes.find((s) => s.id === shotId || s.shotId === shotId);
         if (targetScene) {
-          applySceneMedia(session, shotId, { imagePath: isVideo ? undefined : destPath, videoPath: isVideo ? destPath : undefined });
+          applySceneMedia(session, shotId, { imagePath: isVideo ? undefined : destPath, videoPath: isVideo ? destPath : undefined, provenance });
           if (isVideo) targetScene.originalMediaDurationSec = await aiStudioVideoAssembler.probeDuration(destPath);
           this.persistSessionStateAtomic(session);
         }

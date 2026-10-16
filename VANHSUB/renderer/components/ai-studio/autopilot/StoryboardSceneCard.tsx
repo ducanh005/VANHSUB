@@ -133,6 +133,9 @@ export const StoryboardSceneCard: React.FC<StoryboardSceneCardProps> = ({
             </div>
           )}
           <div className="flex items-center gap-1.5 flex-wrap">
+            {scene.mediaProvenance?.source === 'manual_import' && scene.mediaProvenance.assetPath === scene.assetPath && (
+              <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-amber-300" title="Media nhập thủ công đã kiểm định; không phải generation tự động thành công.">Nhập thủ công</span>
+            )}
             <span className="text-text-muted">
               Xử lý: {processedDurSec}s
             </span>
