@@ -170,24 +170,12 @@ export class OcrRunner {
       const dualEngine = options?.dualEngine ?? (SettingsStore.get('ocrDualEngine') !== false);
       const shouldStop = () => this.cancelRequested.has(taskId);
 
-      if (task.ttsAudioDir && fs.existsSync(task.ttsAudioDir)) {
-        try {
-          fs.rmSync(task.ttsAudioDir, { recursive: true, force: true });
-        } catch {}
-      }
-
       // Giai đoạn 1: trích khung hình
       TaskStore.update(taskId, {
         status: 'ocr',
         progress: 2,
         errorMessage: undefined,
         stageDescription: `Đang trích khung hình (chế độ ${mode.toUpperCase()})...`,
-        srtPath: undefined,
-        translatedSrtPath: undefined,
-        ttsAudioDir: undefined,
-        ttsMergedAudioPath: undefined,
-        outputPath: undefined,
-        ttsOverruns: undefined,
       });
       onUpdate?.();
 
@@ -209,12 +197,14 @@ export class OcrRunner {
           console.log(`[OCR] Trích xuất khung hình video: ${percent}%...`);
           lastExtractLogPercent = percent;
         }
-      });
+      }, shouldStop);
       framesDir = dir;
+      if (shouldStop()) throw new CancelledError();
       console.log(`[OCR] Đã trích xuất hoàn tất ${framePaths.length} khung hình (${fps} fps, chế độ ${mode.toUpperCase()})`);
 
       // Giai đoạn 2: Full-screen Text Detection & Tracking qua PaddleOCR PP-OCRv5
       const env = await checkRapidOcr();
+      if (shouldStop()) throw new CancelledError();
       if (!env.ok) throw new Error(env.detail);
 
       TaskStore.update(taskId, {
@@ -390,6 +380,8 @@ export class OcrRunner {
         );
       }
 
+      if (shouldStop()) throw new CancelledError();
+
       // Giai đoạn 6: ghi file .srt cạnh video (không ghi đè file có sẵn)
       const videoDir = path.dirname(task.filePath);
       const base = path.basename(task.filePath, path.extname(task.filePath));
@@ -406,8 +398,17 @@ export class OcrRunner {
         frameIntervalMs,
       );
 
+      // Commit a new subtitle only after all outputs were written. Failed/cancelled
+      // reruns retain the last completed artifacts and never delete old TTS files.
+      const artifactUpdates = {
+        translatedSrtPath: undefined, ttsAudioDir: undefined,
+        ttsMergedAudioPath: undefined, ttsOverruns: undefined, outputPath: undefined,
+        ttsVoiceOverrides: {}, subtitleRevision: (task.subtitleRevision || 0) + 1,
+        ttsNeedsRegeneration: !!task.ttsAudioDir,
+      };
       if (!options?.isSubTask) {
         const updated = TaskStore.update(taskId, {
+          ...artifactUpdates,
           status: 'done',
           progress: 100,
           srtPath: targetPath,
@@ -432,6 +433,7 @@ export class OcrRunner {
         return updated ?? TaskStore.getById(taskId);
       } else {
         const updated = TaskStore.update(taskId, {
+          ...artifactUpdates,
           srtPath: targetPath,
           ocrStats: {
             framesScanned: stats.framesScanned,

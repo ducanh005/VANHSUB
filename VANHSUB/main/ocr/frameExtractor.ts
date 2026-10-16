@@ -1,3 +1,4 @@
+import { CancelledError } from '../lib/cancel';
 import path from 'path';
 import fs from 'fs';
 import os from 'os';
@@ -48,7 +49,7 @@ async function getVideoSize(inputPath: string): Promise<{ width: number; height:
       '-show_entries', 'stream=width,height',
       '-of', 'csv=p=0',
       inputPath,
-    ]);
+    ], { timeout: 15000, maxBuffer: 65536, windowsHide: true });
     const parts = String(stdout).trim().split(',');
     const width = parseInt(parts[0], 10);
     const height = parseInt(parts[1], 10);
@@ -70,76 +71,57 @@ async function getVideoSize(inputPath: string): Promise<{ width: number; height:
  * - full: Toàn khung hình (nhận diện mọi text)
  * - custom: Toàn khung hình và truyền bounding box cho thuật toán lọc
  */
-export function extractFrames(
+export async function extractFrames(
   inputPath: string,
   fps: number,
   mode: OcrMode = 'auto',
   customRegion?: OcrCustomRegion | null,
   onProgress?: (percent: number) => void,
+  shouldStop?: () => boolean,
 ): Promise<FrameExtractResult> {
-  return new Promise((resolve, reject) => {
-    if (!fs.existsSync(inputPath)) {
-      return reject(new Error(`Không tìm thấy file video đầu vào: ${inputPath}`));
-    }
-
-    const framesDir = path.join(
-      os.tmpdir(),
-      `vanhsub-ocr-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    );
-    fs.mkdirSync(framesDir, { recursive: true });
-    const videoSize = getVideoSize(inputPath);
-
-    // Thứ tự filter: lấy mẫu thưa trước rồi mới crop
-    const filters: string[] = [`fps=${fps}`];
-    let offsetRatio = 0;
-
-    if (mode === 'bottom') {
-      offsetRatio = 1 - BOTTOM_CROP_RATIO;
-      filters.push(`crop=iw:ih*${BOTTOM_CROP_RATIO}:0:ih*${offsetRatio}`);
-    }
-
-    // Chỉ phóng to khi khung hẹp hơn 1280px; -2 giữ bội số chẵn cho codec PNG
-    filters.push("scale=w='if(lt(iw,1280),1280,iw)':h=-2");
-    filters.push('format=rgb24');
-
-    ffmpeg(inputPath)
-      .videoFilters(filters)
-      .output(path.join(framesDir, 'frame_%06d.png'))
-      .on('progress', (progress) => {
-        if (progress && progress.percent !== undefined && onProgress) {
-          onProgress(Math.min(99, Math.max(0, Math.round(progress.percent))));
-        }
-      })
-      .on('end', () => {
-        const framePaths = fs
-          .readdirSync(framesDir)
-          .filter((f) => f.endsWith('.png'))
-          .sort()
-          .map((f) => path.join(framesDir, f));
-
-        if (framePaths.length === 0) {
-          return reject(
-            new Error('Không trích được khung hình nào — file có thể không phải video hoặc đã hỏng.'),
-          );
-        }
-        void videoSize.then(({ width, height }) => {
-          resolve({
-            framesDir,
-            framePaths,
-            // Keep the rational sampling interval. Rounding each frame to an integer
-            // accumulates drift (at 3 fps, 333 ms loses 1 ms every three frames).
-            frameIntervalMs: 1000 / fps,
-            width,
-            height,
-            offsetRatio,
-          });
-        });
-      })
-      .on('error', (err) => {
-        reject(new Error(`Lỗi trích xuất khung hình bằng ffmpeg: ${err.message}`));
-      })
-      .run();
-  });
+  if (shouldStop?.()) throw new CancelledError();
+  if (!fs.existsSync(inputPath)) throw new Error(`Không tìm thấy file video đầu vào: ${inputPath}`);
+  const { width, height } = await getVideoSize(inputPath);
+  if (shouldStop?.()) throw new CancelledError();
+  const framesDir = fs.mkdtempSync(path.join(os.tmpdir(), 'vanhsub-ocr-'));
+  let stopTimer: ReturnType<typeof setInterval> | undefined;
+  try {
+    return await new Promise<FrameExtractResult>((resolve, reject) => {
+      const filters: string[] = [`fps=${fps}`];
+      let offsetRatio = 0, cancelled = false;
+      if (mode === 'bottom') {
+        offsetRatio = 1 - BOTTOM_CROP_RATIO;
+        filters.push(`crop=iw:ih*${BOTTOM_CROP_RATIO}:0:ih*${offsetRatio}`);
+      }
+      filters.push("scale=w='if(lt(iw,1280),1280,iw)':h=-2", 'format=rgb24');
+      const command = ffmpeg(inputPath).videoFilters(filters).output(path.join(framesDir, 'frame_%06d.png'));
+      const maybeStop = () => {
+        if (shouldStop?.()) { cancelled = true; command.kill('SIGKILL'); }
+      };
+      if (shouldStop) stopTimer = setInterval(maybeStop, 200);
+      command.on('start', maybeStop)
+        .on('progress', (progress) => {
+          if (progress?.percent !== undefined) onProgress?.(Math.min(99, Math.max(0, Math.round(progress.percent))));
+          maybeStop();
+        })
+        .on('end', () => {
+          if (cancelled || shouldStop?.()) { reject(new CancelledError()); return; }
+          try {
+            const framePaths = fs.readdirSync(framesDir).filter(file => file.endsWith('.png')).sort().map(file => path.join(framesDir, file));
+            if (!framePaths.length) throw new Error('Không trích được khung hình nào — file có thể không phải video hoặc đã hỏng.');
+            resolve({ framesDir, framePaths, frameIntervalMs: 1000 / fps, width, height, offsetRatio });
+          } catch (error) { reject(error); }
+        })
+        .on('error', (error) => reject(cancelled || shouldStop?.() ? new CancelledError() : new Error(`Lỗi trích xuất khung hình bằng ffmpeg: ${error.message}`)))
+        .run();
+    });
+  } catch (error) {
+    // The caller receives no framesDir on rejection; extractor owns its cleanup.
+    cleanupFrames(framesDir);
+    throw error;
+  } finally {
+    if (stopTimer) clearInterval(stopTimer);
+  }
 }
 
 /** Xoá thư mục khung hình tạm (bỏ qua nếu đã bị xoá). */
