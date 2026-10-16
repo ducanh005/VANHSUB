@@ -12,6 +12,7 @@ import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import type { JobState } from '../../browser-automation/types';
+import { OfficialGeminiVisualProvider } from './OfficialGeminiVisualProvider';
 
 export type VisualProviderType =
   | 'google_flow_rpc'
@@ -181,6 +182,11 @@ export class VisualProviderRouter {
   public isOfficialApiConfigured(apiKey?: string): boolean {
     const key = apiKey || process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
     return typeof key === 'string' && key.trim().length > 10;
+  }
+
+  /** Paid API is explicit opt-in, never an automatic fallback from a blocked Flow job. */
+  public generateOfficial(req: VisualGenerationRequest): Promise<VisualGenerationResult> {
+    return this.executeWithIdempotency(req, request => new OfficialGeminiVisualProvider().generate(request));
   }
 
   /**
