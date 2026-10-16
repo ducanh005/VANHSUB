@@ -481,9 +481,15 @@ export class BrowserAutomationAdapter extends EventEmitter {
     } catch {
       return false;
     }
+    // URL routing does not require a responsive page execution context.
+    if (typeof predicate === 'string' && url.includes(predicate)) return true;
+    if (predicate instanceof RegExp && predicate.test(url)) return true;
     try {
       if (typeof (page as any).title === 'function') {
-        title = await page.title().catch(() => '');
+        let titleTimer: ReturnType<typeof setTimeout> | undefined;
+        try {
+          title = await Promise.race([page.title().catch(() => ''), new Promise<string>(resolve => { titleTimer = setTimeout(() => resolve(''), 800); })]);
+        } finally { if (titleTimer) clearTimeout(titleTimer); }
       }
     } catch {
       // Title optional
