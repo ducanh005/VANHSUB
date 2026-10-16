@@ -11,8 +11,9 @@ async function main() {
   const {GoogleVeoSessionManager}=await import('../main/veo/GoogleVeoSessionManager');
   const {GoogleVeoAntiSpamGuard}=await import('../main/veo/GoogleVeoAntiSpamGuard');
   const {FlowBridgeServer}=await import('../main/workflow/flow-engine/rpc/FlowBridgeServer');
+  const {GoogleFlowRpcClient}=await import('../main/workflow/flow-engine/rpc/GoogleFlowRpcClient');
   const session=GoogleVeoSessionManager.getInstance(), guard=GoogleVeoAntiSpamGuard.getInstance(), bridge=FlowBridgeServer.getInstance();
-  const original={get:SettingsStore.get,cookie:session.getEffectiveCookieString,video:session.generateVideoViaBrowserContext,image:session.generateImageViaBrowserContext,validate:session.validateSession,connected:bridge.isConnected,lock:guard.acquireLockAsync,jitter:guard.applyHumanJitter,release:guard.releaseLock};
+  const original={get:SettingsStore.get,cookie:session.getEffectiveCookieString,video:session.generateVideoViaBrowserContext,image:session.generateImageViaBrowserContext,validate:session.validateSession,connected:bridge.isConnected,tabInfo:bridge.getFlowTabInfo,rpc:bridge.sendBatchRpc,lock:guard.acquireLockAsync,jitter:guard.applyHumanJitter,release:guard.releaseLock};
   let connected=true, videoCalls=0;
   try {
     SettingsStore.get=((key:string)=>key==='veoMode'?'free_session':undefined) as any;
@@ -31,9 +32,19 @@ async function main() {
     assert.equal(videoCalls,1,'Unauthenticated sessions cannot reach the generation transport');
     await assert.rejects(adapter.generateImage({prompt:'test'},ctx),/BLOCKED_REQUIRES_USER: Google requires verification/);
     assert.equal(fs.existsSync(path.join(root,'video.mp4')),false);
+    connected=true;
+    let tabReads=0, rpcCalls=0;
+    bridge.getFlowTabInfo=async()=>{tabReads++;return {projectId:'unrelated-manual-project'};};
+    bridge.sendBatchRpc=async()=>{rpcCalls++;throw new Error('Must not dispatch to another project');};
+    const rpc=new GoogleFlowRpcClient();
+    await assert.rejects(rpc.generateImage({prompt:'missing owner'}),/FLOW_PROJECT_REQUIRED/);
+    await assert.rejects(rpc.generateVideo({prompt:'missing owner'}),/FLOW_PROJECT_REQUIRED/);
+    await assert.rejects(rpc.pollGeneration({operationId:'owned-operation-required'}),/FLOW_PROJECT_REQUIRED/);
+    assert.equal(tabReads,0,'Generation/polling never adopt a project from an unrelated Chrome tab');
+    assert.equal(rpcCalls,0,'Missing project cannot spend credits or poll another project');
     console.log('PASS (offline regression): authenticated bridge video routing; unpaired rejection; image/video preserve actionable provider errors');
   } finally {
-    SettingsStore.get=original.get;session.getEffectiveCookieString=original.cookie;session.generateVideoViaBrowserContext=original.video;session.generateImageViaBrowserContext=original.image;session.validateSession=original.validate;bridge.isConnected=original.connected;guard.acquireLockAsync=original.lock;guard.applyHumanJitter=original.jitter;guard.releaseLock=original.release;
+    SettingsStore.get=original.get;session.getEffectiveCookieString=original.cookie;session.generateVideoViaBrowserContext=original.video;session.generateImageViaBrowserContext=original.image;session.validateSession=original.validate;bridge.isConnected=original.connected;bridge.getFlowTabInfo=original.tabInfo;bridge.sendBatchRpc=original.rpc;guard.acquireLockAsync=original.lock;guard.applyHumanJitter=original.jitter;guard.releaseLock=original.release;
     fs.rmSync(root,{recursive:true,force:true});
   }
 }
