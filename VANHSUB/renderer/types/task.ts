@@ -2,7 +2,13 @@ export type TaskStatus = 'queued' | 'transcribing' | 'ocr' | 'translating' | 'ex
 
 export type WorkflowType = 'full-dubbing' | 'bilingual-sub' | 'fast-transcribe' | 'custom';
 
+import type { MediaInspection } from '../../shared/mediaInspection';
+
 export interface Task {
+  mediaInspection?: MediaInspection;
+  outputInspection?: MediaInspection;
+  cleanTechnicalMetadata?: boolean;
+  originalFilePath?: string;
   id: string;
   fileName: string;
   filePath: string;

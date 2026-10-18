@@ -10,6 +10,9 @@ import { SettingsStore } from '../store/settingsStore';
 import { sanitizeFolderName } from '../utils/projectFolder';
 import { killProcessTree } from '../lib/processTree';
 import { CancelledError, isCancelledError } from '../lib/cancel';
+import { nextAvailablePath } from '../lib/paths';
+import { inspectMediaFile } from '../media/mediaInspection';
+import type { MediaInspection } from '../../shared/mediaInspection';
 
 export type PlatformType = 'youtube' | 'douyin' | 'bilibili' | 'tiktok' | 'other';
 
@@ -39,6 +42,8 @@ export interface DownloadProgress {
 }
 
 export interface DownloadVideoOptions {
+  /** Tạo bản biên tập riêng, giữ nguyên file tải gốc. Mặc định bật cho Douyin. */
+  cleanMetadata?: boolean;
   url: string;
   quality?: '1080p' | '720p' | '480p' | 'audio_only' | 'best' | 'nowatermark' | 'watermark' | string;
   onProgress?: (p: DownloadProgress) => void;
@@ -66,6 +71,8 @@ export function cleanCustomFileName(customFileName?: string): string {
 }
 
 export interface DownloadResult {
+  originalFilePath?: string;
+  inspection?: MediaInspection;
   filePath: string;
   fileName: string;
   projectDir: string;
@@ -602,14 +609,13 @@ export async function extractDouyinMediaData(
 
     // Thu thập danh sách backup URLs để dự phòng
     const backupUrlsSet = new Set<string>();
-    backupUrlsSet.add(rawPlayUrl);
+    backupUrlsSet.add(normalizeDouyinStreamUrl(rawPlayUrl));
 
     if (Array.isArray(item.video?.play_addr?.url_list)) {
       for (const u of item.video.play_addr.url_list) {
         if (typeof u === 'string' && u.trim()) {
           const formatted = u.startsWith('//') ? `https:${u}` : u;
-          backupUrlsSet.add(formatted);
-          backupUrlsSet.add(formatted.replace('playwm', 'play'));
+          backupUrlsSet.add(normalizeDouyinStreamUrl(formatted));
         }
       }
     }
@@ -620,16 +626,20 @@ export async function extractDouyinMediaData(
           for (const bu of br.play_addr.url_list) {
             if (typeof bu === 'string' && bu.trim()) {
               const formatted = bu.startsWith('//') ? `https:${bu}` : bu;
-              backupUrlsSet.add(formatted);
-              backupUrlsSet.add(formatted.replace('playwm', 'play'));
+              backupUrlsSet.add(normalizeDouyinStreamUrl(formatted));
             }
           }
         }
       }
     }
 
-    // Thay thế watermark playwm -> play để lấy direct MP4 không watermark chuẩn HD gốc
-    const noWatermarkUrl = rawPlayUrl.replace('playwm', 'play');
+    // Chọn endpoint phát; đây chưa phải bằng chứng hình ảnh không có watermark.
+    const candidates = douyinStreamCandidates(rawPlayUrl, Array.from(backupUrlsSet));
+    const noWatermarkUrl = candidates[0];
+    if (!noWatermarkUrl) {
+      lastError = new Error('Không tìm thấy luồng phát phù hợp; không tự tải bản có watermark.');
+      continue;
+    }
     const durSec = item.video?.duration ? Math.round(item.video.duration / 1000) : 0;
     const cover =
       item.video?.cover?.url_list?.[0] ||
@@ -643,7 +653,7 @@ export async function extractDouyinMediaData(
       duration: durSec,
       thumbnail: cover,
       noWatermarkUrl,
-      backupUrls: Array.from(backupUrlsSet).filter((u) => u !== noWatermarkUrl),
+      backupUrls: candidates.slice(1),
     };
   }
 
@@ -841,7 +851,7 @@ export async function inspectMediaUrl(rawUrl: string): Promise<MediaMetadata> {
         thumbnail: info.thumbnail,
         noWatermarkUrl: info.noWatermarkUrl,
         availableQualities: [
-          { id: 'nowatermark', label: 'Không watermark (HD gốc) ✓' },
+          { id: 'nowatermark', label: 'Luồng phát Douyin — kiểm tra sau tải' },
           { id: 'audio_only', label: 'Chỉ tải âm thanh (MP3)' },
         ],
       };
@@ -871,7 +881,7 @@ export async function inspectMediaUrl(rawUrl: string): Promise<MediaMetadata> {
         thumbnail: tikwmData.thumbnail,
         noWatermarkUrl: tikwmData.noWatermarkUrl,
         availableQualities: [
-          { id: 'nowatermark', label: 'Không watermark (HD) ✓' },
+          { id: 'nowatermark', label: 'Luồng phát ưu tiên không watermark (chưa xác minh)' },
           ...(tikwmData.wmUrl ? [{ id: 'watermark', label: 'Bản gốc có watermark' }] : []),
           { id: 'audio_only', label: 'Chỉ tải âm thanh (MP3)' },
         ],
@@ -919,22 +929,12 @@ function finalizeDownload(
   const ext = path.extname(tempFilePath);
   const cleanBase = sanitizeFolderName(suggestedTitle || path.basename(tempFilePath, ext));
   const finalFileName = `${cleanBase}${ext}`;
-  const finalFilePath = path.join(baseFolder, finalFileName);
-
-  if (fs.existsSync(finalFilePath) && finalFilePath !== tempFilePath) {
-    fs.unlinkSync(finalFilePath);
-  }
-  fs.renameSync(tempFilePath, finalFilePath);
-
-  // Tạo thư mục dự án riêng, di chuyển video vào
-  const projectDir = path.join(baseFolder, `${cleanBase}_vanhsub`);
-  fs.mkdirSync(projectDir, { recursive: true });
+  // Không ghi đè file gốc/dự án của lần tải trước.
+  const projectDir = nextAvailablePath(path.join(baseFolder, `${cleanBase}_vanhsub`));
+  fs.mkdirSync(projectDir);
 
   const projectVideoPath = path.join(projectDir, finalFileName);
-  if (fs.existsSync(projectVideoPath) && projectVideoPath !== finalFilePath) {
-    fs.unlinkSync(projectVideoPath);
-  }
-  fs.renameSync(finalFilePath, projectVideoPath);
+  fs.renameSync(tempFilePath, projectVideoPath);
 
   const stats = fs.statSync(projectVideoPath);
   const sizeMb = (stats.size / (1024 * 1024)).toFixed(1) + ' MB';
@@ -954,6 +954,31 @@ function finalizeDownload(
   };
 }
 
+async function finalizeDouyinDownload(
+  tempFilePath: string, title: string, baseFolder: string, options: DownloadVideoOptions, entry: ActiveDownloadEntry
+): Promise<DownloadResult> {
+  const result = finalizeDownload(tempFilePath, title, baseFolder);
+  let inspection: MediaInspection;
+  try {
+    inspection = await inspectMediaFile(result.filePath, {
+      cleanMetadata: options.cleanMetadata !== false,
+      source: { url: options.url, platform: 'douyin' },
+      shouldStop: () => entry.cancelled,
+      onProgress: message => options.onProgress?.({ percent: 98, status: 'processing', stageDescription: message }),
+    });
+  } catch (err: any) {
+    if (isCancelledError(err)) throw err;
+    throw new Error(`Tải xong nhưng kiểm tra chưa đạt: ${err.message}. Bản tải gốc được giữ tại: ${result.filePath}`);
+  }
+  if (entry.cancelled) throw new CancelledError();
+  options.onProgress?.({ percent: 100, status: 'completed', stageDescription: 'Đã tải và kiểm tra file. Xem kết quả watermark/ID.' });
+  return {
+    ...result, originalFilePath: result.filePath, filePath: inspection.filePath,
+    fileName: path.basename(inspection.filePath), inspection,
+    fileSize: `${(fs.statSync(inspection.filePath).size / (1024 * 1024)).toFixed(1)} MB`,
+  };
+}
+
 /**
  * Tải Douyin không watermark bằng cách stream MP4 trực tiếp qua axios.
  * Video CDN Douyin là MP4 hoàn chỉnh độ nét cao gốc.
@@ -962,6 +987,26 @@ function finalizeDownload(
  * Tải Douyin không watermark bằng cách stream MP4 trực tiếp qua axios.
  * Tự động hỗ trợ thử lại nhiều cấp độ headers và danh sách backup URLs.
  */
+export function isWatermarkedMediaUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return /\/playwm(?:\/|$)/i.test(url.pathname) || ['watermark', 'is_watermark', 'wm'].some(key => /^(1|true)$/i.test(url.searchParams.get(key) || ''));
+  } catch { return true; }
+}
+
+export function normalizeDouyinStreamUrl(value: string): string {
+  try {
+    const url = new URL(value.startsWith('//') ? `https:${value}` : value);
+    if (!['https:', 'http:'].includes(url.protocol)) return '';
+    url.pathname = url.pathname.replace(/\/playwm(?=\/|$)/i, '/play');
+    return isWatermarkedMediaUrl(url.href) ? '' : url.href;
+  } catch { return ''; }
+}
+
+export function douyinStreamCandidates(primary: string, backups: string[] = []): string[] {
+  return [...new Set([primary, ...backups].map(normalizeDouyinStreamUrl).filter(Boolean))];
+}
+
 export async function downloadDouyinNoWatermark(
   noWatermarkUrl: string,
   title: string,
@@ -983,14 +1028,8 @@ export async function downloadDouyinNoWatermark(
   }
 
   // Danh sách các URL để thử stream: ưu tiên noWatermarkUrl, sau đó là các backupUrls
-  const urlsToTry: string[] = [noWatermarkUrl];
-  if (Array.isArray(backupUrls)) {
-    for (const bUrl of backupUrls) {
-      if (bUrl && !urlsToTry.includes(bUrl)) {
-        urlsToTry.push(bUrl);
-      }
-    }
-  }
+  const urlsToTry = douyinStreamCandidates(noWatermarkUrl, backupUrls);
+  if (!urlsToTry.length) throw new Error('Không có URL phát phù hợp; không tự tải bản có watermark.');
 
   const mobileUA =
     'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1';
@@ -1032,6 +1071,10 @@ export async function downloadDouyinNoWatermark(
           maxRedirects: 10,
           signal: abortController.signal,
           headers: headerVariants[hIdx],
+          beforeRedirect: (redirect: any) => {
+            const target = `${redirect.protocol}//${redirect.hostname}${redirect.port ? `:${redirect.port}` : ''}${redirect.path}`;
+            if (isWatermarkedMediaUrl(target)) throw new Error('Máy chủ chuyển sang bản có watermark; đã từ chối.');
+          },
         });
 
         // Kiểm tra xem phản hồi có phải là stream video thật (không phải trang chặn HTML hay 403)
@@ -1395,10 +1438,10 @@ export async function downloadVideoFromUrl(options: DownloadVideoOptions): Promi
         try {
           if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
         } catch {}
-        return finalizeDownload(tempMp3Path, targetTitle, baseFolder, options.onProgress);
+        return await finalizeDouyinDownload(tempMp3Path, targetTitle, baseFolder, options, entry);
       }
 
-      return finalizeDownload(tempFilePath, targetTitle, baseFolder, options.onProgress);
+      return await finalizeDouyinDownload(tempFilePath, targetTitle, baseFolder, options, entry);
     }
 
     // ── TikTok Quốc Tế — Multi-tier (Tier 1: TikWM, Tier 2: yt-dlp) ───────────

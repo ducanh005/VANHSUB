@@ -1,4 +1,5 @@
 import { toast } from 'sonner';
+import type { MediaInspection } from '../../shared/mediaInspection';
 
 export interface DownloadProgress {
   percent: number;
@@ -9,6 +10,8 @@ export interface DownloadProgress {
 }
 
 export interface ActiveDownload {
+  cleanMetadata?: boolean;
+  inspection?: MediaInspection;
   url: string;
   cleanUrl: string;
   platform: 'youtube' | 'douyin' | 'bilibili' | 'tiktok' | 'other';
@@ -51,13 +54,13 @@ function ensureIpcSubscription() {
   window.vanhsub.downloader.onProgress((p: DownloadProgress) => {
     if (!state.active) return;
     const isError = p.status === 'error';
-    const isCompleted = p.status === 'completed' || p.percent >= 100;
 
     setState({
       active: {
         ...state.active,
         progress: p,
-        isDownloading: !isError && !isCompleted,
+        // Keep the operation active until IPC has returned its task/report.
+        isDownloading: !isError,
         error: isError ? p.stageDescription || 'Lỗi khi tải video' : null,
       },
     });
@@ -76,6 +79,7 @@ export const backgroundDownloadManager = {
   },
 
   async startDownload(params: {
+    cleanMetadata?: boolean;
     url: string;
     cleanUrl?: string;
     platform: 'youtube' | 'douyin' | 'bilibili' | 'tiktok' | 'other';
@@ -89,9 +93,11 @@ export const backgroundDownloadManager = {
     outputDir?: string;
     customFileName?: string;
   }): Promise<{ task: any; result: any }> {
+    if (state.active?.isDownloading) throw new Error('Đang có một lượt tải; hãy đợi hoặc hủy trước khi tải tiếp.');
     ensureIpcSubscription();
 
     const activeItem: ActiveDownload = {
+      cleanMetadata: params.cleanMetadata,
       url: params.url,
       cleanUrl: params.cleanUrl || params.url,
       platform: params.platform,
@@ -122,6 +128,7 @@ export const backgroundDownloadManager = {
       }
 
       const res = await window.vanhsub.downloader.download({
+        cleanMetadata: params.cleanMetadata,
         url: params.cleanUrl || params.url,
         quality: params.quality,
         noWatermarkUrl: params.noWatermarkUrl,
@@ -135,11 +142,12 @@ export const backgroundDownloadManager = {
             ...state.active,
             isDownloading: false,
             completedTask: res.task,
+            inspection: res.result.inspection,
             progress: {
               ...state.active.progress,
               percent: 100,
               status: 'completed',
-              stageDescription: 'Đã hoàn tất tải video!',
+              stageDescription: res.result.inspection ? 'Đã tải và kiểm tra file. Xem kết quả watermark/ID.' : 'Đã hoàn tất tải video!',
             },
           },
         });

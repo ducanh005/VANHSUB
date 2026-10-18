@@ -138,9 +138,11 @@ const vanhsub = {
   },
   downloader: {
     inspect: (url: string) => ipcRenderer.invoke('downloader:inspect', url),
-    download: (options: { url: string; quality?: string; noWatermarkUrl?: string; outputDir?: string; customFileName?: string; downloadId?: string }) =>
+    download: (options: { url: string; quality?: string; noWatermarkUrl?: string; outputDir?: string; customFileName?: string; downloadId?: string; cleanMetadata?: boolean }) =>
       ipcRenderer.invoke('downloader:download', options),
     cancel: (downloadId?: string) => ipcRenderer.invoke('downloader:cancel', downloadId),
+    checkTask: (taskId: string, target: 'source' | 'output') => ipcRenderer.invoke('downloader:checkTask', taskId, target),
+    cancelCheck: (taskId: string) => ipcRenderer.invoke('downloader:cancelCheck', taskId),
     getDefaultDir: () => ipcRenderer.invoke('downloader:getDefaultDir'),
     onProgress: (callback: (progress: any) => void) => {
       const handler = (_event: unknown, progress: any) => callback(progress);

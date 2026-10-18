@@ -2,6 +2,7 @@ import os from 'os';
 import path from 'path';
 import Store from 'electron-store';
 import { v4 as uuidv4 } from 'uuid';
+import type { MediaInspection } from '../../shared/mediaInspection';
 
 export type TaskStatus =
   | 'queued'
@@ -16,6 +17,10 @@ export type TaskStatus =
 export type WorkflowType = 'full-dubbing' | 'bilingual-sub' | 'fast-transcribe' | 'custom';
 
 export interface Task {
+  mediaInspection?: MediaInspection;
+  outputInspection?: MediaInspection;
+  cleanTechnicalMetadata?: boolean;
+  originalFilePath?: string;
   id: string;
   fileName: string;
   filePath: string;
@@ -139,6 +144,10 @@ export const TaskStore = {
       translatedSrtPath: input.translatedSrtPath,
       audioPath: input.audioPath,
       outputPath: input.outputPath,
+      mediaInspection: input.mediaInspection,
+      outputInspection: input.outputInspection,
+      cleanTechnicalMetadata: input.cleanTechnicalMetadata,
+      originalFilePath: input.originalFilePath,
       projectDir: input.projectDir,
       errorMessage: input.errorMessage,
       ttsVoice: input.ttsVoice,

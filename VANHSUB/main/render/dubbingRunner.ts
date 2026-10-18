@@ -1,4 +1,5 @@
 import fs from 'fs';
+import { inspectMediaFile } from '../media/mediaInspection';
 import path from 'path';
 import type ffmpeg from 'fluent-ffmpeg';
 import { TaskStore, type Task } from '../store/taskStore';
@@ -163,10 +164,19 @@ export class DubbingRunner {
       }
 
       const truncatedCount = overruns.filter((o) => o.truncated).length;
+      TaskStore.update(taskId, { outputInspection: undefined, progress: 98, stageDescription: 'Đang kiểm tra video lồng tiếng...' });
+      onUpdate?.();
+      const outputInspection = await inspectMediaFile(finalPath, {
+        cleanMetadata: task.cleanTechnicalMetadata === true,
+        source: task.mediaInspection?.source,
+        shouldStop: () => this.cancelledTasks.has(taskId) || TaskStore.getById(taskId)?.status === 'cancelled',
+        onProgress: stageDescription => { TaskStore.update(taskId, { progress: 98, stageDescription }); onUpdate?.(); },
+      });
       const updated = TaskStore.update(taskId, {
         status: 'done',
         progress: 100,
-        outputPath: finalPath,
+        outputPath: outputInspection.filePath,
+        outputInspection,
         projectDir,
         // Ghi đè báo cáo câu tràn của lần dubbing này (rỗng = không có câu nào tràn)
         ttsOverruns: overruns,

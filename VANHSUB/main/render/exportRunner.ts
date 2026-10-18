@@ -10,6 +10,7 @@ import { getOrCreateProjectDir } from '../utils/projectFolder';
 import { compileToAss, type SubtitleEntryStyle, type GlobalAssStyle, type KineticConfig } from './assCompiler';
 import { killProcessTreeByPid } from '../lib/processTree';
 import { isCancelledError } from '../lib/cancel';
+import { inspectMediaFile } from '../media/mediaInspection';
 import {
   burnHardsub,
   muxSoftsub,
@@ -477,10 +478,19 @@ export class ExportRunner {
         return TaskStore.getById(taskId);
       }
 
+      TaskStore.update(taskId, { outputInspection: undefined, progress: 98, stageDescription: 'Đang kiểm tra file xuất...' });
+      onUpdate?.();
+      const outputInspection = await inspectMediaFile(outputPath, {
+        cleanMetadata: task.cleanTechnicalMetadata === true,
+        source: task.mediaInspection?.source,
+        shouldStop: () => this.cancelledTasks.has(taskId) || TaskStore.getById(taskId)?.status === 'cancelled',
+        onProgress: stageDescription => { TaskStore.update(taskId, { progress: 98, stageDescription }); onUpdate?.(); },
+      });
       const updated = TaskStore.update(taskId, {
         status: 'done',
         progress: 100,
-        outputPath,
+        outputPath: outputInspection.filePath,
+        outputInspection,
         projectDir,
         stageDescription: `Xuất video thành công: ${outputName}`,
       });

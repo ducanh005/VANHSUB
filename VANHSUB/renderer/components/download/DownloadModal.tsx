@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { backgroundDownloadManager } from '../../lib/downloadManager';
+import { MediaInspectionPanel } from './MediaInspectionPanel';
 
 export const PLATFORM_BADGES = {
   youtube: 'bg-red-500/10 text-red-400 border border-red-500/30',
@@ -83,6 +84,7 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
   const [defaultDir, setDefaultDir] = useState<string>('');
   const [customTitle, setCustomTitle] = useState<string>('');
   const [isCancelling, setIsCancelling] = useState(false);
+  const [cleanMetadata, setCleanMetadata] = useState(true);
 
   const isDownloading = Boolean(activeDownload?.isDownloading);
   const progress = activeDownload?.progress || null;
@@ -91,6 +93,7 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
   useEffect(() => {
     if (activeDownload && open) {
       if (!urlInput) setUrlInput(activeDownload.url);
+      if (activeDownload.isDownloading) setCleanMetadata(activeDownload.cleanMetadata !== false);
       if (!customTitle) setCustomTitle(activeDownload.title);
       if (!mediaInfo) {
         setMediaInfo({
@@ -254,10 +257,11 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
         noWatermarkUrl: mediaInfo.noWatermarkUrl,
         outputDir: saveDir.trim() || undefined,
         customFileName: customTitle.trim() || undefined,
+        cleanMetadata,
       });
 
       onSuccess?.(result.task);
-      onOpenChange(false);
+      if (!result.result.inspection) onOpenChange(false);
     } catch (err: any) {
       console.error('Lỗi tải video:', err);
       setError(err?.message || 'Tải video thất bại');
@@ -325,7 +329,7 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-[100] bg-black/60 data-[state=open]:animate-in data-[state=open]:fade-in-0" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 z-[100] w-[640px] max-w-[94vw] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-lg border border-border bg-surface p-5 outline-none data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 text-text">
+        <Dialog.Content className="fixed left-1/2 top-1/2 z-[100] w-[640px] max-w-[94vw] max-h-[90vh] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-lg border border-border bg-surface p-5 outline-none data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 text-text">
           <div className="flex items-center justify-between pb-3 border-b border-border">
             <div className="flex items-center gap-2.5">
               <div className="flex h-8 w-8 items-center justify-center rounded-md bg-surface-2 border border-border text-accent">
@@ -575,11 +579,16 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
 
               {/* Badge không watermark cho Douyin/TikTok */}
               {(mediaInfo.platform === 'douyin' || mediaInfo.platform === 'tiktok') && mediaInfo.noWatermarkUrl && (
-                <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-success/10 border border-success/30 text-[11px] text-success">
-                  <span className="h-1.5 w-1.5 rounded-full bg-success shrink-0" />
-                  <span>Video sẽ được tải <strong>không có watermark / logo Douyin</strong> — giống Cốc Cốc, chất lượng gốc.</span>
+                <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-surface border border-border text-[11px] text-text-muted">
+                  <span className="h-1.5 w-1.5 rounded-full bg-accent shrink-0" />
+                  <span>Ưu tiên luồng phát không watermark. Logo hoặc ID có sẵn trong hình vẫn có thể còn; kết quả cần được kiểm tra sau tải.</span>
                 </div>
               )}
+
+              {mediaInfo.platform === 'douyin' && <label className="flex items-start gap-2 text-xs text-text">
+                <input type="checkbox" checked={cleanMetadata} disabled={isDownloading} onChange={event => setCleanMetadata(event.target.checked)} />
+                <span>Tạo bản biên tập riêng, làm sạch ID kỹ thuật trong metadata. Giữ nguyên bản tải gốc. Tự kiểm tra file và lấy mẫu khung hình sau tải.</span>
+              </label>}
 
               {/* Thông báo thư mục lưu trữ & tên file */}
               <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-surface border border-border text-[11px] text-text-muted">
@@ -599,6 +608,7 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
           )}
 
           {/* Thanh tiến trình tải */}
+          {activeDownload?.inspection && !isDownloading && activeDownload.cleanUrl === mediaInfo?.cleanUrl && <MediaInspectionPanel report={activeDownload.inspection} title="Tải thành công — kết quả kiểm tra" />}
           {isDownloading && progress && (
             <div className="rounded-md border border-border bg-surface-2 p-3 space-y-2">
               <div className="flex items-center justify-between text-xs">
