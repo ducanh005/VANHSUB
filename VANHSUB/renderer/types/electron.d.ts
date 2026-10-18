@@ -1,4 +1,5 @@
 import type { Task, CreateTaskInput } from './task';
+import type { MediaInspection } from '../../shared/mediaInspection';
 import type {
   AiStudioConfig,
   DeepPartial,
@@ -391,11 +392,13 @@ export interface VanhsubAPI {
       /** URL MP4 không watermark — Douyin/TikTok only */
       noWatermarkUrl?: string;
     }>;
-    download: (options: { url: string; quality?: string; noWatermarkUrl?: string; outputDir?: string; customFileName?: string; downloadId?: string }) => Promise<{
+    download: (options: { url: string; quality?: string; noWatermarkUrl?: string; outputDir?: string; customFileName?: string; downloadId?: string; cleanMetadata?: boolean }) => Promise<{
       task: Task;
       result: any;
     }>;
     cancel: (downloadId?: string) => Promise<boolean>;
+    checkTask: (taskId: string, target: 'source' | 'output') => Promise<MediaInspection>;
+    cancelCheck: (taskId: string) => Promise<boolean>;
     getDefaultDir?: () => Promise<string>;
     onProgress: (callback: (progress: {
       percent: number;

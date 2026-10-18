@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { validateIpcPayload as check } from '../main/security/ipcPayload';
+check('downloader:checkTask', ['valid-id', 'source']);
+check('downloader:cancelCheck', ['valid-id']);
+check('downloader:download', [{ cleanMetadata: false }]);
 const file = path.resolve('synthetic media.mp4');
 check('tasks:create', [{ fileName: 'synthetic media.mp4', filePath: file }]);
 check('tasks:update', ['valid-id', { srtPath: path.resolve('phụ đề.srt'), ttsNeedsRegeneration: true }]);
@@ -9,6 +12,10 @@ for (const [channel, args] of [
   ['tasks:create', [{ fileName: 'x', filePath: '../outside.mp4' }]],
   ['tasks:update', ['id', { id: 'other' }]],
   ['tasks:start', ['../task']],
+  ['downloader:checkTask', ['../task', 'source']],
+  ['downloader:checkTask', ['valid-id', 'arbitrary']],
+  ['downloader:cancelCheck', ['../task']],
+  ['downloader:download', [{ cleanMetadata: 'false' }]],
   ['tasks:readSrt', [path.resolve('secrets.json')]],
   ['export:start', ['id', 'arbitrary']],
   ['export:start', ['id', 'hardsub', null, null, { formatOptions: { resolution: '4k' } }]],

@@ -5,6 +5,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { SettingsStore } from './settingsStore';
 import { engineForVoice } from '../lib/ttsConfig';
 import type { DubbingPreferences } from '../lib/dubbingPreferences';
+import type { MediaInspection } from '../../shared/mediaInspection';
 
 export type TaskStatus =
   | 'queued'
@@ -19,6 +20,10 @@ export type TaskStatus =
 export type WorkflowType = 'full-dubbing' | 'bilingual-sub' | 'fast-transcribe' | 'custom';
 
 export interface Task {
+  mediaInspection?: MediaInspection;
+  outputInspection?: MediaInspection;
+  cleanTechnicalMetadata?: boolean;
+  originalFilePath?: string;
   id: string;
   fileName: string;
   filePath: string;
@@ -157,6 +162,10 @@ export const TaskStore = {
       outputPath: input.outputPath,
       dubbedVideoPath: input.dubbedVideoPath,
       dubbedVideoStretchFactor: input.dubbedVideoStretchFactor,
+      mediaInspection: input.mediaInspection,
+      outputInspection: input.outputInspection,
+      cleanTechnicalMetadata: input.cleanTechnicalMetadata,
+      originalFilePath: input.originalFilePath,
       projectDir: input.projectDir,
       errorMessage: input.errorMessage,
       ttsVoice: input.ttsVoice || SettingsStore.get('ttsVoice'),
