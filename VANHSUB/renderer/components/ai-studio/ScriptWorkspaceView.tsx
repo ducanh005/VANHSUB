@@ -1258,7 +1258,7 @@ export default function ScriptWorkspaceView({
           <button
             type="button"
             onClick={onProceedToVoice}
-            disabled={scriptBusy}
+              disabled={scriptBusy || session.manualMode}
             className="inline-flex items-center gap-2 rounded-md bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:brightness-110 px-4 py-2 text-xs font-bold text-white active:scale-95 transition cursor-pointer disabled:opacity-50"
             title="Duyệt kịch bản hiện tại và tiếp tục sang bước Lồng tiếng"
           >
@@ -1283,7 +1283,7 @@ export default function ScriptWorkspaceView({
           <button
             type="button"
             onClick={onRegenerateScript}
-            disabled={scriptBusy}
+              disabled={scriptBusy || session.manualMode}
             className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface hover:bg-surface-2 px-3.5 py-2 text-xs font-semibold text-text transition active:scale-95 cursor-pointer disabled:opacity-50"
           >
             <RotateCcw className="h-3.5 w-3.5 text-accent" />

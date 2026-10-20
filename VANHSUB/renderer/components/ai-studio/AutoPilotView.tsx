@@ -393,12 +393,12 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
                 setSelectedIdea(persistedState.artifacts.blueprint);
               }
               if (persistedState.artifacts?.scriptLines && persistedState.artifacts.scriptLines.length > 0) {
-                setCenterTab('script');
+                setCenterTab(persistedState.manualMode ? 'visual' : 'script');
               }
             } else if (activeProject.savedSession) {
               setSession(activeProject.savedSession);
               if (activeProject.savedSession.artifacts?.scriptLines && activeProject.savedSession.artifacts.scriptLines.length > 0) {
-                setCenterTab('script');
+                setCenterTab(activeProject.savedSession.manualMode ? 'visual' : 'script');
               }
             }
           })
@@ -407,14 +407,14 @@ export default function AutoPilotView({ onSwitchProject }: AutoPilotViewProps = 
             if (activeProject.savedSession) {
               setSession(activeProject.savedSession);
               if (activeProject.savedSession.artifacts?.scriptLines && activeProject.savedSession.artifacts.scriptLines.length > 0) {
-                setCenterTab('script');
+                setCenterTab(activeProject.savedSession.manualMode ? 'visual' : 'script');
               }
             }
           });
       } else if (activeProject.savedSession) {
         setSession(activeProject.savedSession);
         if (activeProject.savedSession.artifacts?.scriptLines && activeProject.savedSession.artifacts.scriptLines.length > 0) {
-          setCenterTab('script');
+          setCenterTab(activeProject.savedSession.manualMode ? 'visual' : 'script');
         }
       } else {
         setSession(null);

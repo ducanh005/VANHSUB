@@ -339,6 +339,7 @@ export const AutoPilotHeader: React.FC<AutoPilotHeaderProps> = ({
                 <button
                   type="button"
                   onClick={onResumeRun}
+                  disabled={session.manualMode}
                   className="inline-flex items-center gap-1 rounded bg-emerald-600/90 hover:bg-emerald-500 px-2.5 py-0.5 text-[10px] font-bold text-white transition cursor-pointer"
                   title="Xem kịch bản & Tiếp tục phiên"
                 >
@@ -354,6 +355,7 @@ export const AutoPilotHeader: React.FC<AutoPilotHeaderProps> = ({
           <input
             type="checkbox"
             checked={isGatedMode}
+            disabled={session?.manualMode}
             onChange={(e) => onToggleGatedMode(e.target.checked)}
             className="rounded border-border bg-surface text-accent focus:ring-0 h-3.5 w-3.5 cursor-pointer"
           />
