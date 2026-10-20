@@ -40,6 +40,7 @@ export class AiStudioLlmService {
   // Client Factory
   // ==========================================================================
   private createClient(config: AiStudioLlmConfig): { client: OpenAI; model: string } | null {
+    if (config.provider === 'chatgpt_web' || config.provider === 'gemini_web') return null;
     const rawApiKey = (config.apiKey || '').trim();
     if (!rawApiKey) return null;
 
@@ -61,6 +62,13 @@ export class AiStudioLlmService {
 
     const model = config.model || (config.provider === 'deepseek' ? 'deepseek-chat' : 'gpt-4o');
     return { client, model };
+  }
+
+  public resolveChannelLlmConfig(config: AiStudioLlmConfig, profile?: Partial<ChannelProfileConfig>): AiStudioLlmConfig {
+    const provider = profile?.aiProvider;
+    if (!provider || provider === 'default' || provider === config.provider) return config;
+    // The app has one API credential slot; changing providers cannot reuse it.
+    return { ...config, provider, apiKey: '', model: '', baseUrl: undefined };
   }
 
   // ==========================================================================
@@ -388,10 +396,7 @@ export class AiStudioLlmService {
       channelProfile?.aiProvider && channelProfile.aiProvider !== 'default'
         ? channelProfile.aiProvider
         : config?.provider || 'deepseek';
-    const effectiveConfig: AiStudioLlmConfig = {
-      ...config,
-      provider: effectiveProvider,
-    };
+    const effectiveConfig = this.resolveChannelLlmConfig(config, channelProfile);
 
     // Tính toán mục tiêu thời lượng và số lượng phân đoạn dàn ý
     let durationLabel = '3 - 5 phút';
@@ -644,6 +649,7 @@ Yêu cầu nghiêm ngặt: Trả về DUY NHẤT một khối JSON hợp lệ th
     blueprint?: IdeaBlueprint,
     channelProfile?: ChannelProfileConfig
   ): Promise<ScriptBeatLine[]> {
+    config = this.resolveChannelLlmConfig(config, channelProfile);
     // 0. Nếu người dùng đã cung cấp sẵn kịch bản (Existing Script), tự động tách câu
     if (blueprint?.existingScript && blueprint.existingScript.trim().length >= 10) {
       onProgress?.('Đang phân tách kịch bản có sẵn thành các câu độc lập...');
@@ -1411,6 +1417,7 @@ Chấm điểm trên thang 100 và trả về JSON DUY NHẤT:
     config?: AiStudioLlmConfig,
     onProgress?: (msg: string) => void
   ): Promise<string> {
+    if (config) config = this.resolveChannelLlmConfig(config, channelProfile);
     const projectName = (channelProfile.projectName || channelProfile.channelNiche || 'Kênh YouTube').trim();
     const niche = channelProfile.channelNiche || projectName || 'Nội dung khám phá & kiến thức chuyên sâu';
     const desc = channelProfile.channelDescription || 'Kênh chia sẻ những câu chuyện và góc nhìn độc đáo, hấp dẫn.';
@@ -1530,7 +1537,7 @@ Output NOTHING else. No analysis, no planning, no alternative titles, no word co
     const hasActiveLlm =
       effectiveProvider === 'chatgpt_web' ||
       effectiveProvider === 'gemini_web' ||
-      Boolean(config?.apiKey);
+      Boolean(config);
 
     if (hasActiveLlm) {
       try {
@@ -1719,6 +1726,7 @@ Bắt đầu ngay bằng mục 1 SYSTEM ROLE.`;
           resultText = await mgr.executePromptTurn(userPrompt, mode, onProgress);
         } else if (config) {
           const clientBundle = this.createClient({ ...config, provider: effectiveProvider });
+          if (!clientBundle) throw new Error(`Chưa cấu hình API Key cho ${effectiveProvider}.`);
           if (clientBundle) {
             const resp = await clientBundle.client.chat.completions.create({
               model: clientBundle.model,
@@ -1730,6 +1738,10 @@ Bắt đầu ngay bằng mục 1 SYSTEM ROLE.`;
         }
 
         if (resultText && resultText.trim().length >= 100) {
+          if (!['SYSTEM ROLE', 'CHANNEL DNA', 'STRICT OUTPUT FORMAT'].every(section => resultText.toUpperCase().includes(section)) ||
+              !/\{\{\s*CHANNEL_NAME\s*\}\}/i.test(resultText) || !/\{\{\s*SOURCE_MATERIAL\s*\}\}/i.test(resultText)) {
+            throw new Error('Phản hồi thiếu cấu trúc hoặc biến đầu vào của Master Prompt.');
+          }
           // Bảo vệ: Nếu vô tình bắt dính prompt template hướng dẫn, bỏ qua để không ghi đè master prompt hỏng
           if (
             resultText.includes('PHẦN F — CÁCH TRẢ LỜI') ||

@@ -404,15 +404,9 @@ export function registerAiStudioIpc(resolveExternalFile?: (file: string, extensi
     ): Promise<GenerateMasterPromptResult> => {
       try {
         const config = getDecryptedAiStudioConfig();
-        const effectiveLlmConfig = {
-          ...config.llm,
-          ...(payload.channelProfile?.aiProvider && payload.channelProfile.aiProvider !== 'default'
-            ? { provider: payload.channelProfile.aiProvider }
-            : {}),
-        };
         const masterPrompt = await aiStudioLlmService.generateMasterPromptForChannel(
           payload.channelProfile,
-          effectiveLlmConfig
+          config.llm
         );
         return {
           masterPrompt,
