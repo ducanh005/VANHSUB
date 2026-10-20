@@ -28,7 +28,12 @@ export function validateIpcPayload(channel: string, args: unknown[]): void {
     }
   };
   visit(args, 0);
-  if (/^(tasks:(get|update|delete|start|cancel|startHybrid|cancelHybrid|runPipeline|importSrt)|translate:(start|cancel)|tts:(start|cancel|regenerateLine|export-merged-audio)|ocr:(start|cancel)|export:(start|separateStems)|dubbing:(start|cancel))$/.test(channel)) id(args[0]);
+  if (/^(tasks:(get|update|delete|start|cancel|startHybrid|cancelHybrid|runPipeline|importSrt)|translate:(start|cancel)|tts:(start|cancel|regenerateLine|export-merged-audio)|ocr:(start|cancel)|export:(start|separateStems)|dubbing:(start|cancel)|downloader:(checkTask|cancelCheck))$/.test(channel)) id(args[0]);
+  if (channel === 'downloader:checkTask' && !['source', 'output'].includes(String(args[1]))) invalid();
+  if (channel === 'downloader:download') {
+    record(args[0]);
+    if (args[0].cleanMetadata !== undefined && typeof args[0].cleanMetadata !== 'boolean') invalid();
+  }
   if (channel === 'tasks:create') {
     record(args[0]); text(args[0].fileName, 1024); filePath(args[0].filePath);
     if ('id' in args[0] || 'createdAt' in args[0] || 'updatedAt' in args[0]) invalid();
@@ -39,7 +44,7 @@ export function validateIpcPayload(channel: string, args: unknown[]): void {
   }
   if (channel === 'tasks:create' || channel === 'tasks:update') {
     const task = args[channel === 'tasks:create' ? 0 : 1] as Record<string, unknown>;
-    for (const key of ['filePath', 'projectDir', 'srtPath', 'translatedSrtPath', 'audioPath', 'outputPath', 'dubbedVideoPath', 'ttsAudioDir', 'ttsMergedAudioPath']) {
+    for (const key of ['filePath', 'originalFilePath', 'projectDir', 'srtPath', 'translatedSrtPath', 'audioPath', 'outputPath', 'dubbedVideoPath', 'ttsAudioDir', 'ttsMergedAudioPath']) {
       if (task[key] !== undefined && task[key] !== '') filePath(task[key]);
     }
     if (task.status !== undefined && !['queued', 'transcribing', 'ocr', 'translating', 'exporting', 'dubbing', 'done', 'error', 'cancelled'].includes(String(task.status))) invalid();

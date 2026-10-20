@@ -1,3 +1,4 @@
+import { getOrCreateProjectDir } from './utils/projectFolder';
 import { handleRendererIpc } from './security/ipc'
 import { productionContentPolicy } from './security/contentPolicy'
 import { resolveGrantedMedia, IMAGE_EXTENSIONS } from './security/mediaCapabilities'
@@ -33,6 +34,7 @@ import { VoiceSampleStore } from './store/voiceSampleStore'
 import { getAiStudioStore, migrateAiStudioLegacySecrets } from './store/aiStudioStore'
 import { extractAudioFromUrl } from './helpers/voiceFromUrl'
 import { inspectMediaUrl, downloadVideoFromUrl, resolveBaseFolder, cancelDownload } from './helpers/videoDownloader'
+import { inspectMediaFile } from './media/mediaInspection'
 import { isCancelledError } from './lib/cancel'
 import { installRendererLogger } from './helpers/logger'
 import { getSharedTikTokProvider } from './tts-providers/tiktok/sessionStores'
@@ -395,7 +397,7 @@ handleRendererIpc('downloader:getDefaultDir', async () => {
 });
 
 // Tải video MP4 từ liên kết và tự động tạo Task trong thư mục dự án
-handleRendererIpc('downloader:download', async (_event, options: { url: string; quality?: any; noWatermarkUrl?: string; outputDir?: string; customFileName?: string; downloadId?: string }) => {
+handleRendererIpc('downloader:download', async (_event, options: { url: string; quality?: any; noWatermarkUrl?: string; outputDir?: string; customFileName?: string; downloadId?: string; cleanMetadata?: boolean }) => {
   try {
     const result = await downloadVideoFromUrl({
       url: options.url,
@@ -404,6 +406,7 @@ handleRendererIpc('downloader:download', async (_event, options: { url: string; 
       outputDir: options.outputDir,
       customFileName: options.customFileName,
       downloadId: options.downloadId,
+      cleanMetadata: options.cleanMetadata,
       onProgress: (progress) => {
         mainWindow?.webContents.send('downloader:progress', progress);
       },
@@ -417,6 +420,9 @@ handleRendererIpc('downloader:download', async (_event, options: { url: string; 
       status: 'queued',
       progress: 0,
       projectDir: result.projectDir,
+      originalFilePath: result.originalFilePath,
+      mediaInspection: result.inspection,
+      cleanTechnicalMetadata: result.inspection ? options.cleanMetadata !== false : undefined,
       stageDescription: 'Đã tải từ link — sẵn sàng làm việc',
     });
 
@@ -428,6 +434,40 @@ handleRendererIpc('downloader:download', async (_event, options: { url: string; 
     }
     throw new Error(err.message || 'Lỗi khi tải video từ liên kết');
   }
+});
+
+const mediaCheckJobs = new Map<string, { cancelled: boolean }>();
+handleRendererIpc('downloader:checkTask', async (_event, taskId: string, target: 'source' | 'output') => {
+  const task = TaskStore.getById(taskId);
+  if (!task || !['source', 'output'].includes(target)) throw new Error('Tác vụ kiểm tra không hợp lệ.');
+  if (mediaCheckJobs.has(taskId)) throw new Error('Tác vụ này đang được kiểm tra.');
+  if (['exporting', 'dubbing'].includes(task.status)) throw new Error('Hãy đợi xuất video hoàn tất rồi kiểm tra.');
+  const filePath = target === 'output' ? task.outputPath : task.filePath;
+  if (!filePath) throw new Error('Chưa có file để kiểm tra.');
+  const job = { cancelled: false };
+  mediaCheckJobs.set(taskId, job);
+  try {
+    return await awaitTaskOperation(taskId, async () => {
+      const report = await inspectMediaFile(filePath, {
+        cleanMetadata: false,
+        reportDirectory: getOrCreateProjectDir(task),
+        source: task.mediaInspection?.source,
+        shouldStop: () => job.cancelled || cancelledOperations.has(taskId),
+      });
+      const current = TaskStore.getById(taskId);
+      if (!current || (target === 'output' ? current.outputPath : current.filePath) !== filePath || ['exporting', 'dubbing'].includes(current.status)) {
+        throw new Error('File tác vụ đã thay đổi trong lúc kiểm tra. Hãy kiểm tra lại file mới.');
+      }
+      TaskStore.update(taskId, target === 'output' ? { outputInspection: report } : { mediaInspection: report });
+      broadcastTasksUpdate();
+      return report;
+    });
+  } finally { mediaCheckJobs.delete(taskId); }
+});
+handleRendererIpc('downloader:cancelCheck', (_event, taskId: string) => {
+  const job = mediaCheckJobs.get(taskId);
+  if (job) job.cancelled = true;
+  return Boolean(job);
 });
 
 // Huỷ tiến trình tải video

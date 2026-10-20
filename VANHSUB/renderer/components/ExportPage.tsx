@@ -31,6 +31,7 @@ import { OverlayMaskEditor } from './export/OverlayMaskEditor';
 import { VideoPreviewCanvas } from './export/VideoPreviewCanvas';
 import { ExportFormatPanel } from './export/ExportFormatPanel';
 import { useDubbingPreferences } from '../lib/useDubbingPreferences';
+import { TaskMediaInspection } from './download/TaskMediaInspection';
 
 type Props = {
   tasks: Task[];
@@ -1599,6 +1600,7 @@ export default function ExportPage({ tasks, selectedTaskId: propSelectedTaskId, 
           </div>
 
           {/* Tiến trình */}
+          <TaskMediaInspection key={selectedTask.id} task={selectedTask} />
           {(isExporting || (selectedTask.progress > 0 && selectedTask.progress < 100 && selectedTask.status !== 'done')) && (
             <div className="rounded-lg border border-accent/40 bg-accent-tint p-4">
               <div className="mb-2 flex items-center justify-between text-xs">
