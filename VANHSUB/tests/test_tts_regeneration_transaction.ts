@@ -12,6 +12,7 @@ async function main() {
   process.env.VANHSUB_TASKS_DIR = path.join(dir, 'tasks');
   const { EdgeTTSClient } = await import('../main/tts-providers/edge/EdgeTTSClient');
   const { TTSRunner } = await import('../main/render/ttsRunner');
+  const { DubbingRunner } = await import('../main/render/dubbingRunner');
   const { TaskStore } = await import('../main/store/taskStore');
   const client = EdgeTTSClient.getInstance(), original = client.synthesize;
   const tone = (name: string, frequency: number, duration: number) => {
@@ -21,12 +22,14 @@ async function main() {
   };
   const first = tone('first.mp3', 440, 0.4), changed = tone('changed.mp3', 880, 0.4), tooLong = tone('long.mp3', 220, 12);
   const srt = path.join(dir, 'source.srt');
+  const video = path.join(dir, 'source.mp4');
+  execFileSync(ffmpeg.path, ['-v', 'error', '-f', 'lavfi', '-i', 'color=blue:s=160x90:d=3.5', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', video], { windowsHide: true });
   const write = (a: string, b: string) => fs.writeFileSync(srt, `1\n00:00:00,000 --> 00:00:01,000\n${a}\n\n2\n00:00:02,000 --> 00:00:03,000\n${b}\n`);
   const hash = (file: string) => crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
   try {
     client.synthesize = async () => ({ audio: first });
     write('First.', 'Second.');
-    const task = TaskStore.create({ fileName: 'source.mp4', filePath: path.join(dir, 'source.mp4'), srtPath: srt, projectDir: dir });
+    const task = TaskStore.create({ fileName: 'source.mp4', filePath: video, srtPath: srt, projectDir: dir });
     await TTSRunner.runTTS(task.id, 'vi-VN-HoaiMyNeural', 1, undefined, {}, 'edge');
     const before = TaskStore.getById(task.id)!;
     assert.equal(before.status, 'done');
@@ -55,9 +58,13 @@ async function main() {
     assert.notEqual(committed.ttsMergedAudioPath, before.ttsMergedAudioPath);
     assert.deepEqual(savedFiles.map(hash), hashes);
     assert.equal(committed.ttsNeedsRegeneration, false);
+    const dubbed = await DubbingRunner.runDubbing(task.id);
+    assert.equal(dubbed?.status, 'done', dubbed?.errorMessage);
+    assert.equal(dubbed?.outputInspection?.decode, 'passed', 'Published regenerated audio must work with the real dubbing/inspection pipeline');
 
     const committedFiles = ['manifest.json', 'subtitle_0001.mp3', 'subtitle_0002.mp3'].map(name => path.join(committed.ttsAudioDir!, name));
     committedFiles.push(committed.ttsMergedAudioPath!);
+    committedFiles.push(dubbed!.dubbedVideoPath!);
     const committedHashes = committedFiles.map(hash);
     write('First edited again.', 'Second changed.');
     client.synthesize = async text => {
@@ -67,6 +74,7 @@ async function main() {
     assert.equal((await TTSRunner.regenerateLine(task.id, 1)).ok, false);
     assert.equal(TaskStore.getById(task.id)!.status, 'cancelled');
     assert.equal(TaskStore.getById(task.id)!.ttsMergedAudioPath, committed.ttsMergedAudioPath);
+    assert.equal(TaskStore.getById(task.id)!.dubbedVideoPath, dubbed!.dubbedVideoPath);
     assert.deepEqual(committedFiles.map(hash), committedHashes, 'Cancellation after an earlier candidate must preserve the committed run');
 
     // An external editor can change the source despite the application's task lease.

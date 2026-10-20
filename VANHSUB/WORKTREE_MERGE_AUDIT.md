@@ -1,5 +1,7 @@
 # VANHSUB — Worktree Merge Audit, 20/10/2026
 
+> Báo cáo này chốt đợt tích hợp ở `3d0948e`. Phần rà soát ứng dụng sau đó có bản vá `80d19c0` về TTS regeneration/export; xem [báo cáo tiếp nối](docs/VANHSUB_APP_REVIEW_FOLLOWUP_20261020.md). Các số liệu integration dưới đây giữ phạm vi lịch sử của đợt đó.
+
 ## Kết quả và nhánh review
 
 Đã kiểm tra toàn bộ branch/worktree Git đã đăng ký, đối chiếu nội dung và tích hợp chọn lọc phần còn thiếu. Không merge vào main, không push, không xóa branch/worktree/stash/file người dùng. Các thay đổi ở worktree cũ được giữ nguyên.
