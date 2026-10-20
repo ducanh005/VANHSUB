@@ -1,5 +1,7 @@
 # VANHSUB — Usable Beta Workflows, 20/10/2026
 
+> **Cập nhật sau đợt này:** xem [Hoàn tất nghiệm thu Beta local](VANHSUB_BETA_COMPLETION_20261020.md). Source `ab0ef03` đã tích hợp main `a99b7d7`, sửa cấp quyền audio và đóng gate chọn file native bằng UI E2E thật. Nội dung bên dưới giữ nguyên kết quả lịch sử ở source `411a85b`.
+
 Tiếp tục từ `60c6582`, trên `codex/integration-stabilization-20261015`. Bản Electron unpacked đã kiểm thử: source `411a85b`. Không merge main, không force push, không chạy lại Google Flow Web RPC.
 
 ## Quyết định
