@@ -39,6 +39,30 @@ Evidence thô giữ local trong `temp/worktree-audit/`: `regeneration-before.log
 
 ## Phạm vi và việc chưa đóng
 
-Đây là sửa và nghiệm thu giới hạn cho vòng đời artifact TTS/export, không phải chứng nhận toàn app. Các gate cũ còn mở: UAT Electron của nhánh review; shutdown/crash giữa job và soak dài; stem cancellation trong bước extraction; provider dịch/official visual API thiếu key/quota; Google Flow unusual activity/CDP target cũ; Windows sạch/NSIS. Không thay kiến trúc để khép các gate này bằng suy đoán.
+Đây là sửa và nghiệm thu giới hạn cho vòng đời artifact TTS/export, không phải chứng nhận toàn app. Các gate cũ còn mở: UAT Electron của nhánh review; shutdown/crash giữa job và soak dài; provider dịch/official visual API thiếu key/quota; Google Flow unusual activity/CDP target cũ; Windows sạch/NSIS. Gate stem cancellation trong bước extraction đã được xử lý riêng ở đợt tiếp theo bên dưới. Không thay kiến trúc để khép các gate này bằng suy đoán.
 
 Bản Beta local đã nghiệm thu trước vẫn giữ nguyên. Trạng thái giới hạn của Internal Beta trước đây không đồng nghĩa nhánh mới đã có UAT; Public Release vẫn NOT READY theo báo cáo RC. Nhánh review tiếp tục giữ local để người dùng review/UAT trước khi yêu cầu push hoặc merge.
+
+## Đợt tiếp theo — hủy extraction của stem và dubbing
+
+Bản sửa: **`93b6111`**, tiếp nối `f5c00e5`, cùng nhánh local. Không thay ASR 16kHz, TTS provider, frontend, Extension hay cơ chế IPC/lease.
+
+Đã tái hiện bằng worker FFmpeg thật: sau khi người dùng hủy stem ở bước trích WAV, worker vẫn chạy đến hết input rồi runner mới trả `cancelled`. Với fixture 6 giây được đọc ở tốc độ thực bằng `-re`, cancel-to-settle trước sửa là **5.806 ms**. Kiểm tra chỗ gọi thứ hai phát hiện dubbing bật tách giọng cũng thiếu tín hiệu hủy; negative control riêng là **5.829 ms**. Không dùng giả lập worker để kết luận lỗi này.
+
+`extractFullQualityAudio` nhận thêm predicate `shouldStop` tùy chọn. Khi đã hủy trước khi bắt đầu, không tạo worker/output. Khi worker đang chạy, polling 150 ms dừng đúng command FFmpeg thuộc tác vụ; promise chỉ kết thúc sau terminal event, timer được dọn khi kết thúc/lỗi. Cả StemExportRunner và bước extraction của dubbing truyền predicate đang có vào helper. Runner vẫn giữ trách nhiệm dọn thư mục tạm và không thay output hoàn thành trước.
+
+| Kiểm chứng đợt extraction | Kết quả |
+|---|---|
+| Hủy stem giữa extraction | **Real native fixture PASS**: cancel-to-settle **61 ms** ở lần kiểm tra cuối; PID worker đã thoát trước khi runner trả về; partial WAV không còn; pointer/bytes output trước không đổi |
+| Hủy dubbing giữa extraction | **Real native fixture PASS**: **60 ms**; worker thoát, WAV tạm được dọn, output trước được giữ và task không hồi sinh thành done |
+| Hủy trước extraction | **Automated PASS**, không tạo output |
+| Stem/DSP regression | **PASS**, mono/stereo decode, cancel sau extraction, chạy lại thành công và output đúng thư mục project |
+| Dubbed subtitle export regression | **PASS**, xuất lặp lại, chọn nguồn, hai track bilingual có đổi tốc độ và phục hồi sau thiếu nguồn |
+| Main TypeScript / main-preload build | **PASS**, lần lượt **6.356 ms / 12.576 ms**, staging mới với dependencies Beta đã chuẩn bị |
+| Renderer/NSIS/clean Windows/live provider/UI Electron | **NOT TESTED đợt này**; không sửa frontend, không rebuild/ghi đè bản Beta đang chạy |
+
+Ba entrypoint liên quan: `test_stem_extraction_cancel.ts`, `test_pending_stems_integration.ts`, `test_dubbed_subtitle_export.ts`. Harness chỉ thêm `-re` để giữ worker extraction thực hoạt động đủ lâu cho thao tác hủy; audio/video là fixture tổng hợp, không phải nghiệm thu giọng nói, ASR hay provider live. Mốc 61/60 ms là số đo của fixture này, không phải SLA cho mọi máy/file.
+
+Evidence giữ local, không commit: `temp/worktree-audit/stem-extraction-before.log`, `dubbing-extraction-before.log`, `extraction-final.log`, `stems-regression-current.log`, `extraction-dubbed-regression.log`, `extraction-main-build.json`. Staging main/preload: `D:/DEAN/DEAN/VANHSUB/temp/vanhsub-main-followup-Q1IQX0`.
+
+Đối chiếu bảo toàn worktree vẫn PASS: 466 file gốc chưa commit/untracked không đổi hash, HEAD/ref gốc và stash được giữ. Không push remote, merge main hoặc chỉnh profile/project sản xuất. Việc hủy từ runner này **chưa chứng minh đóng/crash toàn app dọn mọi worker**, cũng chưa đóng các gate ASR/translation/TTS khi shutdown, restart recovery và soak dài. Các mục đó tiếp tục cần nghiệm thu riêng; không nâng trạng thái Public Release.

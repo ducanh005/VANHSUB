@@ -102,7 +102,7 @@ Worktree `c89f` có M1 commit (3 file) và **18 tracked modified + 28 untracked*
 
 Không có conflict text/index đang mở; không dùng ours/theirs, reset hoặc abort để ghi đè file người dùng. Các chồng lấn kiến trúc Flow v2, core-runner replacement, outline/fallback/collector cũ được **hoãn**, không đoán phiên bản đúng bằng cách merge toàn nhánh.
 
-Những điểm không được tuyên bố đã giải quyết: Google Flow unusual activity/CDP target cũ, dịch/official API live thiếu quyền, clean Windows/NSIS và UAT Electron mới. Phần trích WAV trước stem vẫn hủy theo hợp tác sau bước extraction, không phải worker-kill tức thì trong mọi phase. DSP chỉ là lọc kênh/tần số, không được quảng bá thành chất lượng Demucs AI. Cải thiện cache không chứng minh giải quyết mọi tình huống crash giữa regeneration.
+Những điểm không được tuyên bố đã giải quyết: Google Flow unusual activity/CDP target cũ, dịch/official API live thiếu quyền, clean Windows/NSIS và UAT Electron mới. Tại mốc tích hợp ban đầu, phần trích WAV trước stem chỉ hủy sau extraction; bản sửa tiếp nối `93b6111` đã nối hủy vào worker ở phase này, xem phần cập nhật bên dưới. DSP chỉ là lọc kênh/tần số, không được quảng bá thành chất lượng Demucs AI. Cải thiện cache không chứng minh giải quyết mọi tình huống crash giữa regeneration.
 
 ## Build và bằng chứng kiểm thử đợt này
 
@@ -145,3 +145,10 @@ Dependencies build lấy từ bộ dependency đã cài riêng của Beta, đọ
 Review diff `2268855..codex/worktree-merge-audit-20261020`, đặc biệt provider isolation, fresh SRT panel, cache copy và stem cancel/output location. Khi UAT dùng profile test riêng: mở lại bảng giọng sau sửa SRT; tạo lại audio và kiểm tra output cũ; hủy/chạy lại stem; chọn provider khác và xác nhận thiếu key được báo đúng, không gọi provider cũ. Không dùng profile production để chạy song song.
 
 Kết quả được giữ local trên nhánh review. Flow v2 và các phần refactor hoãn cần một đợt tích hợp riêng trên revision đã chốt, giữ các gate provider/ownership/security hiện tại. Chỉ merge main hoặc push khi người dùng yêu cầu ở bước sau.
+
+## Bản sửa tiếp nối sau integration
+
+- `80d19c0`: bảo toàn run TTS đã hoàn thành khi tạo lại thất bại/hủy; chặn dùng dub stale khi export. Báo cáo và regression bổ sung ở `f5c00e5`.
+- `93b6111`: dừng worker FFmpeg khi hủy giữa full-quality audio extraction ở stem và dubbing. Negative control khoảng 5,8 giây chờ hết input; sau sửa 61/60 ms trên fixture 6 giây. Ba entrypoint liên quan, main TypeScript và main/preload build PASS; không được tính thành UI E2E hoặc provider live.
+
+Chi tiết và giới hạn nghiệm thu nằm trong `docs/VANHSUB_APP_REVIEW_FOLLOWUP_20261020.md`. Không có thay đổi quyết định hoãn Flow v2 hoặc refactor runner cũ. Nhánh kết quả vẫn là `codex/worktree-merge-audit-20261020`; revision cuối review bằng HEAD của nhánh local này. Không push/merge main; các worktree và thay đổi gốc của người dùng được giữ nguyên.
