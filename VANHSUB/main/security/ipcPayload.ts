@@ -54,7 +54,8 @@ export function validateIpcPayload(channel: string, args: unknown[]): void {
     if (args[4] != null) {
       record(args[4]); const options = args[4];
       if (options.videoSource !== undefined && !['auto', 'original', 'dubbed'].includes(options.videoSource)) invalid();
-      if (options.formatOptions !== undefined) {
+      // The export UI sends null for the default/original format.
+      if (options.formatOptions != null) {
         record(options.formatOptions); const format = options.formatOptions;
         if (format.resolution !== undefined && !['original', '1080p', '720p', '480p'].includes(format.resolution)) invalid();
       }
