@@ -20,6 +20,7 @@ import {
 import type { Task } from '../types/task';
 import { SPEED_OPTIONS, speedLabel } from '../lib/ttsOptions';
 import { fullPreviewPlayer, type FullPreviewState } from '../lib/fullPreviewPlayer';
+import { setAudioPreviewSource, clearAudioPreviewSource } from '../lib/audioPreviewSource';
 import { parseSrt, type SrtLine } from '../lib/srt';
 import { resolveTtsEngine } from '../../main/lib/ttsConfig';
 import { useDubbingPreferences } from '../lib/useDubbingPreferences';
@@ -235,7 +236,7 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
   // Dọn audio preview đơn lẻ khi rời trang (playback 1 mạch vẫn tiếp tục)
   useEffect(() => {
     return () => {
-      previewAudioRef.current?.pause();
+      if (previewAudioRef.current) clearAudioPreviewSource(previewAudioRef.current);
       if (mergedAudioRef.current) {
         mergedAudioRef.current.pause();
       }
@@ -304,7 +305,7 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
       );
       previewAudioRef.current?.pause();
       if (!previewAudioRef.current) previewAudioRef.current = new Audio();
-      previewAudioRef.current.src = `data:${res.mimeType};base64,${res.audioBase64}`;
+      setAudioPreviewSource(previewAudioRef.current, res);
       await previewAudioRef.current.play();
     } catch (err: any) {
       setIsError(true);
@@ -468,7 +469,7 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
       const res = await window.vanhsub.tts.preview(SAMPLE_TEXT, voice, speed, ttsEngine);
       previewAudioRef.current?.pause();
       if (!previewAudioRef.current) previewAudioRef.current = new Audio();
-      previewAudioRef.current.src = `data:${res.mimeType};base64,${res.audioBase64}`;
+      setAudioPreviewSource(previewAudioRef.current, res);
       await previewAudioRef.current.play();
       setMessage('Đang phát bản nghe thử...');
     } catch (err: any) {
@@ -1024,7 +1025,7 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
       {!selectedTaskId ? (
         <div className="flex flex-1 flex-col items-center justify-center rounded-lg border border-dashed border-border bg-surface p-12 text-center text-text-muted text-xs">
           <Headphones className="h-10 w-10 text-text-faint mb-3 animate-pulse" />
-          <span>Chọn một tác vụ đã có phụ đề .srt ở menu phía trên để tạo lồng tiếng bằng AI (Edge TTS / TikTok TTS).</span>
+          <span>Chọn một tác vụ đã có phụ đề .srt ở menu phía trên để tạo lồng tiếng bằng Local TTS, Edge TTS hoặc TikTok TTS.</span>
         </div>
       ) : !hasSrtFile ? (
         <div className="flex flex-1 flex-col items-center justify-center rounded-lg border border-dashed border-border bg-surface p-12 text-center text-text-muted text-xs">
