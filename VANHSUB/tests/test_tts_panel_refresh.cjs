@@ -14,4 +14,3 @@ await toggle.click();await page.evaluate(()=>{window.fixtureText='Edited line.'}
 await toggle.click();await page.evaluate(()=>{window.defer=true});await toggle.click();await page.waitForFunction(()=>window.pending.length===1);await page.evaluate(()=>window.mount('task-b'));await page.getByText('task-b.mp4',{exact:true}).first().waitFor();await page.evaluate(()=>{window.defer=false;window.fixtureText='Task B line.';window.pending[0]('1\n00:00:00,000 --> 00:00:01,000\nStale task A line.\n')});await toggle.click();await page.getByText('Task B line.',{exact:true}).waitFor();assert.equal(await page.getByText('Stale task A line.',{exact:true}).count(),0);
 console.log('PASS: real React TTS panel reloads edited SRT and rejects late cross-task reads; headless fixture IPC, not Electron/provider E2E');
 }finally{await browser?.close();}})().catch(e=>{console.error(e);process.exitCode=1});
-
