@@ -1368,11 +1368,12 @@ handleRendererIpc('dialog:openImageFile', async () => {
 handleRendererIpc('dialog:openAudioFile', async () => {
   if (!mainWindow) return null
   const result = await dialog.showOpenDialog(mainWindow, {
-    title: 'Chọn nhạc nền',
+    title: 'Chọn file âm thanh (giọng đọc hoặc nhạc nền)',
     properties: ['openFile'],
     filters: [{ name: 'Âm thanh', extensions: ['mp3', 'wav', 'm4a', 'aac', 'ogg', 'flac'] }],
   })
-  return result.canceled ? null : (result.filePaths[0] || null)
+  if (result.canceled || result.filePaths.length === 0) return null
+  return rememberSelection(result.filePaths)[0]
 })
 
 // Chọn 1 file video (dùng cho node Tải Video / Workflow)
