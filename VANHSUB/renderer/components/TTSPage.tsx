@@ -243,23 +243,20 @@ export default function TTSPage({ tasks, selectedTaskId: propSelectedTaskId, onS
     };
   }, []);
 
-  // Mở/đóng bảng gán giọng; lần đầu mở sẽ tải danh sách dòng phụ đề
-  // (dùng đúng file TTS sẽ đọc: bản dịch nếu có, không thì bản gốc)
-  const toggleVoicePanel = async () => {
-    const next = !showVoicePanel;
-    setShowVoicePanel(next);
-    if (next && srtLines.length === 0) {
-      const srtPath = selectedTask?.translatedSrtPath || selectedTask?.srtPath;
-      if (!srtPath || typeof window === 'undefined' || !window.vanhsub?.tasks?.readSrt) return;
-      try {
-        const content = await window.vanhsub.tasks.readSrt(srtPath);
-        setSrtLines(parseSrt(content));
-        // Khôi phục gán giọng đã lưu trên task (nếu có)
-      } catch {
-        // bỏ qua — panel sẽ hiện trạng thái rỗng
-      }
-    }
-  };
+  // Reload edited subtitles on each open; a late read cannot populate another task.
+  const toggleVoicePanel = () => setShowVoicePanel(open => !open);
+  const voicePanelSrtPath = selectedTask?.translatedSrtPath || selectedTask?.srtPath;
+  useEffect(() => {
+    if (!showVoicePanel || !voicePanelSrtPath || !window.vanhsub?.tasks?.readSrt) return;
+    let cancelled = false;
+    setSrtLines([]);
+    window.vanhsub.tasks.readSrt(voicePanelSrtPath).then(content => {
+      if (!cancelled) setSrtLines(parseSrt(content));
+    }).catch(() => {
+      if (!cancelled) { setIsError(true); setMessage('Không đọc được phụ đề để gán giọng.'); }
+    });
+    return () => { cancelled = true; };
+  }, [showVoicePanel, voicePanelSrtPath, selectedTaskId, selectedTask?.subtitleRevision]);
 
   // Quay lại trang khi đang nghe 1 mạch → mở lại bảng gán giọng để thấy tiến trình
   const restoredPanelForTask = useRef<number | null>(null);
