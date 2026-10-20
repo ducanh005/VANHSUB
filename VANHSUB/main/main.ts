@@ -661,6 +661,7 @@ function cancelTaskExecution(id: string): boolean {
   const ttsCancelled = TTSRunner.cancel(id)
   const exportCancelled = ExportRunner.cancel(id)
   const dubbingCancelled = DubbingRunner.cancel(id)
+  const stemsCancelled = StemExportRunner.cancel(id)
 
   // 3. Cập nhật trạng thái Store nếu task đang trong quá trình chạy
   const currentTask = TaskStore.getById(id)
@@ -671,7 +672,7 @@ function cancelTaskExecution(id: string): boolean {
     })
   }
 
-  return qIdx !== -1 || activeOperation || asrCancelled || ocrCancelled || hybridCancelled || translateCancelled || ttsCancelled || exportCancelled || dubbingCancelled
+  return qIdx !== -1 || activeOperation || asrCancelled || ocrCancelled || hybridCancelled || translateCancelled || ttsCancelled || exportCancelled || dubbingCancelled || stemsCancelled
 }
 
 handleRendererIpc('tasks:delete', async (_event, id: string) => {
