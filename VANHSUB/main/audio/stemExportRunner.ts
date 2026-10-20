@@ -55,7 +55,7 @@ export class StemExportRunner {
       tempWav = path.join(os.tmpdir(), `vanhsub_stem_${randomUUID()}.wav`);
       await extractFullQualityAudio(task.filePath, tempWav, (p) => {
         setStage(2 + Math.min(8, Math.round(p * 0.08)), 'Đang trích audio gốc (44.1kHz stereo)...');
-      });
+      }, { shouldStop });
 
       checkStop();
       setStage(12, 'Kiểm tra môi trường tách giọng...');
