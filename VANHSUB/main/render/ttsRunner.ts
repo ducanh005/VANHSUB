@@ -32,8 +32,8 @@ export class TTSRunner {
   }
 
   /**
-   * Tạo lại audio cho 1 dòng phụ đề (sau khi sửa text/đổi giọng) — ghi đè file
-   * audio cũ. Trả về { ok, error? } thay vì throw để UI hiển thị trực tiếp.
+   * Tạo lại nhóm câu trong một run mới; chỉ publish sau khi ghép MP3 thành công.
+   * Trả về { ok, error? } thay vì throw để UI hiển thị trực tiếp.
    */
   static async regenerateLine(
     taskId: string,
@@ -59,20 +59,23 @@ export class TTSRunner {
     try {
       const srtPath = task.translatedSrtPath || task.srtPath;
       if (!srtPath) return { ok: false, error: 'Tác vụ không có file phụ đề.' };
+      const sourceBytes = fs.readFileSync(srtPath);
+      const projectDir = getOrCreateProjectDir(task);
+      const candidateDir = createTtsRunDirectory(projectDir, task.ttsAudioDir);
+      const snapshotPath = path.join(candidateDir, 'source.srt');
+      fs.writeFileSync(snapshotPath, sourceBytes);
 
       // Rebuild with current per-line assignments and the project's default voice.
       const voiceToUse = voice || task.ttsVoice || SettingsStore.get('ttsVoice');
       const overrides = voiceOverrides ?? task.ttsVoiceOverrides;
       const engineForLine: TTSEngine = this.resolveEngine(task, engine, voiceToUse);
 
-      TaskStore.update(taskId, { status: 'dubbing', progress: 0, dubbedVideoPath: undefined,
-        ttsMergedAudioPath: undefined, ttsNeedsRegeneration: true, ttsVoice: voiceToUse, ttsSpeed: speed ?? task.ttsSpeed,
-        ttsEngine: engineForLine, ttsVoiceOverrides: overrides,
+      TaskStore.update(taskId, { status: 'dubbing', progress: 0, ttsNeedsRegeneration: true,
         stageDescription: `Đang tạo lại nhóm câu chứa dòng ${lineIndex}...`, errorMessage: undefined });
       onUpdate?.();
       await regenerateTtsLine(
-        srtPath,
-        task.ttsAudioDir,
+        snapshotPath,
+        candidateDir,
         lineIndex,
         voiceToUse,
         speed || task.ttsSpeed,
@@ -80,15 +83,22 @@ export class TTSRunner {
         overrides,
         () => this.cancelledTasks.has(taskId)
       );
-      if (this.cancelledTasks.has(taskId)) throw new Error('Đã huỷ tạo lại audio');
-      const merged = await this.exportMergedAudio(taskId, undefined, 'strict', true);
-      if (this.cancelledTasks.has(taskId)) throw new Error('Đã huỷ tạo lại audio');
-      if (!merged.ok) throw new Error(merged.error);
-      TaskStore.update(taskId, { status: 'done', progress: 100, ttsNeedsRegeneration: false,
+      if (this.cancelledTasks.has(taskId)) throw new CancelledError();
+      const mergedPath = path.join(candidateDir, path.basename(getProjectArtifactPaths(task).ttsMergedAudioPath));
+      const merged = await mergeAudioFiles(snapshotPath, candidateDir, mergedPath, undefined,
+        { mode: 'strict', maxTempo: configuredMaxTempo() });
+      if (this.cancelledTasks.has(taskId)) throw new CancelledError();
+      if (!fs.readFileSync(srtPath).equals(sourceBytes)) {
+        throw new Error('Phụ đề đã thay đổi trong khi tạo audio. Kết quả cũ được giữ; hãy chạy lại.');
+      }
+      TaskStore.update(taskId, { status: 'done', progress: 100, ttsNeedsRegeneration: false, errorMessage: undefined,
+        projectDir, ttsAudioDir: candidateDir, ttsMergedAudioPath: merged.audioPath, ttsOverruns: merged.overruns,
+        dubbedVideoPath: undefined, dubbedVideoStretchFactor: undefined, outputPath: undefined, outputInspection: undefined,
+        ttsVoice: voiceToUse, ttsSpeed: speed ?? task.ttsSpeed, ttsEngine: engineForLine, ttsVoiceOverrides: overrides,
         stageDescription: `Đã tạo lại nhóm câu chứa dòng ${lineIndex} và cập nhật MP3 tổng hợp` });
       return { ok: true };
     } catch (err: any) {
-      TaskStore.update(taskId, { status: this.cancelledTasks.has(taskId) ? 'cancelled' : 'error',
+      TaskStore.update(taskId, { status: this.cancelledTasks.has(taskId) || isCancelledError(err) ? 'cancelled' : 'error',
         errorMessage: err?.message, stageDescription: 'Tạo lại audio chưa hoàn tất' });
       console.error(`Lỗi khi tạo lại audio dòng ${lineIndex} task ${taskId}:`, err);
       return { ok: false, error: err?.message || 'Không thể tạo lại audio cho dòng này.' };

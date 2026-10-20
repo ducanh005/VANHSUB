@@ -215,6 +215,9 @@ export class ExportRunner {
     let tempScaledSrtFile: string | null = null;
 
     try {
+      if (useDubbed && task.ttsNeedsRegeneration) {
+        throw new Error('Audio lồng tiếng chưa khớp phụ đề/cấu hình hiện tại. Hãy tạo lại TTS và ghép lồng tiếng, hoặc chọn Video gốc.');
+      }
       if (!videoPath || !fs.existsSync(videoPath)) {
         throw new Error(useDubbed
           ? 'Không tìm thấy video đã lồng tiếng. Hãy ghép lồng tiếng lại hoặc chọn nguồn Video gốc.'
