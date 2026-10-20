@@ -1,4 +1,3 @@
-import crypto from 'crypto';
 import { nextAvailablePath } from '../lib/paths';
 import fs from 'fs';
 import path from 'path';
@@ -10,6 +9,7 @@ import { CancelledError, isCancelledError } from '../lib/cancel';
 import { getOrCreateProjectDir, getProjectArtifactPaths } from '../utils/projectFolder';
 import { mergeAudioFiles } from './dubbingEngine';
 import { configuredMaxTempo } from './ttsTiming';
+import { createTtsRunDirectory } from './ttsCache';
 
 export class TTSRunner {
   private static runningTasks = new Set<string>();
@@ -190,16 +190,7 @@ export class TTSRunner {
 
       // Lưu audio files từng dòng vào thư mục dự án của video
       const projectDir = getOrCreateProjectDir(task);
-      const ttsAudioDir = path.join(projectDir, 'tts_audio', crypto.randomUUID());
-      // Reuse compatible cache in a fresh run directory; never overwrite the prior run.
-      fs.mkdirSync(ttsAudioDir, { recursive: true });
-      if (task.ttsAudioDir && fs.existsSync(task.ttsAudioDir)) {
-        for (const entry of fs.readdirSync(task.ttsAudioDir, { withFileTypes: true })) {
-          if (entry.isFile() && (entry.name === 'manifest.json' || /^subtitle_\d+\.mp3$/.test(entry.name))) {
-            fs.copyFileSync(path.join(task.ttsAudioDir, entry.name), path.join(ttsAudioDir, entry.name));
-          }
-        }
-      }
+      const ttsAudioDir = createTtsRunDirectory(projectDir, task.ttsAudioDir);
 
       const { audioFiles, totalDuration } = await generateTtsFromSrt(
         srtPath,
