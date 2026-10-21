@@ -202,6 +202,11 @@ const vanhsub = {
     deleteScene: (id: string) => ipcRenderer.invoke('bible:deleteScene', id),
   },
   aiStudio: {
+    saveManualSeo: (input: any) => ipcRenderer.invoke('aiStudio:manualSeo:save', input),
+    getPiperStatus: () => ipcRenderer.invoke('aiStudio:voices:piperStatus'),
+    getReadiness: () => ipcRenderer.invoke('aiStudio:readiness'),
+    getMediaReadiness: (payload?:{sessionId?:string}) => ipcRenderer.invoke('aiStudio:media:readiness',payload),
+    getKokoroVoices: () => ipcRenderer.invoke('aiStudio:voices:kokoro'),
     // Configuration (Milestone 1)
     getConfig: () => ipcRenderer.invoke('aiStudio:config:get'),
     updateConfig: (updates: any) => ipcRenderer.invoke('aiStudio:config:set', updates),

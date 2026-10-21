@@ -136,6 +136,7 @@ export const StoryboardSceneCard: React.FC<StoryboardSceneCardProps> = ({
             {scene.mediaProvenance?.source === 'manual_import' && scene.mediaProvenance.assetPath === scene.assetPath && (
               <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-amber-300" title="Media nhập thủ công đã kiểm định; không phải generation tự động thành công.">Nhập thủ công</span>
             )}
+            {scene.mediaProvenance?.source==='official_api'&&scene.mediaProvenance.assetPath===scene.assetPath&&<span className="rounded bg-cyan-500/15 px-1.5 py-0.5 text-cyan-300" title={`${scene.mediaProvenance.model} · ${scene.mediaProvenance.task}`}>Official API · đã kiểm định</span>}
             <span className="text-text-muted">
               Xử lý: {processedDurSec}s
             </span>
@@ -369,7 +370,7 @@ export const StoryboardSceneCard: React.FC<StoryboardSceneCardProps> = ({
       ) : (
         <div className="rounded-md border border-dashed border-border bg-bg p-3 text-center text-text-muted text-[11px] flex items-center justify-center gap-2">
           <Clock className="h-3.5 w-3.5 text-text-faint" />
-          <span>{scene.manualMediaOnly ? 'Chọn ảnh hoặc video từ máy để gắn vào cảnh này.' : 'Media chưa được sinh. Bấm Tiếp tục sang Bước 6 để Flow tự động tạo.'}</span>
+          <span>{scene.manualMediaOnly ? 'Chọn ảnh hoặc video từ máy để gắn vào cảnh này.' : 'Chưa có media. Kiểm tra route của episode rồi tạo ở Bước 6 hoặc nhập từ máy.'}</span>
         </div>
       )}
 

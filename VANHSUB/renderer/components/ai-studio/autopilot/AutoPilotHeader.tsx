@@ -88,6 +88,11 @@ export const AutoPilotHeader: React.FC<AutoPilotHeaderProps> = ({
   onCancelRun,
   onResumeRun,
 }) => {
+  const sessionLabel: Record<PipelineSessionState['status'], string> = {
+    running: 'Đang xử lý', awaiting_approval: 'Chờ duyệt', paused: 'Tạm dừng',
+    failed: 'Đã thất bại', error: 'Đã thất bại', cancelled: 'Đã hủy',
+    completed: 'Đã hoàn tất', idle: 'Sẵn sàng',
+  };
   const [isHeaderDropdownOpen, setIsHeaderDropdownOpen] = useState(false);
   const headerDropdownRef = useRef<HTMLDivElement | null>(null);
 
@@ -240,7 +245,7 @@ export const AutoPilotHeader: React.FC<AutoPilotHeaderProps> = ({
 
           {/* AI Model Badge */}
           <span className="rounded-md bg-[#121E36] px-2.5 py-0.5 text-[11px] font-mono font-bold text-blue-400 border border-blue-500/20">
-            AI 3/5 · {aiProviderName}
+            Chưa đánh giá · {aiProviderName}
           </span>
         </div>
 
@@ -310,7 +315,7 @@ export const AutoPilotHeader: React.FC<AutoPilotHeaderProps> = ({
           <p className="truncate">
             Dây chuyền:{' '}
             {session ? (
-              <span className="text-amber-400 font-medium">đang xử lý: {session.topic}</span>
+              <span className="text-amber-400 font-medium">{sessionLabel[session.status] || 'Chưa xác định'}: {session.topic}</span>
             ) : (
               'chưa có tập'
             )}{' '}

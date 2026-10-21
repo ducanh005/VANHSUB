@@ -441,6 +441,11 @@ export interface VanhsubAPI {
     deleteScene: (id: string) => Promise<boolean>;
   };
   aiStudio: {
+    getKokoroVoices: () => Promise<Array<{ id: string; name: string }>>;
+    saveManualSeo: (input:{sessionId:string;title:string;description:string;hashtags:string[]}) => Promise<{session:PipelineSessionState;metadataPath:string}>;
+    getPiperStatus: () => Promise<{ready:boolean;voice:string;language:string;cpuOnly:boolean;reason?:string}>;
+    getReadiness: () => Promise<{ready:boolean;provider:string;model:string;reasons:string[];warnings:string[];liveVerified:boolean}>;
+    getMediaReadiness: (payload?:{sessionId?:string}) => Promise<{status:string;route:string;reasons:string[];liveVerified:boolean;requestsNeeded?:number;requestsUsed?:number}>;
     // Configuration (Milestone 1)
     getConfig: () => Promise<AiStudioConfig>;
     updateConfig: (updates: DeepPartial<AiStudioConfig>) => Promise<AiStudioConfig>;

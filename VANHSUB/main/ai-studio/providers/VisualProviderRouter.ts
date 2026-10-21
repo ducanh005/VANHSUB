@@ -27,6 +27,15 @@ export interface VisualGenerationRequest {
   motionPrompt?: string;
   aspectRatio: string;
   durationSeconds?: number;
+  model?: string;
+  task?: 't2i' | 't2v' | 'i2v';
+  resolution?: string;
+  expectedDurationSec?: number;
+  allowTimelineTrim?: boolean;
+  sessionId?: string;
+  referenceHash?: string;
+  receiptDir?: string;
+  requestLimit?: number;
   referenceImage?: string;
   projectId?: string;
   sceneId?: string;
@@ -44,6 +53,10 @@ export interface VisualGenerationResult {
   operationId?: string;
   assetUrl?: string;
   state: JobState;
+  model?: string;
+  sha256?: string;
+  referenceHash?: string;
+  mediaInfo?: { width: number; height: number; durationSec?: number; fps?: number };
 }
 
 export interface JobRecord {
@@ -186,7 +199,12 @@ export class VisualProviderRouter {
 
   /** Paid API is explicit opt-in, never an automatic fallback from a blocked Flow job. */
   public generateOfficial(req: VisualGenerationRequest): Promise<VisualGenerationResult> {
-    return this.executeWithIdempotency(req, request => new OfficialGeminiVisualProvider().generate(request));
+    const active = this.inFlightPromises.get(req.idempotencyKey);
+    if (active) return active;
+    // Revalidate durable receipt and content hash, even after an earlier in-memory completion.
+    const pending = new OfficialGeminiVisualProvider().generate(req).finally(() => this.inFlightPromises.delete(req.idempotencyKey));
+    this.inFlightPromises.set(req.idempotencyKey, pending);
+    return pending;
   }
 
   /**

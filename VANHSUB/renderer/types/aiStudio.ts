@@ -59,7 +59,7 @@ export interface AiStudioLlmConfig {
 /**
  * 2. TTS & Voice Settings (Giọng đọc & Lồng tiếng)
  */
-export type VoiceProviderType = 'edge_tts' | 'tiktok_tts' | 'local_onnx';
+export type VoiceProviderType = 'edge_tts' | 'tiktok_tts' | 'local_onnx' | 'piper_local';
 
 export const TIKTOK_STUDIO_VOICES = [
   { id: 'BV074_streaming', label: 'Tiếng Việt — Nữ (BV074)', gender: 'female', lang: 'vi' },
@@ -69,6 +69,8 @@ export const TIKTOK_STUDIO_VOICES = [
 ] as const;
 
 export interface AiStudioVoiceConfig {
+  kokoroBaseUrl?: string;
+  kokoroTimeoutMs?: number;
   /** Nhà cung cấp giọng đọc (mặc định 'edge_tts') */
   provider: VoiceProviderType;
   /** Mã định danh giọng đọc (vd: 'vi-VN-HoaiMyNeural', 'vi-VN-NamMinhNeural', 'BV074_streaming', 'BV075_streaming') */
@@ -106,6 +108,16 @@ export interface StoryboardSynthesis {
 }
 
 export interface AiStudioFlowEngineConfig {
+  apiKey?: string;
+  officialImageModel?: string;
+  officialVideoModel?: string;
+  officialVideoMode?: 't2v' | 'i2v';
+  officialConsent?: boolean;
+  officialConsentProjectId?: string;
+  officialRequestLimit?: number;
+  officialAllowTrim?: boolean;
+  officialCostAcknowledged?: boolean;
+  officialBudgetNote?: string;
   /** Cơ chế sinh media: 'rpc' (Pure Web RPC - mặc định) | 'flow' | 'dom' | 'synthetic' */
   engine?: 'flow' | 'synthetic' | 'rpc' | 'flow_rpc' | 'dom' | string;
   /** Mã dự án trên Google Flow (UUID hoặc target project ID) */
@@ -268,7 +280,7 @@ export interface ChannelProfileConfig {
   /** 13. AI provider (văn bản) */
   aiProvider: 'default' | 'chatgpt_web' | 'gemini_web' | 'deepseek' | 'openai';
   /** 14. Giọng đọc (TTS) */
-  ttsEngine: 'edge_tts' | 'tiktok_tts' | 'kokoro_tts';
+  ttsEngine: 'edge_tts' | 'tiktok_tts' | 'kokoro_tts' | 'piper_local';
   /** 15. Giọng cụ thể */
   specificVoice: string;
   /** 16. Đồng bộ nhân vật */
@@ -383,7 +395,7 @@ export const DEFAULT_CHANNEL_PROFILE_CONFIG: Readonly<ChannelProfileConfig> = Ob
   targetShortDuration: '90_120_sec',
   aiProvider: 'default',
   ttsEngine: 'kokoro_tts',
-  specificVoice: 'vi-VN-HoaiMyNeural',
+  specificVoice: 'af_heart',
   characterSync: 'per_video',
   characterRole: '',
   characterImageMode: 'ai_draw',
@@ -605,8 +617,11 @@ export interface WordTimestamp {
 }
 
 export interface StoryboardScene {
+  officialGenerationNonce?: string;
+  officialTrimAllowed?: boolean;
   manualMediaOnly?: boolean;
-  mediaProvenance?: { source: 'manual_import'; assetPath: string; sha256: string; importedAt: string; sessionId: string; sceneId: string; projectId?: string; automaticGeneration: false };
+  mediaProvenance?: { source: 'manual_import'; assetPath: string; sha256: string; importedAt: string; sessionId: string; sceneId: string; projectId?: string; automaticGeneration: false }
+    | { source:'official_api';provider:'official_gemini_api';model:string;task:'t2i'|'t2v'|'i2v';assetPath:string;sha256:string;sessionId:string;sceneId:string;projectId:string;requestKey:string;requestId?:string;referenceSha256?:string;generatedAt:string;automaticGeneration:true;durationSec?:number;width:number;height:number;fps?:number };
   id: string;
   shotId?: string;
   lineIndex: number;
@@ -615,6 +630,7 @@ export interface StoryboardScene {
   durationMs: number;
   lineText: string;
   visualPrompt: string;
+  motionPrompt?: string;
   negativePrompt?: string;
   motionType: 'ken_burns' | 'video';
   assetPath?: string;
@@ -639,6 +655,7 @@ export interface PipelineSessionArtifacts {
   mediaDir?: string;
   videoPath?: string;
   metadata?: {
+    source?: 'provider' | 'manual_authored';
     title: string;
     description: string;
     hashtags: string[];
@@ -760,6 +777,10 @@ export type GenerateMasterPromptResult = GenerateMasterPromptResponse;
  * qua preload script.
  */
 export interface VanhsubAiStudioBridge {
+  getKokoroVoices?: () => Promise<Array<{ id: string; name: string }>>;
+  saveManualSeo?: (input:{sessionId:string;title:string;description:string;hashtags:string[]}) => Promise<{session:PipelineSessionState;metadataPath:string}>;
+  getPiperStatus?: () => Promise<{ready:boolean;voice:string;language:string;cpuOnly:boolean;reason?:string}>;
+  getReadiness?: () => Promise<{ready:boolean;provider:string;model:string;reasons:string[];warnings:string[];liveVerified:boolean}>;
   // Milestone 1 - Quản lý Cấu hình (Core)
   getConfig: () => Promise<AiStudioConfig>;
   updateConfig: (partial: DeepPartial<AiStudioConfig>) => Promise<AiStudioConfig>;

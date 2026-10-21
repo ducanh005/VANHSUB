@@ -1,6 +1,9 @@
 import fs from 'fs';
+import { assertUsableScript } from '../../../shared/aiStudioScript';
 import path from 'path';
 import os from 'os';
+import { synthesizeKokoroSpeech, kokoroUrl, kokoroSpeed } from '../../tts-providers/kokoro/KokoroClient';
+import { synthesizePiperSpeech, piperLocalStatus, PIPER_VI_VOICE } from '../../tts-providers/piper/PiperLocalClient';
 import ffmpeg from 'fluent-ffmpeg';
 import ffmpegInstaller from '@ffmpeg-installer/ffmpeg';
 import ffprobeInstaller from '@ffprobe-installer/ffprobe';
@@ -34,6 +37,8 @@ export interface TtsSynthesisResult {
   rawMetadata: any[];
   wordTimestamps: WordTimestamp[];
   alignmentSource?: 'word_boundary' | 'estimated_per_line' | 'mixed';
+  sampleRate?: number;
+  audioFormat?: 'mp3';
 }
 
 export interface AlignmentResult {
@@ -77,6 +82,14 @@ export class AiStudioTtsService {
   // Helper: Normalize Voice ID
   // ==========================================================================
   public normalizeVoiceId(voiceId?: string, provider?: TtsVoiceProvider): string {
+    if (provider === 'piper_local') {
+      if (voiceId !== PIPER_VI_VOICE) throw new Error('Piper: chọn voice vi_VN-vais1000-medium.');
+      return voiceId;
+    }
+    if (provider === 'local_onnx') {
+      if (!/^[a-zA-Z0-9_.-]{1,128}$/.test(voiceId || '')) throw new Error('Kokoro: chọn ID giọng hợp lệ.');
+      return voiceId!;
+    }
     const v = (voiceId || '').toLowerCase().trim();
 
     if (provider === 'tiktok_tts' || v.startsWith('bv0') || v.includes('tiktok')) {
@@ -168,7 +181,8 @@ export class AiStudioTtsService {
   // ==========================================================================
   // Helper: Concat Audio Files via FFmpeg Concat Demuxer
   // ==========================================================================
-  public async concatAudioFiles(inputPaths: string[], outputPath: string): Promise<void> {
+  public async concatAudioFiles(inputPaths: string[], outputPath: string, signal?: AbortSignal): Promise<void> {
+    signal?.throwIfAborted();
     if (inputPaths.length === 0) return;
     if (inputPaths.length === 1) {
       fs.mkdirSync(path.dirname(outputPath), { recursive: true });
@@ -187,30 +201,22 @@ export class AiStudioTtsService {
     fs.writeFileSync(listFilePath, listContent, 'utf8');
 
     try {
-      await new Promise<void>((resolve, reject) => {
-        ffmpeg()
+      try {
+        await this.runAudioCommand(ffmpeg()
           .input(listFilePath)
           .inputOptions(['-f', 'concat', '-safe', '0'])
           .outputOptions(['-c', 'copy'])
-          .output(outputPath)
-          .on('end', () => resolve())
-          .on('error', (err) => {
-            console.warn(
-              '[AiStudioTtsService] Concat copy failed, falling back to audio re-encoding:',
-              err?.message || err
-            );
-            ffmpeg()
+          .output(outputPath), signal);
+      } catch (error) {
+        signal?.throwIfAborted();
+        if (error instanceof Error && error.message.includes('hết thời gian')) throw error;
+        await this.runAudioCommand(ffmpeg()
               .input(listFilePath)
               .inputOptions(['-f', 'concat', '-safe', '0'])
               .audioCodec('libmp3lame')
               .audioBitrate('48k')
-              .output(outputPath)
-              .on('end', () => resolve())
-              .on('error', (reencodeErr) => reject(reencodeErr))
-              .run();
-          })
-          .run();
-      });
+              .output(outputPath), signal);
+      }
     } finally {
       try {
         if (fs.existsSync(listFilePath)) {
@@ -218,6 +224,25 @@ export class AiStudioTtsService {
         }
       } catch {}
     }
+  }
+
+  private async runAudioCommand(command: ffmpeg.FfmpegCommand, signal?: AbortSignal): Promise<void> {
+    signal?.throwIfAborted();
+    await new Promise<void>((resolve, reject) => {
+      let done = false;
+      let terminalError: Error | undefined;
+      const finish = (error?: Error) => {
+        if (done) return; done = true; clearTimeout(timer); signal?.removeEventListener('abort', abort);
+        error ? reject(error) : resolve();
+      };
+      const abort = () => { terminalError = new Error('TTS đã bị hủy.'); command.kill('SIGKILL'); };
+      const timer = setTimeout(() => { terminalError = new Error('TTS: FFmpeg hết thời gian xử lý.'); command.kill('SIGKILL'); }, 30000);
+      signal?.addEventListener('abort', abort, { once: true });
+      command.on('start', () => { if (terminalError || signal?.aborted) abort(); });
+      command.on('end', () => finish(terminalError || (signal?.aborted ? new Error('TTS đã bị hủy.') : undefined)));
+      command.on('error', error => finish(terminalError || error));
+      command.run();
+    });
   }
 
   // ==========================================================================
@@ -230,8 +255,32 @@ export class AiStudioTtsService {
     outputPath: string,
     signal?: AbortSignal,
     provider?: TtsVoiceProvider,
-    onMetadata?: (items: any[]) => void
+    onMetadata?: (items: any[]) => void,
+    voiceConfig?: AiStudioVoiceConfig
   ): Promise<Buffer> {
+    if (provider === 'local_onnx' || provider === 'piper_local') {
+      const engine = provider === 'piper_local' ? 'Piper' : 'Kokoro';
+      if (voiceConfig?.pitch && !/^[-+]?0(?:\.0+)?Hz$/.test(voiceConfig.pitch)) throw new Error(`${engine} chưa hỗ trợ đổi cao độ; đặt pitch +0Hz.`);
+      const volume = String(prosody.volume || '+0%');
+      if (!/^[+-]?\d+(?:\.\d+)?%$/.test(volume)) throw new Error(`${engine}: âm lượng không hợp lệ.`);
+      const gain = 1 + parseFloat(volume) / 100;
+      if (gain <= 0 || gain > 3) throw new Error(`${engine}: âm lượng phải lớn hơn -100% và không quá +200%.`);
+      const buffer = provider === 'piper_local'
+        ? await synthesizePiperSpeech(text, targetVoice, String(prosody.rate || '+0%'), signal)
+        : await synthesizeKokoroSpeech(text, targetVoice, String(prosody.rate || '+0%'), voiceConfig?.kokoroBaseUrl, signal, voiceConfig?.kokoroTimeoutMs);
+      const raw = `${outputPath}.wav`;
+      try {
+        fs.writeFileSync(raw, buffer, { flag: 'wx' });
+        await this.runAudioCommand(ffmpeg(raw).inputOptions(['-xerror']).noVideo().audioCodec('libmp3lame')
+          .audioFrequency(24000).audioChannels(1).audioBitrate('96k').audioFilters(`volume=${gain}`).output(outputPath), signal);
+        await this.probeMediaDuration(outputPath);
+        signal?.throwIfAborted();
+        return fs.readFileSync(outputPath);
+      } catch (error) {
+        signal?.throwIfAborted();
+        throw new Error(`${engine}: audio không giải mã được hoặc FFmpeg thất bại.`);
+      } finally { if (fs.existsSync(raw)) fs.unlinkSync(raw); }
+    }
     const isTikTok = provider === 'tiktok_tts' || targetVoice.startsWith('BV0') || targetVoice.startsWith('en_');
 
     if (isTikTok) {
@@ -263,22 +312,13 @@ export class AiStudioTtsService {
           }
         } catch (err: any) {
           if (signal?.aborted) throw err;
-          console.warn(
-            `[AiStudioTtsService] TikTok TTS thất bại ("${err?.message || err}"). Tự động chuyển sang Edge TTS dự phòng...`
-          );
+          throw new Error('TikTok TTS thất bại; không tự chuyển sang Edge. Kiểm tra session/provider hoặc chọn engine khác rõ ràng.');
         }
       } else {
-        console.warn(
-          '[AiStudioTtsService] Chưa lưu session TikTok hoặc session không khả dụng. Tự động chuyển sang Edge TTS dự phòng...'
-        );
+        throw new Error('Chưa lưu session TikTok hoặc session không khả dụng. Không tự chuyển engine.');
       }
 
-      // Fallback: Chuyển sang giọng Edge-TTS tương ứng giới tính
-      if (targetVoice === 'BV075_streaming' || targetVoice.toLowerCase().includes('nam')) {
-        targetVoice = 'vi-VN-NamMinhNeural';
-      } else {
-        targetVoice = 'vi-VN-HoaiMyNeural';
-      }
+      throw new Error('TikTok TTS không trả audio; không tự chuyển engine.');
     }
 
     const maxRetries = 3;
@@ -323,9 +363,41 @@ export class AiStudioTtsService {
     outputPath: string,
     signal?: AbortSignal
   ): Promise<TtsSynthesisResult> {
+    if (Array.isArray(textOrLines)) assertUsableScript(textOrLines);
+    else assertUsableScript([{ text: textOrLines }]);
+    if (voiceConfig.provider === 'local_onnx') {
+      kokoroUrl(voiceConfig.kokoroBaseUrl, 'speech');
+      kokoroSpeed(voiceConfig.rate || '+0%');
+      this.normalizeVoiceId(voiceConfig.voiceId, 'local_onnx');
+    }
+    if (voiceConfig.provider === 'piper_local') {
+      this.normalizeVoiceId(voiceConfig.voiceId, 'piper_local');
+      const status = piperLocalStatus();
+      if (!status.ready) throw new Error(status.reason || 'Piper chưa sẵn sàng.');
+    }
+    signal?.throwIfAborted();
+    fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+    const workspace = fs.mkdtempSync(path.join(path.dirname(outputPath), '.tts-'));
+    const input = Array.isArray(textOrLines) ? structuredClone(textOrLines) : textOrLines;
+    try {
+      const result = await this.synthesizeInWorkspace(input, voiceConfig, path.join(workspace, 'voiceover.mp3'), signal);
+      signal?.throwIfAborted();
+      // Same-volume rename: never delete/truncate a completed output before success.
+      fs.renameSync(result.audioPath, outputPath);
+      if (Array.isArray(input) && Array.isArray(textOrLines)) input.forEach((line, i) => Object.assign(textOrLines[i], line));
+      return { ...result, audioPath: outputPath, ...(['local_onnx','piper_local'].includes(voiceConfig.provider) ? { sampleRate: 24000, audioFormat: 'mp3' as const } : {}) };
+    } catch (error) {
+      // Only this invocation's newly created staging directory; never previous output/artifacts.
+      fs.rmSync(workspace, { recursive: true, force: true });
+      throw error;
+    }
+  }
+
+  private async synthesizeInWorkspace(textOrLines: string | ScriptBeatLine[], voiceConfig: AiStudioVoiceConfig,
+    outputPath: string, signal?: AbortSignal): Promise<TtsSynthesisResult> {
     fs.mkdirSync(path.dirname(outputPath), { recursive: true });
     const provider: TtsVoiceProvider =
-      voiceConfig.provider === 'tiktok_tts' || voiceConfig.voiceId?.startsWith('BV0')
+      voiceConfig.provider !== 'local_onnx' && (voiceConfig.provider === 'tiktok_tts' || voiceConfig.voiceId?.startsWith('BV0'))
         ? 'tiktok_tts'
         : (voiceConfig.provider || 'edge_tts');
     const targetVoice = this.normalizeVoiceId(voiceConfig.voiceId, provider);
@@ -366,9 +438,9 @@ export class AiStudioTtsService {
         const sanitizedLine = this.sanitizeTextForTts(line.text);
         if (!sanitizedLine) throw new Error(`Dòng ${i + 1} không có nội dung đọc được.`);
 
-        const lineAudioPath = path.join(voiceDir, `line_${line.index || i + 1}.mp3`);
+        const lineAudioPath = path.join(voiceDir, `line_${i + 1}.mp3`);
         let metadata: any[] = [];
-        await this.synthesizeSingleSpeechChunk(sanitizedLine, targetVoice, prosody, lineAudioPath, signal, provider, items => { metadata = items; });
+        await this.synthesizeSingleSpeechChunk(sanitizedLine, targetVoice, prosody, lineAudioPath, signal, provider, items => { metadata = items; }, voiceConfig);
 
         const durSec = await this.probeMediaDuration(lineAudioPath);
         const durMs = Math.round(durSec * 1000);
@@ -393,7 +465,7 @@ export class AiStudioTtsService {
         lineAudioPaths.push(lineAudioPath);
       }
 
-      await this.concatAudioFiles(lineAudioPaths, outputPath);
+      await this.concatAudioFiles(lineAudioPaths, outputPath, signal);
       const totalDurSec = await this.probeMediaDuration(outputPath);
       const totalDurationMs = Math.round(totalDurSec * 1000) || currentMs;
 
@@ -432,12 +504,12 @@ export class AiStudioTtsService {
         text,
       }));
 
-      return this.synthesizeVoiceover(mockLines, { ...voiceConfig, provider }, outputPath, signal);
+      return this.synthesizeInWorkspace(mockLines, { ...voiceConfig, provider }, outputPath, signal);
     }
 
     // Short text: Synthesize directly
     let metadata: any[] = [];
-    await this.synthesizeSingleSpeechChunk(sanitized, targetVoice, prosody, outputPath, signal, provider, items => { metadata = items; });
+    await this.synthesizeSingleSpeechChunk(sanitized, targetVoice, prosody, outputPath, signal, provider, items => { metadata = items; }, voiceConfig);
     const durationSec = await this.probeMediaDuration(outputPath);
     const durationMs = Math.round(durationSec * 1000);
     const wordTimestamps = this.extractWordTimestamps(metadata, sanitized, durationMs);

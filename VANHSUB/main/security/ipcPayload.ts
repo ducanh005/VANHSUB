@@ -13,6 +13,10 @@ function id(value: unknown): void { text(value, 128); if (!/^[a-zA-Z0-9_-]+$/.te
 
 /** Bound structured-clone payloads before the handler touches stores, paths or providers. */
 export function validateIpcPayload(channel: string, args: unknown[]): void {
+  if(channel==='aiStudio:media:readiness'){
+    if(args.length>1)invalid();
+    if(args[0]!==undefined){record(args[0]);if(Object.keys(args[0]).some(k=>k!=='sessionId'))invalid();if(args[0].sessionId!==undefined)id(args[0].sessionId);}
+  }
   let bytes = 0, nodes = 0;
   const visit = (value: unknown, depth: number) => {
     if (++nodes > 100000 || depth > 24) invalid();
@@ -28,6 +32,16 @@ export function validateIpcPayload(channel: string, args: unknown[]): void {
     }
   };
   visit(args, 0);
+  if (channel === 'aiStudio:voices:kokoro' && args.length !== 0) invalid();
+  if (channel === 'aiStudio:readiness' && args.length !== 0) invalid();
+  if (channel === 'aiStudio:voices:piperStatus' && args.length !== 0) invalid();
+  if (channel === 'aiStudio:manualSeo:save') {
+    if (args.length !== 1) invalid();
+    record(args[0]); id(args[0].sessionId); text(args[0].title,100); text(args[0].description,10000);
+    if (!Array.isArray(args[0].hashtags) || args[0].hashtags.length > 30) invalid();
+    for (const tag of args[0].hashtags) text(tag,100);
+    if (Object.keys(args[0]).some(key=>!['sessionId','title','description','hashtags'].includes(key))) invalid();
+  }
   if (/^(tasks:(get|update|delete|start|cancel|startHybrid|cancelHybrid|runPipeline|importSrt)|translate:(start|cancel)|tts:(start|cancel|regenerateLine|export-merged-audio)|ocr:(start|cancel)|export:(start|separateStems)|dubbing:(start|cancel)|downloader:(checkTask|cancelCheck))$/.test(channel)) id(args[0]);
   if (channel === 'downloader:checkTask' && !['source', 'output'].includes(String(args[1]))) invalid();
   if (channel === 'downloader:download') {
