@@ -58,6 +58,8 @@
 - Quyết định về I2V: phê duyệt phát triển đường I2V có gate + mức credit Veo cho phép.
 - Xác nhận credits thực tế trên Flow UI sau 9 lượt x1 (quote 0 mỗi lượt).
 
-## 12. Ngân sách / thời hạn
-- Deadline 24:00 ngày 25/10 — mục 10 hướng A đã kịp hoàn thành trước deadline.
-- Candidate R7 (mới nhất, smoke PASS). Ổ D đã dọn (ENOSPC): cleanup-20261025-log.json; GIỮ package-l7yd0m seed + package-WmNeuk (R7 runtime) + toàn bộ 22/10 evidence/candidates + acceptance mới `ui-manual-render-20261025` (~3MB). Còn ~5GB trống.
+## 12. Ngân sách / thời hạn — ĐÓNG MISSION 25/10
+- ~23:30: commit 6bd3481 đã push lên origin/codex/aistudio-phase6-beta-20261021 (34 files; project ID đã redact trong docs). Worktree sạch.
+- Dọn ổ D theo ủy quyền: giải phóng ~52GB (245G full → 52GB trống). GIỮ: package-l7yd0m seed, Preview-ParagraphFix-20261025-R7, acceptance/ (receipt+evidence đầy đủ, phase3/5/6-legacy đã chuyển vào), vanhsub-t2i-final. ĐÃ XÓA: 12 package staging, 13 build stage, 7 superseded candidates, 5 Phase dirs (log: cleanup-20261025-phase2-log.json).
+- Còn mở: F-8 I2V gate (chờ quyết định user) + xác nhận credits thực tế + soak/clean-install (phiên làm việc sau).
+- Verify cuối: MP4 render h264/1080p/3.0s full-decode PASS; T2I receipt COMPLETED + artifact + provenance.
