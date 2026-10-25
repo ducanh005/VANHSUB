@@ -4,6 +4,7 @@ import { listKokoroVoices } from './kokoroVoices';
 import { kokoroUrl } from '../tts-providers/kokoro/KokoroClient';
 import { getStudioLlmReadiness } from './llmReadiness';
 import { piperLocalStatus } from '../tts-providers/piper/PiperLocalClient';
+import {connectFlowReadOnly} from './flowConnection';
 import { guardRendererInvoke } from '../security/rendererTrust';
 import { validateIpcPayload } from '../security/ipcPayload';
 import type { StartManualMediaPayload } from './types';
@@ -192,6 +193,7 @@ function safeHandle(
 // ============================================================================
 
 export function registerAiStudioIpc(resolveExternalFile?: (file: string, extensions: Set<string>) => string): void {
+  safeHandle('aiStudio:flow:connectReadOnly',async()=>connectFlowReadOnly());
   safeHandle('aiStudio:media:readiness',async(_event,payload)=>{
     if(!pipelineEngineDelegate?.getMediaReadiness)throw new Error('Media readiness chưa sẵn sàng.');
     return pipelineEngineDelegate.getMediaReadiness(payload?.sessionId);

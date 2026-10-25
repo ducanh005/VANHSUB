@@ -204,6 +204,7 @@ const vanhsub = {
   aiStudio: {
     saveManualSeo: (input: any) => ipcRenderer.invoke('aiStudio:manualSeo:save', input),
     getPiperStatus: () => ipcRenderer.invoke('aiStudio:voices:piperStatus'),
+    connectFlowReadOnly: () => ipcRenderer.invoke('aiStudio:flow:connectReadOnly'),
     getReadiness: () => ipcRenderer.invoke('aiStudio:readiness'),
     getMediaReadiness: (payload?:{sessionId?:string}) => ipcRenderer.invoke('aiStudio:media:readiness',payload),
     getKokoroVoices: () => ipcRenderer.invoke('aiStudio:voices:kokoro'),
@@ -319,7 +320,7 @@ contextBridge.exposeInMainWorld('vanhsub', vanhsub)
 contextBridge.exposeInMainWorld('ipc', handler)
 
 // ── [DEBUG] Tạm thời — xóa sau khi Giai đoạn 1 xác nhận ──────────────────
-contextBridge.exposeInMainWorld('debug', {
+if (process.env.NODE_ENV !== 'production') contextBridge.exposeInMainWorld('debug', {
   testRpcPhase1: (projectId: string) =>
     ipcRenderer.invoke('debug:test-rpc-phase1', projectId),
   testUploadImage: (filePath: string, projectId: string) =>

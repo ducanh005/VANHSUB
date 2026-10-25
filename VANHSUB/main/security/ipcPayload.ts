@@ -13,6 +13,8 @@ function id(value: unknown): void { text(value, 128); if (!/^[a-zA-Z0-9_-]+$/.te
 
 /** Bound structured-clone payloads before the handler touches stores, paths or providers. */
 export function validateIpcPayload(channel: string, args: unknown[]): void {
+  if(process.env.NODE_ENV==='production'&&(channel.startsWith('debug:')||channel==='bridge:eval'||channel==='bridge:trigger-ui-gen'))invalid();
+  if(channel==='aiStudio:flow:connectReadOnly'&&args.length!==0)invalid();
   if(channel==='aiStudio:media:readiness'){
     if(args.length>1)invalid();
     if(args[0]!==undefined){record(args[0]);if(Object.keys(args[0]).some(k=>k!=='sessionId'))invalid();if(args[0].sessionId!==undefined)id(args[0].sessionId);}

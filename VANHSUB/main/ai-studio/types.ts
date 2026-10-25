@@ -74,6 +74,16 @@ export interface StoryboardSynthesis {
 }
 
 export interface AiStudioFlowEngineConfig {
+  flowCreditConsent?: boolean;
+  flowCreditProjectId?: string;
+  flowGenerationLimit?: number;
+  flowMaxCredits?: number;
+  flowModelLabel?: string;
+  flowAllowUnknownCost?: boolean;
+  flowVideoMode?: 't2v' | 'i2v';
+  /** Trusted episode context; never accepts a renderer-selected receipt path. */
+  flowReceiptDir?: string;
+
   officialImageModel?: string;
   officialVideoModel?: string;
   officialVideoMode?: 't2v' | 'i2v';
@@ -353,17 +363,18 @@ export type PartialAiStudioConfig = DeepPartial<AiStudioConfig>;
 // ============================================================================
 
 export const DEFAULT_LLM_CONFIG: Readonly<AiStudioLlmConfig> = Object.freeze({
-  provider: 'deepseek',
+  provider: 'gemini_web',
+  geminiWebMode: 'visible',
   apiKey: '',
-  model: 'deepseek-chat',
+  model: '',
   baseUrl: '',
   temperature: 0.6,
   systemPromptPreset: 'youtube_story',
 });
 
 export const DEFAULT_VOICE_CONFIG: Readonly<AiStudioVoiceConfig> = Object.freeze({
-  provider: 'edge_tts',
-  voiceId: 'vi-VN-HoaiMyNeural',
+  provider: 'piper_local',
+  voiceId: 'vi_VN-vais1000-medium',
   rate: '+0%',
   pitch: '+0Hz',
   volume: '+0%',
@@ -371,8 +382,13 @@ export const DEFAULT_VOICE_CONFIG: Readonly<AiStudioVoiceConfig> = Object.freeze
 });
 
 export const DEFAULT_FLOW_ENGINE_CONFIG: Readonly<AiStudioFlowEngineConfig> = Object.freeze({
-  engine: 'rpc',
-  uiMode: 'offscreen',
+  engine: 'playwright',
+  uiMode: 'live_window',
+  preferUiGen: true,
+  maxRetries: 0,
+  flowVideoMode: 't2v',
+  flowGenerationLimit: 1,
+  flowCreditConsent: false,
   aspectRatio: '16:9',
   outputMode: 'image',
   shotMode: 'single',
@@ -444,8 +460,8 @@ export const DEFAULT_CHANNEL_PROFILE_CONFIG: Readonly<ChannelProfileConfig> = Ob
   targetLongDuration: '3_5_min',
   targetShortDuration: '90_120_sec',
   aiProvider: 'default',
-  ttsEngine: 'kokoro_tts',
-  specificVoice: 'af_heart',
+  ttsEngine: 'piper_local',
+  specificVoice: 'vi_VN-vais1000-medium',
   characterSync: 'per_video',
   characterRole: '',
   characterImageMode: 'ai_draw',
@@ -630,6 +646,7 @@ export interface StoryboardScene {
   officialTrimAllowed?: boolean;
   manualMediaOnly?: boolean;
   mediaProvenance?: { source: 'manual_import'; assetPath: string; sha256: string; importedAt: string; sessionId: string; sceneId: string; projectId?: string; automaticGeneration: false }
+    | { source:'google_flow_ui';assetPath:string;sha256:string;projectId:string;sessionId:string;sceneId:string;requestKey:string;assetId?:string;referenceSha256?:string;automaticGeneration:true;quotedCredits:number|null;actualCredits:null;hardCapVerified:false }
     | { source:'official_api';provider:'official_gemini_api';model:string;task:'t2i'|'t2v'|'i2v';assetPath:string;sha256:string;sessionId:string;sceneId:string;projectId:string;requestKey:string;requestId?:string;referenceSha256?:string;generatedAt:string;automaticGeneration:true;durationSec?:number;width:number;height:number;fps?:number };
   id: string;
   shotId?: string;

@@ -52,6 +52,7 @@ import { stageApprovalIssue } from '../../shared/studioStageReadiness';
 import { applyScriptLines } from './sessionArtifacts';
 import {prepareOfficialMedia,runOfficialMediaStage} from './officialMediaStage';
 import {studioMediaReadiness} from '../../shared/officialMediaConfig';
+import {flowCreditReadiness} from '../../shared/flowCreditPolicy';
 import { cancelSessionOperation, isSessionOperationActive, registerSessionProcess, reserveSessionOperation, withSessionOperation } from './sessionOperations';
 import {
   assertSessionWorkspaceOwner,
@@ -303,11 +304,12 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
   }
 
   public async getMediaReadiness(sessionId?:string) {
-    if(!sessionId){const config=getDecryptedAiStudioConfig();return studioMediaReadiness(config.flowEngine,config.activeProjectId);}
+    if(!sessionId){const config=getDecryptedAiStudioConfig();return config.flowEngine.engine==='official_api'||config.flowEngine.engine==='manual'?studioMediaReadiness(config.flowEngine,config.activeProjectId):flowCreditReadiness(config.flowEngine,config.activeProjectId);}
     const session=await this.getState({sessionId});if(!session)throw new Error('Không tìm thấy episode.');
     if(session.manualMode)return {status:'BLOCKED',route:'manual',liveVerified:false,reasons:['Episode nhập thủ công: không gọi provider generation.']};
     const config=this.resolveSessionConfig(session);
-    const base=studioMediaReadiness(config.flowEngine,session.ownerProjectId||session.projectId);
+          if(config.flowEngine.engine!=='official_api')return flowCreditReadiness(config.flowEngine,session.ownerProjectId||session.projectId,selectVisualJobs(session.artifacts.scenes||[]).length);
+      const base=studioMediaReadiness(config.flowEngine,session.ownerProjectId||session.projectId);
     if(base.status!=='CONFIGURATION_READY')return base;
     try{const plan=await prepareOfficialMedia(session,config,this.getDiskStorageManager(sessionId));return {...base,requestsNeeded:plan.needed,requestsUsed:plan.used};}
     catch(error){const message=error instanceof Error?error.message:'Preflight thất bại.';return{...base,status:message.startsWith('UNSUPPORTED')?'UNSUPPORTED':message.startsWith('BLOCKED')?'BLOCKED':'FAILED',reasons:[message]};}
@@ -1163,6 +1165,9 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
                 break;
               }
 
+              const flowReady=flowCreditReadiness(config.flowEngine,session.ownerProjectId||session.projectId,jobs.length);
+              if(flowReady.status!=='CONFIGURATION_READY')throw new Error('FLOW_CREDITS_BLOCKED: '+flowReady.reasons.join(' '));
+              for(const sc of scenes)if(sc.mediaProvenance?.source==='google_flow_ui'&&(!sc.assetPath||!fs.existsSync(sc.assetPath)||crypto.createHash('sha256').update(fs.readFileSync(sc.assetPath)).digest('hex')!==sc.mediaProvenance.sha256))throw new Error('FLOW_ARTIFACT_INTEGRITY_FAILED');
               const targetVisualDir = storage.paths.mediaDir || assetsDir;
 
               const onSceneComplete = async (completedScene: StoryboardScene, idx: number) => {
@@ -1225,7 +1230,7 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
                 activeProject?.flowProjectUrl ||
                 (config.flowEngine?.projectId && config.flowEngine.projectId.trim() ? config.flowEngine.projectId : undefined)
               );
-              if (FlowBridgeServer.getInstance().isConnected()) {
+              if (!['playwright','browser_automation'].includes(config.flowEngine.engine||'') && FlowBridgeServer.getInstance().isConnected()) {
                 if (signal?.aborted) throw new Error('Tác vụ đã bị huỷ.');
                 // Nếu session và activeProject chưa liên kết cụ thể, kiểm tra xem Chrome có đang mở sẵn 1 project Flow không
                 if (!targetFlowProjectId) {
@@ -1280,6 +1285,8 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
               const effectiveFlowEngineConfig: AiStudioFlowEngineConfig = {
                 ...config.flowEngine,
                 projectId: targetFlowProjectId || undefined,
+                flowReceiptDir:path.join(session.workspaceDir!,'.flow-receipts'),
+                flowCreditProjectId:session.ownerProjectId||session.projectId,
                 generationNonce: runOptions?.mode && runOptions.mode !== 'resume_missing' ? crypto.randomUUID() : undefined,
               };
 
@@ -1961,6 +1968,10 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
     return aiStudioTtsService.renderSingleLineVoice(payload);
   }
 
+  private blockUnapprovedFlowRegeneration(): void {
+    throw new Error('FLOW_REGENERATION_REQUIRES_NEW_APPROVAL: tạo job/episode mới để duyệt credit; không vượt receipt hoặc sửa snapshot cũ.');
+  }
+
   public async regenerateSceneAsset(
     payload: RegenerateSceneAssetPayload,
     onProgress?: (pct: number, msg: string) => void,
@@ -1968,7 +1979,7 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
   ): Promise<RegenerateSceneAssetResult> {
     if (!payload.sessionId) {
       if(payload.flowConfig?.engine==='official_api'||getDecryptedAiStudioConfig().flowEngine.engine==='official_api')throw new Error('OFFICIAL_SESSION_REQUIRED: generation phải thuộc episode và scene cụ thể.');
-      return this.regenerateSceneAssetInternal(payload, onProgress, signal);
+      throw new Error('FLOW_SESSION_REQUIRED: generation cần episode và quyền credit riêng; không nhận receipt path từ renderer.');
     }
     return withSessionOperation(payload.sessionId, (jobSignal) => this.regenerateSceneAssetInternal(
       payload, onProgress, signal ? AbortSignal.any([signal, jobSignal]) : jobSignal
@@ -2003,6 +2014,7 @@ export class AiStudioPipelineEngine implements IAiStudioPipelineEngineDelegate {
         candidate.currentStage=missing?5:6;candidate.stageName=missing?'storyboard':'visuals';candidate.status='awaiting_approval';candidate.stages[candidate.currentStage]={status:'success',stageName:STAGE_CONFIG[candidate.currentStage].label};this.persistSessionStateAtomic(candidate);
         return {imagePath:target.imagePath,videoPath:target.videoPath,assetPath:target.assetPath!};
       }
+      this.blockUnapprovedFlowRegeneration();
       try {
         const shotId = payload.sceneId;
         const sceneId = shotId.includes('_shot_') ? shotId.split('_shot_')[0] : shotId;

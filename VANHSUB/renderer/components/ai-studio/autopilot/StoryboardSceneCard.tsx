@@ -137,7 +137,8 @@ export const StoryboardSceneCard: React.FC<StoryboardSceneCardProps> = ({
               <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-amber-300" title="Media nhập thủ công đã kiểm định; không phải generation tự động thành công.">Nhập thủ công</span>
             )}
             {scene.mediaProvenance?.source==='official_api'&&scene.mediaProvenance.assetPath===scene.assetPath&&<span className="rounded bg-cyan-500/15 px-1.5 py-0.5 text-cyan-300" title={`${scene.mediaProvenance.model} · ${scene.mediaProvenance.task}`}>Official API · đã kiểm định</span>}
-            <span className="text-text-muted">
+              {scene.mediaProvenance?.source==='google_flow_ui'&&scene.mediaProvenance.assetPath===scene.assetPath&&<span className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-emerald-300" title="Artifact đã kiểm định. Credit thực tế chưa đối soát; không phải bằng chứng nghiệm thu toàn pipeline.">Flow credits · media đã kiểm định</span>}
+              <span className="text-text-muted">
               Xử lý: {processedDurSec}s
             </span>
             {originalDurSec && (

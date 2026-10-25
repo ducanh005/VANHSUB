@@ -444,6 +444,7 @@ export interface VanhsubAPI {
     getKokoroVoices: () => Promise<Array<{ id: string; name: string }>>;
     saveManualSeo: (input:{sessionId:string;title:string;description:string;hashtags:string[]}) => Promise<{session:PipelineSessionState;metadataPath:string}>;
     getPiperStatus: () => Promise<{ready:boolean;voice:string;language:string;cpuOnly:boolean;reason?:string}>;
+    connectFlowReadOnly: () => Promise<{cdpConnected:boolean;profileVerified:boolean;bridgeConnected:boolean;sessionState:string;projectLoaded:boolean;creditBalance:null;creditPrice:null;liveGenerationVerified:false}>;
     getReadiness: () => Promise<{ready:boolean;provider:string;model:string;reasons:string[];warnings:string[];liveVerified:boolean}>;
     getMediaReadiness: (payload?:{sessionId?:string}) => Promise<{status:string;route:string;reasons:string[];liveVerified:boolean;requestsNeeded?:number;requestsUsed?:number}>;
     // Configuration (Milestone 1)

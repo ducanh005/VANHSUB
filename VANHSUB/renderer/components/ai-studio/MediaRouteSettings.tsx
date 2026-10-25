@@ -1,17 +1,32 @@
-import React from 'react';
+import React, {useState} from 'react';
 import type {AiStudioFlowEngineConfig} from '../../types/aiStudio';
 import {studioMediaReadiness,OFFICIAL_IMAGE_MODELS,OFFICIAL_VIDEO_MODELS} from '../../../shared/officialMediaConfig';
+import {flowCreditReadiness} from '../../../shared/flowCreditPolicy';
 
 export default function MediaRouteSettings({value,onChange,projectId}:{value:AiStudioFlowEngineConfig;onChange:(value:AiStudioFlowEngineConfig)=>void;projectId?:string}) {
-  const route=['official_api','manual'].includes(value.engine||'')?value.engine:'rpc';
+  const [connecting,setConnecting]=useState(false),[connection,setConnection]=useState('Chưa kiểm tra CDP/session Flow.');
+  const connect=async()=>{setConnecting(true);try{const s=await window.vanhsub.aiStudio.connectFlowReadOnly();setConnection(`CDP ${s.cdpConnected?'đã kết nối':'chưa kết nối'} · Profile test ${s.profileVerified?'đã xác minh':'chưa xác minh'} · Bridge ${s.bridgeConnected?'đã kết nối':'chưa kết nối'} · ${s.sessionState} · ${s.projectLoaded?'project đã mở':'chưa xác minh project'} · Chưa generation Live`);}catch(e){setConnection(e instanceof Error?e.message:'Không kết nối được Chrome Flow test.');}finally{setConnecting(false);}};
+  const route=['official_api','manual','rpc'].includes(value.engine||'')?value.engine:'playwright';
   const patch=(fields:Partial<AiStudioFlowEngineConfig>)=>onChange({...value,...fields});
-  const readiness=studioMediaReadiness(value,projectId);
+  const readiness=route==='official_api'||route==='manual'?studioMediaReadiness(value,projectId):flowCreditReadiness(value,projectId);
   return <div className="space-y-3 rounded border border-border bg-bg p-3 text-xs">
     <label className="block">Nguồn media
-      <select aria-label="Nguồn media" value={route} onChange={e=>patch({engine:e.target.value,officialConsent:false,officialConsentProjectId:undefined,...(e.target.value==='official_api'?{officialImageModel:OFFICIAL_IMAGE_MODELS[0],officialVideoModel:OFFICIAL_VIDEO_MODELS[0],officialVideoMode:'t2v',officialRequestLimit:value.officialRequestLimit||1}:{})})} className="mt-1 w-full rounded border border-border bg-surface p-2">
-        <option value="rpc">Legacy Flow — chưa nghiệm thu lại</option><option value="official_api">Official Gemini API — có thể tính phí</option><option value="manual">Manual Import — không gọi generation</option>
+      <select aria-label="Nguồn media" value={route} onChange={e=>patch({engine:e.target.value,officialConsent:false,officialConsentProjectId:undefined,flowCreditConsent:false,flowCreditProjectId:undefined,...(e.target.value==='playwright'?{outputsPerScene:1,maxRetries:0,preferUiGen:true}:{}),...(e.target.value==='official_api'?{officialImageModel:OFFICIAL_IMAGE_MODELS[0],officialVideoModel:OFFICIAL_VIDEO_MODELS[0],officialVideoMode:'t2v',officialRequestLimit:value.officialRequestLimit||1}:{})})} className="mt-1 w-full rounded border border-border bg-surface p-2">
+        <option value="playwright">Google Flow — sử dụng credit tài khoản qua Chrome</option><option value="manual">Manual Import — không gọi generation</option><option value="rpc">Legacy RPC — khóa generation, không retry khi bị chặn</option><option value="official_api">Official API — billing riêng, ngoài luồng Flow credits</option>
       </select>
     </label>
+    {route==='playwright'&&<>
+      <p>Không cần Gemini API key. Piper chạy local; LLM ưu tiên Gemini Web hoặc nhập kịch bản thủ công. Đăng nhập Flow và Gemini Web được kiểm tra riêng.</p>
+      <button type="button" disabled={connecting} onClick={()=>void connect()} className="rounded border border-border px-3 py-2">{connecting?'Đang kiểm tra CDP…':'Kết nối / kiểm tra Flow CDP — không generation'}</button>
+      <p role="status">{connection}</p>
+      <label className="block">Tên model trên Flow<input aria-label="Model Flow được duyệt" maxLength={120} value={value.flowModelLabel||''} onChange={e=>patch({flowModelLabel:e.target.value,flowCreditConsent:false})} className="mt-1 w-full rounded border border-border bg-surface p-2"/></label>
+      <label className="block">Số output tối đa cho job (x1 mỗi scene)<input aria-label="Giới hạn output Flow" type="number" min={1} max={20} value={value.flowGenerationLimit??1} onChange={e=>patch({flowGenerationLimit:Number(e.target.value),flowCreditConsent:false})} className="mt-1 w-full rounded border border-border bg-surface p-2"/></label>
+      <label className="block">Credit tối đa được duyệt cho job<input aria-label="Giới hạn credit Flow" type="number" min={0} value={value.flowMaxCredits??''} onChange={e=>patch({flowMaxCredits:e.target.value===''?undefined:Number(e.target.value),flowCreditConsent:false})} className="mt-1 w-full rounded border border-border bg-surface p-2"/></label>
+      <label className="block">Tác vụ scene video<select aria-label="Video mode Flow" value={value.flowVideoMode||'t2v'} onChange={e=>patch({flowVideoMode:e.target.value as 't2v'|'i2v',flowCreditConsent:false})} className="mt-1 w-full rounded border border-border bg-surface p-2"><option value="t2v">T2V — không tự sinh thêm keyframe</option><option value="i2v">I2V — cần keyframe Flow có provenance đúng scene</option></select></label>
+      <p className="text-amber-300">Số dư: chưa xác minh. Giá và credit thực tế: chưa xác minh. Đây chưa phải hard cap credit phía Google; app dừng nếu model/mode/x1 không đọc được hoặc không khớp. Không tự đổi model, mua credit hay retry generation.</p>
+      <label className="flex gap-2"><input aria-label="Duyệt một generation khi chưa đọc được giá" type="checkbox" checked={value.flowAllowUnknownCost===true} onChange={e=>patch({flowAllowUnknownCost:e.target.checked,flowCreditConsent:false})}/>Tôi chấp nhận một generation khi chưa đọc được giá credit (chỉ limit 1, budget dương); không bảo đảm trần credit thực tế.</label>
+      <label className="flex gap-2"><input aria-label="Duyệt Flow credits cho project" type="checkbox" disabled={!projectId} checked={!!projectId&&value.flowCreditConsent===true&&value.flowCreditProjectId===projectId} onChange={e=>patch({flowCreditConsent:e.target.checked,flowCreditProjectId:e.target.checked?projectId:undefined})}/>Duyệt phạm vi output/credit trên cho project này. Chưa có xác nhận thì không generation.</label>
+    </>}
     {route==='official_api'&&<>
       <label className="block">API key media riêng<input aria-label="API key media official" type="password" autoComplete="off" value={value.apiKey||''} onChange={e=>patch({apiKey:e.target.value})} className="mt-1 w-full rounded border border-border bg-surface p-2"/></label>
       <label className="block">Model ảnh (T2I)<select aria-label="Model ảnh official" value={value.officialImageModel||''} onChange={e=>patch({officialImageModel:e.target.value})} className="mt-1 w-full rounded border border-border bg-surface p-2"><option value="">Chọn model</option>{OFFICIAL_IMAGE_MODELS.map(m=><option key={m}>{m}</option>)}</select></label>

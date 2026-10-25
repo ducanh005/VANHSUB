@@ -108,6 +108,18 @@ export interface StoryboardSynthesis {
 }
 
 export interface AiStudioFlowEngineConfig {
+  preferUiGen?: boolean;
+  maxRetries?: number;
+  flowCreditConsent?: boolean;
+  flowCreditProjectId?: string;
+  flowGenerationLimit?: number;
+  flowMaxCredits?: number;
+  flowModelLabel?: string;
+  flowAllowUnknownCost?: boolean;
+  flowVideoMode?: 't2v' | 'i2v';
+  /** Trusted episode context; never accepts a renderer-selected receipt path. */
+  flowReceiptDir?: string;
+
   apiKey?: string;
   officialImageModel?: string;
   officialVideoModel?: string;
@@ -394,8 +406,8 @@ export const DEFAULT_CHANNEL_PROFILE_CONFIG: Readonly<ChannelProfileConfig> = Ob
   targetLongDuration: '3_5_min',
   targetShortDuration: '90_120_sec',
   aiProvider: 'default',
-  ttsEngine: 'kokoro_tts',
-  specificVoice: 'af_heart',
+  ttsEngine: 'piper_local',
+  specificVoice: 'vi_VN-vais1000-medium',
   characterSync: 'per_video',
   characterRole: '',
   characterImageMode: 'ai_draw',
@@ -412,24 +424,30 @@ export const DEFAULT_CHANNEL_PROFILE_CONFIG: Readonly<ChannelProfileConfig> = Ob
 
 export const DEFAULT_AI_STUDIO_CONFIG: AiStudioConfig = {
   llm: {
-    provider: 'deepseek',
+    provider: 'gemini_web',
+    geminiWebMode: 'visible',
     apiKey: '',
-    model: 'deepseek-chat',
+    model: '',
     baseUrl: '',
     temperature: 0.6,
     systemPromptPreset: 'youtube_story',
   },
   voice: {
-    provider: 'edge_tts',
-    voiceId: 'vi-VN-HoaiMyNeural',
+    provider: 'piper_local',
+    voiceId: 'vi_VN-vais1000-medium',
     rate: '+0%',
     pitch: '+0Hz',
     volume: '+0%',
     autoWordAlignment: true,
   },
   flowEngine: {
-    engine: 'rpc',
-    uiMode: 'offscreen',
+    engine: 'playwright',
+    uiMode: 'live_window',
+    preferUiGen: true,
+    maxRetries: 0,
+    flowVideoMode: 't2v',
+    flowGenerationLimit: 1,
+    flowCreditConsent: false,
     aspectRatio: '16:9',
     outputMode: 'image',
     stylePromptPrefix: 'Cinematic lighting, high resolution, detailed photorealistic, 4k',
@@ -621,6 +639,7 @@ export interface StoryboardScene {
   officialTrimAllowed?: boolean;
   manualMediaOnly?: boolean;
   mediaProvenance?: { source: 'manual_import'; assetPath: string; sha256: string; importedAt: string; sessionId: string; sceneId: string; projectId?: string; automaticGeneration: false }
+    | { source:'google_flow_ui';assetPath:string;sha256:string;projectId:string;sessionId:string;sceneId:string;requestKey:string;assetId?:string;referenceSha256?:string;automaticGeneration:true;quotedCredits:number|null;actualCredits:null;hardCapVerified:false }
     | { source:'official_api';provider:'official_gemini_api';model:string;task:'t2i'|'t2v'|'i2v';assetPath:string;sha256:string;sessionId:string;sceneId:string;projectId:string;requestKey:string;requestId?:string;referenceSha256?:string;generatedAt:string;automaticGeneration:true;durationSec?:number;width:number;height:number;fps?:number };
   id: string;
   shotId?: string;
@@ -780,6 +799,7 @@ export interface VanhsubAiStudioBridge {
   getKokoroVoices?: () => Promise<Array<{ id: string; name: string }>>;
   saveManualSeo?: (input:{sessionId:string;title:string;description:string;hashtags:string[]}) => Promise<{session:PipelineSessionState;metadataPath:string}>;
   getPiperStatus?: () => Promise<{ready:boolean;voice:string;language:string;cpuOnly:boolean;reason?:string}>;
+  connectFlowReadOnly?: () => Promise<{cdpConnected:boolean;profileVerified:boolean;bridgeConnected:boolean;sessionState:string;projectLoaded:boolean;creditBalance:null;creditPrice:null;liveGenerationVerified:false}>;
   getReadiness?: () => Promise<{ready:boolean;provider:string;model:string;reasons:string[];warnings:string[];liveVerified:boolean}>;
   // Milestone 1 - Quản lý Cấu hình (Core)
   getConfig: () => Promise<AiStudioConfig>;
